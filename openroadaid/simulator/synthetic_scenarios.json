@@ -1,0 +1,29 @@
+[
+  {
+    "name": "urban-towing",
+    "strategy": "nearest",
+    "incident": {
+      "id": "inc-001",
+      "serviceType": "towing",
+      "location": { "lat": 51.5074, "lon": -0.1278 }
+    },
+    "providers": [
+      { "id": "prov-1", "name": "North Loop", "location": { "lat": 51.508, "lon": -0.126 }, "capabilities": ["towing"], "availability": 0.95 },
+      { "id": "prov-2", "name": "South Fleet", "location": { "lat": 51.504, "lon": -0.13 }, "capabilities": ["towing"], "availability": 0.8 },
+      { "id": "prov-3", "name": "West Rescue", "location": { "lat": 51.51, "lon": -0.135 }, "capabilities": ["battery"], "availability": 0.9 }
+    ]
+  },
+  {
+    "name": "battery-peak",
+    "strategy": "expected_ttr",
+    "incident": {
+      "id": "inc-002",
+      "serviceType": "battery",
+      "location": { "lat": 52.52, "lon": -1.9 }
+    },
+    "providers": [
+      { "id": "prov-4", "name": "Midland Rapid", "location": { "lat": 52.521, "lon": -1.89 }, "capabilities": ["battery"], "availability": 0.65 },
+      { "id": "prov-5", "name": "Metro Charge", "location": { "lat": 52.515, "lon": -1.91 }, "capabilities": ["battery"], "availability": 0.92 }
+    ]
+  }
+]

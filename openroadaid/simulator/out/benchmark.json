@@ -1,0 +1,16 @@
+{
+  "incidentId": "inc-002",
+  "strategy": "expected_ttr",
+  "results": [
+    {
+      "providerId": "prov-5",
+      "score": 46.3,
+      "strategy": "expected_ttr"
+    },
+    {
+      "providerId": "prov-4",
+      "score": 37.04,
+      "strategy": "expected_ttr"
+    }
+  ]
+}

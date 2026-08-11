@@ -1,0 +1,55 @@
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap');
+@import 'tailwindcss';
+
+@theme inline {
+  --font-sans: 'Manrope', system-ui, sans-serif;
+  --color-brand: #16A36A;
+  --color-brand-dark: #0f7a4e;
+  --color-brand-light: #d1f5e7;
+  --color-surface: #ffffff;
+  --color-bg: #F6F7F8;
+  --color-dark: #111315;
+  --color-dark-2: #1e2124;
+  --color-muted: #6b7280;
+  --color-danger: #EF4444;
+  --color-amber: #F59E0B;
+  --color-border: #e5e7eb;
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html, body, #root {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  font-family: 'Manrope', system-ui, sans-serif;
+  background: #F6F7F8;
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+}
+
+button {
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+button:hover {
+  transform: translateY(-1px);
+}
+
+@keyframes pulseGlow {
+  0% { transform: scale(0.95); opacity: 0.7; }
+  70% { transform: scale(1.08); opacity: 0.05; }
+  100% { transform: scale(1.12); opacity: 0; }
+}
+
+.pulse-ring {
+  animation: pulseGlow 1.8s ease-out infinite;
+}
+
+::-webkit-scrollbar { width: 0; height: 0; }

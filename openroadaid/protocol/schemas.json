@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openroadaid.org/schemas/v0.1.0/dispatch.schema.json",
+  "title": "OpenRoadAid Dispatch Envelope",
+  "type": "object",
+  "required": ["eventId", "type", "occurredAt"],
+  "properties": {
+    "eventId": { "type": "string" },
+    "type": { "type": "string", "enum": ["incident.created", "offer.received", "assignment.created", "job.started", "job.completed", "job.cancelled"] },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "payload": { "type": "object" }
+  }
+}

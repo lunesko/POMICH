@@ -1,0 +1,65 @@
+openapi: 3.1.0
+info:
+  title: OpenRoadAid Protocol
+  version: 0.1.0
+  description: Open protocol for roadside assistance incidents, provider offers, assignments and events.
+paths:
+  /incidents:
+    post:
+      summary: Create incident
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IncidentCreate'
+      responses:
+        '200':
+          description: Incident accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Incident'
+components:
+  schemas:
+    IncidentCreate:
+      type: object
+      required: [id, customerId, location, serviceType, createdAt]
+      properties:
+        id:
+          type: string
+        customerId:
+          type: string
+        location:
+          $ref: '#/components/schemas/Location'
+        serviceType:
+          type: string
+          enum: [towing, battery, tire, fuel, lockout, winch]
+        createdAt:
+          type: string
+          format: date-time
+    Incident:
+      type: object
+      properties:
+        id:
+          type: string
+        customerId:
+          type: string
+        status:
+          type: string
+          enum: [open, matched, assigned, active, completed, cancelled]
+        location:
+          $ref: '#/components/schemas/Location'
+        serviceType:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+    Location:
+      type: object
+      required: [lat, lon]
+      properties:
+        lat:
+          type: number
+        lon:
+          type: number

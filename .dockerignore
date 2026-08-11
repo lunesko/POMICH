@@ -1,0 +1,15 @@
+.git
+.pytest_cache
+.benchmarks
+node_modules
+dist
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.venv
+.env
+.env.*
+!.env.example
+data
+*.log
