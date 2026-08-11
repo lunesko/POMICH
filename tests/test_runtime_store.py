@@ -1,6 +1,7 @@
 from datetime import datetime
 
 import pytest
+from sqlalchemy import func, inspect, select
 
 from bot import runtime_store
 from bot.order_store import (
@@ -66,6 +67,7 @@ def test_sql_runtime_store_persists_orders_without_json_file(sql_runtime):
 
     assert load_orders()[0]["id"] == order["id"]
     assert not (sql_runtime / "orders.json").exists()
+    assert _table_names() >= {"orders", "providers", "provider_presence", "dispatch_offers", "sessions", "order_events"}
 
 
 def test_sql_runtime_store_supports_dispatch_and_offer_acceptance(sql_runtime):
@@ -82,3 +84,25 @@ def test_sql_runtime_store_supports_dispatch_and_offer_acceptance(sql_runtime):
     assert accepted["order"]["status"] == "assigned"
     assert load_orders()[0]["assignedProviderId"] == "p1"
     assert load_providers()[0]["status"] == "busy"
+    assert _table_count(runtime_store.orders) == 1
+    assert _table_count(runtime_store.providers) == 1
+    assert _table_count(runtime_store.provider_presence) == 1
+    assert _table_count(runtime_store.dispatch_offers) == 1
+    assert _table_count(runtime_store.order_events) >= 1
+
+
+def test_sql_runtime_store_preserves_explicit_empty_provider_collection(sql_runtime):
+    save_providers([])
+
+    assert load_providers() == []
+    assert _table_count(runtime_store.providers) == 0
+    assert _table_count(runtime_store.provider_presence) == 0
+
+
+def _table_names():
+    return set(inspect(runtime_store.get_engine()).get_table_names())
+
+
+def _table_count(table):
+    with runtime_store.get_engine().begin() as connection:
+        return connection.scalar(select(func.count()).select_from(table))

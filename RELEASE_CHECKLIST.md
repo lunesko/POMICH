@@ -16,6 +16,7 @@ The repository is ready for a controlled pilot, not an unattended public product
 - `TELEGRAM_BOT_TOKEN` is stored only on the backend.
 - `WEB_APP_URL` points to the public HTTPS app URL.
 - `DATABASE_URL` is configured for SQL runtime storage. JSON production storage requires explicit `POMICH_ALLOW_JSON_STORE_IN_PRODUCTION=true` and is only acceptable for a very small pilot.
+- SQL runtime tables exist: `customers`, `providers`, `provider_presence`, `orders`, `dispatch_offers`, `sessions`, `order_events`.
 - A backup/export procedure exists for `orders`, `providers`, `customers`, `offers`, and Telegram sessions.
 - GitHub Actions CI is green.
 
@@ -32,4 +33,4 @@ The repository is ready for a controlled pilot, not an unattended public product
 10. Confirm no CORS errors and no localhost API requests in Network.
 
 ## Next Architecture Step
-The app can now use SQL runtime storage through `DATABASE_URL`, but this is still a snapshot-style persistence layer. Move providers/orders/offers into normalized Postgres/PostGIS tables before expanding beyond a small pilot.
+The app now uses normalized SQL runtime tables through `DATABASE_URL`. The next storage step is moving candidate matching and first-accept-wins locking into SQL/PostGIS queries and adding explicit migrations instead of relying only on startup schema creation.
