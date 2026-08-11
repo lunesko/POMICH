@@ -5,6 +5,7 @@ The repository is ready for a controlled pilot, not an unattended public product
 
 ## Required Before Public Beta
 - Stable public domain or named Cloudflare Tunnel is configured.
+- Production-like stack starts with `docker-compose.production.yml` or an equivalent hosted deployment.
 - Public `GET /api/health` returns `200`.
 - Public `GET /api/providers` returns real provider data.
 - Browser Network panel shows same-origin `/api/*` calls only, with no `localhost` or `127.0.0.1`.
