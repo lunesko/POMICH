@@ -11,10 +11,16 @@ Use backend-only variables:
 TELEGRAM_BOT_TOKEN=123456:replace-me
 TELEGRAM_MODE=polling
 WEB_APP_URL=
+POMICH_CUSTOMER_SESSION_SECRET=local-customer-session-secret
 ```
 
 `WEB_APP_URL` is optional locally. Set it only to a public HTTPS URL when the
 POMICH web app is exposed through a tunnel or deployment.
+
+The Mini App calls `/api/auth/customer/telegram/session` with Telegram
+`initData`. FastAPI verifies that `initData`, links the Telegram user to a
+`tg-*` customer profile, and returns a customer bearer session used for profile
+and order identity.
 
 ## Diagnostics
 

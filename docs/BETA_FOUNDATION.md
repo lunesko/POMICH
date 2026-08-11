@@ -29,8 +29,10 @@ Done:
 - Backend can issue HMAC-signed admin/provider sessions and enforces provider session identity against URL `provider_id`.
 - Backend protected provider/admin routes require bearer sessions; bootstrap shared-secret headers are accepted only by session-issuance endpoints.
 - Web provider/admin flows exchange bootstrap tokens for backend-issued sessions, remove bootstrap tokens from the URL, and use `Authorization: Bearer` for protected operational calls.
+- Provider/admin account login endpoints exist through `POMICH_PROVIDER_ACCOUNTS` and `POMICH_ADMIN_ACCOUNTS`; Web flows can log in without bootstrap query tokens.
+- Customer sessions exist for Telegram Mini App and web guests; customer profile/verification endpoints require matching bearer sessions.
 - Public smoke tooling can issue provider sessions, put two providers online, create a real order, verify both offers, assert first-accept-wins, and advance the winning order to completed.
-- Telegram Mini App order creation records the verified Telegram identity into the order payload.
+- Telegram Mini App verifies `initData`, links Telegram users to `tg-*` customer profiles, and creates orders through the same `/api/orders` path.
 - Production-like Docker Compose exists with app + Postgres/PostGIS.
 
 ## Work Sequence
@@ -90,13 +92,15 @@ Completed:
 - Provider sessions are scoped to one provider id; a session for Provider A cannot operate Provider B routes.
 - Web provider/admin flows use backend-issued sessions for operational calls instead of sending bootstrap tokens repeatedly.
 - Bootstrap `adminToken`/`providerToken` query params are removed from the URL after they are read.
+- Provider/admin account login can issue the same scoped sessions from configured account records.
+- Customer profiles require matching customer sessions.
 - Verified Telegram Mini App orders get backend-attached Telegram customer identity.
 
 Target:
 
-- Customer: guest/session or Telegram identity.
-- Provider: replace bootstrap shared secret UX with provider account login/session issuance.
-- Admin: replace bootstrap admin token UX with admin login/session flow.
+- Customer: persist customer sessions beyond the browser and support non-Telegram customer login.
+- Provider: move configured account records into persistent provider account storage.
+- Admin: move configured account records into persistent admin account storage.
 - Backend determines role and permissions; UI is never source of truth.
 
 ### 4. Stable Staging
@@ -121,9 +125,10 @@ Status: partially ready.
 Target:
 
 - `@pomich_help_bot` opens the same Web frontend.
-- Backend verifies Telegram `initData`.
-- Telegram user links to POMICH customer.
-- Telegram order creation uses the same `/api/orders`.
+- Backend verifies Telegram `initData`. Done for session and order creation.
+- Telegram user links to POMICH customer. Done as `tg-*` customer profiles.
+- Telegram order creation uses the same `/api/orders`. Done.
+- Next: richer Mini App onboarding, phone sharing, and Telegram customer history.
 
 ### 6. Release Gate
 

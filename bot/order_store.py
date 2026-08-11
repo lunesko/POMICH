@@ -761,6 +761,61 @@ def update_customer_profile(customer_id: str, data: Dict[str, Any], store_path: 
         return dict(updated)
 
 
+def upsert_telegram_customer_profile(user: Dict[str, Any], store_path: Optional[Path] = None) -> Dict[str, Any]:
+    telegram_user_id = str(user.get("id") or "").strip()
+    if not telegram_user_id:
+        raise ValueError("telegram user id missing")
+
+    customer_id = f"tg-{telegram_user_id}"
+    with STORE_LOCK:
+        path = store_path or _default_customer_store_path()
+        profiles = load_customer_profiles(path)
+        now = _now_iso()
+        updated: Optional[Dict[str, Any]] = None
+        display_name = str(user.get("first_name") or "").strip()
+        last_name = str(user.get("last_name") or "").strip()
+        if last_name:
+            display_name = f"{display_name} {last_name}".strip()
+
+        for index, profile in enumerate(profiles):
+            if str(profile.get("id")) != customer_id:
+                continue
+            payload = _normalize_customer_profile(profile)
+            updated = payload
+            profiles[index] = payload
+            break
+
+        if updated is None:
+            updated = _default_customer_profile(customer_id, now)
+            profiles.append(updated)
+
+        if display_name:
+            updated["name"] = display_name
+        if user.get("username"):
+            updated["telegram"] = str(user.get("username") or "").strip()
+
+        verification = updated.get("verification") if isinstance(updated.get("verification"), dict) else {}
+        verification["telegram"] = True
+        verification["telegramUserId"] = telegram_user_id
+        verification["telegramVerifiedAt"] = verification.get("telegramVerifiedAt") or now
+        updated["verification"] = verification
+        if updated.get("verificationStatus") == "unverified":
+            updated["verificationStatus"] = "verified"
+            updated["trustedBadges"] = _verification_badges("verified", "customer")
+        updated["customerIdentity"] = {
+            "type": "telegram",
+            "telegramUserId": telegram_user_id,
+            "username": user.get("username"),
+            "firstName": user.get("first_name"),
+            "lastName": user.get("last_name"),
+        }
+        updated["updatedAt"] = now
+        updated["profileCompleteness"] = _customer_profile_completeness(updated)
+
+        save_customer_profiles(profiles, path)
+        return dict(updated)
+
+
 def submit_customer_verification(customer_id: str, data: Dict[str, Any], store_path: Optional[Path] = None) -> Dict[str, Any]:
     with STORE_LOCK:
         path = store_path or _default_customer_store_path()

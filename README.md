@@ -31,8 +31,9 @@ Current beta foundation work is tracked in [docs/BETA_FOUNDATION.md](docs/BETA_F
 - Runtime storage: JSON dev adapter, SQL/PostgreSQL-ready storage with SQL/PostGIS dispatch for staging/production
 - SQL schema: explicit runtime migrations recorded in `pomich_schema_migrations`
 - CI: backend tests, frontend tests, TypeScript, production build, and PostGIS runtime smoke
+- Auth: bearer sessions for customers, providers, and admins; provider/admin beta account login via backend account config
 - Staging target: one public HTTPS origin serving Web/PWA and `/api/*`
-- Telegram: same Web frontend as Telegram Mini App, with backend `initData` verification
+- Telegram: same Web frontend as Telegram Mini App, with backend `initData` verification and `tg-*` customer identity linking
 
 ## Development
 

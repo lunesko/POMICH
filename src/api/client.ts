@@ -46,16 +46,23 @@ export interface TelegramSessionResponse {
     latitude: number
     longitude: number
   }
+  customerId?: string
+  profile?: CustomerProfile
+  customerIdentity?: CustomerIdentity
   updatedAt?: string
 }
 
 export interface AuthSession {
-  role: 'admin' | 'provider'
+  role: 'admin' | 'provider' | 'customer'
   subjectId: string
   providerId?: string
+  customerId?: string
+  username?: string
   tokenType: 'Bearer'
   accessToken: string
   expiresAt: number
+  profile?: CustomerProfile
+  customerIdentity?: CustomerIdentity
 }
 
 export type ProviderStatus = 'online' | 'busy' | 'offline'
@@ -98,6 +105,15 @@ export interface CustomerProfile {
   profileCompleteness?: number
   createdAt?: string
   updatedAt?: string
+}
+
+export interface CustomerIdentity {
+  type: 'telegram' | 'guest'
+  telegramUserId?: string
+  username?: string
+  firstName?: string
+  lastName?: string
+  customerId?: string
 }
 
 export interface DispatchOffer {
@@ -146,10 +162,10 @@ function getBaseUrl() {
   return import.meta.env.VITE_API_BASE_URL || defaultBaseUrl
 }
 
-export async function createOrder(payload: Record<string, unknown>) {
+export async function createOrder(payload: Record<string, unknown>, customerToken?: string) {
   const response = await fetch(`${getBaseUrl()}/orders`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...(authHeaders(customerToken) ?? {}) },
     body: JSON.stringify(payload),
   })
 
@@ -200,6 +216,20 @@ export async function createAdminSession(adminToken: string) {
   return response.json() as Promise<AuthSession>
 }
 
+export async function createAdminAccountSession(username: string, password: string) {
+  const response = await fetch(`${getBaseUrl()}/auth/admin/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  })
+
+  if (!response.ok) {
+    throw new Error(`Admin login request failed with ${response.status}`)
+  }
+
+  return response.json() as Promise<AuthSession>
+}
+
 export async function createProviderSession(providerId: string, providerToken: string) {
   const response = await fetch(`${getBaseUrl()}/auth/provider/session`, {
     method: 'POST',
@@ -209,6 +239,47 @@ export async function createProviderSession(providerId: string, providerToken: s
 
   if (!response.ok) {
     throw new Error(`Provider session request failed with ${response.status}`)
+  }
+
+  return response.json() as Promise<AuthSession>
+}
+
+export async function createProviderAccountSession(providerId: string, login: string, password: string) {
+  const response = await fetch(`${getBaseUrl()}/auth/provider/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ providerId, login, password }),
+  })
+
+  if (!response.ok) {
+    throw new Error(`Provider login request failed with ${response.status}`)
+  }
+
+  return response.json() as Promise<AuthSession>
+}
+
+export async function createGuestCustomerSession(customerId?: string) {
+  const response = await fetch(`${getBaseUrl()}/auth/customer/guest/session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(customerId ? { customerId } : {}),
+  })
+
+  if (!response.ok) {
+    throw new Error(`Guest customer session request failed with ${response.status}`)
+  }
+
+  return response.json() as Promise<AuthSession>
+}
+
+export async function createTelegramCustomerSession(initData: string) {
+  const response = await fetch(`${getBaseUrl()}/auth/customer/telegram/session`, {
+    method: 'POST',
+    headers: { 'X-Telegram-Init-Data': initData },
+  })
+
+  if (!response.ok) {
+    throw new Error(`Telegram customer session request failed with ${response.status}`)
   }
 
   return response.json() as Promise<AuthSession>
@@ -258,8 +329,10 @@ export async function getProviders() {
   return response.json() as Promise<ProviderAvailability[]>
 }
 
-export async function getCustomerProfile(customerId: string) {
-  const response = await fetch(`${getBaseUrl()}/customers/${encodeURIComponent(customerId)}/profile`)
+export async function getCustomerProfile(customerId: string, customerToken?: string) {
+  const response = await fetch(`${getBaseUrl()}/customers/${encodeURIComponent(customerId)}/profile`, {
+    headers: authHeaders(customerToken),
+  })
 
   if (!response.ok) {
     throw new Error(`Customer profile request failed with ${response.status}`)
@@ -268,10 +341,10 @@ export async function getCustomerProfile(customerId: string) {
   return response.json() as Promise<CustomerProfile>
 }
 
-export async function updateCustomerProfile(customerId: string, payload: Partial<CustomerProfile>) {
+export async function updateCustomerProfile(customerId: string, payload: Partial<CustomerProfile>, customerToken?: string) {
   const response = await fetch(`${getBaseUrl()}/customers/${encodeURIComponent(customerId)}/profile`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...(authHeaders(customerToken) ?? {}) },
     body: JSON.stringify(payload),
   })
 
@@ -282,10 +355,10 @@ export async function updateCustomerProfile(customerId: string, payload: Partial
   return response.json() as Promise<CustomerProfile>
 }
 
-export async function submitCustomerVerification(customerId: string, payload: Record<string, unknown>) {
+export async function submitCustomerVerification(customerId: string, payload: Record<string, unknown>, customerToken?: string) {
   const response = await fetch(`${getBaseUrl()}/customers/${encodeURIComponent(customerId)}/verification/submit`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...(authHeaders(customerToken) ?? {}) },
     body: JSON.stringify(payload),
   })
 

@@ -164,6 +164,52 @@ describe('POMICH role-based flows', () => {
     })
   })
 
+  it('lets a provider sign in with an account before registration', async () => {
+    const user = userEvent.setup()
+    const providerSessionToken = 'pomich_auth_v1.provider-account-session'
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/auth/provider/login')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            role: 'provider',
+            subjectId: 'provider-oleksandr',
+            providerId: 'provider-oleksandr',
+            tokenType: 'Bearer',
+            accessToken: providerSessionToken,
+            expiresAt: Math.floor(Date.now() / 1000) + 3600,
+          }),
+        })
+      }
+      if (url.endsWith('/providers')) {
+        return Promise.resolve({ ok: true, json: async () => [] })
+      }
+      return Promise.resolve({ ok: true, json: async () => ({}) })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<CustomerApp />)
+
+    await user.click(screen.getByRole('button', { name: /Прийняти заявку/i }))
+    expect(screen.getByText('Вхід партнера')).toBeInTheDocument()
+    await user.clear(screen.getByLabelText('Логін'))
+    await user.type(screen.getByLabelText('Логін'), 'oleksandr')
+    await user.type(screen.getByLabelText('Пароль'), 'provider-pass')
+    await user.click(screen.getByRole('button', { name: /Увійти/i }))
+
+    expect(await screen.findByText('Реєстрація партнера')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/auth/provider/login'),
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.not.objectContaining({ 'X-POMICH-Provider-Token': expect.any(String) }),
+        }),
+      )
+    })
+  })
+
   it('moves from service selection to the tow flow', async () => {
     const user = userEvent.setup()
     await openCustomerHome(user)
@@ -273,6 +319,49 @@ describe('POMICH role-based flows', () => {
         expect.objectContaining({
           method: 'PATCH',
           headers: expect.objectContaining({ Authorization: `Bearer ${adminSessionToken}` }),
+        }),
+      )
+    })
+  })
+
+  it('lets an admin sign in with an account without a bootstrap token', async () => {
+    const user = userEvent.setup()
+    const adminSessionToken = 'pomich_auth_v1.admin-account-session'
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/auth/admin/login')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            role: 'admin',
+            subjectId: 'dispatcher',
+            username: 'dispatcher',
+            tokenType: 'Bearer',
+            accessToken: adminSessionToken,
+            expiresAt: Math.floor(Date.now() / 1000) + 3600,
+          }),
+        })
+      }
+      if (url.endsWith('/orders')) return Promise.resolve({ ok: true, json: async () => [] })
+      if (url.endsWith('/providers')) return Promise.resolve({ ok: true, json: async () => [] })
+      return Promise.resolve({ ok: true, json: async () => ({}) })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/?role=admin')
+
+    render(<CustomerApp />)
+
+    expect(await screen.findByText('Вхід диспетчера')).toBeInTheDocument()
+    await user.type(screen.getByLabelText('Пароль'), 'admin-pass')
+    await user.click(screen.getByRole('button', { name: /Увійти/i }))
+
+    expect(await screen.findByText('Адмін панель')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/auth/admin/login'),
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.not.objectContaining({ 'X-POMICH-Admin-Token': expect.any(String) }),
         }),
       )
     })

@@ -13,6 +13,8 @@ This audit reviewed the current POMICH MVP as a React/Vite roadside-assistance c
 - Replaced optional provider endpoint protection with mandatory backend provider sessions issued from `POMICH_PROVIDER_TOKEN`.
 - Restricted provider/admin bootstrap shared-secret headers to session issuance only; operational routes now require bearer sessions.
 - Updated Web provider/admin flows to exchange bootstrap tokens for signed sessions, remove those bootstrap tokens from the URL, and use bearer auth for operational calls.
+- Added Telegram and guest customer sessions; customer profile/verification routes now require matching bearer sessions.
+- Added provider/admin account login endpoints and Web login flows backed by configured beta account records.
 - Reduced Docker build-context risk by excluding local secrets, runtime data, logs, and caches from the image context.
 - Updated Vite config for future native config-loader compatibility.
 
@@ -25,8 +27,8 @@ This audit reviewed the current POMICH MVP as a React/Vite roadside-assistance c
 ### 2. Remaining gaps for true production readiness
 The current repository now includes a backend-backed MVP, but it still needs production-grade replacements or hardening for:
 - Managed Postgres/PostGIS hosting, backups, point-in-time recovery, and audit retention.
-- Full identity binding between Telegram users, provider accounts, and admin operators.
-- Account-level provider/admin login instead of bootstrap token session issuance.
+- Persistent account storage and password reset/recovery for providers and admin operators.
+- Richer customer identity beyond Telegram/guest sessions.
 - Real-time provider/order updates instead of polling-heavy UI refreshes.
 - Operational monitoring, rate limiting, and incident handling.
 

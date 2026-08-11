@@ -3,7 +3,7 @@ import { MapContainer, Marker, Polyline, Popup, TileLayer, useMap, useMapEvents 
 import L from "leaflet"
 import "leaflet/dist/leaflet.css"
 
-import { acceptProviderOffer, cancelOrder as cancelOrderRequest, createAdminSession, createOrder, createProviderSession, declineProviderOffer, getOrder, getOrders, getProviderOffers, getProviders, getTelegramSession, retryDispatch, reviewProviderVerification, submitCustomerVerification, submitProviderVerification, updateCustomerProfile, updateOrderStatus, updateProviderOrderStatus, updateProviderPresence, updateProviderProfile, type AuthSession, type CustomerProfile, type DispatchOffer, type OrderResponse, type ProviderAvailability, type VerificationStatus } from "./api/client"
+import { acceptProviderOffer, cancelOrder as cancelOrderRequest, createAdminAccountSession, createAdminSession, createGuestCustomerSession, createOrder, createProviderAccountSession, createProviderSession, createTelegramCustomerSession, declineProviderOffer, getOrder, getOrders, getProviderOffers, getProviders, getTelegramSession, retryDispatch, reviewProviderVerification, submitCustomerVerification, submitProviderVerification, updateCustomerProfile, updateOrderStatus, updateProviderOrderStatus, updateProviderPresence, updateProviderProfile, type AuthSession, type CustomerProfile, type DispatchOffer, type OrderResponse, type ProviderAvailability, type VerificationStatus } from "./api/client"
 import {
   calculateDistanceKm,
   calculatePrice,
@@ -159,11 +159,11 @@ function isAuthSessionToken(token?: string) {
   return Boolean(token?.startsWith(AUTH_SESSION_PREFIX))
 }
 
-function authSessionStorageKey(role: "admin" | "provider", subjectId: string) {
+function authSessionStorageKey(role: "admin" | "provider" | "customer", subjectId: string) {
   return `pomichAuthSession:${role}:${subjectId}`
 }
 
-function readStoredAuthSession(storageKey: string, expectedRole: "admin" | "provider", expectedSubjectId: string) {
+function readStoredAuthSession(storageKey: string, expectedRole: "admin" | "provider" | "customer", expectedSubjectId: string) {
   if (typeof window === "undefined") return undefined
   const rawValue = window.sessionStorage.getItem(storageKey)
   if (!rawValue) return undefined
@@ -1037,6 +1037,47 @@ function ErrorStep({ onRetry }: { onRetry: () => void }) {
   )
 }
 
+function AccountLoginStep({
+  title,
+  subtitle,
+  login,
+  password,
+  saving,
+  error,
+  onLoginChange,
+  onPasswordChange,
+  onSubmit,
+}: {
+  title: string
+  subtitle: string
+  login: string
+  password: string
+  saving: boolean
+  error?: string
+  onLoginChange: (value: string) => void
+  onPasswordChange: (value: string) => void
+  onSubmit: () => void
+}) {
+  return (
+    <ScreenLayout footer={<PrimaryButton label={saving ? "Входимо…" : "Увійти"} onClick={onSubmit} disabled={!login.trim() || !password.trim() || saving} />}>
+      <Header title={title} subtitle={subtitle} />
+      <div style={{ padding: "8px 16px 16px", display: "grid", gap: 12 }}>
+        <div style={{ background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 18, padding: 14, display: "grid", gap: 10 }}>
+          <label style={{ display: "grid", gap: 6 }}>
+            <span style={{ color: "#6B7280", fontSize: 12, fontWeight: 850 }}>Логін</span>
+            <input value={login} onChange={(event) => onLoginChange(event.target.value)} autoComplete="username" style={{ height: 44, borderRadius: 12, border: `1px solid ${BORDER}`, padding: "0 12px", font: "inherit", fontWeight: 750, color: DARK }} />
+          </label>
+          <label style={{ display: "grid", gap: 6 }}>
+            <span style={{ color: "#6B7280", fontSize: 12, fontWeight: 850 }}>Пароль</span>
+            <input value={password} onChange={(event) => onPasswordChange(event.target.value)} type="password" autoComplete="current-password" style={{ height: 44, borderRadius: 12, border: `1px solid ${BORDER}`, padding: "0 12px", font: "inherit", fontWeight: 750, color: DARK }} />
+          </label>
+        </div>
+        {error ? <div style={{ background: "#FFF1F2", color: "#BE123C", borderRadius: 14, padding: 12, fontWeight: 800 }}>{error}</div> : null}
+      </div>
+    </ScreenLayout>
+  )
+}
+
 function ProviderRegistrationStep({
   form,
   saving,
@@ -1570,7 +1611,14 @@ function LandingPage({ onSelect }: { onSelect: (role: Role) => void }) {
 
 function CustomerFlow() {
   const telegramContext = useMemo(() => getTelegramContext(), [])
-  const customerId = useMemo(() => telegramContext.chatId ? `telegram-${telegramContext.chatId}` : "customer-web", [telegramContext.chatId])
+  const initialCustomerId = useMemo(() => {
+    if (telegramContext.chatId) return `tg-${telegramContext.chatId}`
+    if (typeof window === "undefined") return "customer-web"
+    return window.sessionStorage.getItem("pomichCustomerId") || "customer-web"
+  }, [telegramContext.chatId])
+  const [customerId, setCustomerId] = useState(initialCustomerId)
+  const [customerAccessToken, setCustomerAccessToken] = useState<string | undefined>(() => readStoredAuthSession(authSessionStorageKey("customer", initialCustomerId), "customer", initialCustomerId))
+  const customerAuthToken = customerAccessToken
   const [screen, setScreen] = useState<Screen>("home")
   const [selectedService, setSelectedService] = useState<ServiceKey>("tow")
   const [destination, setDestination] = useState("СТО «Авторемонт»")
@@ -1608,16 +1656,52 @@ function CustomerFlow() {
     distanceKm: calculateDistanceKm(pickup, destinationPoint),
   }
 
+  const applyCustomerSession = (session: AuthSession) => {
+    const nextCustomerId = session.customerId ?? session.subjectId
+    if (!nextCustomerId || !session.accessToken) return
+    setCustomerId(nextCustomerId)
+    setCustomerAccessToken(session.accessToken)
+    storeAuthSession(authSessionStorageKey("customer", nextCustomerId), session)
+    if (typeof window !== "undefined") window.sessionStorage.setItem("pomichCustomerId", nextCustomerId)
+    if (session.profile) setCustomerProfile((profile) => ({ ...profile, ...session.profile, id: nextCustomerId }))
+  }
+
+  const ensureCustomerSession = async () => {
+    if (customerAuthToken) return { customerId, token: customerAuthToken }
+    const session = telegramContext.initData
+      ? await createTelegramCustomerSession(telegramContext.initData)
+      : await createGuestCustomerSession(customerId === "customer-web" || customerId.startsWith("guest-") ? customerId : undefined)
+    applyCustomerSession(session)
+    return { customerId: session.customerId ?? session.subjectId, token: session.accessToken }
+  }
+
   useEffect(() => {
     telegramContext.webApp?.ready?.()
     telegramContext.webApp?.expand?.()
   }, [telegramContext.webApp])
 
   useEffect(() => {
+    if (!telegramContext.initData) return
+    let cancelled = false
+
+    createTelegramCustomerSession(telegramContext.initData)
+      .then((session) => {
+        if (!cancelled) applyCustomerSession(session)
+      })
+      .catch(() => undefined)
+
+    return () => {
+      cancelled = true
+    }
+  }, [telegramContext.initData])
+
+  useEffect(() => {
     if (!telegramContext.chatId || !telegramContext.initData) return
 
     getTelegramSession(telegramContext.chatId, telegramContext.initData)
       .then((session) => {
+        if (session.customerId) setCustomerId(session.customerId)
+        if (session.profile) setCustomerProfile((profile) => ({ ...profile, ...session.profile, id: session.customerId ?? profile.id }))
         if (!session.location) return
         setPickup({ lat: session.location.latitude, lng: session.location.longitude })
         setGeoState("telegram")
@@ -1719,8 +1803,10 @@ function CustomerFlow() {
     setLoading(true)
     try {
       const fromTelegram = Boolean(telegramContext.initData)
+      const customerSession = await ensureCustomerSession()
       const payload = {
         source: fromTelegram ? "telegram-mini-app" : "web",
+        customerId: customerSession.customerId,
         service: selectedService,
         customerLocation: geoState === "success" || geoState === "telegram" ? "Поточна геолокація клієнта" : sanitizeLocation(orderInput.customerLocation),
         customerCoordinates: pickup,
@@ -1748,7 +1834,7 @@ function CustomerFlow() {
         throw new Error("Validation failed")
       }
 
-      const response = await createOrder(payload)
+      const response = await createOrder(payload, customerSession.token)
       setOrderId(response.id)
       setCurrentOrder(response)
       setStatus(normalizeOrderStatus(response.status ?? "searching"))
@@ -1780,19 +1866,20 @@ function CustomerFlow() {
     setCustomerVerificationSaving(true)
     setCustomerVerificationError(undefined)
     try {
-      const savedProfile = await updateCustomerProfile(customerId, {
+      const customerSession = await ensureCustomerSession()
+      const savedProfile = await updateCustomerProfile(customerSession.customerId, {
         name: customerProfile.name,
         phone: customerProfile.phone,
         telegram: customerProfile.telegram,
         city: customerProfile.city,
-      })
-      const submitted = await submitCustomerVerification(customerId, {
+      }, customerSession.token)
+      const submitted = await submitCustomerVerification(customerSession.customerId, {
         phone: Boolean(savedProfile.phone),
         telegram: Boolean(savedProfile.telegram),
         profilePhoto: true,
         trustedContacts: true,
-        identityDocumentRef: `pomich/${customerId}/identity`,
-      })
+        identityDocumentRef: `pomich/${customerSession.customerId}/identity`,
+      }, customerSession.token)
       setCustomerProfile((profile) => ({ ...profile, ...submitted }))
     } catch {
       setCustomerVerificationError("Не вдалося відправити профіль на перевірку.")
@@ -1858,6 +1945,9 @@ function ProviderFlow({ providerToken }: { providerToken?: string }) {
   })
   const providerAuthToken = providerAccessToken
   const [authError, setAuthError] = useState<string | undefined>()
+  const [accountLogin, setAccountLogin] = useState(providerId)
+  const [accountPassword, setAccountPassword] = useState("")
+  const [authSaving, setAuthSaving] = useState(false)
   const [step, setStep] = useState<"register" | "duty" | "offer" | "navigation" | "arrived" | "completed">(() => {
     if (typeof window === "undefined") return "register"
     return window.localStorage.getItem(`pomichPartnerRegistered:${getActiveProviderId()}`) ? "duty" : "register"
@@ -2177,6 +2267,21 @@ function ProviderFlow({ providerToken }: { providerToken?: string }) {
     }
   }
 
+  const submitProviderAccountLogin = async () => {
+    setAuthSaving(true)
+    setAuthError(undefined)
+    try {
+      const session = await createProviderAccountSession(providerId, accountLogin, accountPassword)
+      storeAuthSession(providerSessionStorageKey, session)
+      setProviderAccessToken(session.accessToken)
+      setAccountPassword("")
+    } catch {
+      setAuthError("Не вдалося увійти в акаунт партнера.")
+    } finally {
+      setAuthSaving(false)
+    }
+  }
+
   useEffect(() => {
     if (step !== "navigation") return
     const interval = window.setInterval(() => setProgress((value) => Math.min(100, value + 9)), 1200)
@@ -2186,6 +2291,22 @@ function ProviderFlow({ providerToken }: { providerToken?: string }) {
   useEffect(() => {
     if (!activeOrder && step === "navigation" && progress >= 100) setStep("arrived")
   }, [activeOrder, progress, step])
+
+  if (!providerAuthToken && !providerToken) {
+    return (
+      <AccountLoginStep
+        title="Вхід партнера"
+        subtitle="Увійдіть у свій акаунт POMICH, щоб бачити заявки та оновлювати статуси."
+        login={accountLogin}
+        password={accountPassword}
+        saving={authSaving}
+        error={authError}
+        onLoginChange={setAccountLogin}
+        onPasswordChange={setAccountPassword}
+        onSubmit={submitProviderAccountLogin}
+      />
+    )
+  }
 
   if (step === "register") {
     return (
@@ -2404,12 +2525,15 @@ function AdminFlow({ adminToken }: { adminToken?: string }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | undefined>()
   const [authError, setAuthError] = useState<string | undefined>()
+  const [accountLogin, setAccountLogin] = useState("dispatcher")
+  const [accountPassword, setAccountPassword] = useState("")
+  const [authSaving, setAuthSaving] = useState(false)
 
   useEffect(() => {
     if (adminAuthToken) return
 
     if (!adminToken) {
-      setAuthError("Адмін-сесія не відкрита.")
+      setAuthError(undefined)
       return
     }
 
@@ -2437,6 +2561,21 @@ function AdminFlow({ adminToken }: { adminToken?: string }) {
     }
   }, [adminAuthToken, adminSessionStorageKey, adminToken])
 
+  const submitAdminAccountLogin = async () => {
+    setAuthSaving(true)
+    setAuthError(undefined)
+    try {
+      const session = await createAdminAccountSession(accountLogin, accountPassword)
+      storeAuthSession(adminSessionStorageKey, session)
+      setAdminAccessToken(session.accessToken)
+      setAccountPassword("")
+    } catch {
+      setAuthError("Не вдалося увійти в адмін-акаунт.")
+    } finally {
+      setAuthSaving(false)
+    }
+  }
+
   const refresh = () => {
     setLoading(true)
     if (!adminAuthToken) {
@@ -2463,6 +2602,22 @@ function AdminFlow({ adminToken }: { adminToken?: string }) {
     const interval = window.setInterval(refresh, 10000)
     return () => window.clearInterval(interval)
   }, [adminAuthToken, authError])
+
+  if (!adminAuthToken && !adminToken) {
+    return (
+      <AccountLoginStep
+        title="Вхід диспетчера"
+        subtitle="Увійдіть в адмін-акаунт, щоб керувати заявками та перевірками."
+        login={accountLogin}
+        password={accountPassword}
+        saving={authSaving}
+        error={authError}
+        onLoginChange={setAccountLogin}
+        onPasswordChange={setAccountPassword}
+        onSubmit={submitAdminAccountLogin}
+      />
+    )
+  }
 
   const filteredOrders = orders.filter((order) => selectedStatus === "all" || normalizeOrderStatus(order.status) === selectedStatus)
   const selectedOrder = filteredOrders.find((order) => order.id === selectedOrderId) ?? filteredOrders[0]
@@ -2654,9 +2809,9 @@ export default function CustomerApp() {
     if (typeof window === "undefined") return null
     const queryRole = new URLSearchParams(window.location.search).get("role")
     if (queryRole === "customer" || queryRole === "provider") return queryRole
-    if (queryRole === "admin" && adminToken) return "admin"
+    if (queryRole === "admin") return "admin"
     return null
-  }, [adminToken])
+  }, [])
   const [role, setRole] = useState<Role | null>(initialRole)
   const compact = telegramContext.isTelegram || isMobile
 
@@ -2686,7 +2841,7 @@ export default function CustomerApp() {
         setRole(queryRole)
         return
       }
-      if (queryRole === "admin" && adminToken) {
+      if (queryRole === "admin") {
         setRole("admin")
         return
       }
@@ -2695,7 +2850,7 @@ export default function CustomerApp() {
 
     window.addEventListener("popstate", syncRoleFromUrl)
     return () => window.removeEventListener("popstate", syncRoleFromUrl)
-  }, [adminToken])
+  }, [])
 
   return (
     role === null ? (

@@ -5,6 +5,7 @@ import hmac
 import json
 import os
 import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -36,6 +37,7 @@ from bot.order_store import (
     save_order,
     submit_customer_verification,
     submit_provider_verification,
+    upsert_telegram_customer_profile,
     update_customer_profile,
     update_order_status,
     update_provider_order_status,
@@ -103,6 +105,9 @@ def _runtime_config_errors() -> list[str]:
 
     if not _is_configured_secret(os.getenv("POMICH_PROVIDER_TOKEN")):
         errors.append("POMICH_PROVIDER_TOKEN must be set in production so partner endpoints are protected")
+
+    if not _is_configured_secret(os.getenv("POMICH_CUSTOMER_SESSION_SECRET")):
+        errors.append("POMICH_CUSTOMER_SESSION_SECRET must be a non-placeholder secret in production")
 
     if not (os.getenv("DATABASE_URL") or "").strip() and os.getenv("POMICH_ALLOW_JSON_STORE_IN_PRODUCTION") != "true":
         errors.append("DATABASE_URL must be set in production, unless POMICH_ALLOW_JSON_STORE_IN_PRODUCTION=true is explicitly used for a small pilot")
@@ -177,6 +182,85 @@ def _configured_provider_secret() -> str:
     if not secret:
         raise HTTPException(status_code=403, detail="provider_auth_not_configured")
     return secret
+
+
+def _configured_customer_secret() -> str:
+    secret = (os.getenv("POMICH_CUSTOMER_SESSION_SECRET") or "").strip()
+    if secret:
+        return secret
+    if _is_production_runtime():
+        raise HTTPException(status_code=403, detail="customer_auth_not_configured")
+    return "dev-customer-session-secret"
+
+
+def _load_account_configs(env_name: str) -> list[dict]:
+    raw_value = (os.getenv(env_name) or "").strip()
+    if not raw_value:
+        return []
+    try:
+        parsed = json.loads(raw_value)
+    except json.JSONDecodeError:
+        return []
+
+    if isinstance(parsed, list):
+        return [item for item in parsed if isinstance(item, dict)]
+    if isinstance(parsed, dict):
+        accounts: list[dict] = []
+        for key, value in parsed.items():
+            if isinstance(value, dict):
+                account = dict(value)
+            else:
+                account = {"password": str(value)}
+            account.setdefault("username", str(key))
+            account.setdefault("providerId", str(key))
+            accounts.append(account)
+        return accounts
+    return []
+
+
+def _password_matches(account: dict, password: str) -> bool:
+    supplied = str(password or "")
+    expected_hash = str(account.get("passwordHash") or "").strip()
+    if expected_hash.startswith("sha256:"):
+        digest = hashlib.sha256(supplied.encode("utf-8")).hexdigest()
+        return hmac.compare_digest(expected_hash.removeprefix("sha256:"), digest)
+    expected_password = str(account.get("password") or "").strip()
+    return bool(expected_password) and hmac.compare_digest(expected_password, supplied)
+
+
+def _find_admin_account(username: str, password: str) -> dict | None:
+    normalized_username = str(username or "").strip().lower()
+    if not normalized_username or not password:
+        return None
+    for account in _load_account_configs("POMICH_ADMIN_ACCOUNTS"):
+        identifiers = [
+            str(account.get("username") or "").strip().lower(),
+            str(account.get("email") or "").strip().lower(),
+            str(account.get("id") or "").strip().lower(),
+        ]
+        if normalized_username in identifiers and _password_matches(account, password):
+            return account
+    return None
+
+
+def _find_provider_account(login: str, password: str, provider_id: str | None = None) -> dict | None:
+    normalized_login = str(login or provider_id or "").strip().lower()
+    normalized_provider_id = str(provider_id or "").strip()
+    if not normalized_login or not password:
+        return None
+    for account in _load_account_configs("POMICH_PROVIDER_ACCOUNTS"):
+        account_provider_id = str(account.get("providerId") or account.get("id") or "").strip()
+        identifiers = [
+            account_provider_id.lower(),
+            str(account.get("username") or "").strip().lower(),
+            str(account.get("email") or "").strip().lower(),
+            str(account.get("phone") or "").strip().lower(),
+        ]
+        if normalized_provider_id and account_provider_id != normalized_provider_id:
+            continue
+        if normalized_login in identifiers and _password_matches(account, password):
+            return {**account, "providerId": account_provider_id}
+    return None
 
 
 def _extract_bearer_token(authorization: str | None) -> str | None:
@@ -271,6 +355,23 @@ def _require_provider_auth(
     return principal
 
 
+def _require_customer_auth(customer_id: str, authorization: str | None = None) -> AuthPrincipal:
+    bearer_token = _extract_bearer_token(authorization)
+    if not bearer_token:
+        raise HTTPException(status_code=401, detail="customer_session_required")
+    principal = _verify_role_session(bearer_token, "customer", _configured_customer_secret())
+    if principal.subject_id != str(customer_id):
+        raise HTTPException(status_code=403, detail="customer_identity_mismatch")
+    return principal
+
+
+def _optional_customer_auth(authorization: str | None = None) -> AuthPrincipal | None:
+    bearer_token = _extract_bearer_token(authorization)
+    if not bearer_token:
+        return None
+    return _verify_role_session(bearer_token, "customer", _configured_customer_secret())
+
+
 def _apply_verified_telegram_identity(payload: dict, verified_telegram: dict | None) -> None:
     user = (verified_telegram or {}).get("user") or {}
     telegram_user_id = str(user.get("id") or "").strip()
@@ -311,7 +412,8 @@ def list_providers() -> list[dict]:
 
 @app.get("/customers/{customer_id}/profile")
 @app.get("/api/customers/{customer_id}/profile")
-def read_customer_profile(customer_id: str) -> dict:
+def read_customer_profile(customer_id: str, authorization: str | None = Header(default=None)) -> dict:
+    _require_customer_auth(customer_id, authorization)
     return get_customer_profile(customer_id)
 
 
@@ -319,13 +421,15 @@ def read_customer_profile(customer_id: str) -> dict:
 @app.post("/api/customers/{customer_id}/profile")
 @app.patch("/customers/{customer_id}/profile")
 @app.patch("/api/customers/{customer_id}/profile")
-def patch_customer_profile(customer_id: str, payload: dict) -> dict:
+def patch_customer_profile(customer_id: str, payload: dict, authorization: str | None = Header(default=None)) -> dict:
+    _require_customer_auth(customer_id, authorization)
     return update_customer_profile(customer_id, payload)
 
 
 @app.post("/customers/{customer_id}/verification/submit")
 @app.post("/api/customers/{customer_id}/verification/submit")
-def customer_submit_verification(customer_id: str, payload: dict) -> dict:
+def customer_submit_verification(customer_id: str, payload: dict, authorization: str | None = Header(default=None)) -> dict:
+    _require_customer_auth(customer_id, authorization)
     return submit_customer_verification(customer_id, payload)
 
 
@@ -353,6 +457,18 @@ def create_admin_session(x_pomich_admin_token: str | None = Header(default=None)
     return _issue_role_session("admin", "admin", secret)
 
 
+@app.post("/auth/admin/login")
+@app.post("/api/auth/admin/login")
+def create_admin_account_session(payload: dict) -> dict:
+    account = _find_admin_account(str(payload.get("username") or ""), str(payload.get("password") or ""))
+    if account is None:
+        raise HTTPException(status_code=401, detail="admin_credentials_invalid")
+    subject_id = str(account.get("id") or account.get("username") or "admin").strip()
+    session = _issue_role_session("admin", subject_id, _configured_admin_secret())
+    session["username"] = str(account.get("username") or subject_id)
+    return session
+
+
 @app.post("/auth/provider/session")
 @app.post("/api/auth/provider/session")
 def create_provider_session(payload: dict, x_pomich_provider_token: str | None = Header(default=None)) -> dict:
@@ -364,6 +480,54 @@ def create_provider_session(payload: dict, x_pomich_provider_token: str | None =
         raise HTTPException(status_code=400, detail="providerId missing")
     session = _issue_role_session("provider", provider_id, secret)
     session["providerId"] = provider_id
+    return session
+
+
+@app.post("/auth/provider/login")
+@app.post("/api/auth/provider/login")
+def create_provider_account_session(payload: dict) -> dict:
+    provider_id = str(payload.get("providerId") or "").strip()
+    login = str(payload.get("login") or payload.get("username") or provider_id).strip()
+    account = _find_provider_account(login, str(payload.get("password") or ""), provider_id)
+    if account is None or not account.get("providerId"):
+        raise HTTPException(status_code=401, detail="provider_credentials_invalid")
+    session = _issue_role_session("provider", str(account["providerId"]), _configured_provider_secret())
+    session["providerId"] = str(account["providerId"])
+    session["username"] = str(account.get("username") or login)
+    return session
+
+
+@app.post("/auth/customer/guest/session")
+@app.post("/api/auth/customer/guest/session")
+def create_guest_customer_session(payload: dict | None = None) -> dict:
+    requested_customer_id = str((payload or {}).get("customerId") or "").strip()
+    if requested_customer_id and not (requested_customer_id == "customer-web" or requested_customer_id.startswith("guest-")):
+        raise HTTPException(status_code=400, detail="guest_customer_id_invalid")
+    customer_id = requested_customer_id or f"guest-{uuid.uuid4().hex}"
+    profile = update_customer_profile(customer_id, payload or {})
+    session = _issue_role_session("customer", customer_id, _configured_customer_secret())
+    session["customerId"] = customer_id
+    session["profile"] = profile
+    return session
+
+
+@app.post("/auth/customer/telegram/session")
+@app.post("/api/auth/customer/telegram/session")
+def create_telegram_customer_session(payload: dict | None = None, x_telegram_init_data: str | None = Header(default=None)) -> dict:
+    init_data = x_telegram_init_data or str((payload or {}).get("initData") or "").strip()
+    verified = _verify_init_data_or_raise(init_data)
+    if verified is None:
+        raise HTTPException(status_code=403, detail="telegram_auth_not_configured")
+    user = verified.get("user") or {}
+    telegram_user_id = str(user.get("id") or "").strip()
+    if not telegram_user_id:
+        raise HTTPException(status_code=401, detail="telegram_user_missing")
+    profile = upsert_telegram_customer_profile(user)
+    customer_id = str(profile.get("id") or f"tg-{telegram_user_id}")
+    session = _issue_role_session("customer", customer_id, _configured_customer_secret())
+    session["customerId"] = customer_id
+    session["profile"] = profile
+    session["customerIdentity"] = profile.get("customerIdentity")
     return session
 
 
@@ -448,9 +612,16 @@ def provider_review_verification(
 
 @app.post("/orders", status_code=201)
 @app.post("/api/orders", status_code=201)
-def create_order(payload: dict) -> dict:
+def create_order(payload: dict, authorization: str | None = Header(default=None)) -> dict:
     source = payload.get("source")
     init_data = payload.pop("telegramInitData", None)
+    customer_principal = _optional_customer_auth(authorization)
+    if customer_principal is not None:
+        supplied_customer_id = payload.get("customerId")
+        if supplied_customer_id is not None and str(supplied_customer_id) != customer_principal.subject_id:
+            raise HTTPException(status_code=403, detail="customer_identity_mismatch")
+        payload["customerId"] = customer_principal.subject_id
+
     verified_telegram = None
     if source == "telegram-mini-app":
         verified_telegram = _verify_init_data_or_raise(init_data)
@@ -459,6 +630,10 @@ def create_order(payload: dict) -> dict:
         if user.get("id") and supplied_telegram_id is not None and str(supplied_telegram_id) != str(user.get("id")):
             raise HTTPException(status_code=401, detail="telegram_user_mismatch")
         _apply_verified_telegram_identity(payload, verified_telegram)
+        if customer_principal is not None and payload.get("customerId") != customer_principal.subject_id:
+            raise HTTPException(status_code=403, detail="customer_identity_mismatch")
+    elif customer_principal is not None:
+        payload["customerIdentity"] = {"type": "guest", "customerId": customer_principal.subject_id}
 
     order = save_order(payload)
     if order.get("status") == "searching":
@@ -631,7 +806,17 @@ def telegram_session(chat_id: str, x_telegram_init_data: str | None = Header(def
     if user.get("id") and str(user.get("id")) != str(chat_id):
         raise HTTPException(status_code=401, detail="telegram_user_mismatch")
 
-    return get_telegram_session(chat_id) or {"chatId": chat_id}
+    session = get_telegram_session(chat_id) or {"chatId": chat_id}
+    if user.get("id"):
+        profile = upsert_telegram_customer_profile(user)
+        return {
+            **session,
+            "chatId": chat_id,
+            "customerId": profile.get("id"),
+            "profile": profile,
+            "customerIdentity": profile.get("customerIdentity"),
+        }
+    return session
 
 
 @app.post("/telegram/webhook")

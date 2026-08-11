@@ -15,6 +15,7 @@ PROVIDER_TOKEN = "partner-secret"
 PROVIDER_HEADERS = {"X-POMICH-Provider-Token": PROVIDER_TOKEN}
 ADMIN_TOKEN = "test-admin"
 ADMIN_HEADERS = {"X-POMICH-Admin-Token": ADMIN_TOKEN}
+CUSTOMER_SESSION_SECRET = "customer-session-secret-for-tests"
 
 
 def _api_provider(provider_id: str, lat: float, lng: float) -> dict:
@@ -78,6 +79,12 @@ def _admin_session_headers(client: TestClient) -> dict:
     return {"Authorization": f"Bearer {response.json()['accessToken']}"}
 
 
+def _customer_session_headers(client: TestClient, customer_id: str = "guest-customer-42") -> dict:
+    response = client.post("/api/auth/customer/guest/session", json={"customerId": customer_id})
+    assert response.status_code == 200
+    return {"Authorization": f"Bearer {response.json()['accessToken']}"}
+
+
 def _signed_init_data(payload: dict[str, str], token: str) -> str:
     data_check_string = "\n".join(f"{key}={value}" for key, value in sorted(payload.items()))
     secret_key = hmac.new(b"WebAppData", token.encode("utf-8"), hashlib.sha256).digest()
@@ -116,6 +123,7 @@ def test_production_runtime_config_rejects_insecure_defaults(monkeypatch) -> Non
     assert any("POMICH_CORS_ORIGINS" in error for error in errors)
     assert any("POMICH_ADMIN_TOKEN" in error for error in errors)
     assert any("POMICH_PROVIDER_TOKEN" in error for error in errors)
+    assert any("POMICH_CUSTOMER_SESSION_SECRET" in error for error in errors)
     assert any("DATABASE_URL" in error for error in errors)
 
 
@@ -124,6 +132,7 @@ def test_production_runtime_config_accepts_release_settings(monkeypatch) -> None
     monkeypatch.setenv("POMICH_CORS_ORIGINS", "https://app.pomich.example,https://admin.pomich.example")
     monkeypatch.setenv("POMICH_ADMIN_TOKEN", "admin-secret-1234567890-release")
     monkeypatch.setenv("POMICH_PROVIDER_TOKEN", "provider-secret-1234567890-release")
+    monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", "customer-secret-1234567890-release")
     monkeypatch.setenv("DATABASE_URL", "sqlite:///release.db")
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     monkeypatch.delenv("VITE_TELEGRAM_BOT_TOKEN", raising=False)
@@ -137,6 +146,7 @@ def test_production_runtime_config_requires_telegram_public_url(monkeypatch) -> 
     monkeypatch.setenv("POMICH_CORS_ORIGINS", "https://app.pomich.example")
     monkeypatch.setenv("POMICH_ADMIN_TOKEN", "admin-secret-1234567890-release")
     monkeypatch.setenv("POMICH_PROVIDER_TOKEN", "provider-secret-1234567890-release")
+    monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", "customer-secret-1234567890-release")
     monkeypatch.setenv("DATABASE_URL", "sqlite:///release.db")
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123456:telegram-token")
     monkeypatch.delenv("WEB_APP_URL", raising=False)
@@ -204,17 +214,21 @@ def test_fastapi_customer_profile_and_verification_review(monkeypatch, tmp_path)
     monkeypatch.setenv("POMICH_ADMIN_TOKEN", ADMIN_TOKEN)
     client = TestClient(app)
     admin_headers = _admin_session_headers(client)
+    customer_id = "guest-customer-42"
+    customer_headers = _customer_session_headers(client, customer_id)
 
     profile = client.patch(
-        "/api/customers/customer-42/profile",
+        f"/api/customers/{customer_id}/profile",
         json={"name": "Марія", "phone": "+380501112233", "city": "Київ", "telegram": "maria_road"},
+        headers=customer_headers,
     )
     submitted = client.post(
-        "/api/customers/customer-42/verification/submit",
+        f"/api/customers/{customer_id}/verification/submit",
         json={"phone": True, "telegram": True, "identityDocumentRef": "doc/customer-42/passport"},
+        headers=customer_headers,
     )
     reviewed = client.patch(
-        "/api/customers/customer-42/verification/review",
+        f"/api/customers/{customer_id}/verification/review",
         json={"status": "verified", "reviewNote": "Документи збігаються"},
         headers=admin_headers,
     )
@@ -226,6 +240,23 @@ def test_fastapi_customer_profile_and_verification_review(monkeypatch, tmp_path)
     assert reviewed.status_code == 200
     assert reviewed.json()["verificationStatus"] == "verified"
     assert "Профіль підтверджено" in reviewed.json()["trustedBadges"]
+
+
+def test_fastapi_customer_profile_requires_matching_session(monkeypatch, tmp_path) -> None:
+    _use_temp_store(monkeypatch, tmp_path)
+    client = TestClient(app)
+    own_headers = _customer_session_headers(client, "guest-customer-42")
+    other_headers = _customer_session_headers(client, "guest-customer-99")
+
+    missing = client.get("/api/customers/guest-customer-42/profile")
+    own = client.get("/api/customers/guest-customer-42/profile", headers=own_headers)
+    other = client.get("/api/customers/guest-customer-42/profile", headers=other_headers)
+
+    assert missing.status_code == 401
+    assert missing.json()["detail"] == "customer_session_required"
+    assert own.status_code == 200
+    assert other.status_code == 403
+    assert other.json()["detail"] == "customer_identity_mismatch"
 
 
 def test_fastapi_provider_verification_submit_and_admin_review(monkeypatch, tmp_path) -> None:
@@ -381,10 +412,47 @@ def test_fastapi_admin_session_can_access_admin_routes(monkeypatch) -> None:
     assert orders_response.status_code == 200
 
 
-def test_fastapi_telegram_mini_app_order_uses_verified_identity(monkeypatch, tmp_path) -> None:
+def test_fastapi_provider_account_login_issues_scoped_session(monkeypatch, tmp_path) -> None:
+    _use_temp_store(monkeypatch, tmp_path)
+    monkeypatch.setenv("POMICH_PROVIDER_TOKEN", PROVIDER_TOKEN)
+    monkeypatch.setenv(
+        "POMICH_PROVIDER_ACCOUNTS",
+        json.dumps([{"providerId": "p1", "username": "oleksandr", "password": "provider-pass"}]),
+    )
+    order_store.save_providers([_api_provider("p1", 48.6218, 22.2879), _api_provider("p2", 48.6228, 22.2879)])
+    client = TestClient(app)
+
+    login_response = client.post("/api/auth/provider/login", json={"login": "oleksandr", "password": "provider-pass"})
+    access_token = login_response.json()["accessToken"]
+    own_profile = client.get("/api/providers/p1/profile", headers={"Authorization": f"Bearer {access_token}"})
+    other_profile = client.get("/api/providers/p2/profile", headers={"Authorization": f"Bearer {access_token}"})
+
+    assert login_response.status_code == 200
+    assert login_response.json()["providerId"] == "p1"
+    assert own_profile.status_code == 200
+    assert other_profile.status_code == 403
+
+
+def test_fastapi_admin_account_login_can_access_admin_routes(monkeypatch) -> None:
+    monkeypatch.setenv("POMICH_ADMIN_TOKEN", ADMIN_TOKEN)
+    monkeypatch.setenv("POMICH_ADMIN_ACCOUNTS", json.dumps([{"username": "dispatcher", "password": "admin-pass"}]))
+    client = TestClient(app)
+
+    login_response = client.post("/api/auth/admin/login", json={"username": "dispatcher", "password": "admin-pass"})
+    access_token = login_response.json()["accessToken"]
+    orders_response = client.get("/api/orders", headers={"Authorization": f"Bearer {access_token}"})
+
+    assert login_response.status_code == 200
+    assert login_response.json()["role"] == "admin"
+    assert login_response.json()["username"] == "dispatcher"
+    assert orders_response.status_code == 200
+
+
+def test_fastapi_telegram_customer_session_links_profile(monkeypatch, tmp_path) -> None:
     _use_temp_store(monkeypatch, tmp_path)
     telegram_token = "123456:telegram-token"
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", telegram_token)
+    monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", CUSTOMER_SESSION_SECRET)
     client = TestClient(app)
     init_data = _signed_init_data(
         {
@@ -394,8 +462,38 @@ def test_fastapi_telegram_mini_app_order_uses_verified_identity(monkeypatch, tmp
         telegram_token,
     )
 
+    session_response = client.post("/api/auth/customer/telegram/session", headers={"X-Telegram-Init-Data": init_data})
+    access_token = session_response.json()["accessToken"]
+    profile_response = client.get("/api/customers/tg-42/profile", headers={"Authorization": f"Bearer {access_token}"})
+
+    assert session_response.status_code == 200
+    assert session_response.json()["role"] == "customer"
+    assert session_response.json()["customerId"] == "tg-42"
+    assert session_response.json()["customerIdentity"]["type"] == "telegram"
+    assert session_response.json()["profile"]["verification"]["telegram"] is True
+    assert profile_response.status_code == 200
+    assert profile_response.json()["telegram"] == "driver_help"
+
+
+def test_fastapi_telegram_mini_app_order_uses_verified_identity(monkeypatch, tmp_path) -> None:
+    _use_temp_store(monkeypatch, tmp_path)
+    telegram_token = "123456:telegram-token"
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", telegram_token)
+    monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", CUSTOMER_SESSION_SECRET)
+    client = TestClient(app)
+    init_data = _signed_init_data(
+        {
+            "auth_date": str(int(time.time())),
+            "user": json.dumps({"id": 42, "username": "driver_help", "first_name": "Maria"}, separators=(",", ":")),
+        },
+        telegram_token,
+    )
+    session_response = client.post("/api/auth/customer/telegram/session", headers={"X-Telegram-Init-Data": init_data})
+    customer_headers = {"Authorization": f"Bearer {session_response.json()['accessToken']}"}
+
     response = client.post(
         "/api/orders",
+        headers=customer_headers,
         json={
             "source": "telegram-mini-app",
             "telegramInitData": init_data,
