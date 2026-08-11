@@ -3,6 +3,9 @@
 ## Current Gate
 The repository is ready for a controlled pilot, not an unattended public production launch. Before release, the public browser must reach the frontend and FastAPI through the same public origin.
 
+## North Star
+The beta release should prove a shorter and more predictable **Time To Rescue**: order creation to real provider arrival.
+
 ## Required Before Public Beta
 - Stable public domain or named Cloudflare Tunnel is configured.
 - Production-like stack starts with `docker-compose.production.yml` or an equivalent hosted deployment.
@@ -31,6 +34,9 @@ The repository is ready for a controlled pilot, not an unattended public product
 8. Confirm the partner receives an offer.
 9. Accept the offer and advance statuses to `completed`.
 10. Confirm no CORS errors and no localhost API requests in Network.
+
+## Beta E2E Gate
+The staging Playwright flow must pass end to end: Partner A online, Partner B online, customer creates order, offers are created, Partner A accepts, Partner B loses the race, customer sees Partner A, then status advances through `EN_ROUTE`, `ARRIVED`, `IN_PROGRESS`, and `COMPLETED`.
 
 ## Next Architecture Step
 The app now uses normalized SQL runtime tables through `DATABASE_URL`. The next storage step is moving candidate matching and first-accept-wins locking into SQL/PostGIS queries and adding explicit migrations instead of relying only on startup schema creation.

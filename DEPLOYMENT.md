@@ -1,5 +1,7 @@
 # POMICH Deployment
 
+Deployment exists to prove the product promise: a real customer can request help, a verified provider can accept, and Time To Rescue can be measured.
+
 ## Production-Like Staging
 Use this path for a public staging URL with one app container and Postgres/PostGIS.
 
