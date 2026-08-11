@@ -49,6 +49,15 @@ export interface TelegramSessionResponse {
   updatedAt?: string
 }
 
+export interface AuthSession {
+  role: 'admin' | 'provider'
+  subjectId: string
+  providerId?: string
+  tokenType: 'Bearer'
+  accessToken: string
+  expiresAt: number
+}
+
 export type ProviderStatus = 'online' | 'busy' | 'offline'
 export type OfferStatus = 'pending' | 'accepted' | 'declined' | 'expired' | 'lost' | 'cancelled'
 export type VerificationStatus = 'unverified' | 'pending' | 'verified' | 'rejected'
@@ -151,15 +160,22 @@ export async function createOrder(payload: Record<string, unknown>) {
   return response.json() as Promise<OrderResponse>
 }
 
+function authHeaders(token: string | undefined, sharedSecretHeader: string): Record<string, string> | undefined {
+  if (!token) return undefined
+  return token.startsWith('pomich_auth_v1.')
+    ? { Authorization: `Bearer ${token}` }
+    : { [sharedSecretHeader]: token }
+}
+
 function adminHeaders(adminToken?: string) {
-  return adminToken ? { 'X-POMICH-Admin-Token': adminToken } : undefined
+  return authHeaders(adminToken, 'X-POMICH-Admin-Token')
 }
 
 function providerHeaders(providerToken?: string) {
-  return providerToken ? { 'X-POMICH-Provider-Token': providerToken } : undefined
+  return authHeaders(providerToken, 'X-POMICH-Provider-Token')
 }
 
-function providerJsonHeaders(providerToken?: string) {
+function providerJsonHeaders(providerToken?: string): Record<string, string> {
   return { 'Content-Type': 'application/json', ...(providerHeaders(providerToken) ?? {}) }
 }
 
@@ -171,6 +187,33 @@ export async function getOrders(adminToken?: string) {
   }
 
   return response.json() as Promise<OrderResponse[]>
+}
+
+export async function createAdminSession(adminToken: string) {
+  const response = await fetch(`${getBaseUrl()}/auth/admin/session`, {
+    method: 'POST',
+    headers: { 'X-POMICH-Admin-Token': adminToken },
+  })
+
+  if (!response.ok) {
+    throw new Error(`Admin session request failed with ${response.status}`)
+  }
+
+  return response.json() as Promise<AuthSession>
+}
+
+export async function createProviderSession(providerId: string, providerToken: string) {
+  const response = await fetch(`${getBaseUrl()}/auth/provider/session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-POMICH-Provider-Token': providerToken },
+    body: JSON.stringify({ providerId }),
+  })
+
+  if (!response.ok) {
+    throw new Error(`Provider session request failed with ${response.status}`)
+  }
+
+  return response.json() as Promise<AuthSession>
 }
 
 export async function getOrder(orderId: string) {

@@ -22,6 +22,9 @@ Done:
 - Provider candidate search runs through the SQL runtime path with `online`, `verified`, capability, TTL, assignment, and radius filters.
 - PostgreSQL candidate search uses `ST_DWithin`/`ST_Distance`; SQLite keeps a portable SQL + Haversine test adapter.
 - Offer acceptance uses the SQL runtime transaction path so first-accept-wins is enforced at the database boundary.
+- Provider endpoints require configured backend auth; missing `POMICH_PROVIDER_TOKEN` no longer makes partner routes public.
+- Backend can issue HMAC-signed admin/provider sessions and enforces provider session identity against URL `provider_id`.
+- Telegram Mini App order creation records the verified Telegram identity into the order payload.
 - Production-like Docker Compose exists with app + Postgres/PostGIS.
 
 ## Work Sequence
@@ -68,13 +71,21 @@ AND ST_DWithin(provider.location, order.location, radius)
 
 ### 3. Auth Model
 
-Status: not done.
+Status: in progress.
+
+Completed:
+
+- Provider auth is mandatory on backend partner routes.
+- Admin auth is separate from provider auth.
+- Backend accepts signed admin/provider sessions through `Authorization: Bearer`.
+- Provider sessions are scoped to one provider id; a session for Provider A cannot operate Provider B routes.
+- Verified Telegram Mini App orders get backend-attached Telegram customer identity.
 
 Target:
 
 - Customer: guest/session or Telegram identity.
-- Provider: mandatory auth, no optional token behavior in production.
-- Admin: separate admin session/auth, not query token.
+- Provider: replace bootstrap shared secret UX with provider login/session issuance.
+- Admin: replace query-token UX with admin session/login flow.
 - Backend determines role and permissions; UI is never source of truth.
 
 ### 4. Stable Staging

@@ -15,7 +15,9 @@ The beta release should prove a shorter and more predictable **Time To Rescue**:
 - `POMICH_RUNTIME=production`.
 - `POMICH_CORS_ORIGINS` contains exact HTTPS origin(s), never `*`.
 - `POMICH_ADMIN_TOKEN` is a long random backend-only secret.
-- `POMICH_PROVIDER_TOKEN` is set and shared only with trusted partner sessions.
+- `POMICH_PROVIDER_TOKEN` is set as a backend-only bootstrap secret for issuing provider sessions.
+- Provider/admin operational routes require backend auth; missing provider auth must return `provider_auth_not_configured`, not allow access.
+- Signed provider sessions must be scoped to one provider id.
 - `TELEGRAM_BOT_TOKEN` is stored only on the backend.
 - `WEB_APP_URL` points to the public HTTPS app URL.
 - `DATABASE_URL` is configured for SQL runtime storage. JSON production storage requires explicit `POMICH_ALLOW_JSON_STORE_IN_PRODUCTION=true` and is only acceptable for a very small pilot.

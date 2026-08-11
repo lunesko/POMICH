@@ -1,4 +1,11 @@
+import base64
+import binascii
+import hashlib
+import hmac
+import json
 import os
+import time
+from dataclasses import dataclass
 from pathlib import Path
 
 from fastapi import FastAPI, Header, HTTPException
@@ -41,6 +48,15 @@ from bot.telegram_bot import get_configured_token, handle_update, notify_order_c
 DIST_DIR = Path(__file__).resolve().parent.parent / "dist"
 ASSETS_DIR = DIST_DIR / "assets"
 _PLACEHOLDER_SECRET_FRAGMENTS = ("replace-me", "change-this", "changeme", "example", "placeholder")
+_AUTH_SESSION_PREFIX = "pomich_auth_v1"
+_DEFAULT_SESSION_TTL_SECONDS = 86400
+
+
+@dataclass(frozen=True)
+class AuthPrincipal:
+    role: str
+    subject_id: str
+    auth_type: str
 
 
 def _is_production_runtime() -> bool:
@@ -140,20 +156,143 @@ def _verify_init_data_or_raise(init_data: str | None) -> dict | None:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
 
 
-def _require_admin_token(token: str | None) -> None:
-    expected_token = os.getenv("POMICH_ADMIN_TOKEN")
-    if not expected_token:
+def _b64_encode(value: bytes) -> str:
+    return base64.urlsafe_b64encode(value).rstrip(b"=").decode("ascii")
+
+
+def _b64_decode(value: str) -> bytes:
+    padding = "=" * (-len(value) % 4)
+    return base64.urlsafe_b64decode(f"{value}{padding}".encode("ascii"))
+
+
+def _configured_admin_secret() -> str:
+    secret = (os.getenv("POMICH_ADMIN_TOKEN") or "").strip()
+    if not secret:
         raise HTTPException(status_code=403, detail="admin_auth_not_configured")
-    if token != expected_token:
+    return secret
+
+
+def _configured_provider_secret() -> str:
+    secret = (os.getenv("POMICH_PROVIDER_TOKEN") or "").strip()
+    if not secret:
+        raise HTTPException(status_code=403, detail="provider_auth_not_configured")
+    return secret
+
+
+def _extract_bearer_token(authorization: str | None) -> str | None:
+    value = (authorization or "").strip()
+    if not value:
+        return None
+    scheme, _, token = value.partition(" ")
+    if scheme.lower() != "bearer" or not token.strip():
+        raise HTTPException(status_code=401, detail="bearer_token_invalid")
+    return token.strip()
+
+
+def _session_ttl_seconds() -> int:
+    raw_value = (os.getenv("POMICH_AUTH_SESSION_TTL_SECONDS") or "").strip()
+    if not raw_value:
+        return _DEFAULT_SESSION_TTL_SECONDS
+    try:
+        return max(300, int(raw_value))
+    except ValueError:
+        return _DEFAULT_SESSION_TTL_SECONDS
+
+
+def _issue_role_session(role: str, subject_id: str, secret: str) -> dict:
+    issued_at = int(time.time())
+    expires_at = issued_at + _session_ttl_seconds()
+    payload = {
+        "role": role,
+        "sub": str(subject_id),
+        "iat": issued_at,
+        "exp": expires_at,
+    }
+    body = _b64_encode(json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8"))
+    signature = _b64_encode(hmac.new(secret.encode("utf-8"), body.encode("ascii"), hashlib.sha256).digest())
+    return {
+        "role": role,
+        "subjectId": str(subject_id),
+        "tokenType": "Bearer",
+        "accessToken": f"{_AUTH_SESSION_PREFIX}.{body}.{signature}",
+        "expiresAt": expires_at,
+    }
+
+
+def _verify_role_session(token: str, expected_role: str, secret: str) -> AuthPrincipal:
+    parts = token.split(".")
+    if len(parts) != 3 or parts[0] != _AUTH_SESSION_PREFIX:
+        raise HTTPException(status_code=401, detail=f"{expected_role}_session_invalid")
+
+    _, body, signature = parts
+    expected_signature = _b64_encode(hmac.new(secret.encode("utf-8"), body.encode("ascii"), hashlib.sha256).digest())
+    if not hmac.compare_digest(signature, expected_signature):
+        raise HTTPException(status_code=401, detail=f"{expected_role}_session_invalid")
+
+    try:
+        payload = json.loads(_b64_decode(body).decode("utf-8"))
+        expires_at = int(payload.get("exp") or 0)
+    except (binascii.Error, TypeError, ValueError, UnicodeDecodeError) as exc:
+        raise HTTPException(status_code=401, detail=f"{expected_role}_session_invalid") from exc
+
+    if payload.get("role") != expected_role:
+        raise HTTPException(status_code=403, detail="role_forbidden")
+    if expires_at < int(time.time()):
+        raise HTTPException(status_code=401, detail=f"{expected_role}_session_expired")
+    subject_id = str(payload.get("sub") or "").strip()
+    if not subject_id:
+        raise HTTPException(status_code=401, detail=f"{expected_role}_session_invalid")
+    return AuthPrincipal(role=expected_role, subject_id=subject_id, auth_type="session")
+
+
+def _require_admin_auth(
+    x_pomich_admin_token: str | None = None,
+    authorization: str | None = None,
+) -> AuthPrincipal:
+    secret = _configured_admin_secret()
+    bearer_token = _extract_bearer_token(authorization)
+    if bearer_token:
+        return _verify_role_session(bearer_token, "admin", secret)
+    if x_pomich_admin_token != secret:
         raise HTTPException(status_code=401, detail="admin_token_invalid")
+    return AuthPrincipal(role="admin", subject_id="admin", auth_type="shared-secret")
 
 
-def _require_provider_token(token: str | None) -> None:
-    expected_token = os.getenv("POMICH_PROVIDER_TOKEN")
-    if not expected_token:
-        return
-    if token != expected_token:
+def _require_provider_auth(
+    provider_id: str,
+    x_pomich_provider_token: str | None = None,
+    authorization: str | None = None,
+) -> AuthPrincipal:
+    secret = _configured_provider_secret()
+    bearer_token = _extract_bearer_token(authorization)
+    if bearer_token:
+        principal = _verify_role_session(bearer_token, "provider", secret)
+        if principal.subject_id != str(provider_id):
+            raise HTTPException(status_code=403, detail="provider_identity_mismatch")
+        return principal
+    if x_pomich_provider_token != secret:
         raise HTTPException(status_code=401, detail="provider_token_invalid")
+    return AuthPrincipal(role="provider", subject_id=str(provider_id), auth_type="shared-secret")
+
+
+def _apply_verified_telegram_identity(payload: dict, verified_telegram: dict | None) -> None:
+    user = (verified_telegram or {}).get("user") or {}
+    telegram_user_id = str(user.get("id") or "").strip()
+    if not telegram_user_id:
+        return
+
+    payload["telegramUserId"] = telegram_user_id
+    payload["chatId"] = str(payload.get("chatId") or telegram_user_id)
+    payload["customerId"] = str(payload.get("customerId") or f"tg-{telegram_user_id}")
+    if user.get("username") and not payload.get("telegramUsername"):
+        payload["telegramUsername"] = str(user.get("username"))
+    payload["customerIdentity"] = {
+        "type": "telegram",
+        "telegramUserId": telegram_user_id,
+        "username": user.get("username"),
+        "firstName": user.get("first_name"),
+        "lastName": user.get("last_name"),
+    }
 
 
 def _dispatch_conflict(exc: DispatchConflict) -> HTTPException:
@@ -162,8 +301,8 @@ def _dispatch_conflict(exc: DispatchConflict) -> HTTPException:
 
 @app.get("/orders")
 @app.get("/api/orders")
-def list_orders(x_pomich_admin_token: str | None = Header(default=None)) -> list[dict]:
-    _require_admin_token(x_pomich_admin_token)
+def list_orders(x_pomich_admin_token: str | None = Header(default=None), authorization: str | None = Header(default=None)) -> list[dict]:
+    _require_admin_auth(x_pomich_admin_token, authorization)
     return attach_dispatch_to_orders(load_orders(), load_offers())
 
 
@@ -196,18 +335,50 @@ def customer_submit_verification(customer_id: str, payload: dict) -> dict:
 
 @app.patch("/customers/{customer_id}/verification/review")
 @app.patch("/api/customers/{customer_id}/verification/review")
-def customer_review_verification(customer_id: str, payload: dict, x_pomich_admin_token: str | None = Header(default=None)) -> dict:
-    _require_admin_token(x_pomich_admin_token)
+def customer_review_verification(
+    customer_id: str,
+    payload: dict,
+    x_pomich_admin_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+) -> dict:
+    _require_admin_auth(x_pomich_admin_token, authorization)
     try:
         return review_customer_verification(customer_id, payload)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@app.post("/auth/admin/session")
+@app.post("/api/auth/admin/session")
+def create_admin_session(x_pomich_admin_token: str | None = Header(default=None)) -> dict:
+    secret = _configured_admin_secret()
+    if x_pomich_admin_token != secret:
+        raise HTTPException(status_code=401, detail="admin_token_invalid")
+    return _issue_role_session("admin", "admin", secret)
+
+
+@app.post("/auth/provider/session")
+@app.post("/api/auth/provider/session")
+def create_provider_session(payload: dict, x_pomich_provider_token: str | None = Header(default=None)) -> dict:
+    secret = _configured_provider_secret()
+    if x_pomich_provider_token != secret:
+        raise HTTPException(status_code=401, detail="provider_token_invalid")
+    provider_id = str(payload.get("providerId") or "").strip()
+    if not provider_id:
+        raise HTTPException(status_code=400, detail="providerId missing")
+    session = _issue_role_session("provider", provider_id, secret)
+    session["providerId"] = provider_id
+    return session
+
+
 @app.get("/providers/{provider_id}/profile")
 @app.get("/api/providers/{provider_id}/profile")
-def read_provider_profile(provider_id: str, x_pomich_provider_token: str | None = Header(default=None)) -> dict:
-    _require_provider_token(x_pomich_provider_token)
+def read_provider_profile(
+    provider_id: str,
+    x_pomich_provider_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+) -> dict:
+    _require_provider_auth(provider_id, x_pomich_provider_token, authorization)
     provider = get_provider_profile(provider_id)
     if provider is None:
         raise HTTPException(status_code=404, detail="provider profile not found")
@@ -216,8 +387,13 @@ def read_provider_profile(provider_id: str, x_pomich_provider_token: str | None 
 
 @app.patch("/providers/{provider_id}/presence")
 @app.patch("/api/providers/{provider_id}/presence")
-def patch_provider_presence(provider_id: str, payload: dict, x_pomich_provider_token: str | None = Header(default=None)) -> dict:
-    _require_provider_token(x_pomich_provider_token)
+def patch_provider_presence(
+    provider_id: str,
+    payload: dict,
+    x_pomich_provider_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+) -> dict:
+    _require_provider_auth(provider_id, x_pomich_provider_token, authorization)
     status = str(payload.get("status") or "").strip()
     if status not in {"online", "busy", "offline"}:
         raise HTTPException(status_code=400, detail="provider status must be online, busy or offline")
@@ -231,8 +407,13 @@ def patch_provider_presence(provider_id: str, payload: dict, x_pomich_provider_t
 @app.post("/api/providers/{provider_id}/profile")
 @app.patch("/providers/{provider_id}/profile")
 @app.patch("/api/providers/{provider_id}/profile")
-def patch_provider_profile(provider_id: str, payload: dict, x_pomich_provider_token: str | None = Header(default=None)) -> dict:
-    _require_provider_token(x_pomich_provider_token)
+def patch_provider_profile(
+    provider_id: str,
+    payload: dict,
+    x_pomich_provider_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+) -> dict:
+    _require_provider_auth(provider_id, x_pomich_provider_token, authorization)
     try:
         return update_provider_profile(provider_id, payload)
     except ValueError as exc:
@@ -241,8 +422,13 @@ def patch_provider_profile(provider_id: str, payload: dict, x_pomich_provider_to
 
 @app.post("/providers/{provider_id}/verification/submit")
 @app.post("/api/providers/{provider_id}/verification/submit")
-def provider_submit_verification(provider_id: str, payload: dict, x_pomich_provider_token: str | None = Header(default=None)) -> dict:
-    _require_provider_token(x_pomich_provider_token)
+def provider_submit_verification(
+    provider_id: str,
+    payload: dict,
+    x_pomich_provider_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+) -> dict:
+    _require_provider_auth(provider_id, x_pomich_provider_token, authorization)
     try:
         return submit_provider_verification(provider_id, payload)
     except ValueError as exc:
@@ -251,8 +437,13 @@ def provider_submit_verification(provider_id: str, payload: dict, x_pomich_provi
 
 @app.patch("/providers/{provider_id}/verification/review")
 @app.patch("/api/providers/{provider_id}/verification/review")
-def provider_review_verification(provider_id: str, payload: dict, x_pomich_admin_token: str | None = Header(default=None)) -> dict:
-    _require_admin_token(x_pomich_admin_token)
+def provider_review_verification(
+    provider_id: str,
+    payload: dict,
+    x_pomich_admin_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+) -> dict:
+    _require_admin_auth(x_pomich_admin_token, authorization)
     try:
         return review_provider_verification(provider_id, payload)
     except ValueError as exc:
@@ -268,8 +459,10 @@ def create_order(payload: dict) -> dict:
     if source == "telegram-mini-app":
         verified_telegram = _verify_init_data_or_raise(init_data)
         user = (verified_telegram or {}).get("user") or {}
-        if user.get("id") and str(payload.get("telegramUserId") or payload.get("chatId")) != str(user.get("id")):
+        supplied_telegram_id = payload.get("telegramUserId") or payload.get("chatId")
+        if user.get("id") and supplied_telegram_id is not None and str(supplied_telegram_id) != str(user.get("id")):
             raise HTTPException(status_code=401, detail="telegram_user_mismatch")
+        _apply_verified_telegram_identity(payload, verified_telegram)
 
     order = save_order(payload)
     if order.get("status") == "searching":
@@ -304,15 +497,24 @@ def retry_order_dispatch(order_id: str) -> dict:
 
 @app.get("/providers/{provider_id}/offers")
 @app.get("/api/providers/{provider_id}/offers")
-def provider_offers(provider_id: str, x_pomich_provider_token: str | None = Header(default=None)) -> list[dict]:
-    _require_provider_token(x_pomich_provider_token)
+def provider_offers(
+    provider_id: str,
+    x_pomich_provider_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+) -> list[dict]:
+    _require_provider_auth(provider_id, x_pomich_provider_token, authorization)
     return get_provider_offers(provider_id)
 
 
 @app.post("/providers/{provider_id}/offers/{offer_id}/accept")
 @app.post("/api/providers/{provider_id}/offers/{offer_id}/accept")
-def provider_accept_offer(provider_id: str, offer_id: str, x_pomich_provider_token: str | None = Header(default=None)) -> dict:
-    _require_provider_token(x_pomich_provider_token)
+def provider_accept_offer(
+    provider_id: str,
+    offer_id: str,
+    x_pomich_provider_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+) -> dict:
+    _require_provider_auth(provider_id, x_pomich_provider_token, authorization)
     try:
         return accept_offer(offer_id, provider_id)
     except DispatchConflict as exc:
@@ -321,11 +523,16 @@ def provider_accept_offer(provider_id: str, offer_id: str, x_pomich_provider_tok
 
 @app.post("/offers/{offer_id}/accept")
 @app.post("/api/offers/{offer_id}/accept")
-def accept_offer_legacy(offer_id: str, payload: dict, x_pomich_provider_token: str | None = Header(default=None)) -> dict:
-    _require_provider_token(x_pomich_provider_token)
+def accept_offer_legacy(
+    offer_id: str,
+    payload: dict,
+    x_pomich_provider_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+) -> dict:
     provider_id = str(payload.get("providerId") or "").strip()
     if not provider_id:
         raise HTTPException(status_code=400, detail="providerId missing")
+    _require_provider_auth(provider_id, x_pomich_provider_token, authorization)
     try:
         return accept_offer(offer_id, provider_id)
     except DispatchConflict as exc:
@@ -334,8 +541,13 @@ def accept_offer_legacy(offer_id: str, payload: dict, x_pomich_provider_token: s
 
 @app.post("/providers/{provider_id}/offers/{offer_id}/decline")
 @app.post("/api/providers/{provider_id}/offers/{offer_id}/decline")
-def provider_decline_offer(provider_id: str, offer_id: str, x_pomich_provider_token: str | None = Header(default=None)) -> dict:
-    _require_provider_token(x_pomich_provider_token)
+def provider_decline_offer(
+    provider_id: str,
+    offer_id: str,
+    x_pomich_provider_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+) -> dict:
+    _require_provider_auth(provider_id, x_pomich_provider_token, authorization)
     try:
         return decline_offer(offer_id, provider_id)
     except DispatchConflict as exc:
@@ -344,11 +556,16 @@ def provider_decline_offer(provider_id: str, offer_id: str, x_pomich_provider_to
 
 @app.post("/offers/{offer_id}/decline")
 @app.post("/api/offers/{offer_id}/decline")
-def decline_offer_legacy(offer_id: str, payload: dict, x_pomich_provider_token: str | None = Header(default=None)) -> dict:
-    _require_provider_token(x_pomich_provider_token)
+def decline_offer_legacy(
+    offer_id: str,
+    payload: dict,
+    x_pomich_provider_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+) -> dict:
     provider_id = str(payload.get("providerId") or "").strip()
     if not provider_id:
         raise HTTPException(status_code=400, detail="providerId missing")
+    _require_provider_auth(provider_id, x_pomich_provider_token, authorization)
     try:
         return decline_offer(offer_id, provider_id)
     except DispatchConflict as exc:
@@ -357,8 +574,14 @@ def decline_offer_legacy(offer_id: str, payload: dict, x_pomich_provider_token: 
 
 @app.patch("/providers/{provider_id}/orders/{order_id}/status")
 @app.patch("/api/providers/{provider_id}/orders/{order_id}/status")
-def provider_patch_order_status(provider_id: str, order_id: str, payload: dict, x_pomich_provider_token: str | None = Header(default=None)) -> dict:
-    _require_provider_token(x_pomich_provider_token)
+def provider_patch_order_status(
+    provider_id: str,
+    order_id: str,
+    payload: dict,
+    x_pomich_provider_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+) -> dict:
+    _require_provider_auth(provider_id, x_pomich_provider_token, authorization)
     status = str(payload.get("status") or "").strip()
     if not status:
         raise HTTPException(status_code=400, detail="status missing")
@@ -384,8 +607,13 @@ def cancel_order(order_id: str) -> dict:
 
 @app.patch("/orders/{order_id}/status")
 @app.patch("/api/orders/{order_id}/status")
-def patch_order_status(order_id: str, payload: dict, x_pomich_admin_token: str | None = Header(default=None)) -> dict:
-    _require_admin_token(x_pomich_admin_token)
+def patch_order_status(
+    order_id: str,
+    payload: dict,
+    x_pomich_admin_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+) -> dict:
+    _require_admin_auth(x_pomich_admin_token, authorization)
     status = str(payload.get("status") or "").strip()
     if not status:
         raise HTTPException(status_code=400, detail="status missing")
