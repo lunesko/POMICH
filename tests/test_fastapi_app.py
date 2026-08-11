@@ -66,6 +66,18 @@ def _use_provider_auth(monkeypatch) -> dict:
     return PROVIDER_HEADERS
 
 
+def _provider_session_headers(client: TestClient, provider_id: str) -> dict:
+    response = client.post("/api/auth/provider/session", headers=PROVIDER_HEADERS, json={"providerId": provider_id})
+    assert response.status_code == 200
+    return {"Authorization": f"Bearer {response.json()['accessToken']}"}
+
+
+def _admin_session_headers(client: TestClient) -> dict:
+    response = client.post("/api/auth/admin/session", headers=ADMIN_HEADERS)
+    assert response.status_code == 200
+    return {"Authorization": f"Bearer {response.json()['accessToken']}"}
+
+
 def _signed_init_data(payload: dict[str, str], token: str) -> str:
     data_check_string = "\n".join(f"{key}={value}" for key, value in sorted(payload.items()))
     secret_key = hmac.new(b"WebAppData", token.encode("utf-8"), hashlib.sha256).digest()
@@ -77,9 +89,10 @@ def test_fastapi_serves_health_and_api_prefix(monkeypatch) -> None:
     monkeypatch.setenv("POMICH_RUNTIME", "dev")
     monkeypatch.setenv("POMICH_ADMIN_TOKEN", ADMIN_TOKEN)
     client = TestClient(app)
+    admin_headers = _admin_session_headers(client)
 
     health = client.get("/health")
-    orders = client.get("/api/orders", headers=ADMIN_HEADERS)
+    orders = client.get("/api/orders", headers=admin_headers)
     providers = client.get("/api/providers")
 
     assert health.status_code == 200
@@ -135,8 +148,9 @@ def test_production_runtime_config_requires_telegram_public_url(monkeypatch) -> 
 
 def test_fastapi_updates_provider_presence(monkeypatch, tmp_path) -> None:
     _use_temp_store(monkeypatch, tmp_path)
-    provider_headers = _use_provider_auth(monkeypatch)
+    _use_provider_auth(monkeypatch)
     client = TestClient(app)
+    provider_headers = _provider_session_headers(client, "provider-oleksandr")
     client.patch(
         "/api/providers/provider-oleksandr/profile",
         headers=provider_headers,
@@ -162,8 +176,9 @@ def test_fastapi_updates_provider_presence(monkeypatch, tmp_path) -> None:
 
 def test_fastapi_registers_provider_profile(monkeypatch, tmp_path) -> None:
     _use_temp_store(monkeypatch, tmp_path)
-    provider_headers = _use_provider_auth(monkeypatch)
+    _use_provider_auth(monkeypatch)
     client = TestClient(app)
+    provider_headers = _provider_session_headers(client, "provider-oleksandr")
 
     response = client.patch(
         "/api/providers/provider-oleksandr/profile",
@@ -188,6 +203,7 @@ def test_fastapi_customer_profile_and_verification_review(monkeypatch, tmp_path)
     _use_temp_store(monkeypatch, tmp_path)
     monkeypatch.setenv("POMICH_ADMIN_TOKEN", ADMIN_TOKEN)
     client = TestClient(app)
+    admin_headers = _admin_session_headers(client)
 
     profile = client.patch(
         "/api/customers/customer-42/profile",
@@ -200,7 +216,7 @@ def test_fastapi_customer_profile_and_verification_review(monkeypatch, tmp_path)
     reviewed = client.patch(
         "/api/customers/customer-42/verification/review",
         json={"status": "verified", "reviewNote": "Документи збігаються"},
-        headers=ADMIN_HEADERS,
+        headers=admin_headers,
     )
 
     assert profile.status_code == 200
@@ -217,6 +233,8 @@ def test_fastapi_provider_verification_submit_and_admin_review(monkeypatch, tmp_
     monkeypatch.setenv("POMICH_ADMIN_TOKEN", ADMIN_TOKEN)
     monkeypatch.setenv("POMICH_PROVIDER_TOKEN", PROVIDER_TOKEN)
     client = TestClient(app)
+    provider_headers = _provider_session_headers(client, "provider-new")
+    admin_headers = _admin_session_headers(client)
     payload = {
         "name": "Новий партнер",
         "phone": "+380501112233",
@@ -229,12 +247,12 @@ def test_fastapi_provider_verification_submit_and_admin_review(monkeypatch, tmp_
     profile = client.patch(
         "/api/providers/provider-new/profile",
         json=payload,
-        headers=PROVIDER_HEADERS,
+        headers=provider_headers,
     )
     blocked_presence = client.patch(
         "/api/providers/provider-new/presence",
         json={"status": "online", "location": {"lat": 48.63, "lng": 22.27}},
-        headers=PROVIDER_HEADERS,
+        headers=provider_headers,
     )
     submitted = client.post(
         "/api/providers/provider-new/verification/submit",
@@ -245,17 +263,17 @@ def test_fastapi_provider_verification_submit_and_admin_review(monkeypatch, tmp_
             "serviceProofRef": "doc/provider-new/tools",
             "selfieRef": "doc/provider-new/selfie",
         },
-        headers=PROVIDER_HEADERS,
+        headers=provider_headers,
     )
     reviewed = client.patch(
         "/api/providers/provider-new/verification/review",
         json={"status": "verified", "reviewedBy": "dispatcher"},
-        headers=ADMIN_HEADERS,
+        headers=admin_headers,
     )
     accepted_presence = client.patch(
         "/api/providers/provider-new/presence",
         json={"status": "online", "location": {"lat": 48.63, "lng": 22.27}},
-        headers=PROVIDER_HEADERS,
+        headers=provider_headers,
     )
 
     assert profile.status_code == 200
@@ -284,14 +302,22 @@ def test_fastapi_requires_provider_token_when_configured(monkeypatch, tmp_path) 
     }
 
     rejected = client.patch("/api/providers/provider-oleksandr/profile", json=payload)
-    accepted = client.patch(
+    bootstrap_rejected = client.patch(
         "/api/providers/provider-oleksandr/profile",
         json=payload,
         headers=PROVIDER_HEADERS,
     )
+    provider_headers = _provider_session_headers(client, "provider-oleksandr")
+    accepted = client.patch(
+        "/api/providers/provider-oleksandr/profile",
+        json=payload,
+        headers=provider_headers,
+    )
 
     assert rejected.status_code == 401
-    assert rejected.json()["detail"] == "provider_token_invalid"
+    assert rejected.json()["detail"] == "provider_session_required"
+    assert bootstrap_rejected.status_code == 401
+    assert bootstrap_rejected.json()["detail"] == "provider_session_required"
     assert accepted.status_code == 200
     assert accepted.json()["specialties"] == ["tow", "fuel"]
 
@@ -390,19 +416,24 @@ def test_fastapi_rejects_admin_orders_without_token(monkeypatch) -> None:
     client = TestClient(app)
 
     response = client.get("/api/orders")
+    bootstrap_response = client.get("/api/orders", headers=ADMIN_HEADERS)
 
     assert response.status_code == 401
+    assert response.json()["detail"] == "admin_session_required"
+    assert bootstrap_response.status_code == 401
+    assert bootstrap_response.json()["detail"] == "admin_session_required"
 
 
 def test_fastapi_rejects_invalid_order_transition(monkeypatch) -> None:
     monkeypatch.setenv("POMICH_ADMIN_TOKEN", ADMIN_TOKEN)
     client = TestClient(app)
+    admin_headers = _admin_session_headers(client)
 
     created = client.post("/api/orders", json={"service": "tow", "status": "searching"})
     response = client.patch(
         f"/api/orders/{created.json()['id']}/status",
         json={"status": "completed"},
-        headers=ADMIN_HEADERS,
+        headers=admin_headers,
     )
 
     assert response.status_code == 409
@@ -410,7 +441,7 @@ def test_fastapi_rejects_invalid_order_transition(monkeypatch) -> None:
 
 def test_fastapi_dispatches_order_and_first_offer_acceptance_wins(monkeypatch, tmp_path) -> None:
     _use_temp_store(monkeypatch, tmp_path)
-    provider_headers = _use_provider_auth(monkeypatch)
+    _use_provider_auth(monkeypatch)
     order_store.save_providers(
         [
             _api_provider("p1", 48.6218, 22.2879),
@@ -418,6 +449,8 @@ def test_fastapi_dispatches_order_and_first_offer_acceptance_wins(monkeypatch, t
         ],
     )
     client = TestClient(app)
+    first_provider_headers = _provider_session_headers(client, "p1")
+    second_provider_headers = _provider_session_headers(client, "p2")
 
     created = client.post(
         "/api/orders",
@@ -434,10 +467,10 @@ def test_fastapi_dispatches_order_and_first_offer_acceptance_wins(monkeypatch, t
     assert created_order["dispatchState"] == "OFFERS_SENT"
     assert created_order["dispatchInfo"]["offersSent"] == 2
 
-    first_offer = client.get("/api/providers/p1/offers", headers=provider_headers).json()[0]
-    second_offer = client.get("/api/providers/p2/offers", headers=provider_headers).json()[0]
-    accepted = client.post(f"/api/providers/p1/offers/{first_offer['id']}/accept", headers=provider_headers)
-    lost = client.post(f"/api/providers/p2/offers/{second_offer['id']}/accept", headers=provider_headers)
+    first_offer = client.get("/api/providers/p1/offers", headers=first_provider_headers).json()[0]
+    second_offer = client.get("/api/providers/p2/offers", headers=second_provider_headers).json()[0]
+    accepted = client.post(f"/api/providers/p1/offers/{first_offer['id']}/accept", headers=first_provider_headers)
+    lost = client.post(f"/api/providers/p2/offers/{second_offer['id']}/accept", headers=second_provider_headers)
 
     assert accepted.status_code == 200
     assert accepted.json()["order"]["status"] == "assigned"
@@ -452,9 +485,10 @@ def test_fastapi_dispatches_order_and_first_offer_acceptance_wins(monkeypatch, t
 
 def test_fastapi_assigned_provider_can_drive_lifecycle(monkeypatch, tmp_path) -> None:
     _use_temp_store(monkeypatch, tmp_path)
-    provider_headers = _use_provider_auth(monkeypatch)
+    _use_provider_auth(monkeypatch)
     order_store.save_providers([_api_provider("p1", 48.6218, 22.2879)])
     client = TestClient(app)
+    provider_headers = _provider_session_headers(client, "p1")
 
     created_order = client.post(
         "/api/orders",

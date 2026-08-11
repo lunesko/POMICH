@@ -251,11 +251,9 @@ def _require_admin_auth(
 ) -> AuthPrincipal:
     secret = _configured_admin_secret()
     bearer_token = _extract_bearer_token(authorization)
-    if bearer_token:
-        return _verify_role_session(bearer_token, "admin", secret)
-    if x_pomich_admin_token != secret:
-        raise HTTPException(status_code=401, detail="admin_token_invalid")
-    return AuthPrincipal(role="admin", subject_id="admin", auth_type="shared-secret")
+    if not bearer_token:
+        raise HTTPException(status_code=401, detail="admin_session_required")
+    return _verify_role_session(bearer_token, "admin", secret)
 
 
 def _require_provider_auth(
@@ -265,14 +263,12 @@ def _require_provider_auth(
 ) -> AuthPrincipal:
     secret = _configured_provider_secret()
     bearer_token = _extract_bearer_token(authorization)
-    if bearer_token:
-        principal = _verify_role_session(bearer_token, "provider", secret)
-        if principal.subject_id != str(provider_id):
-            raise HTTPException(status_code=403, detail="provider_identity_mismatch")
-        return principal
-    if x_pomich_provider_token != secret:
-        raise HTTPException(status_code=401, detail="provider_token_invalid")
-    return AuthPrincipal(role="provider", subject_id=str(provider_id), auth_type="shared-secret")
+    if not bearer_token:
+        raise HTTPException(status_code=401, detail="provider_session_required")
+    principal = _verify_role_session(bearer_token, "provider", secret)
+    if principal.subject_id != str(provider_id):
+        raise HTTPException(status_code=403, detail="provider_identity_mismatch")
+    return principal
 
 
 def _apply_verified_telegram_identity(payload: dict, verified_telegram: dict | None) -> None:

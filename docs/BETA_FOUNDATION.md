@@ -27,6 +27,8 @@ Done:
 - Offer acceptance uses the SQL runtime transaction path so first-accept-wins is enforced at the database boundary.
 - Provider endpoints require configured backend auth; missing `POMICH_PROVIDER_TOKEN` no longer makes partner routes public.
 - Backend can issue HMAC-signed admin/provider sessions and enforces provider session identity against URL `provider_id`.
+- Backend protected provider/admin routes require bearer sessions; bootstrap shared-secret headers are accepted only by session-issuance endpoints.
+- Web provider/admin flows exchange bootstrap tokens for backend-issued sessions, remove bootstrap tokens from the URL, and use `Authorization: Bearer` for protected operational calls.
 - Public smoke tooling can issue provider sessions, put two providers online, create a real order, verify both offers, assert first-accept-wins, and advance the winning order to completed.
 - Telegram Mini App order creation records the verified Telegram identity into the order payload.
 - Production-like Docker Compose exists with app + Postgres/PostGIS.
@@ -84,14 +86,17 @@ Completed:
 - Provider auth is mandatory on backend partner routes.
 - Admin auth is separate from provider auth.
 - Backend accepts signed admin/provider sessions through `Authorization: Bearer`.
+- Backend no longer accepts provider/admin bootstrap shared-secret headers on operational routes.
 - Provider sessions are scoped to one provider id; a session for Provider A cannot operate Provider B routes.
+- Web provider/admin flows use backend-issued sessions for operational calls instead of sending bootstrap tokens repeatedly.
+- Bootstrap `adminToken`/`providerToken` query params are removed from the URL after they are read.
 - Verified Telegram Mini App orders get backend-attached Telegram customer identity.
 
 Target:
 
 - Customer: guest/session or Telegram identity.
-- Provider: replace bootstrap shared secret UX with provider login/session issuance.
-- Admin: replace query-token UX with admin session/login flow.
+- Provider: replace bootstrap shared secret UX with provider account login/session issuance.
+- Admin: replace bootstrap admin token UX with admin login/session flow.
 - Backend determines role and permissions; UI is never source of truth.
 
 ### 4. Stable Staging

@@ -3,7 +3,7 @@ import { MapContainer, Marker, Polyline, Popup, TileLayer, useMap, useMapEvents 
 import L from "leaflet"
 import "leaflet/dist/leaflet.css"
 
-import { acceptProviderOffer, cancelOrder as cancelOrderRequest, createOrder, declineProviderOffer, getOrder, getOrders, getProviderOffers, getProviders, getTelegramSession, retryDispatch, reviewProviderVerification, submitCustomerVerification, submitProviderVerification, updateCustomerProfile, updateOrderStatus, updateProviderOrderStatus, updateProviderPresence, updateProviderProfile, type CustomerProfile, type DispatchOffer, type OrderResponse, type ProviderAvailability, type VerificationStatus } from "./api/client"
+import { acceptProviderOffer, cancelOrder as cancelOrderRequest, createAdminSession, createOrder, createProviderSession, declineProviderOffer, getOrder, getOrders, getProviderOffers, getProviders, getTelegramSession, retryDispatch, reviewProviderVerification, submitCustomerVerification, submitProviderVerification, updateCustomerProfile, updateOrderStatus, updateProviderOrderStatus, updateProviderPresence, updateProviderProfile, type AuthSession, type CustomerProfile, type DispatchOffer, type OrderResponse, type ProviderAvailability, type VerificationStatus } from "./api/client"
 import {
   calculateDistanceKm,
   calculatePrice,
@@ -142,9 +142,50 @@ function getActiveProviderId() {
 
 function getStoredQueryToken(queryName: string, storageName: string) {
   if (typeof window === "undefined") return undefined
-  const token = new URLSearchParams(window.location.search).get(queryName) ?? window.sessionStorage.getItem(storageName)
+  const url = new URL(window.location.href)
+  const queryToken = url.searchParams.get(queryName)
+  const token = queryToken ?? window.sessionStorage.getItem(storageName)
   if (token) window.sessionStorage.setItem(storageName, token)
+  if (queryToken) {
+    url.searchParams.delete(queryName)
+    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`)
+  }
   return token ?? undefined
+}
+
+const AUTH_SESSION_PREFIX = "pomich_auth_v1."
+
+function isAuthSessionToken(token?: string) {
+  return Boolean(token?.startsWith(AUTH_SESSION_PREFIX))
+}
+
+function authSessionStorageKey(role: "admin" | "provider", subjectId: string) {
+  return `pomichAuthSession:${role}:${subjectId}`
+}
+
+function readStoredAuthSession(storageKey: string, expectedRole: "admin" | "provider", expectedSubjectId: string) {
+  if (typeof window === "undefined") return undefined
+  const rawValue = window.sessionStorage.getItem(storageKey)
+  if (!rawValue) return undefined
+
+  try {
+    const session = JSON.parse(rawValue) as Partial<AuthSession>
+    const expiresAt = Number(session.expiresAt ?? 0)
+    if (session.role !== expectedRole || session.subjectId !== expectedSubjectId || !isAuthSessionToken(session.accessToken) || expiresAt <= Math.floor(Date.now() / 1000) + 30) {
+      window.sessionStorage.removeItem(storageKey)
+      return undefined
+    }
+    return session.accessToken
+  } catch {
+    if (isAuthSessionToken(rawValue)) return rawValue
+    window.sessionStorage.removeItem(storageKey)
+    return undefined
+  }
+}
+
+function storeAuthSession(storageKey: string, session: AuthSession) {
+  if (typeof window === "undefined") return
+  window.sessionStorage.setItem(storageKey, JSON.stringify(session))
 }
 
 function parseApiDateMs(value?: string) {
@@ -366,11 +407,12 @@ function PrimaryButton({ label, onClick, loading = false, disabled = false }: { 
   )
 }
 
-function SecondaryButton({ label, onClick, danger = false }: { label: string; onClick?: () => void; danger?: boolean }) {
+function SecondaryButton({ label, onClick, danger = false, disabled = false }: { label: string; onClick?: () => void; danger?: boolean; disabled?: boolean }) {
   return (
     <button
       onClick={onClick}
-      style={{ width: "100%", minHeight: 46, padding: "12px 14px", borderRadius: 14, background: danger ? "#FFF1F2" : "#F3F4F6", color: danger ? "#BE123C" : "#374151", border: `1px solid ${danger ? "#FECDD3" : BORDER}`, fontSize: 14, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}
+      disabled={disabled}
+      style={{ width: "100%", minHeight: 46, padding: "12px 14px", borderRadius: 14, background: disabled ? "#F3F4F6" : danger ? "#FFF1F2" : "#F3F4F6", color: disabled ? "#9CA3AF" : danger ? "#BE123C" : "#374151", border: `1px solid ${danger ? "#FECDD3" : BORDER}`, fontSize: 14, fontWeight: 800, cursor: disabled ? "not-allowed" : "pointer", fontFamily: "inherit" }}
     >
       {label}
     </button>
@@ -1809,6 +1851,13 @@ function CustomerFlow() {
 
 function ProviderFlow({ providerToken }: { providerToken?: string }) {
   const providerId = useMemo(() => getActiveProviderId(), [])
+  const providerSessionStorageKey = useMemo(() => authSessionStorageKey("provider", providerId), [providerId])
+  const [providerAccessToken, setProviderAccessToken] = useState<string | undefined>(() => {
+    if (isAuthSessionToken(providerToken)) return providerToken
+    return readStoredAuthSession(authSessionStorageKey("provider", getActiveProviderId()), "provider", getActiveProviderId())
+  })
+  const providerAuthToken = providerAccessToken
+  const [authError, setAuthError] = useState<string | undefined>()
   const [step, setStep] = useState<"register" | "duty" | "offer" | "navigation" | "arrived" | "completed">(() => {
     if (typeof window === "undefined") return "register"
     return window.localStorage.getItem(`pomichPartnerRegistered:${getActiveProviderId()}`) ? "duty" : "register"
@@ -1874,6 +1923,38 @@ function ProviderFlow({ providerToken }: { providerToken?: string }) {
   const providerCanGoOnline = isVerified(providerProfile.verificationStatus)
 
   useEffect(() => {
+    if (providerAuthToken) return
+
+    if (!providerToken) {
+      setAuthError("РџР°СЂС‚РЅРµСЂСЃСЊРєР° СЃРµСЃС–СЏ РЅРµ РІС–РґРєСЂРёС‚Р°. РџРѕС‚СЂС–Р±РµРЅ РґРѕСЃС‚СѓРї РІС–Рґ РґРёСЃРїРµС‚С‡РµСЂР°.")
+      return
+    }
+
+    if (isAuthSessionToken(providerToken)) {
+      if (typeof window !== "undefined") window.sessionStorage.setItem(providerSessionStorageKey, providerToken)
+      setProviderAccessToken(providerToken)
+      setAuthError(undefined)
+      return
+    }
+
+    let cancelled = false
+    createProviderSession(providerId, providerToken)
+      .then((session) => {
+        if (cancelled) return
+        storeAuthSession(providerSessionStorageKey, session)
+        setProviderAccessToken(session.accessToken)
+        setAuthError(undefined)
+      })
+      .catch(() => {
+        if (!cancelled) setAuthError("РќРµ РІРґР°Р»РѕСЃСЏ РІС–РґРєСЂРёС‚Рё Р·Р°С…РёС‰РµРЅСѓ СЃРµСЃС–СЋ РїР°СЂС‚РЅРµСЂР°.")
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [providerAuthToken, providerId, providerSessionStorageKey, providerToken])
+
+  useEffect(() => {
     let cancelled = false
 
     getProviders()
@@ -1925,20 +2006,20 @@ function ProviderFlow({ providerToken }: { providerToken?: string }) {
   }, [onDuty])
 
   useEffect(() => {
-    if (!onDuty) return
+    if (!onDuty || !providerAuthToken) return
 
     const heartbeat = () => {
       updateProviderPresence(providerId, {
         status: "online",
         location: providerLocation,
         etaMinutes: providerProfile.etaMinutes ?? provider.etaMinutes,
-      }, providerToken).catch(() => undefined)
+      }, providerAuthToken).catch(() => undefined)
     }
 
     heartbeat()
     const interval = window.setInterval(heartbeat, 12000)
     return () => window.clearInterval(interval)
-  }, [onDuty, providerId, providerLocation, providerProfile.etaMinutes, providerToken])
+  }, [onDuty, providerAuthToken, providerId, providerLocation, providerProfile.etaMinutes])
 
   useEffect(() => {
     const interval = window.setInterval(() => setOfferClock(Date.now()), 1000)
@@ -1946,11 +2027,11 @@ function ProviderFlow({ providerToken }: { providerToken?: string }) {
   }, [])
 
   useEffect(() => {
-    if (!onDuty || activeOrder || step !== "duty") return
+    if (!onDuty || !providerAuthToken || activeOrder || step !== "duty") return
     let cancelled = false
 
     const refreshOffers = () => {
-      getProviderOffers(providerId, providerToken)
+      getProviderOffers(providerId, providerAuthToken)
         .then((offers) => {
           if (!cancelled) {
             setIncomingOffers(Array.isArray(offers) ? offers : [])
@@ -1968,7 +2049,7 @@ function ProviderFlow({ providerToken }: { providerToken?: string }) {
       cancelled = true
       window.clearInterval(interval)
     }
-  }, [activeOrder, onDuty, providerId, providerToken, step])
+  }, [activeOrder, onDuty, providerAuthToken, providerId, step])
 
   const activeOffer = incomingOffers[0]
   const secondsLeft = activeOffer?.expiresAt ? Math.max(0, Math.ceil((parseApiDateMs(activeOffer.expiresAt) - offerClock) / 1000)) : 0
@@ -1977,7 +2058,8 @@ function ProviderFlow({ providerToken }: { providerToken?: string }) {
     setOfferSaving(true)
     setOfferError(undefined)
     try {
-      const result = await acceptProviderOffer(providerId, offer.id, providerToken)
+      if (!providerAuthToken) throw new Error("provider_session_missing")
+      const result = await acceptProviderOffer(providerId, offer.id, providerAuthToken)
       setActiveOrder(result.order)
       setProviderProfile((profile) => ({ ...profile, status: "busy", assignedOrderId: result.order.id } as ProviderAvailability))
       setIncomingOffers([])
@@ -1997,7 +2079,8 @@ function ProviderFlow({ providerToken }: { providerToken?: string }) {
     setOfferSaving(true)
     setOfferError(undefined)
     try {
-      await declineProviderOffer(providerId, offer.id, providerToken)
+      if (!providerAuthToken) throw new Error("provider_session_missing")
+      await declineProviderOffer(providerId, offer.id, providerAuthToken)
       setIncomingOffers((offers) => offers.filter((item) => item.id !== offer.id))
     } catch {
       setOfferError("Не вдалося пропустити заявку.")
@@ -2009,7 +2092,8 @@ function ProviderFlow({ providerToken }: { providerToken?: string }) {
   const advanceProviderOrder = async (nextStatus: OrderStatus) => {
     if (!activeOrder?.id) return
     try {
-      const order = await updateProviderOrderStatus(providerId, activeOrder.id, nextStatus, providerToken)
+      if (!providerAuthToken) throw new Error("provider_session_missing")
+      const order = await updateProviderOrderStatus(providerId, activeOrder.id, nextStatus, providerAuthToken)
       const normalizedStatus = normalizeOrderStatus(order.status)
       setActiveOrder(order)
       if (normalizedStatus === "completed" || normalizedStatus === "cancelled") {
@@ -2047,10 +2131,11 @@ function ProviderFlow({ providerToken }: { providerToken?: string }) {
     setRegistrationSaving(true)
     setRegistrationError(undefined)
     try {
+      if (!providerAuthToken) throw new Error("provider_session_missing")
       const updated = await updateProviderProfile(providerId, {
         ...registrationForm,
         location: providerLocation,
-      }, providerToken)
+      }, providerAuthToken)
       const documentsReady = Boolean(registrationForm.identityDocumentRef.trim() && registrationForm.driverLicenseRef.trim() && registrationForm.vehicleRegistrationRef.trim() && registrationForm.serviceProofRef.trim() && registrationForm.selfieRef.trim())
       const trustedProfile = documentsReady
         ? await submitProviderVerification(providerId, {
@@ -2059,7 +2144,7 @@ function ProviderFlow({ providerToken }: { providerToken?: string }) {
           vehicleRegistrationRef: registrationForm.vehicleRegistrationRef,
           serviceProofRef: registrationForm.serviceProofRef,
           selfieRef: registrationForm.selfieRef,
-        }, providerToken)
+        }, providerAuthToken)
         : updated
       setProviderProfile((profile) => ({ ...profile, ...trustedProfile, specialties: toServiceKeys(trustedProfile.specialties) }))
       if (typeof window !== "undefined") window.localStorage.setItem(`pomichPartnerRegistered:${providerId}`, "1")
@@ -2079,11 +2164,12 @@ function ProviderFlow({ providerToken }: { providerToken?: string }) {
     setPresenceSaving(true)
     setOnDuty(nextDuty)
     try {
+      if (!providerAuthToken) throw new Error("provider_session_missing")
       await updateProviderPresence(providerId, {
         status: nextDuty ? "online" : "offline",
         location: providerLocation,
         etaMinutes: providerProfile.etaMinutes ?? provider.etaMinutes,
-      }, providerToken)
+      }, providerAuthToken)
     } catch {
       // The local UI still changes so the duty scenario remains usable in demo mode.
     } finally {
@@ -2106,7 +2192,7 @@ function ProviderFlow({ providerToken }: { providerToken?: string }) {
       <ProviderRegistrationStep
         form={registrationForm}
         saving={registrationSaving}
-        error={registrationError}
+        error={authError ?? registrationError}
         onChange={updateRegistrationForm}
         onToggleSpecialty={toggleRegistrationSpecialty}
         onSubmit={saveRegistration}
@@ -2129,9 +2215,10 @@ function ProviderFlow({ providerToken }: { providerToken?: string }) {
     }
 
     return (
-      <ScreenLayout footer={onDuty ? <div style={{ display: "grid", gap: 10 }}><PrimaryButton label="Дивитися заявки поруч" onClick={() => setStep("offer")} /><SecondaryButton label="Піти з лінії" onClick={() => setDuty(false)} /><SecondaryButton label="Редагувати профіль" onClick={() => setStep("register")} /></div> : <div style={{ display: "grid", gap: 10 }}><PrimaryButton label={!providerCanGoOnline ? "Очікує перевірки" : presenceSaving ? "Оновлюємо статус…" : "Вийти на лінію"} onClick={() => setDuty(true)} disabled={!providerCanGoOnline || presenceSaving} /><SecondaryButton label="Редагувати профіль" onClick={() => setStep("register")} /></div>}>
+      <ScreenLayout footer={onDuty ? <div style={{ display: "grid", gap: 10 }}><PrimaryButton label="Дивитися заявки поруч" onClick={() => setStep("offer")} disabled={!providerAuthToken} /><SecondaryButton label="Піти з лінії" onClick={() => setDuty(false)} disabled={!providerAuthToken} /><SecondaryButton label="Редагувати профіль" onClick={() => setStep("register")} /></div> : <div style={{ display: "grid", gap: 10 }}><PrimaryButton label={!providerCanGoOnline ? "Очікує перевірки" : presenceSaving ? "Оновлюємо статус…" : "Вийти на лінію"} onClick={() => setDuty(true)} disabled={!providerAuthToken || !providerCanGoOnline || presenceSaving} /><SecondaryButton label="Редагувати профіль" onClick={() => setStep("register")} /></div>}>
         <Header title="Партнер POMICH" subtitle={onDuty ? "Ви на лінії та бачите заявки поруч" : "Почніть зміну, щоб клієнти бачили вас на карті"} />
         <div style={{ padding: "0 16px 16px", display: "grid", gap: 12 }}>
+          {authError ? <div style={{ background: "#FFF1F2", color: "#BE123C", borderRadius: 14, padding: 12, fontWeight: 800 }}>{authError}</div> : null}
           <RouteMap pickup={providerLocation} providers={[providerPresence]} subtitle={onDuty ? "Ваша позиція активна" : "Ваша позиція прихована для клієнтів"} />
           <div style={{ background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 18, padding: 16 }}>
             <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
@@ -2304,22 +2391,67 @@ function nextOrderStatuses(status: OrderStatus): OrderStatus[] {
 }
 
 function AdminFlow({ adminToken }: { adminToken?: string }) {
+  const adminSessionStorageKey = useMemo(() => authSessionStorageKey("admin", "admin"), [])
+  const [adminAccessToken, setAdminAccessToken] = useState<string | undefined>(() => {
+    if (isAuthSessionToken(adminToken)) return adminToken
+    return readStoredAuthSession(authSessionStorageKey("admin", "admin"), "admin", "admin")
+  })
+  const adminAuthToken = adminAccessToken
   const [orders, setOrders] = useState<OrderResponse[]>([])
   const [providers, setProviders] = useState<ProviderAvailability[]>([])
   const [selectedStatus, setSelectedStatus] = useState<OrderStatus | "all">("all")
   const [selectedOrderId, setSelectedOrderId] = useState<string | undefined>()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | undefined>()
+  const [authError, setAuthError] = useState<string | undefined>()
+
+  useEffect(() => {
+    if (adminAuthToken) return
+
+    if (!adminToken) {
+      setAuthError("Адмін-сесія не відкрита.")
+      return
+    }
+
+    if (isAuthSessionToken(adminToken)) {
+      if (typeof window !== "undefined") window.sessionStorage.setItem(adminSessionStorageKey, adminToken)
+      setAdminAccessToken(adminToken)
+      setAuthError(undefined)
+      return
+    }
+
+    let cancelled = false
+    createAdminSession(adminToken)
+      .then((session) => {
+        if (cancelled) return
+        storeAuthSession(adminSessionStorageKey, session)
+        setAdminAccessToken(session.accessToken)
+        setAuthError(undefined)
+      })
+      .catch(() => {
+        if (!cancelled) setAuthError("Не вдалося відкрити захищену адмін-сесію.")
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [adminAuthToken, adminSessionStorageKey, adminToken])
 
   const refresh = () => {
     setLoading(true)
-    getOrders(adminToken)
-      .then((items) => {
-        setOrders(items.slice().reverse())
-        setError(undefined)
-      })
-      .catch(() => setError("Не вдалося завантажити заявки."))
-      .finally(() => setLoading(false))
+    if (!adminAuthToken) {
+      setOrders([])
+      setError(authError ?? "Очікуємо захищену адмін-сесію.")
+      setLoading(false)
+    } else {
+      getOrders(adminAuthToken)
+        .then((items) => {
+          setOrders(items.slice().reverse())
+          setError(undefined)
+        })
+        .catch(() => setError("Не вдалося завантажити заявки."))
+        .finally(() => setLoading(false))
+    }
 
     getProviders()
       .then((items) => setProviders(Array.isArray(items) ? items : []))
@@ -2330,7 +2462,7 @@ function AdminFlow({ adminToken }: { adminToken?: string }) {
     refresh()
     const interval = window.setInterval(refresh, 10000)
     return () => window.clearInterval(interval)
-  }, [adminToken])
+  }, [adminAuthToken, authError])
 
   const filteredOrders = orders.filter((order) => selectedStatus === "all" || normalizeOrderStatus(order.status) === selectedStatus)
   const selectedOrder = filteredOrders.find((order) => order.id === selectedOrderId) ?? filteredOrders[0]
@@ -2346,7 +2478,8 @@ function AdminFlow({ adminToken }: { adminToken?: string }) {
   const setOrderStatus = async (order: OrderResponse, status: OrderStatus) => {
     if (!order.id) return
     try {
-      const updated = await updateOrderStatus(order.id, status, adminToken)
+      if (!adminAuthToken) throw new Error("admin_session_missing")
+      const updated = await updateOrderStatus(order.id, status, adminAuthToken)
       setOrders((items) => items.map((item) => item.id === order.id ? { ...item, ...updated } : item))
       setError(undefined)
     } catch {
@@ -2356,7 +2489,8 @@ function AdminFlow({ adminToken }: { adminToken?: string }) {
 
   const setProviderVerification = async (item: ProviderAvailability, status: "verified" | "rejected") => {
     try {
-      const updated = await reviewProviderVerification(item.id, { status }, adminToken)
+      if (!adminAuthToken) throw new Error("admin_session_missing")
+      const updated = await reviewProviderVerification(item.id, { status }, adminAuthToken)
       setProviders((items) => items.map((providerItem) => providerItem.id === item.id ? { ...providerItem, ...updated } : providerItem))
       setError(undefined)
     } catch {

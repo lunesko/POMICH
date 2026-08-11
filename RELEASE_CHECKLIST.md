@@ -16,8 +16,10 @@ The beta release should prove a shorter and more predictable **Time To Rescue**:
 - `POMICH_CORS_ORIGINS` contains exact HTTPS origin(s), never `*`.
 - `POMICH_ADMIN_TOKEN` is a long random backend-only secret.
 - `POMICH_PROVIDER_TOKEN` is set as a backend-only bootstrap secret for issuing provider sessions.
-- Provider/admin operational routes require backend auth; missing provider auth must return `provider_auth_not_configured`, not allow access.
+- Provider/admin operational routes require bearer sessions; bootstrap token headers are valid only on `/api/auth/*/session`.
+- Missing provider auth must return `provider_auth_not_configured` when provider auth is not configured and `provider_session_required` when a session is missing.
 - Signed provider sessions must be scoped to one provider id.
+- Web provider/admin flows use `Authorization: Bearer` sessions for operational calls and remove bootstrap tokens from the URL after reading them.
 - `TELEGRAM_BOT_TOKEN` is stored only on the backend.
 - `WEB_APP_URL` points to the public HTTPS app URL.
 - `DATABASE_URL` is configured for SQL runtime storage. JSON production storage requires explicit `POMICH_ALLOW_JSON_STORE_IN_PRODUCTION=true` and is only acceptable for a very small pilot.
@@ -41,6 +43,7 @@ The beta release should prove a shorter and more predictable **Time To Rescue**:
 9. Accept with Partner A and confirm Partner B receives `409 ORDER_ALREADY_ACCEPTED`.
 10. Advance the accepted order through `en_route`, `arrived`, `in_progress`, and `completed`.
 11. Confirm no CORS errors and no localhost API requests in Network.
+12. Confirm partner/admin operational requests use `Authorization: Bearer`, not repeated bootstrap-token headers.
 
 ## Beta E2E Gate
 The staging Playwright flow must pass end to end: Partner A online, Partner B online, customer creates order, offers are created, Partner A accepts, Partner B loses the race, customer sees Partner A, then status advances through `EN_ROUTE`, `ARRIVED`, `IN_PROGRESS`, and `COMPLETED`.

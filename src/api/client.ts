@@ -160,19 +160,17 @@ export async function createOrder(payload: Record<string, unknown>) {
   return response.json() as Promise<OrderResponse>
 }
 
-function authHeaders(token: string | undefined, sharedSecretHeader: string): Record<string, string> | undefined {
+function authHeaders(token: string | undefined): Record<string, string> | undefined {
   if (!token) return undefined
-  return token.startsWith('pomich_auth_v1.')
-    ? { Authorization: `Bearer ${token}` }
-    : { [sharedSecretHeader]: token }
+  return token.startsWith('pomich_auth_v1.') ? { Authorization: `Bearer ${token}` } : undefined
 }
 
 function adminHeaders(adminToken?: string) {
-  return authHeaders(adminToken, 'X-POMICH-Admin-Token')
+  return authHeaders(adminToken)
 }
 
 function providerHeaders(providerToken?: string) {
-  return authHeaders(providerToken, 'X-POMICH-Provider-Token')
+  return authHeaders(providerToken)
 }
 
 function providerJsonHeaders(providerToken?: string): Record<string, string> {

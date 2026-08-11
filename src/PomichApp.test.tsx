@@ -25,6 +25,7 @@ describe('POMICH role-based flows', () => {
     vi.unstubAllGlobals()
     window.history.pushState({}, '', '/')
     window.localStorage.clear()
+    window.sessionStorage.clear()
   })
 
   async function openCustomerHome(user: ReturnType<typeof userEvent.setup>) {
@@ -79,16 +80,50 @@ describe('POMICH role-based flows', () => {
 
   it('lets a provider go on duty before seeing offers', async () => {
     const user = userEvent.setup()
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        id: 'provider-oleksandr',
-        name: 'Олександр',
-        status: 'online',
-        registeredAt: '2026-08-09T00:00:00',
-        specialties: ['tow', 'fuel'],
-        serviceRadiusKm: 9,
-      }),
+    const providerSessionToken = 'pomich_auth_v1.provider-session'
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/auth/provider/session')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            role: 'provider',
+            subjectId: 'provider-oleksandr',
+            providerId: 'provider-oleksandr',
+            tokenType: 'Bearer',
+            accessToken: providerSessionToken,
+            expiresAt: Math.floor(Date.now() / 1000) + 3600,
+          }),
+        })
+      }
+      if (url.endsWith('/providers')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => [
+            {
+              id: 'provider-oleksandr',
+              name: 'Олександр',
+              status: 'offline',
+              registeredAt: '2026-08-09T00:00:00',
+              verificationStatus: 'verified',
+              specialties: ['tow', 'fuel'],
+              serviceRadiusKm: 9,
+            },
+          ],
+        })
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          id: 'provider-oleksandr',
+          name: 'Олександр',
+          status: 'online',
+          registeredAt: '2026-08-09T00:00:00',
+          verificationStatus: 'verified',
+          specialties: ['tow', 'fuel'],
+          serviceRadiusKm: 9,
+        }),
+      })
     })
     vi.stubGlobal('fetch', fetchMock)
     window.history.pushState({}, '', '/?providerToken=partner-secret')
@@ -98,6 +133,17 @@ describe('POMICH role-based flows', () => {
     await user.click(screen.getByRole('button', { name: /Прийняти заявку/i }))
     expect(screen.getByText('Реєстрація партнера')).toBeInTheDocument()
     expect(screen.getByText('Ваші послуги')).toBeInTheDocument()
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/auth/provider/session'),
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({ 'X-POMICH-Provider-Token': 'partner-secret' }),
+        }),
+      )
+    })
+    expect(window.location.search).not.toContain('providerToken')
 
     await user.click(screen.getByRole('button', { name: /Зберегти профіль/i }))
 
@@ -112,7 +158,7 @@ describe('POMICH role-based flows', () => {
         expect.stringContaining('/providers/provider-oleksandr/presence'),
         expect.objectContaining({
           method: 'PATCH',
-          headers: expect.objectContaining({ 'X-POMICH-Provider-Token': 'partner-secret' }),
+          headers: expect.objectContaining({ Authorization: `Bearer ${providerSessionToken}` }),
         }),
       )
     })
@@ -165,8 +211,21 @@ describe('POMICH role-based flows', () => {
 
   it('opens the admin panel and updates an order status', async () => {
     const user = userEvent.setup()
+    const adminSessionToken = 'pomich_auth_v1.admin-session'
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
+      if (url.includes('/auth/admin/session')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            role: 'admin',
+            subjectId: 'admin',
+            tokenType: 'Bearer',
+            accessToken: adminSessionToken,
+            expiresAt: Math.floor(Date.now() / 1000) + 3600,
+          }),
+        })
+      }
       if (url.includes('/orders/PM-1/status')) {
         return Promise.resolve({
           ok: true,
@@ -201,7 +260,8 @@ describe('POMICH role-based flows', () => {
     render(<CustomerApp />)
 
     expect(await screen.findByText('Адмін панель')).toBeInTheDocument()
-    expect(screen.getAllByText('PM-1')).toHaveLength(2)
+    expect(window.location.search).not.toContain('adminToken')
+    expect(await screen.findAllByText('PM-1')).toHaveLength(2)
     expect(screen.getByText('Картка заявки')).toBeInTheDocument()
 
     const statusButtons = screen.getAllByRole('button', { name: /Виконавця призначено/i })
@@ -212,7 +272,7 @@ describe('POMICH role-based flows', () => {
         expect.stringContaining('/orders/PM-1/status'),
         expect.objectContaining({
           method: 'PATCH',
-          headers: expect.objectContaining({ 'X-POMICH-Admin-Token': 'test-admin' }),
+          headers: expect.objectContaining({ Authorization: `Bearer ${adminSessionToken}` }),
         }),
       )
     })
