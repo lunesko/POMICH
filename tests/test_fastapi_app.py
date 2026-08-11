@@ -2,8 +2,10 @@ from datetime import datetime
 
 from fastapi.testclient import TestClient
 
+from bot import fastapi_app
 from bot import order_store
-from bot.fastapi_app import app
+
+app = fastapi_app.app
 
 
 def _api_provider(provider_id: str, lat: float, lng: float) -> dict:
@@ -51,6 +53,7 @@ def _use_temp_store(monkeypatch, tmp_path) -> tuple:
 
 
 def test_fastapi_serves_health_and_api_prefix(monkeypatch) -> None:
+    monkeypatch.setenv("POMICH_RUNTIME", "dev")
     monkeypatch.setenv("POMICH_ADMIN_TOKEN", "test-admin")
     client = TestClient(app)
 
@@ -60,10 +63,49 @@ def test_fastapi_serves_health_and_api_prefix(monkeypatch) -> None:
 
     assert health.status_code == 200
     assert health.json()["status"] == "ok"
+    assert health.json()["runtime"] == "dev"
     assert orders.status_code == 200
     assert isinstance(orders.json(), list)
     assert providers.status_code == 200
     assert isinstance(providers.json(), list)
+
+
+def test_production_runtime_config_rejects_insecure_defaults(monkeypatch) -> None:
+    monkeypatch.setenv("POMICH_RUNTIME", "production")
+    monkeypatch.setenv("POMICH_CORS_ORIGINS", "*")
+    monkeypatch.setenv("POMICH_ADMIN_TOKEN", "replace-me-admin-token")
+    monkeypatch.delenv("POMICH_PROVIDER_TOKEN", raising=False)
+
+    errors = fastapi_app._runtime_config_errors()
+
+    assert any("POMICH_CORS_ORIGINS" in error for error in errors)
+    assert any("POMICH_ADMIN_TOKEN" in error for error in errors)
+    assert any("POMICH_PROVIDER_TOKEN" in error for error in errors)
+
+
+def test_production_runtime_config_accepts_release_settings(monkeypatch) -> None:
+    monkeypatch.setenv("POMICH_RUNTIME", "production")
+    monkeypatch.setenv("POMICH_CORS_ORIGINS", "https://app.pomich.example,https://admin.pomich.example")
+    monkeypatch.setenv("POMICH_ADMIN_TOKEN", "admin-secret-1234567890-release")
+    monkeypatch.setenv("POMICH_PROVIDER_TOKEN", "provider-secret-1234567890-release")
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("VITE_TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.setenv("WEB_APP_URL", "https://app.pomich.example")
+
+    assert fastapi_app._runtime_config_errors() == []
+
+
+def test_production_runtime_config_requires_telegram_public_url(monkeypatch) -> None:
+    monkeypatch.setenv("POMICH_RUNTIME", "production")
+    monkeypatch.setenv("POMICH_CORS_ORIGINS", "https://app.pomich.example")
+    monkeypatch.setenv("POMICH_ADMIN_TOKEN", "admin-secret-1234567890-release")
+    monkeypatch.setenv("POMICH_PROVIDER_TOKEN", "provider-secret-1234567890-release")
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123456:telegram-token")
+    monkeypatch.delenv("WEB_APP_URL", raising=False)
+
+    errors = fastapi_app._runtime_config_errors()
+
+    assert any("WEB_APP_URL" in error for error in errors)
 
 
 def test_fastapi_updates_provider_presence(monkeypatch, tmp_path) -> None:

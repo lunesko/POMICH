@@ -38,15 +38,75 @@ from bot.order_store import (
 from bot.telegram_auth import verify_telegram_init_data
 from bot.telegram_bot import get_configured_token, handle_update, notify_order_created
 
-app = FastAPI(title="POMICH MVP", version="0.1.0")
 DIST_DIR = Path(__file__).resolve().parent.parent / "dist"
 ASSETS_DIR = DIST_DIR / "assets"
+_PLACEHOLDER_SECRET_FRAGMENTS = ("replace-me", "change-this", "changeme", "example", "placeholder")
+
+
+def _is_production_runtime() -> bool:
+    runtime = os.getenv("POMICH_RUNTIME") or os.getenv("VITE_APP_ENV") or "dev"
+    return runtime.strip().lower() in {"prod", "production"}
+
+
+def _is_public_https_origin(origin: str) -> bool:
+    normalized = origin.strip().lower()
+    if not normalized.startswith("https://"):
+        return False
+    return not any(host in normalized for host in ("localhost", "127.0.0.1", "0.0.0.0", "::1", "*"))
+
+
+def _is_configured_secret(value: str | None, *, min_length: int = 24) -> bool:
+    normalized = (value or "").strip()
+    if len(normalized) < min_length:
+        return False
+    return not any(fragment in normalized.lower() for fragment in _PLACEHOLDER_SECRET_FRAGMENTS)
+
 
 def _get_cors_origins() -> list[str]:
     raw_origins = os.getenv("POMICH_CORS_ORIGINS", "*")
     origins = [origin.strip() for origin in raw_origins.split(",") if origin.strip()]
     return origins or ["*"]
 
+
+def _runtime_config_errors() -> list[str]:
+    if not _is_production_runtime():
+        return []
+
+    errors: list[str] = []
+    cors_origins = _get_cors_origins()
+
+    if "*" in cors_origins:
+        errors.append("POMICH_CORS_ORIGINS must use exact HTTPS origins in production")
+    else:
+        invalid_origins = [origin for origin in cors_origins if not _is_public_https_origin(origin)]
+        if invalid_origins:
+            errors.append("POMICH_CORS_ORIGINS contains non-public or non-HTTPS origins")
+
+    if not _is_configured_secret(os.getenv("POMICH_ADMIN_TOKEN")):
+        errors.append("POMICH_ADMIN_TOKEN must be a non-placeholder secret in production")
+
+    if not _is_configured_secret(os.getenv("POMICH_PROVIDER_TOKEN")):
+        errors.append("POMICH_PROVIDER_TOKEN must be set in production so partner endpoints are protected")
+
+    web_app_url = (os.getenv("WEB_APP_URL") or "").strip()
+    telegram_token = (os.getenv("TELEGRAM_BOT_TOKEN") or os.getenv("VITE_TELEGRAM_BOT_TOKEN") or "").strip()
+    if telegram_token and not web_app_url:
+        errors.append("WEB_APP_URL must be set when Telegram is configured in production")
+    elif telegram_token and not _is_public_https_origin(web_app_url):
+        errors.append("WEB_APP_URL must be a public HTTPS URL when Telegram is configured in production")
+
+    return errors
+
+
+def _validate_runtime_config() -> None:
+    errors = _runtime_config_errors()
+    if errors:
+        raise RuntimeError(f"Invalid POMICH production configuration: {'; '.join(errors)}")
+
+
+_validate_runtime_config()
+
+app = FastAPI(title="POMICH MVP", version="0.1.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -60,7 +120,7 @@ app.add_middleware(
 @app.get("/health")
 @app.get("/api/health")
 def health() -> dict:
-    return {"status": "ok", "protocol": "fastapi"}
+    return {"status": "ok", "protocol": "fastapi", "runtime": "production" if _is_production_runtime() else "dev"}
 
 
 def _verify_init_data_or_raise(init_data: str | None) -> dict | None:

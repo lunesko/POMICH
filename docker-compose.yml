@@ -6,4 +6,9 @@ services:
       - "8000:8000"
     env_file:
       - .env
+    volumes:
+      - pomich-data:/app/data
     restart: unless-stopped
+
+volumes:
+  pomich-data:
