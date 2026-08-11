@@ -19,6 +19,9 @@ Done:
 - SQL runtime storage exists behind the current API without breaking UI/API contracts.
 - Normalized runtime tables exist for `customers`, `providers`, `provider_presence`, `orders`, `dispatch_offers`, `sessions`, and `order_events`.
 - PostGIS extension/index setup is prepared for PostgreSQL runtime.
+- Provider candidate search runs through the SQL runtime path with `online`, `verified`, capability, TTL, assignment, and radius filters.
+- PostgreSQL candidate search uses `ST_DWithin`/`ST_Distance`; SQLite keeps a portable SQL + Haversine test adapter.
+- Offer acceptance uses the SQL runtime transaction path so first-accept-wins is enforced at the database boundary.
 - Production-like Docker Compose exists with app + Postgres/PostGIS.
 
 ## Work Sequence
@@ -46,13 +49,14 @@ Completed:
 - Runtime data is split into normalized tables.
 - API and UI remain unchanged.
 - JSON remains dev/test adapter.
+- Provider candidate matching is no longer Python-list-only on the SQL runtime path.
+- First-accept-wins has a SQL transaction path with a regression test where one provider accepts and the second receives `ORDER_ALREADY_ACCEPTED`.
 
 Next:
 
-- Move provider candidate search into SQL/PostGIS query.
-- Move first-accept-wins into a database transaction with row locking.
 - Add explicit migrations instead of startup-only schema creation.
 - Add indexes around `status`, `service`, `provider_id`, `order_id`, and coordinates.
+- Run the dispatch race gate against a real Postgres/PostGIS service in staging.
 
 Target dispatch query shape:
 
@@ -176,4 +180,3 @@ Routing later: OSRM or Valhalla.
 We are not building a towing app.
 
 We are building dispatch infrastructure for physical roadside help.
-

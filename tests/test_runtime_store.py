@@ -1,10 +1,13 @@
-from datetime import datetime
+from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta
 
 import pytest
 from sqlalchemy import func, inspect, select
 
 from bot import runtime_store
 from bot.order_store import (
+    DispatchConflict,
     accept_offer,
     dispatch_order,
     get_provider_offers,
@@ -30,9 +33,20 @@ def sql_runtime(monkeypatch, tmp_path):
     runtime_store.reset_runtime_store_for_tests()
 
 
-def _provider(provider_id, lat, lng):
+def _provider(
+    provider_id,
+    lat,
+    lng,
+    *,
+    specialties=None,
+    status="online",
+    verification_status="verified",
+    radius=50,
+    assigned_order_id=None,
+    last_seen_at=None,
+):
     now = datetime.utcnow().isoformat(timespec="seconds")
-    return {
+    payload = {
         "id": provider_id,
         "name": provider_id,
         "rating": 4.8,
@@ -40,12 +54,12 @@ def _provider(provider_id, lat, lng):
         "plate": "TEST",
         "phone": "+380000000000",
         "telegram": "pomich_help_bot",
-        "status": "online",
+        "status": status,
         "etaMinutes": 10,
         "location": {"lat": lat, "lng": lng},
-        "specialties": ["tow"],
-        "serviceRadiusKm": 50,
-        "verificationStatus": "verified",
+        "specialties": specialties or ["tow"],
+        "serviceRadiusKm": radius,
+        "verificationStatus": verification_status,
         "verification": {
             "identityDocument": True,
             "driverLicense": True,
@@ -56,10 +70,13 @@ def _provider(provider_id, lat, lng):
         },
         "registeredAt": now,
         "profileUpdatedAt": now,
-        "lastSeenAt": now,
-        "lastLocationAt": now,
-        "updatedAt": now,
+        "lastSeenAt": last_seen_at or now,
+        "lastLocationAt": last_seen_at or now,
+        "updatedAt": last_seen_at or now,
     }
+    if assigned_order_id:
+        payload["assignedOrderId"] = assigned_order_id
+    return payload
 
 
 def test_sql_runtime_store_persists_orders_without_json_file(sql_runtime):
@@ -89,6 +106,61 @@ def test_sql_runtime_store_supports_dispatch_and_offer_acceptance(sql_runtime):
     assert _table_count(runtime_store.provider_presence) == 1
     assert _table_count(runtime_store.dispatch_offers) == 1
     assert _table_count(runtime_store.order_events) >= 1
+
+
+def test_sql_dispatch_filters_candidates_in_database(sql_runtime):
+    stale_time = (datetime.utcnow() - timedelta(seconds=120)).isoformat(timespec="seconds")
+    save_providers(
+        [
+            _provider("eligible", 50.4501, 30.5234),
+            _provider("wrong-service", 50.4501, 30.5234, specialties=["fuel"]),
+            _provider("offline", 50.4501, 30.5234, status="offline"),
+            _provider("unverified", 50.4501, 30.5234, verification_status="pending"),
+            _provider("busy", 50.4501, 30.5234, assigned_order_id="PM-BUSY"),
+            _provider("stale", 50.4501, 30.5234, last_seen_at=stale_time),
+            _provider("too-far", 50.9001, 30.9234, radius=3),
+        ]
+    )
+    order = save_order({"service": "tow", "customerCoordinates": {"lat": 50.4502, "lng": 30.5235}})
+
+    dispatched = dispatch_order(order["id"])
+    offers = load_offers()
+
+    assert dispatched is not None
+    assert dispatched["dispatchState"] == "OFFERS_SENT"
+    assert dispatched["dispatchInfo"]["eligibleProviders"] == 1
+    assert [offer["providerId"] for offer in offers] == ["eligible"]
+
+
+def test_sql_first_accept_wins_with_transaction(sql_runtime):
+    save_providers(
+        [
+            _provider("p1", 50.4501, 30.5234),
+            _provider("p2", 50.4503, 30.5236),
+        ]
+    )
+    order = save_order({"service": "tow", "customerCoordinates": {"lat": 50.4502, "lng": 30.5235}})
+    dispatch_order(order["id"])
+    pending_offers = load_offers()
+
+    def try_accept(offer):
+        try:
+            result = accept_offer(offer["id"], offer["providerId"])
+            return ("accepted", result["provider"]["id"])
+        except DispatchConflict as exc:
+            return ("conflict", exc.code)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(try_accept, pending_offers))
+
+    result_counts = Counter(result[0] for result in results)
+    accepted_provider_id = next(value for status, value in results if status == "accepted")
+
+    assert result_counts == {"accepted": 1, "conflict": 1}
+    assert ("conflict", "ORDER_ALREADY_ACCEPTED") in results
+    assert Counter(offer["status"] for offer in load_offers()) == {"accepted": 1, "lost": 1}
+    assert load_orders()[0]["assignedProviderId"] == accepted_provider_id
+    assert {provider["id"]: provider for provider in load_providers()}[accepted_provider_id]["status"] == "busy"
 
 
 def test_sql_runtime_store_preserves_explicit_empty_provider_collection(sql_runtime):

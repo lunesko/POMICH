@@ -1,16 +1,24 @@
 import json
+import math
 import os
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import JSON, Column, DateTime, Float, Index, MetaData, String, Table, create_engine, delete, insert, select, text
+from sqlalchemy import JSON, Column, DateTime, Float, Index, MetaData, String, Table, bindparam, create_engine, delete, insert, inspect, select, text, update
 from sqlalchemy.engine import Engine
 
 _STORE_LOCK = threading.RLock()
 _ENGINE: Engine | None = None
 _ENGINE_URL: str | None = None
 _METADATA = MetaData()
+
+
+class SqlDispatchConflict(ValueError):
+    def __init__(self, code: str, message: str) -> None:
+        self.code = code
+        self.message = message
+        super().__init__(message)
 
 customers = Table(
     "customers",
@@ -36,6 +44,7 @@ providers = Table(
     Column("telegram", String(180)),
     Column("vehicle", String(180)),
     Column("plate", String(80)),
+    Column("capabilities", String(320)),
     Column("rating", Float),
     Column("verification_status", String(40)),
     Column("service_radius_km", Float),
@@ -127,6 +136,7 @@ Index("idx_orders_assigned_provider", orders.c.assigned_provider_id)
 Index("idx_orders_customer_location", orders.c.customer_lat, orders.c.customer_lng)
 Index("idx_provider_presence_status", provider_presence.c.status)
 Index("idx_provider_presence_location", provider_presence.c.lat, provider_presence.c.lng)
+Index("idx_providers_capabilities", providers.c.capabilities)
 Index("idx_dispatch_offers_order", dispatch_offers.c.order_id)
 Index("idx_dispatch_offers_provider", dispatch_offers.c.provider_id)
 Index("idx_dispatch_offers_status", dispatch_offers.c.status)
@@ -181,6 +191,7 @@ def _install_schema(engine: Engine) -> None:
             connection.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
 
     _METADATA.create_all(engine)
+    _ensure_runtime_columns(engine)
 
     if engine.dialect.name == "postgresql":
         with engine.begin() as connection:
@@ -198,6 +209,24 @@ def _install_schema(engine: Engine) -> None:
             """))
 
 
+def _ensure_runtime_columns(engine: Engine) -> None:
+    existing_columns = {column["name"] for column in inspect(engine).get_columns("providers")}
+    with engine.begin() as connection:
+        if "capabilities" not in existing_columns:
+            connection.execute(text("ALTER TABLE providers ADD COLUMN capabilities VARCHAR(320)"))
+
+        rows = connection.execute(
+            select(providers.c.id, providers.c.payload).where(providers.c.capabilities.is_(None))
+        ).mappings().all()
+        for row in rows:
+            payload = _json_object(row["payload"])
+            connection.execute(
+                update(providers)
+                .where(providers.c.id == str(row["id"]))
+                .values(capabilities=_capability_index(payload.get("specialties")))
+            )
+
+
 def _json_safe_copy(value: Any) -> Any:
     return json.loads(json.dumps(value, ensure_ascii=False))
 
@@ -209,6 +238,53 @@ def _point(value: Any) -> tuple[float | None, float | None]:
         return float(value.get("lat")), float(value.get("lng"))
     except (TypeError, ValueError):
         return None, None
+
+
+def _capability_index(value: Any) -> str:
+    if not isinstance(value, list):
+        return "|"
+    cleaned = [str(item).strip().lower() for item in value if str(item).strip()]
+    return "|" + "|".join(dict.fromkeys(cleaned)) + "|" if cleaned else "|"
+
+
+def _parse_iso(value: Any) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).replace(tzinfo=None)
+    except ValueError:
+        return None
+
+
+def _haversine_distance_km(left: dict[str, float], right: dict[str, float]) -> float:
+    earth_radius_km = 6371.0
+    lat1 = math.radians(left["lat"])
+    lat2 = math.radians(right["lat"])
+    delta_lat = math.radians(right["lat"] - left["lat"])
+    delta_lng = math.radians(right["lng"] - left["lng"])
+    value = math.sin(delta_lat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(delta_lng / 2) ** 2
+    return 2 * earth_radius_km * math.atan2(math.sqrt(value), math.sqrt(1 - value))
+
+
+def _merge_provider_payload(provider_payload: Any, presence_payload: Any, distance_km: float | None = None) -> dict[str, Any]:
+    provider = _json_safe_copy(provider_payload if isinstance(provider_payload, dict) else {})
+    presence = presence_payload if isinstance(presence_payload, dict) else {}
+    for field in ["status", "etaMinutes", "assignedOrderId", "lastSeenAt", "lastLocationAt", "updatedAt"]:
+        if presence.get(field) is not None:
+            provider[field] = presence.get(field)
+    if isinstance(presence.get("location"), dict):
+        provider["location"] = presence["location"]
+    if distance_km is not None:
+        provider["distanceKm"] = round(distance_km, 2)
+    return provider
+
+
+def _offer_error_for_status(status: str) -> SqlDispatchConflict:
+    if status == "expired":
+        return SqlDispatchConflict("OFFER_EXPIRED", "Offer has expired.")
+    if status == "declined":
+        return SqlDispatchConflict("OFFER_DECLINED", "Offer has already been declined.")
+    return SqlDispatchConflict("ORDER_ALREADY_ACCEPTED", "Order has already been accepted by another provider.")
 
 
 def _load_payload_list(table: Table, order_by: Any) -> tuple[bool, list[dict[str, Any]]]:
@@ -251,6 +327,378 @@ def load_collection(name: str) -> tuple[bool, Any]:
     if found:
         return True, payload
     return _load_legacy_collection(name)
+
+
+def sql_candidate_providers_for_order(
+    order_id: str,
+    service: str,
+    already_offered_provider_ids: set[str] | None,
+    max_radius_km: float,
+    ttl_seconds: int,
+    now: datetime | None = None,
+) -> list[dict[str, Any]]:
+    engine = get_engine()
+    checked_at = now or datetime.utcnow()
+    threshold_iso = (checked_at - timedelta(seconds=ttl_seconds)).isoformat(timespec="seconds")
+    offered_ids = {str(item) for item in (already_offered_provider_ids or set())}
+
+    if engine.dialect.name == "postgresql":
+        return _postgres_candidate_providers(order_id, service, offered_ids, max_radius_km, threshold_iso)
+    return _portable_candidate_providers(order_id, service, offered_ids, max_radius_km, threshold_iso)
+
+
+def sql_accept_offer(offer_id: str, provider_id: str, now: datetime | None = None) -> dict[str, Any]:
+    engine = get_engine()
+    now_dt = now or datetime.utcnow()
+    now_iso = f"{now_dt.isoformat(timespec='seconds')}Z"
+
+    with engine.begin() as connection:
+        offer_row = connection.execute(
+            _for_update(
+                select(
+                    dispatch_offers.c.id,
+                    dispatch_offers.c.order_id,
+                    dispatch_offers.c.provider_id,
+                    dispatch_offers.c.status,
+                    dispatch_offers.c.payload,
+                ).where(dispatch_offers.c.id == str(offer_id)),
+                engine,
+            )
+        ).mappings().first()
+
+        if offer_row is None or str(offer_row["provider_id"]) != str(provider_id):
+            raise SqlDispatchConflict("OFFER_NOT_FOUND", "Offer was not found.")
+
+        offer = _json_object(offer_row["payload"])
+        offer_status = str(offer_row["status"] or offer.get("status") or "")
+        if offer_status != "pending":
+            raise _offer_error_for_status(offer_status)
+
+        expires_at = _parse_iso(offer.get("expiresAt"))
+        if expires_at is not None and expires_at <= now_dt:
+            offer["status"] = "expired"
+            offer["respondedAt"] = now_iso
+            connection.execute(
+                update(dispatch_offers)
+                .where(dispatch_offers.c.id == str(offer_id))
+                .values(status="expired", responded_at=now_iso, payload=offer)
+            )
+            raise SqlDispatchConflict("OFFER_EXPIRED", "Offer has expired.")
+
+        order_row = connection.execute(
+            _for_update(
+                select(
+                    orders.c.id,
+                    orders.c.status,
+                    orders.c.payload,
+                ).where(orders.c.id == str(offer_row["order_id"])),
+                engine,
+            )
+        ).mappings().first()
+        if order_row is None:
+            offer["status"] = "lost"
+            offer["respondedAt"] = now_iso
+            connection.execute(
+                update(dispatch_offers)
+                .where(dispatch_offers.c.id == str(offer_id))
+                .values(status="lost", responded_at=now_iso, payload=offer)
+            )
+            raise SqlDispatchConflict("ORDER_NOT_FOUND", "Order was not found.")
+
+        if str(order_row["status"] or "") != "searching":
+            offer["status"] = "lost"
+            offer["respondedAt"] = now_iso
+            connection.execute(
+                update(dispatch_offers)
+                .where(dispatch_offers.c.id == str(offer_id))
+                .values(status="lost", responded_at=now_iso, payload=offer)
+            )
+            raise SqlDispatchConflict("ORDER_ALREADY_ACCEPTED", "Order has already been accepted by another provider.")
+
+        provider_row = connection.execute(
+            _for_update(
+                select(
+                    providers.c.id,
+                    providers.c.verification_status,
+                    providers.c.payload.label("provider_payload"),
+                    provider_presence.c.payload.label("presence_payload"),
+                )
+                .select_from(providers.join(provider_presence, providers.c.id == provider_presence.c.provider_id))
+                .where(providers.c.id == str(provider_id)),
+                engine,
+            )
+        ).mappings().first()
+        if provider_row is None:
+            raise SqlDispatchConflict("PROVIDER_NOT_FOUND", "Provider was not found.")
+        if str(provider_row["verification_status"] or "") != "verified":
+            raise SqlDispatchConflict("PROVIDER_NOT_VERIFIED", "Provider verification is not approved.")
+
+        order = _json_object(order_row["payload"])
+        provider = _merge_provider_payload(provider_row["provider_payload"], provider_row["presence_payload"])
+        accepted_offer = _json_object(offer)
+
+        accepted_offer["status"] = "accepted"
+        accepted_offer["respondedAt"] = now_iso
+        order["status"] = "assigned"
+        order["assignedProviderId"] = str(provider_id)
+        order["assignedOfferId"] = str(offer_id)
+        order["assignedProvider"] = {
+            "id": provider.get("id"),
+            "name": provider.get("name"),
+            "rating": provider.get("rating"),
+            "vehicle": provider.get("vehicle"),
+            "plate": provider.get("plate"),
+            "phone": provider.get("phone"),
+            "telegram": provider.get("telegram"),
+            "location": provider.get("location"),
+            "verificationStatus": provider.get("verificationStatus"),
+            "trustedBadges": provider.get("trustedBadges"),
+            "distanceKm": accepted_offer.get("distanceKm"),
+            "etaMinutes": max(2, math.ceil(float(accepted_offer.get("distanceKm") or 0) * 4)),
+        }
+        order["dispatchState"] = "ASSIGNED"
+        order["updatedAt"] = now_iso
+        history = order.get("statusHistory") if isinstance(order.get("statusHistory"), list) else []
+        history.append({"status": "assigned", "at": now_iso})
+        order["statusHistory"] = history
+        _append_event(order, "OFFER_ACCEPTED", now_iso, {"offerId": str(offer_id), "providerId": str(provider_id)})
+        _append_event(order, "PROVIDER_ASSIGNED", now_iso, {"providerId": str(provider_id)})
+
+        order_update = connection.execute(
+            update(orders)
+            .where(orders.c.id == str(order.get("id")), orders.c.status == "searching")
+            .values(
+                status="assigned",
+                assigned_provider_id=str(provider_id),
+                updated_at=now_iso,
+                payload=order,
+            )
+        )
+        if order_update.rowcount != 1:
+            raise SqlDispatchConflict("ORDER_ALREADY_ACCEPTED", "Order has already been accepted by another provider.")
+
+        connection.execute(
+            update(dispatch_offers)
+            .where(dispatch_offers.c.id == str(offer_id), dispatch_offers.c.status == "pending")
+            .values(status="accepted", responded_at=now_iso, payload=accepted_offer)
+        )
+
+        other_offer_rows = connection.execute(
+            select(dispatch_offers.c.id, dispatch_offers.c.payload)
+            .where(
+                dispatch_offers.c.order_id == str(order.get("id")),
+                dispatch_offers.c.id != str(offer_id),
+                dispatch_offers.c.status == "pending",
+            )
+        ).mappings().all()
+        for other_row in other_offer_rows:
+            other_offer = _json_object(other_row["payload"])
+            other_offer["status"] = "lost"
+            other_offer["respondedAt"] = now_iso
+            connection.execute(
+                update(dispatch_offers)
+                .where(dispatch_offers.c.id == str(other_row["id"]))
+                .values(status="lost", responded_at=now_iso, payload=other_offer)
+            )
+
+        provider["status"] = "busy"
+        provider["assignedOrderId"] = str(order.get("id"))
+        provider["updatedAt"] = now_iso
+        provider["lastSeenAt"] = now_iso
+        provider_presence_payload = {
+            "status": "busy",
+            "location": provider.get("location"),
+            "etaMinutes": provider.get("etaMinutes"),
+            "assignedOrderId": str(order.get("id")),
+            "lastSeenAt": now_iso,
+            "lastLocationAt": provider.get("lastLocationAt"),
+            "updatedAt": now_iso,
+        }
+        connection.execute(
+            update(providers)
+            .where(providers.c.id == str(provider_id))
+            .values(updated_at=now_iso, payload=provider)
+        )
+        connection.execute(
+            update(provider_presence)
+            .where(provider_presence.c.provider_id == str(provider_id))
+            .values(
+                status="busy",
+                assigned_order_id=str(order.get("id")),
+                last_seen_at=now_iso,
+                updated_at=now_iso,
+                payload=provider_presence_payload,
+            )
+        )
+
+        _insert_order_events(connection, order)
+        order_offers = [
+            _json_object(row.payload)
+            for row in connection.execute(
+                select(dispatch_offers.c.payload)
+                .where(dispatch_offers.c.order_id == str(order.get("id")))
+                .order_by(dispatch_offers.c.created_at)
+            )
+        ]
+
+    order_with_offers = dict(order)
+    order_with_offers["offers"] = order_offers
+    return {"offer": accepted_offer, "order": order_with_offers, "provider": provider}
+
+
+def _postgres_candidate_providers(
+    order_id: str,
+    service: str,
+    offered_ids: set[str],
+    max_radius_km: float,
+    threshold_iso: str,
+) -> list[dict[str, Any]]:
+    exclusion = "AND p.id NOT IN :offered_ids" if offered_ids else ""
+    query = text(f"""
+        SELECT
+            p.payload AS provider_payload,
+            pp.payload AS presence_payload,
+            ST_Distance(
+                ST_SetSRID(ST_MakePoint(pp.lng, pp.lat), 4326)::geography,
+                ST_SetSRID(ST_MakePoint(o.customer_lng, o.customer_lat), 4326)::geography
+            ) / 1000 AS distance_km
+        FROM providers p
+        JOIN provider_presence pp ON pp.provider_id = p.id
+        JOIN orders o ON o.id = :order_id
+        WHERE o.customer_lat IS NOT NULL
+          AND o.customer_lng IS NOT NULL
+          AND pp.lat IS NOT NULL
+          AND pp.lng IS NOT NULL
+          AND p.verification_status = 'verified'
+          AND p.capabilities LIKE :capability
+          AND pp.status = 'online'
+          AND pp.assigned_order_id IS NULL
+          AND pp.last_seen_at >= :threshold_iso
+          AND pp.last_location_at >= :threshold_iso
+          {exclusion}
+          AND ST_DWithin(
+              ST_SetSRID(ST_MakePoint(pp.lng, pp.lat), 4326)::geography,
+              ST_SetSRID(ST_MakePoint(o.customer_lng, o.customer_lat), 4326)::geography,
+              LEAST(COALESCE(p.service_radius_km, 7), :max_radius_km) * 1000
+          )
+        ORDER BY distance_km ASC
+    """)
+    if offered_ids:
+        query = query.bindparams(bindparam("offered_ids", expanding=True))
+
+    params = {
+        "order_id": str(order_id),
+        "capability": f"%|{service}|%",
+        "threshold_iso": threshold_iso,
+        "max_radius_km": max_radius_km,
+    }
+    if offered_ids:
+        params["offered_ids"] = sorted(offered_ids)
+
+    with get_engine().begin() as connection:
+        rows = connection.execute(query, params).mappings().all()
+
+    return [
+        _merge_provider_payload(row["provider_payload"], row["presence_payload"], float(row["distance_km"]))
+        for row in rows
+    ]
+
+
+def _portable_candidate_providers(
+    order_id: str,
+    service: str,
+    offered_ids: set[str],
+    max_radius_km: float,
+    threshold_iso: str,
+) -> list[dict[str, Any]]:
+    engine = get_engine()
+    with engine.begin() as connection:
+        order_row = connection.execute(
+            select(orders.c.customer_lat, orders.c.customer_lng).where(orders.c.id == str(order_id))
+        ).mappings().first()
+        if order_row is None or order_row["customer_lat"] is None or order_row["customer_lng"] is None:
+            return []
+
+        query = (
+            select(
+                providers.c.payload.label("provider_payload"),
+                providers.c.service_radius_km,
+                provider_presence.c.payload.label("presence_payload"),
+                provider_presence.c.lat,
+                provider_presence.c.lng,
+            )
+            .select_from(providers.join(provider_presence, providers.c.id == provider_presence.c.provider_id))
+            .where(
+                providers.c.verification_status == "verified",
+                providers.c.capabilities.like(f"%|{service}|%"),
+                provider_presence.c.status == "online",
+                provider_presence.c.assigned_order_id.is_(None),
+                provider_presence.c.last_seen_at >= threshold_iso,
+                provider_presence.c.last_location_at >= threshold_iso,
+                provider_presence.c.lat.is_not(None),
+                provider_presence.c.lng.is_not(None),
+            )
+        )
+        if offered_ids:
+            query = query.where(providers.c.id.not_in(sorted(offered_ids)))
+        rows = connection.execute(query).mappings().all()
+
+    pickup = {"lat": float(order_row["customer_lat"]), "lng": float(order_row["customer_lng"])}
+    candidates: list[dict[str, Any]] = []
+    for row in rows:
+        provider_point = {"lat": float(row["lat"]), "lng": float(row["lng"])}
+        distance_km = _haversine_distance_km(pickup, provider_point)
+        provider_radius = float(row["service_radius_km"] or 7)
+        if distance_km > min(provider_radius, max_radius_km):
+            continue
+        candidates.append(_merge_provider_payload(row["provider_payload"], row["presence_payload"], distance_km))
+
+    return sorted(candidates, key=lambda provider: provider["distanceKm"])
+
+
+def _for_update(statement, engine: Engine):
+    return statement.with_for_update() if engine.dialect.name == "postgresql" else statement
+
+
+def _json_object(value: Any) -> dict[str, Any]:
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, dict) else {}
+        except json.JSONDecodeError:
+            return {}
+    return _json_safe_copy(value if isinstance(value, dict) else {})
+
+
+def _append_event(order: dict[str, Any], event_type: str, at: str, extra: dict[str, Any] | None = None) -> None:
+    events = order.get("dispatchEvents")
+    if not isinstance(events, list):
+        events = []
+    event = {"type": event_type, "at": at}
+    if extra:
+        event.update(extra)
+    events.append(event)
+    order["dispatchEvents"] = events
+
+
+def _insert_order_events(connection, order: dict[str, Any]) -> None:
+    events = order.get("dispatchEvents") if isinstance(order.get("dispatchEvents"), list) else []
+    for index, event in enumerate(events):
+        event_id = f"{order.get('id')}:{index}:{event.get('type')}:{event.get('at')}"[:240]
+        exists = connection.execute(select(order_events.c.id).where(order_events.c.id == event_id)).first()
+        if exists:
+            continue
+        connection.execute(
+            insert(order_events).values(
+                id=event_id,
+                order_id=str(order.get("id")),
+                event_type=str(event.get("type") or "") or None,
+                event_at=str(event.get("at") or "") or None,
+                provider_id=str(event.get("providerId") or "") or None,
+                offer_id=str(event.get("offerId") or "") or None,
+                payload=event,
+            )
+        )
 
 
 def save_collection(name: str, payload: Any) -> Any:
@@ -357,6 +805,7 @@ def _save_providers(connection, provider_payloads: list[dict[str, Any]]) -> None
                 telegram=str(provider.get("telegram") or "") or None,
                 vehicle=str(provider.get("vehicle") or "") or None,
                 plate=str(provider.get("plate") or "") or None,
+                capabilities=_capability_index(provider.get("specialties")),
                 rating=float(provider.get("rating")) if provider.get("rating") is not None else None,
                 verification_status=str(provider.get("verificationStatus") or "unverified"),
                 service_radius_km=float(provider.get("serviceRadiusKm")) if provider.get("serviceRadiusKm") is not None else None,

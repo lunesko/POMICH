@@ -28,7 +28,7 @@ Current beta foundation work is tracked in [docs/BETA_FOUNDATION.md](docs/BETA_F
 
 - Frontend: React, Vite, Tailwind CSS, Leaflet/OpenStreetMap
 - Backend: FastAPI
-- Runtime storage: JSON for local/dev, SQL/PostgreSQL-ready storage for staging/production
+- Runtime storage: JSON dev adapter, SQL/PostgreSQL-ready storage with SQL/PostGIS dispatch for staging/production
 - Staging target: one public HTTPS origin serving Web/PWA and `/api/*`
 - Telegram: same Web frontend as Telegram Mini App, with backend `initData` verification
 
@@ -49,4 +49,3 @@ Local Vite dev uses same-origin `/api/*` proxying to FastAPI. Public/demo tunnel
 - [DEPLOYMENT.md](DEPLOYMENT.md)
 - [TELEGRAM_RUNTIME.md](TELEGRAM_RUNTIME.md)
 - [PRE_PRODUCTION_AUDIT.md](PRE_PRODUCTION_AUDIT.md)
-

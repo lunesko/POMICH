@@ -7,7 +7,14 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from bot.runtime_store import load_collection, save_collection, sql_storage_enabled
+from bot.runtime_store import (
+    SqlDispatchConflict,
+    load_collection,
+    save_collection,
+    sql_accept_offer,
+    sql_candidate_providers_for_order,
+    sql_storage_enabled,
+)
 
 PROVIDER_PRESENCE_TTL_SECONDS = 60
 PROVIDER_ACTIVE_STATUSES = {"online", "busy"}
@@ -95,6 +102,18 @@ def _should_use_sql_store(path: Optional[Path], default_path_factory) -> bool:
     if path is None:
         return True
     return Path(path) == default_path_factory()
+
+
+def _should_use_sql_runtime(
+    order_store_path: Optional[Path] = None,
+    provider_store_path: Optional[Path] = None,
+    offer_store_path: Optional[Path] = None,
+) -> bool:
+    return (
+        _should_use_sql_store(order_store_path, _default_store_path)
+        and _should_use_sql_store(provider_store_path, _default_provider_store_path)
+        and _should_use_sql_store(offer_store_path, _default_offer_store_path)
+    )
 
 
 def _collection_name_for_default_path(path: Path) -> Optional[str]:
@@ -1135,7 +1154,17 @@ def dispatch_order(
         now = datetime.utcnow()
         now_iso = f"{now.isoformat(timespec='seconds')}Z"
         offered_ids = {str(offer.get("providerId")) for offer in offers if str(offer.get("orderId")) == str(order_id)}
-        candidates = eligible_providers_for_order(order, providers, offered_ids, now)
+        if _should_use_sql_runtime(order_store_path, provider_store_path, offer_store_path):
+            candidates = sql_candidate_providers_for_order(
+                order_id=str(order_id),
+                service=normalize_service(order.get("service")),
+                already_offered_provider_ids=offered_ids,
+                max_radius_km=max(DISPATCH_SEARCH_RADIUS_STEPS_KM),
+                ttl_seconds=PROVIDER_PRESENCE_TTL_SECONDS,
+                now=now,
+            )
+        else:
+            candidates = eligible_providers_for_order(order, providers, offered_ids, now)
         selected: List[Dict[str, Any]] = []
         used_ids: set[str] = set()
         selected_radius: Optional[int] = None
@@ -1242,6 +1271,12 @@ def accept_offer(
     provider_store_path: Optional[Path] = None,
     offer_store_path: Optional[Path] = None,
 ) -> Dict[str, Any]:
+    if _should_use_sql_runtime(order_store_path, provider_store_path, offer_store_path):
+        try:
+            return sql_accept_offer(str(offer_id), str(provider_id))
+        except SqlDispatchConflict as exc:
+            raise DispatchConflict(exc.code, exc.message) from exc
+
     with STORE_LOCK:
         order_path = order_store_path or _default_store_path()
         provider_path = provider_store_path or _default_provider_store_path()
