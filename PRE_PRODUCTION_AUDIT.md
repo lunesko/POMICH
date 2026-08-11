@@ -1,7 +1,7 @@
 # POMICH Pre-Production Audit
 
 ## Scope
-This audit reviewed the current POMICH MVP as a React/Vite roadside-assistance client backed by a lightweight FastAPI, Telegram, and JSON-store runtime. The focus was on correctness, resilience, privacy, runtime safety, and state handling rather than on introducing new product features.
+This audit reviewed the current POMICH MVP as a React/Vite roadside-assistance client backed by FastAPI, Telegram, a JSON dev adapter, and SQL/PostGIS-ready runtime storage. The focus was on correctness, resilience, privacy, runtime safety, and state handling rather than on introducing new product features.
 
 ## What was hardened
 - Added a deterministic domain layer for pricing, ETA, distance, validation, sanitization, and duplicate-request fingerprinting in [src/lib/pomichDomain.ts](src/lib/pomichDomain.ts).
@@ -10,7 +10,7 @@ This audit reviewed the current POMICH MVP as a React/Vite roadside-assistance c
 - Added a safer flow guard for invalid order submission and a privacy-safe display of sanitized addresses.
 - Improved the phone-frame layout so the experience remains usable on narrower screens.
 - Added configurable API CORS origins through `POMICH_CORS_ORIGINS`.
-- Added optional provider endpoint protection through `POMICH_PROVIDER_TOKEN` and `X-POMICH-Provider-Token`.
+- Replaced optional provider endpoint protection with mandatory backend provider sessions issued from `POMICH_PROVIDER_TOKEN`.
 - Reduced Docker build-context risk by excluding local secrets, runtime data, logs, and caches from the image context.
 - Updated Vite config for future native config-loader compatibility.
 
@@ -22,7 +22,7 @@ This audit reviewed the current POMICH MVP as a React/Vite roadside-assistance c
 
 ### 2. Remaining gaps for true production readiness
 The current repository now includes a backend-backed MVP, but it still needs production-grade replacements or hardening for:
-- Durable database storage, migrations, backups, and audit retention instead of JSON files.
+- Managed Postgres/PostGIS hosting, backups, point-in-time recovery, and audit retention.
 - Full identity binding between Telegram users, provider accounts, and admin operators.
 - Secure session-based admin access instead of query-string token passing.
 - Real-time provider/order updates instead of polling-heavy UI refreshes.

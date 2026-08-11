@@ -37,8 +37,10 @@ Run the non-mutating smoke check:
 Run the full mutating smoke check on staging only:
 
 ```powershell
-.\scripts\check-public.ps1 -PublicUrl https://app.example.com -Mutating -ProviderToken "<partner token>"
+.\scripts\check-public.ps1 -PublicUrl https://app.example.com -Mutating -ProviderToken "<partner token>" -ProviderId "<provider-a-id>" -SecondProviderId "<provider-b-id>"
 ```
+
+The mutating script issues provider sessions, sets two providers online, creates a real order, verifies both offers, confirms first-accept-wins by expecting `409 ORDER_ALREADY_ACCEPTED` for the second provider, and advances the accepted order to `completed`.
 
 The script prints each exact request URL. In the browser Network panel, verify there are no requests to `localhost` or `127.0.0.1`.
 

@@ -25,6 +25,7 @@ The beta release should prove a shorter and more predictable **Time To Rescue**:
 - SQL migration ledger exists as `pomich_schema_migrations` and records applied runtime schema versions.
 - Dispatch candidate matching runs through SQL/PostGIS filters for online, verified, capability, TTL, assignment, and radius.
 - Offer acceptance enforces first-accept-wins through the SQL runtime transaction path.
+- GitHub Actions includes a PostGIS runtime smoke job against a real `postgis/postgis` service.
 - A backup/export procedure exists for `orders`, `providers`, `customers`, `offers`, and Telegram sessions.
 - GitHub Actions CI is green.
 
@@ -32,16 +33,17 @@ The beta release should prove a shorter and more predictable **Time To Rescue**:
 1. Open the public domain.
 2. Reload `/interface` directly and confirm the SPA still loads.
 3. Open customer flow and confirm `GET /api/providers` succeeds.
-4. Open partner flow with a provider token and submit/verify provider profile.
-5. Set partner online and confirm `PATCH /api/providers/{id}/presence` succeeds.
+4. Issue provider sessions through `POST /api/auth/provider/session`.
+5. Set Partner A and Partner B online and confirm `PATCH /api/providers/{id}/presence` succeeds for both.
 6. Confirm heartbeat calls continue every few seconds.
 7. Create a customer order and confirm `POST /api/orders` returns `201`.
-8. Confirm the partner receives an offer.
-9. Accept the offer and advance statuses to `completed`.
-10. Confirm no CORS errors and no localhost API requests in Network.
+8. Confirm both partners receive offers.
+9. Accept with Partner A and confirm Partner B receives `409 ORDER_ALREADY_ACCEPTED`.
+10. Advance the accepted order through `en_route`, `arrived`, `in_progress`, and `completed`.
+11. Confirm no CORS errors and no localhost API requests in Network.
 
 ## Beta E2E Gate
 The staging Playwright flow must pass end to end: Partner A online, Partner B online, customer creates order, offers are created, Partner A accepts, Partner B loses the race, customer sees Partner A, then status advances through `EN_ROUTE`, `ARRIVED`, `IN_PROGRESS`, and `COMPLETED`.
 
 ## Next Architecture Step
-The app now uses normalized SQL runtime tables through `DATABASE_URL`, explicit schema migrations, SQL/PostGIS candidate matching, and a SQL transaction path for first-accept-wins. The next architecture step is running the dispatch race gate against a real Postgres/PostGIS staging service on one public HTTPS origin.
+The app now uses normalized SQL runtime tables through `DATABASE_URL`, explicit schema migrations, SQL/PostGIS candidate matching, and a SQL transaction path for first-accept-wins. The next architecture step is running the same dispatch race gate against a real public staging origin and converting it into a browser-level Playwright release gate.

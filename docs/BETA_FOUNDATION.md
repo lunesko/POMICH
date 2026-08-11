@@ -20,12 +20,14 @@ Done:
 - Normalized runtime tables exist for `customers`, `providers`, `provider_presence`, `orders`, `dispatch_offers`, `sessions`, and `order_events`.
 - SQL schema changes run through an explicit `pomich_schema_migrations` ledger.
 - PostGIS extension/index setup is prepared for PostgreSQL runtime.
+- GitHub Actions includes a PostGIS runtime smoke job against a real `postgis/postgis` service.
 - Provider candidate search runs through the SQL runtime path with `online`, `verified`, capability, TTL, assignment, and radius filters.
 - PostgreSQL candidate search uses `ST_DWithin`/`ST_Distance`; SQLite keeps a portable SQL + Haversine test adapter.
 - Dispatch indexes and PostGIS GiST geo indexes are applied by migrations.
 - Offer acceptance uses the SQL runtime transaction path so first-accept-wins is enforced at the database boundary.
 - Provider endpoints require configured backend auth; missing `POMICH_PROVIDER_TOKEN` no longer makes partner routes public.
 - Backend can issue HMAC-signed admin/provider sessions and enforces provider session identity against URL `provider_id`.
+- Public smoke tooling can issue provider sessions, put two providers online, create a real order, verify both offers, assert first-accept-wins, and advance the winning order to completed.
 - Telegram Mini App order creation records the verified Telegram identity into the order payload.
 - Production-like Docker Compose exists with app + Postgres/PostGIS.
 
@@ -62,7 +64,8 @@ Completed:
 
 Next:
 
-- Run the dispatch race gate against a real Postgres/PostGIS service in staging.
+- Run the public-origin dispatch race gate against the deployed staging domain.
+- Convert the API-level race/lifecycle smoke into a browser-level Playwright release gate.
 
 Target dispatch query shape:
 
@@ -119,7 +122,7 @@ Target:
 
 ### 6. Release Gate
 
-Status: not done.
+Status: partially automated at API/runtime level; browser staging gate not done.
 
 Required staging E2E:
 
@@ -137,7 +140,7 @@ IN_PROGRESS
 COMPLETED
 ```
 
-This should become a Playwright scenario against staging.
+The API/runtime path is covered by the PostGIS smoke and public smoke script. This still needs to become a Playwright scenario against staging.
 
 ## Do Not Add Yet
 
