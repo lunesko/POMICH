@@ -121,6 +121,14 @@ order_events = Table(
     Column("payload", JSON, nullable=False),
 )
 
+schema_migrations = Table(
+    "pomich_schema_migrations",
+    _METADATA,
+    Column("version", String(80), primary_key=True),
+    Column("name", String(180), nullable=False),
+    Column("applied_at", DateTime, nullable=False),
+)
+
 # Legacy fallback from the first SQL storage pass. New writes go to the normalized tables above.
 runtime_collections = Table(
     "pomich_runtime_collections",
@@ -191,40 +199,119 @@ def _install_schema(engine: Engine) -> None:
             connection.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
 
     _METADATA.create_all(engine)
-    _ensure_runtime_columns(engine)
-
-    if engine.dialect.name == "postgresql":
-        with engine.begin() as connection:
-            connection.execute(text("""
-                CREATE INDEX IF NOT EXISTS idx_provider_presence_location_gist
-                ON provider_presence
-                USING GIST ((ST_SetSRID(ST_MakePoint(lng, lat), 4326)::geography))
-                WHERE lat IS NOT NULL AND lng IS NOT NULL
-            """))
-            connection.execute(text("""
-                CREATE INDEX IF NOT EXISTS idx_orders_customer_location_gist
-                ON orders
-                USING GIST ((ST_SetSRID(ST_MakePoint(customer_lng, customer_lat), 4326)::geography))
-                WHERE customer_lat IS NOT NULL AND customer_lng IS NOT NULL
-            """))
+    _run_schema_migrations(engine)
 
 
-def _ensure_runtime_columns(engine: Engine) -> None:
-    existing_columns = {column["name"] for column in inspect(engine).get_columns("providers")}
+def _run_schema_migrations(engine: Engine) -> None:
+    migrations = (
+        ("2026081101", "runtime schema baseline", _migration_runtime_schema_baseline),
+        ("2026081102", "provider capabilities backfill", _migration_provider_capabilities),
+        ("2026081103", "dispatch core indexes", _migration_dispatch_core_indexes),
+        ("2026081104", "postgis dispatch geo indexes", _migration_postgis_dispatch_geo_indexes),
+    )
+
     with engine.begin() as connection:
-        if "capabilities" not in existing_columns:
-            connection.execute(text("ALTER TABLE providers ADD COLUMN capabilities VARCHAR(320)"))
-
-        rows = connection.execute(
-            select(providers.c.id, providers.c.payload).where(providers.c.capabilities.is_(None))
-        ).mappings().all()
-        for row in rows:
-            payload = _json_object(row["payload"])
+        applied = {
+            str(row.version)
+            for row in connection.execute(select(schema_migrations.c.version))
+        }
+        for version, name, migrate in migrations:
+            if version in applied:
+                continue
+            migrate(connection, engine)
             connection.execute(
-                update(providers)
-                .where(providers.c.id == str(row["id"]))
-                .values(capabilities=_capability_index(payload.get("specialties")))
+                insert(schema_migrations).values(
+                    version=version,
+                    name=name,
+                    applied_at=datetime.utcnow(),
+                )
             )
+
+
+def _migration_runtime_schema_baseline(connection, engine: Engine) -> None:
+    existing_tables = set(inspect(connection).get_table_names())
+    required_tables = {
+        "customers",
+        "providers",
+        "provider_presence",
+        "orders",
+        "dispatch_offers",
+        "sessions",
+        "order_events",
+        "pomich_schema_migrations",
+        "pomich_runtime_collections",
+    }
+    missing_tables = sorted(required_tables - existing_tables)
+    if missing_tables:
+        raise RuntimeError(f"SQL runtime schema is missing required tables: {', '.join(missing_tables)}")
+
+
+def _migration_provider_capabilities(connection, engine: Engine) -> None:
+    existing_columns = {column["name"] for column in inspect(connection).get_columns("providers")}
+    if "capabilities" not in existing_columns:
+        connection.execute(text("ALTER TABLE providers ADD COLUMN capabilities VARCHAR(320)"))
+
+    connection.execute(text("CREATE INDEX IF NOT EXISTS idx_providers_capabilities ON providers (capabilities)"))
+
+    rows = connection.execute(
+        select(providers.c.id, providers.c.payload)
+        .where((providers.c.capabilities.is_(None)) | (providers.c.capabilities == ""))
+    ).mappings().all()
+    for row in rows:
+        payload = _json_object(row["payload"])
+        connection.execute(
+            update(providers)
+            .where(providers.c.id == str(row["id"]))
+            .values(capabilities=_capability_index(payload.get("specialties")))
+        )
+
+
+def _migration_dispatch_core_indexes(connection, engine: Engine) -> None:
+    index_statements = [
+        "CREATE INDEX IF NOT EXISTS idx_orders_status ON orders (status)",
+        "CREATE INDEX IF NOT EXISTS idx_orders_service ON orders (service)",
+        "CREATE INDEX IF NOT EXISTS idx_orders_assigned_provider ON orders (assigned_provider_id)",
+        "CREATE INDEX IF NOT EXISTS idx_orders_customer_location ON orders (customer_lat, customer_lng)",
+        "CREATE INDEX IF NOT EXISTS idx_provider_presence_status ON provider_presence (status)",
+        "CREATE INDEX IF NOT EXISTS idx_provider_presence_location ON provider_presence (lat, lng)",
+        "CREATE INDEX IF NOT EXISTS idx_dispatch_offers_order ON dispatch_offers (order_id)",
+        "CREATE INDEX IF NOT EXISTS idx_dispatch_offers_provider ON dispatch_offers (provider_id)",
+        "CREATE INDEX IF NOT EXISTS idx_dispatch_offers_status ON dispatch_offers (status)",
+        "CREATE INDEX IF NOT EXISTS idx_order_events_order ON order_events (order_id)",
+    ]
+    for statement in index_statements:
+        connection.execute(text(statement))
+
+
+def _migration_postgis_dispatch_geo_indexes(connection, engine: Engine) -> None:
+    if engine.dialect.name != "postgresql":
+        return
+
+    connection.execute(text("""
+        CREATE INDEX IF NOT EXISTS idx_provider_presence_location_gist
+        ON provider_presence
+        USING GIST ((ST_SetSRID(ST_MakePoint(lng, lat), 4326)::geography))
+        WHERE lat IS NOT NULL AND lng IS NOT NULL
+    """))
+    connection.execute(text("""
+        CREATE INDEX IF NOT EXISTS idx_orders_customer_location_gist
+        ON orders
+        USING GIST ((ST_SetSRID(ST_MakePoint(customer_lng, customer_lat), 4326)::geography))
+        WHERE customer_lat IS NOT NULL AND customer_lng IS NOT NULL
+    """))
+
+
+def applied_schema_migrations() -> list[dict[str, Any]]:
+    engine = get_engine()
+    with engine.begin() as connection:
+        rows = connection.execute(
+            select(schema_migrations.c.version, schema_migrations.c.name, schema_migrations.c.applied_at)
+            .order_by(schema_migrations.c.version)
+        ).mappings().all()
+    return [
+        {"version": str(row["version"]), "name": str(row["name"]), "appliedAt": row["applied_at"].isoformat()}
+        for row in rows
+    ]
 
 
 def _json_safe_copy(value: Any) -> Any:
@@ -353,6 +440,52 @@ def sql_accept_offer(offer_id: str, provider_id: str, now: datetime | None = Non
     now_iso = f"{now_dt.isoformat(timespec='seconds')}Z"
 
     with engine.begin() as connection:
+        # Lock the shared order before offer rows so competing accept attempts use one lock order.
+        offer_lookup = connection.execute(
+            select(
+                dispatch_offers.c.id,
+                dispatch_offers.c.order_id,
+                dispatch_offers.c.provider_id,
+                dispatch_offers.c.status,
+                dispatch_offers.c.payload,
+            ).where(dispatch_offers.c.id == str(offer_id))
+        ).mappings().first()
+
+        if offer_lookup is None or str(offer_lookup["provider_id"]) != str(provider_id):
+            raise SqlDispatchConflict("OFFER_NOT_FOUND", "Offer was not found.")
+
+        order_row = connection.execute(
+            _for_update(
+                select(
+                    orders.c.id,
+                    orders.c.status,
+                    orders.c.payload,
+                ).where(orders.c.id == str(offer_lookup["order_id"])),
+                engine,
+            )
+        ).mappings().first()
+        if order_row is None:
+            offer = _json_object(offer_lookup["payload"])
+            offer["status"] = "lost"
+            offer["respondedAt"] = now_iso
+            connection.execute(
+                update(dispatch_offers)
+                .where(dispatch_offers.c.id == str(offer_id))
+                .values(status="lost", responded_at=now_iso, payload=offer)
+            )
+            raise SqlDispatchConflict("ORDER_NOT_FOUND", "Order was not found.")
+
+        if str(order_row["status"] or "") != "searching":
+            offer = _json_object(offer_lookup["payload"])
+            offer["status"] = "lost"
+            offer["respondedAt"] = now_iso
+            connection.execute(
+                update(dispatch_offers)
+                .where(dispatch_offers.c.id == str(offer_id))
+                .values(status="lost", responded_at=now_iso, payload=offer)
+            )
+            raise SqlDispatchConflict("ORDER_ALREADY_ACCEPTED", "Order has already been accepted by another provider.")
+
         offer_row = connection.execute(
             _for_update(
                 select(
@@ -384,36 +517,6 @@ def sql_accept_offer(offer_id: str, provider_id: str, now: datetime | None = Non
                 .values(status="expired", responded_at=now_iso, payload=offer)
             )
             raise SqlDispatchConflict("OFFER_EXPIRED", "Offer has expired.")
-
-        order_row = connection.execute(
-            _for_update(
-                select(
-                    orders.c.id,
-                    orders.c.status,
-                    orders.c.payload,
-                ).where(orders.c.id == str(offer_row["order_id"])),
-                engine,
-            )
-        ).mappings().first()
-        if order_row is None:
-            offer["status"] = "lost"
-            offer["respondedAt"] = now_iso
-            connection.execute(
-                update(dispatch_offers)
-                .where(dispatch_offers.c.id == str(offer_id))
-                .values(status="lost", responded_at=now_iso, payload=offer)
-            )
-            raise SqlDispatchConflict("ORDER_NOT_FOUND", "Order was not found.")
-
-        if str(order_row["status"] or "") != "searching":
-            offer["status"] = "lost"
-            offer["respondedAt"] = now_iso
-            connection.execute(
-                update(dispatch_offers)
-                .where(dispatch_offers.c.id == str(offer_id))
-                .values(status="lost", responded_at=now_iso, payload=offer)
-            )
-            raise SqlDispatchConflict("ORDER_ALREADY_ACCEPTED", "Order has already been accepted by another provider.")
 
         provider_row = connection.execute(
             _for_update(

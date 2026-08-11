@@ -22,6 +22,7 @@ The beta release should prove a shorter and more predictable **Time To Rescue**:
 - `WEB_APP_URL` points to the public HTTPS app URL.
 - `DATABASE_URL` is configured for SQL runtime storage. JSON production storage requires explicit `POMICH_ALLOW_JSON_STORE_IN_PRODUCTION=true` and is only acceptable for a very small pilot.
 - SQL runtime tables exist: `customers`, `providers`, `provider_presence`, `orders`, `dispatch_offers`, `sessions`, `order_events`.
+- SQL migration ledger exists as `pomich_schema_migrations` and records applied runtime schema versions.
 - Dispatch candidate matching runs through SQL/PostGIS filters for online, verified, capability, TTL, assignment, and radius.
 - Offer acceptance enforces first-accept-wins through the SQL runtime transaction path.
 - A backup/export procedure exists for `orders`, `providers`, `customers`, `offers`, and Telegram sessions.
@@ -43,4 +44,4 @@ The beta release should prove a shorter and more predictable **Time To Rescue**:
 The staging Playwright flow must pass end to end: Partner A online, Partner B online, customer creates order, offers are created, Partner A accepts, Partner B loses the race, customer sees Partner A, then status advances through `EN_ROUTE`, `ARRIVED`, `IN_PROGRESS`, and `COMPLETED`.
 
 ## Next Architecture Step
-The app now uses normalized SQL runtime tables through `DATABASE_URL`, SQL/PostGIS candidate matching, and a SQL transaction path for first-accept-wins. The next storage step is adding explicit migrations instead of relying only on startup schema creation, then running the dispatch race gate against a real Postgres/PostGIS staging service.
+The app now uses normalized SQL runtime tables through `DATABASE_URL`, explicit schema migrations, SQL/PostGIS candidate matching, and a SQL transaction path for first-accept-wins. The next architecture step is running the dispatch race gate against a real Postgres/PostGIS staging service on one public HTTPS origin.

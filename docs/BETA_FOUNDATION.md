@@ -18,9 +18,11 @@ Done:
 - Production guards block unsafe CORS, missing provider/admin secrets, and missing production `DATABASE_URL`.
 - SQL runtime storage exists behind the current API without breaking UI/API contracts.
 - Normalized runtime tables exist for `customers`, `providers`, `provider_presence`, `orders`, `dispatch_offers`, `sessions`, and `order_events`.
+- SQL schema changes run through an explicit `pomich_schema_migrations` ledger.
 - PostGIS extension/index setup is prepared for PostgreSQL runtime.
 - Provider candidate search runs through the SQL runtime path with `online`, `verified`, capability, TTL, assignment, and radius filters.
 - PostgreSQL candidate search uses `ST_DWithin`/`ST_Distance`; SQLite keeps a portable SQL + Haversine test adapter.
+- Dispatch indexes and PostGIS GiST geo indexes are applied by migrations.
 - Offer acceptance uses the SQL runtime transaction path so first-accept-wins is enforced at the database boundary.
 - Provider endpoints require configured backend auth; missing `POMICH_PROVIDER_TOKEN` no longer makes partner routes public.
 - Backend can issue HMAC-signed admin/provider sessions and enforces provider session identity against URL `provider_id`.
@@ -44,7 +46,7 @@ npm run build
 
 ### 2. Storage Abstraction To PostgreSQL/PostGIS
 
-Status: in progress.
+Status: done for beta foundation.
 
 Completed:
 
@@ -54,11 +56,12 @@ Completed:
 - JSON remains dev/test adapter.
 - Provider candidate matching is no longer Python-list-only on the SQL runtime path.
 - First-accept-wins has a SQL transaction path with a regression test where one provider accepts and the second receives `ORDER_ALREADY_ACCEPTED`.
+- Explicit schema migrations record applied versions in `pomich_schema_migrations`.
+- Existing SQL databases without `providers.capabilities` are upgraded and backfilled from provider payloads.
+- Core dispatch indexes and PostGIS GiST geo indexes are migration-managed.
 
 Next:
 
-- Add explicit migrations instead of startup-only schema creation.
-- Add indexes around `status`, `service`, `provider_id`, `order_id`, and coordinates.
 - Run the dispatch race gate against a real Postgres/PostGIS service in staging.
 
 Target dispatch query shape:

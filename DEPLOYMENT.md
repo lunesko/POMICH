@@ -25,7 +25,7 @@ Remove-Item Env:\POMICH_ENV_FILE
 
 The app container exposes FastAPI and the built SPA on port `8000`. Your public reverse proxy or Cloudflare Tunnel should route the public HTTPS origin to this port. Browser API calls must remain same-origin `/api/*`.
 
-On startup the backend creates normalized runtime tables: `customers`, `providers`, `provider_presence`, `orders`, `dispatch_offers`, `sessions`, and `order_events`. On PostgreSQL it also enables PostGIS and creates GiST indexes for provider and customer coordinates so dispatch can move to `ST_DWithin` queries without changing the public API.
+On startup the backend bootstraps normalized runtime tables and applies explicit schema migrations recorded in `pomich_schema_migrations`. On PostgreSQL it enables PostGIS and migration-manages GiST indexes for provider and customer coordinates so dispatch can use `ST_DWithin` queries without changing the public API.
 
 ## Smoke Gate
 Run the non-mutating smoke check:

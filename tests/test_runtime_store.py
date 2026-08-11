@@ -1,3 +1,5 @@
+import json
+import sqlite3
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
@@ -84,7 +86,53 @@ def test_sql_runtime_store_persists_orders_without_json_file(sql_runtime):
 
     assert load_orders()[0]["id"] == order["id"]
     assert not (sql_runtime / "orders.json").exists()
-    assert _table_names() >= {"orders", "providers", "provider_presence", "dispatch_offers", "sessions", "order_events"}
+    assert _table_names() >= {
+        "orders",
+        "providers",
+        "provider_presence",
+        "dispatch_offers",
+        "sessions",
+        "order_events",
+        "pomich_schema_migrations",
+    }
+    assert [migration["version"] for migration in runtime_store.applied_schema_migrations()] == [
+        "2026081101",
+        "2026081102",
+        "2026081103",
+        "2026081104",
+    ]
+
+
+def test_sql_schema_migrations_are_idempotent(sql_runtime):
+    first_run = runtime_store.applied_schema_migrations()
+
+    runtime_store.reset_runtime_store_for_tests()
+    second_run = runtime_store.applied_schema_migrations()
+
+    assert [migration["version"] for migration in second_run] == [migration["version"] for migration in first_run]
+    assert _table_count(runtime_store.schema_migrations) == len(first_run)
+
+
+def test_sql_schema_migration_backfills_legacy_provider_capabilities(sql_runtime):
+    db_path = sql_runtime / "pomich-runtime.db"
+    with sqlite3.connect(db_path) as connection:
+        connection.execute("CREATE TABLE providers (id VARCHAR(120) PRIMARY KEY, payload JSON NOT NULL)")
+        connection.execute(
+            "INSERT INTO providers (id, payload) VALUES (?, ?)",
+            ("legacy-provider", json.dumps({"id": "legacy-provider", "specialties": ["tow", "fuel"]})),
+        )
+
+    engine = runtime_store.get_engine()
+
+    columns = {column["name"] for column in inspect(engine).get_columns("providers")}
+    with engine.begin() as connection:
+        capability_index = connection.scalar(
+            select(runtime_store.providers.c.capabilities)
+            .where(runtime_store.providers.c.id == "legacy-provider")
+        )
+
+    assert "capabilities" in columns
+    assert capability_index == "|tow|fuel|"
 
 
 def test_sql_runtime_store_supports_dispatch_and_offer_acceptance(sql_runtime):
