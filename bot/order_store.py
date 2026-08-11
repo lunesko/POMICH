@@ -7,6 +7,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from bot.runtime_store import load_collection, save_collection, sql_storage_enabled
+
 PROVIDER_PRESENCE_TTL_SECONDS = 60
 PROVIDER_ACTIVE_STATUSES = {"online", "busy"}
 PROVIDER_STATUSES = {"online", "busy", "offline"}
@@ -75,11 +77,42 @@ def _now_iso() -> str:
 
 
 def _write_json_atomic(path: Path, data: Any) -> None:
+    collection_name = _collection_name_for_default_path(path)
+    if collection_name is not None:
+        save_collection(collection_name, data)
+        return
+
     path.parent.mkdir(parents=True, exist_ok=True)
     temp_path = path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")
     with temp_path.open("w", encoding="utf-8") as handle:
         json.dump(data, handle, ensure_ascii=False, indent=2)
     temp_path.replace(path)
+
+
+def _should_use_sql_store(path: Optional[Path], default_path_factory) -> bool:
+    if not sql_storage_enabled():
+        return False
+    if path is None:
+        return True
+    return Path(path) == default_path_factory()
+
+
+def _collection_name_for_default_path(path: Path) -> Optional[str]:
+    if not sql_storage_enabled():
+        return None
+
+    path = Path(path)
+    path_map = {
+        "orders": _default_store_path(),
+        "telegram_sessions": _default_session_store_path(),
+        "providers": _default_provider_store_path(),
+        "customers": _default_customer_store_path(),
+        "offers": _default_offer_store_path(),
+    }
+    for collection_name, default_path in path_map.items():
+        if path == default_path:
+            return collection_name
+    return None
 
 
 def _parse_iso(value: Any) -> Optional[datetime]:
@@ -295,6 +328,10 @@ def _append_order_event(order: Dict[str, Any], event_type: str, at: Optional[str
 
 
 def load_offers(store_path: Optional[Path] = None) -> List[Dict[str, Any]]:
+    if _should_use_sql_store(store_path, _default_offer_store_path):
+        found, data = load_collection("offers")
+        return data if found and isinstance(data, list) else []
+
     path = store_path or _default_offer_store_path()
     if not path.exists():
         return []
@@ -377,6 +414,10 @@ def _default_providers() -> List[Dict[str, Any]]:
 
 
 def load_orders(store_path: Optional[Path] = None) -> List[Dict[str, Any]]:
+    if _should_use_sql_store(store_path, _default_store_path):
+        found, data = load_collection("orders")
+        return data if found and isinstance(data, list) else []
+
     path = store_path or _default_store_path()
     if not path.exists():
         return []
@@ -467,6 +508,10 @@ def update_order_status(
 
 
 def load_telegram_sessions(store_path: Optional[Path] = None) -> Dict[str, Dict[str, Any]]:
+    if _should_use_sql_store(store_path, _default_session_store_path):
+        found, data = load_collection("telegram_sessions")
+        return data if found and isinstance(data, dict) else {}
+
     path = store_path or _default_session_store_path()
     if not path.exists():
         return {}
@@ -496,6 +541,13 @@ def get_telegram_session(chat_id: str, store_path: Optional[Path] = None) -> Opt
 
 
 def load_providers(store_path: Optional[Path] = None) -> List[Dict[str, Any]]:
+    if _should_use_sql_store(store_path, _default_provider_store_path):
+        found, data = load_collection("providers")
+        if not found:
+            return apply_provider_presence_ttl(_default_providers())
+        providers = data if isinstance(data, list) else _default_providers()
+        return apply_provider_presence_ttl([_normalize_provider_trust(provider, "verified") for provider in providers])
+
     path = store_path or _default_provider_store_path()
     if not path.exists():
         return apply_provider_presence_ttl(_default_providers())
@@ -626,6 +678,10 @@ def review_provider_verification(provider_id: str, data: Dict[str, Any], store_p
 
 
 def load_customer_profiles(store_path: Optional[Path] = None) -> List[Dict[str, Any]]:
+    if _should_use_sql_store(store_path, _default_customer_store_path):
+        found, data = load_collection("customers")
+        return [_normalize_customer_profile(profile) for profile in data] if found and isinstance(data, list) else []
+
     path = store_path or _default_customer_store_path()
     if not path.exists():
         return []

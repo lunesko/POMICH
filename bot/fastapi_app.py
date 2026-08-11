@@ -88,6 +88,9 @@ def _runtime_config_errors() -> list[str]:
     if not _is_configured_secret(os.getenv("POMICH_PROVIDER_TOKEN")):
         errors.append("POMICH_PROVIDER_TOKEN must be set in production so partner endpoints are protected")
 
+    if not (os.getenv("DATABASE_URL") or "").strip() and os.getenv("POMICH_ALLOW_JSON_STORE_IN_PRODUCTION") != "true":
+        errors.append("DATABASE_URL must be set in production, unless POMICH_ALLOW_JSON_STORE_IN_PRODUCTION=true is explicitly used for a small pilot")
+
     web_app_url = (os.getenv("WEB_APP_URL") or "").strip()
     telegram_token = (os.getenv("TELEGRAM_BOT_TOKEN") or os.getenv("VITE_TELEGRAM_BOT_TOKEN") or "").strip()
     if telegram_token and not web_app_url:

@@ -14,7 +14,7 @@ The repository is ready for a controlled pilot, not an unattended public product
 - `POMICH_PROVIDER_TOKEN` is set and shared only with trusted partner sessions.
 - `TELEGRAM_BOT_TOKEN` is stored only on the backend.
 - `WEB_APP_URL` points to the public HTTPS app URL.
-- Runtime data is mounted outside the container image.
+- `DATABASE_URL` is configured for SQL runtime storage. JSON production storage requires explicit `POMICH_ALLOW_JSON_STORE_IN_PRODUCTION=true` and is only acceptable for a very small pilot.
 - A backup/export procedure exists for `orders`, `providers`, `customers`, `offers`, and Telegram sessions.
 - GitHub Actions CI is green.
 
@@ -31,4 +31,4 @@ The repository is ready for a controlled pilot, not an unattended public product
 10. Confirm no CORS errors and no localhost API requests in Network.
 
 ## Next Architecture Step
-Move the JSON runtime store to Postgres/PostGIS before expanding beyond a small pilot. JSON files are acceptable for demo and short controlled testing only.
+The app can now use SQL runtime storage through `DATABASE_URL`, but this is still a snapshot-style persistence layer. Move providers/orders/offers into normalized Postgres/PostGIS tables before expanding beyond a small pilot.

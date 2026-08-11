@@ -75,12 +75,14 @@ def test_production_runtime_config_rejects_insecure_defaults(monkeypatch) -> Non
     monkeypatch.setenv("POMICH_CORS_ORIGINS", "*")
     monkeypatch.setenv("POMICH_ADMIN_TOKEN", "replace-me-admin-token")
     monkeypatch.delenv("POMICH_PROVIDER_TOKEN", raising=False)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
 
     errors = fastapi_app._runtime_config_errors()
 
     assert any("POMICH_CORS_ORIGINS" in error for error in errors)
     assert any("POMICH_ADMIN_TOKEN" in error for error in errors)
     assert any("POMICH_PROVIDER_TOKEN" in error for error in errors)
+    assert any("DATABASE_URL" in error for error in errors)
 
 
 def test_production_runtime_config_accepts_release_settings(monkeypatch) -> None:
@@ -88,6 +90,7 @@ def test_production_runtime_config_accepts_release_settings(monkeypatch) -> None
     monkeypatch.setenv("POMICH_CORS_ORIGINS", "https://app.pomich.example,https://admin.pomich.example")
     monkeypatch.setenv("POMICH_ADMIN_TOKEN", "admin-secret-1234567890-release")
     monkeypatch.setenv("POMICH_PROVIDER_TOKEN", "provider-secret-1234567890-release")
+    monkeypatch.setenv("DATABASE_URL", "sqlite:///release.db")
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     monkeypatch.delenv("VITE_TELEGRAM_BOT_TOKEN", raising=False)
     monkeypatch.setenv("WEB_APP_URL", "https://app.pomich.example")
@@ -100,6 +103,7 @@ def test_production_runtime_config_requires_telegram_public_url(monkeypatch) -> 
     monkeypatch.setenv("POMICH_CORS_ORIGINS", "https://app.pomich.example")
     monkeypatch.setenv("POMICH_ADMIN_TOKEN", "admin-secret-1234567890-release")
     monkeypatch.setenv("POMICH_PROVIDER_TOKEN", "provider-secret-1234567890-release")
+    monkeypatch.setenv("DATABASE_URL", "sqlite:///release.db")
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123456:telegram-token")
     monkeypatch.delenv("WEB_APP_URL", raising=False)
 
