@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 
 import type { LatLngTuple } from "leaflet"
 
@@ -32,6 +32,8 @@ import {
 
   normalizeTelHref,
 
+  normalizeTelegramHref,
+
   provider,
 
   providerPoint,
@@ -55,6 +57,15 @@ import { fetchOsrmRoute, formatRouteDistance, formatRouteDuration, forwardGeocod
 import ClickToPick from "./ClickToPick"
 
 import MapSizeController from "./MapSizeController"
+
+import {
+  MAP_GEO_DEBOUNCE_MS,
+  MAP_RECENTER_THRESHOLD_M,
+  moveMapToPoint,
+  shouldRecenterMap,
+} from "../../lib/mapGeo"
+
+import type { SheetSnap } from "../../hooks/useMobileSheetSnap"
 
 
 
@@ -107,6 +118,65 @@ function FitRouteBounds({ coords }: { coords: LatLngTuple[] }) {
     if (coords.length < 2) return
     map.fitBounds(L.latLngBounds(coords), { padding: [52, 52] })
   }, [coords, map])
+  return null
+}
+
+function MapExplicitRecenter({ point, trigger }: { point: LatLngTuple; trigger: number }) {
+  const map = useMap()
+  const pointRef = useRef(point)
+  const lastTriggerRef = useRef(0)
+
+  pointRef.current = point
+
+  useEffect(() => {
+    if (trigger <= 0 || trigger === lastTriggerRef.current) return
+    lastTriggerRef.current = trigger
+    moveMapToPoint(map, pointRef.current, { animateLarge: true })
+  }, [trigger, map])
+
+  return null
+}
+
+function MapDebouncedFollow({
+  point,
+  enabled,
+  recenterTrigger = 0,
+}: {
+  point: LatLngTuple
+  enabled: boolean
+  recenterTrigger?: number
+}) {
+  const map = useMap()
+  const lastCenterRef = useRef<LatLngTuple | null>(null)
+  const lastTriggerRef = useRef(recenterTrigger)
+
+  useEffect(() => {
+    if (recenterTrigger !== lastTriggerRef.current) {
+      lastTriggerRef.current = recenterTrigger
+      lastCenterRef.current = point
+    }
+  }, [point, recenterTrigger])
+
+  useEffect(() => {
+    if (!enabled) return
+
+    const timeoutId = window.setTimeout(() => {
+      const from = lastCenterRef.current ?? (() => {
+        const center = map.getCenter()
+        return [center.lat, center.lng] as LatLngTuple
+      })()
+
+      const nextPoint = { lat: point[0], lng: point[1] }
+      const fromPoint = { lat: from[0], lng: from[1] }
+      if (!shouldRecenterMap(fromPoint, nextPoint, MAP_RECENTER_THRESHOLD_M)) return
+
+      moveMapToPoint(map, point, { animateLarge: false })
+      lastCenterRef.current = point
+    }, MAP_GEO_DEBOUNCE_MS)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [enabled, map, point])
+
   return null
 }
 
@@ -231,6 +301,47 @@ function directoryProviderIcon(item: ProviderAvailability): L.DivIcon {
 }
 
 
+
+function LivePartnerPopup({ item }: { item: ProviderAvailability }) {
+  const telHref = normalizeTelHref(item.phone)
+  const telegramHref = normalizeTelegramHref(item.telegram)
+  const services = toServiceKeys(item.specialties)
+  const specialty = getDirectoryPrimarySpecialty(item)
+
+  return (
+    <div style={{ minWidth: 220, maxWidth: 280 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <span style={{ fontSize: 18 }}>{getDirectoryIconEmoji(item)}</span>
+        <strong style={{ lineHeight: 1.25 }}>{item.name}</strong>
+      </div>
+      <div style={{ marginTop: 6, fontSize: 12, color: "#4B5563", fontWeight: 700 }}>
+        {providerStatusLabel(item.status)}
+        {typeof item.rating === "number" ? ` · ★ ${item.rating.toFixed(1)}` : ""}
+        {item.etaMinutes ? ` · ~${item.etaMinutes} хв` : ""}
+      </div>
+      {item.vehicle ? <div style={{ marginTop: 6, fontSize: 12, color: "#374151" }}>{item.vehicle}</div> : null}
+      <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 6 }}>
+        {(services.length > 0 ? services : [specialty]).map((service) => (
+          <span key={service} style={{ borderRadius: 999, padding: "5px 9px", background: "#E8F8F1", color: BRAND, fontSize: 11, fontWeight: 900 }}>
+            {getProviderCapabilityLabel(service)}
+          </span>
+        ))}
+      </div>
+      {telHref ? (
+        <a href={telHref} style={{ display: "inline-block", marginTop: 10, fontSize: 14, fontWeight: 900, color: BRAND, textDecoration: "none" }}>
+          📞 {item.phone}
+        </a>
+      ) : (
+        <div style={{ marginTop: 10, fontSize: 11, color: "#9CA3AF", fontWeight: 700 }}>Телефон не вказано</div>
+      )}
+      {telegramHref ? (
+        <a href={telegramHref} target="_blank" rel="noreferrer" style={{ display: "inline-block", marginTop: 8, fontSize: 13, fontWeight: 800, color: "#2563EB", textDecoration: "none" }}>
+          Telegram @{item.telegram?.replace(/^@+/, "")}
+        </a>
+      ) : null}
+    </div>
+  )
+}
 
 function DirectoryPopup({
   item,
@@ -442,13 +553,15 @@ function RouteOriginSheet({
 
 
 
-function MapLegend({ directoryOnly, hasDestination, hasPartner }: { directoryOnly?: boolean; hasDestination?: boolean; hasPartner?: boolean }) {
+function MapLegend({ directoryOnly, hasDestination, hasPartner, overlayMode }: { directoryOnly?: boolean; hasDestination?: boolean; hasPartner?: boolean; overlayMode?: boolean }) {
+
+  const chromeStyle = { position: "absolute" as const, zIndex: 1100, right: 12, top: overlayMode ? 8 : 12, background: "rgba(255,255,255,0.96)", borderRadius: 12, padding: "7px 10px", fontSize: 10, fontWeight: 900, color: DARK, boxShadow: "0 4px 14px rgba(0,0,0,0.08)", display: "grid", gap: 4 }
 
   if (directoryOnly) {
 
     return (
 
-      <div style={{ position: "absolute", zIndex: 1100, right: 12, top: 12, background: "rgba(255,255,255,0.96)", borderRadius: 12, padding: "7px 10px", fontSize: 10, fontWeight: 900, color: DARK, boxShadow: "0 4px 14px rgba(0,0,0,0.08)", display: "grid", gap: 4 }}>
+      <div style={chromeStyle}>
 
         <span style={{ marginBottom: 2, fontSize: 9, color: "#6B7280" }}>Легенда</span>
 
@@ -468,7 +581,7 @@ function MapLegend({ directoryOnly, hasDestination, hasPartner }: { directoryOnl
 
   return (
 
-    <div style={{ position: "absolute", zIndex: 1100, right: 12, top: 12, background: "rgba(255,255,255,0.96)", borderRadius: 12, padding: "7px 10px", fontSize: 10, fontWeight: 900, color: DARK, boxShadow: "0 4px 14px rgba(0,0,0,0.08)", display: "grid", gap: 4 }}>
+    <div style={chromeStyle}>
 
       <span style={{ marginBottom: 2, fontSize: 9, color: "#6B7280" }}>Легенда</span>
 
@@ -510,6 +623,8 @@ interface RouteMapProps {
 
   onContactRequest?: (pin: MapRequestPin) => void
 
+  onRequestPinSelect?: (pin: MapRequestPin) => void
+
   full?: boolean
 
   showBadges?: boolean
@@ -523,6 +638,16 @@ interface RouteMapProps {
   onUserLocationChange?: (point: Point) => void
 
   decorative?: boolean
+
+  overlayMode?: boolean
+
+  sheetSnap?: SheetSnap
+
+  recenterTrigger?: number
+
+  onRetryGeo?: () => void
+
+  geoLoading?: boolean
 
 }
 
@@ -548,6 +673,8 @@ export function RouteMap({
 
   onContactRequest,
 
+  onRequestPinSelect,
+
   full = false,
 
   showBadges = true,
@@ -562,10 +689,25 @@ export function RouteMap({
 
   decorative = false,
 
+  overlayMode = false,
+
+  sheetSnap,
+
+  recenterTrigger = 0,
+
+  onRetryGeo,
+
+  geoLoading = false,
+
 }: RouteMapProps) {
   const mapInteractive = !decorative
+  const locationPickMode = Boolean(onPick) && !destination && !directoryOnly && !providerPosition
+  const initialCenterRef = useRef<LatLngTuple>(toTuple(providerPosition ?? userLocation ?? pickup))
+  const [markerDragging, setMarkerDragging] = useState(false)
 
   const [categoryFilter, setCategoryFilter] = useState<DirectoryCategoryKey>("all")
+
+  const [mapToolsOpen, setMapToolsOpen] = useState(false)
 
   const [routeCoords, setRouteCoords] = useState<LatLngTuple[] | null>(null)
 
@@ -826,6 +968,7 @@ export function RouteMap({
 
 
   const center = providerPosition ? toTuple(providerPosition) : userLocation ? toTuple(userLocation) : toTuple(pickup)
+  const followMapCenter = !decorative && !destination && !providerPosition && !directoryOnly && !markerDragging && !navRouteCoords && !locationPickMode
 
 
 
@@ -875,6 +1018,14 @@ export function RouteMap({
 
 
 
+  const overlayBottom = sheetSnap === "collapsed" ? "22%" : sheetSnap === "half" ? "56%" : sheetSnap === "expanded" ? "90%" : overlayMode ? 56 : 12
+
+  const hideMapChrome = sheetSnap === "expanded"
+
+  const compactMapTools = overlayMode && !hideMapChrome
+
+
+
   const routeLabel = routeInfo
 
     ? `${formatRouteDistance(routeInfo.distanceMeters)} · ${formatRouteDuration(routeInfo.durationSeconds)}`
@@ -911,11 +1062,14 @@ export function RouteMap({
 
   return (
 
-    <div style={{ height: full ? "100%" : 244, minHeight: full ? 0 : undefined, borderRadius: full ? 0 : 22, overflow: "hidden", border: full ? "none" : `1px solid ${BORDER}`, position: "relative", background: "#EAF4EE", ...(decorative ? { pointerEvents: "none" } : {}) }}>
+    <div className={`pomich-route-map${full ? " pomich-route-map--full" : ""}`} style={{ height: full ? "100%" : 244, minHeight: full ? 0 : undefined, borderRadius: full ? 0 : 22, overflow: "hidden", border: full ? "none" : `1px solid ${BORDER}`, position: "relative", background: "#EAF4EE", ...(decorative ? { pointerEvents: "none" } : {}) }}>
 
-      <MapContainer center={center} zoom={13} zoomControl={mapInteractive} scrollWheelZoom={mapInteractive} dragging={mapInteractive} touchZoom={mapInteractive} doubleClickZoom={mapInteractive} boxZoom={mapInteractive} keyboard={mapInteractive} style={{ width: "100%", height: "100%" }}>
+      <MapContainer center={initialCenterRef.current} zoom={13} zoomControl={mapInteractive} scrollWheelZoom={mapInteractive} dragging={mapInteractive} touchZoom={mapInteractive} doubleClickZoom={mapInteractive} boxZoom={mapInteractive} keyboard={mapInteractive} style={{ width: "100%", height: "100%" }}>
 
         <MapSizeController />
+
+        {recenterTrigger > 0 ? <MapExplicitRecenter point={center} trigger={recenterTrigger} /> : null}
+        {followMapCenter ? <MapDebouncedFollow point={center} enabled={followMapCenter} recenterTrigger={recenterTrigger} /> : null}
 
         {decorative ? <DisableMapInteractions /> : mapInteractive ? <MapPointerScrollZoom /> : null}
 
@@ -971,9 +1125,27 @@ export function RouteMap({
 
         {!directoryOnly ? (
 
-          <Marker position={toTuple(pickup)} icon={pickupIcon}>
+          <Marker
+            position={toTuple(pickup)}
+            icon={pickupIcon}
+            draggable={locationPickMode}
+            eventHandlers={
+              locationPickMode
+                ? {
+                    dragstart: () => {
+                      setMarkerDragging(true)
+                    },
+                    dragend: (event) => {
+                      const position = event.target.getLatLng()
+                      onPick?.({ lat: position.lat, lng: position.lng })
+                      setMarkerDragging(false)
+                    },
+                  }
+                : undefined
+            }
+          >
 
-            <Popup>Клієнт · місце подачі</Popup>
+            <Popup>{locationPickMode ? "Перетягніть маркер або натисніть на карту" : "Клієнт · місце подачі"}</Popup>
 
           </Marker>
 
@@ -1015,7 +1187,11 @@ export function RouteMap({
 
                 <Marker key={item.id} position={toTuple(point)} icon={liveProviderIcon}>
 
-                  <Popup>{item.name} · {providerStatusLabel(item.status)}</Popup>
+                  <Popup>
+
+                    <LivePartnerPopup item={item} />
+
+                  </Popup>
 
                 </Marker>
 
@@ -1035,23 +1211,41 @@ export function RouteMap({
 
               return (
 
-                <Marker key={pin.offerId ?? pin.id} position={toTuple(point)} icon={requestIcon}>
+                <Marker
+                  key={pin.offerId ?? pin.id}
+                  position={toTuple(point)}
+                  icon={requestIcon}
+                  zIndexOffset={1200}
+                  eventHandlers={{
+                    click: () => {
+                      onRequestPinSelect?.(pin)
+                    },
+                  }}
+                >
 
                   <Popup>
 
-                    <div style={{ minWidth: 200 }}>
+                    <div style={{ minWidth: 200, maxWidth: 260 }}>
 
-                      <strong>Заявка {pin.service ?? "допомога"}</strong>
+                      <strong>{getProviderCapabilityLabel(pin.service)}</strong>
 
-                      <div style={{ marginTop: 4, fontSize: 12 }}>{pin.customerLocation ?? "Поруч"}</div>
+                      <div style={{ marginTop: 4, fontSize: 12, lineHeight: 1.35, overflowWrap: "anywhere" }}>{pin.customerLocation ?? "Поруч"}</div>
 
                       {pin.vehicleState ? <div style={{ marginTop: 4, fontSize: 12 }}>{pin.vehicleState}</div> : null}
 
-                      {typeof pin.distanceKm === "number" ? <div style={{ marginTop: 4, fontSize: 12 }}>{pin.distanceKm.toFixed(1)} км</div> : null}
+                      {pin.customerComment ? <div style={{ marginTop: 6, fontSize: 12, fontStyle: "italic", lineHeight: 1.35 }}>{pin.customerComment}</div> : null}
+
+                      {typeof pin.distanceKm === "number" ? <div style={{ marginTop: 4, fontSize: 12 }}>{pin.distanceKm.toFixed(1)} км · ~{pin.etaMinutes ?? Math.ceil(pin.distanceKm * 4)} хв</div> : null}
+
+                      {onRequestPinSelect ? (
+                        <button type="button" onClick={() => onRequestPinSelect(pin)} style={{ width: "100%", marginTop: 10, border: "none", borderRadius: 10, background: BRAND, color: "#fff", padding: "8px 10px", fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>
+                          Деталі заявки
+                        </button>
+                      ) : null}
 
                       <div style={{ display: "grid", gap: 6, marginTop: 10 }}>
 
-                        {pin.offerId && onAcceptRequest ? (
+                        {pin.offerId && onAcceptRequest && !onRequestPinSelect ? (
 
                           <button type="button" onClick={() => onAcceptRequest(pin)} style={{ border: "none", borderRadius: 10, background: BRAND, color: "#fff", padding: "8px 10px", fontWeight: 800, cursor: "pointer" }}>
 
@@ -1115,7 +1309,7 @@ export function RouteMap({
 
         ) : null}
 
-        {userLocation ? (
+        {userLocation && !locationPickMode ? (
 
           <Marker position={toTuple(userLocation)} icon={userLocationIcon}>
 
@@ -1149,9 +1343,9 @@ export function RouteMap({
         />
       ) : null}
 
-      {showBadges && displaySubtitle ? (
+      {showBadges && displaySubtitle && !hideMapChrome ? (
 
-        <div style={{ position: "absolute", zIndex: 1100, left: 12, bottom: 12, background: "rgba(255,255,255,0.94)", borderRadius: 999, padding: "8px 12px", fontSize: 12, fontWeight: 800, color: DARK, maxWidth: "calc(100% - 24px)" }}>
+        <div style={{ position: "absolute", zIndex: 1100, left: 12, bottom: typeof overlayBottom === "string" ? overlayBottom : onRetryGeo ? (overlayMode ? 96 : 52) : overlayMode ? 56 : 12, background: "rgba(255,255,255,0.94)", borderRadius: 999, padding: "8px 12px", fontSize: 12, fontWeight: 800, color: DARK, maxWidth: onRetryGeo ? "calc(100% - 170px)" : "calc(100% - 24px)", pointerEvents: "none" }}>
 
           {displaySubtitle}
 
@@ -1159,9 +1353,95 @@ export function RouteMap({
 
       ) : null}
 
-      {showBadges && directoryProviders.length > 0 ? (
+      {onRetryGeo && !hideMapChrome ? (
+        <button
+          type="button"
+          aria-label="Оновити геолокацію"
+          onClick={onRetryGeo}
+          disabled={geoLoading}
+          style={{
+            position: "absolute",
+            zIndex: 1100,
+            right: 12,
+            bottom: typeof overlayBottom === "string" ? overlayBottom : overlayMode ? 56 : 12,
+            border: `1px solid ${BORDER}`,
+            borderRadius: 999,
+            background: geoLoading ? "rgba(243,244,246,0.96)" : "rgba(255,255,255,0.96)",
+            color: geoLoading ? "#9CA3AF" : DARK,
+            padding: "8px 12px",
+            fontSize: 12,
+            fontWeight: 900,
+            cursor: geoLoading ? "not-allowed" : "pointer",
+            fontFamily: "inherit",
+            boxShadow: "0 4px 14px rgba(0,0,0,0.08)",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            whiteSpace: "nowrap",
+            touchAction: "manipulation",
+          }}
+        >
+          <span aria-hidden="true">{geoLoading ? "…" : "↻"}</span>
+          {geoLoading ? "Оновлюємо…" : "Оновити геолокацію"}
+        </button>
+      ) : null}
 
-        <div style={{ position: "absolute", zIndex: 1100, right: 12, top: directoryOnly ? 12 : 12, background: "rgba(255,255,255,0.96)", borderRadius: 12, padding: "8px 10px", fontSize: 10, fontWeight: 900, color: DARK, boxShadow: "0 4px 14px rgba(0,0,0,0.08)", display: "grid", gap: 4, maxWidth: 150 }}>
+      {showBadges && directoryProviders.length > 0 && compactMapTools ? (
+        <>
+          <button
+            type="button"
+            className="pomich-map-tools-toggle"
+            aria-expanded={mapToolsOpen}
+            aria-label="Фільтр і легенда карти"
+            onClick={() => setMapToolsOpen((value) => !value)}
+          >
+            {mapToolsOpen ? "✕ Закрити" : "🗺️ Карта"}
+          </button>
+          {mapToolsOpen ? (
+            <div className="pomich-map-tools-panel">
+              <div className="pomich-map-tools-panel__title">Фільтр сервісів</div>
+              {directoryCategoryFilters.map((filter) => {
+                const count = categoryCounts[filter.key] ?? 0
+                if (filter.key !== "all" && count === 0) return null
+                const active = categoryFilter === filter.key
+                return (
+                  <button
+                    key={filter.key}
+                    type="button"
+                    className="pomich-map-tools-filter-btn"
+                    onClick={() => setCategoryFilter(filter.key)}
+                    style={{
+                      borderColor: active ? filter.color : undefined,
+                      background: active ? `${filter.color}18` : undefined,
+                      fontWeight: active ? 900 : 700,
+                    }}
+                  >
+                    {filter.emoji} {filter.label}{count > 0 ? ` (${count})` : ""}
+                  </button>
+                )
+              })}
+              <div className="pomich-map-tools-panel__title">Легенда</div>
+              {directoryOnly ? (
+                <>
+                  <span style={{ fontSize: 10, fontWeight: 900, color: DARK }}>🔧 Сервіс / СТО</span>
+                  <span style={{ fontSize: 10, fontWeight: 900, color: DARK }}>🟣 Ваше місце</span>
+                  <span style={{ fontSize: 10, fontWeight: 900, color: DARK }}>🔵 Маршрут</span>
+                </>
+              ) : (
+                <>
+                  <span style={{ fontSize: 10, fontWeight: 900, color: DARK }}>🟢 Клієнт</span>
+                  {providerPosition ? <span style={{ fontSize: 10, fontWeight: 900, color: DARK }}>🟠 Партнер</span> : <span style={{ fontSize: 10, fontWeight: 900, color: DARK }}>🚛 Партнер на лінії</span>}
+                  {destination ? <span style={{ fontSize: 10, fontWeight: 900, color: DARK }}>🔵 Пункт призначення</span> : null}
+                  <span style={{ fontSize: 10, fontWeight: 900, color: DARK }}>🔧 Сервіс</span>
+                  <span style={{ fontSize: 10, fontWeight: 900, color: DARK }}>🔴 Заявка</span>
+                </>
+              )}
+            </div>
+          ) : null}
+        </>
+      ) : showBadges && directoryProviders.length > 0 ? (
+
+        <div style={{ position: "absolute", zIndex: 1100, right: 12, top: overlayMode ? 8 : 12, background: "rgba(255,255,255,0.96)", borderRadius: 12, padding: "8px 10px", fontSize: 10, fontWeight: 900, color: DARK, boxShadow: "0 4px 14px rgba(0,0,0,0.08)", display: "grid", gap: 4, maxWidth: 150, maxHeight: overlayMode ? "38%" : undefined, overflowY: overlayMode ? "auto" : undefined }}>
 
           <span style={{ marginBottom: 2, fontSize: 9, color: "#6B7280" }}>Фільтр сервісів</span>
 
@@ -1229,9 +1509,9 @@ export function RouteMap({
 
         </div>
 
-      ) : showBadges ? (
+      ) : showBadges && !hideMapChrome && !compactMapTools ? (
 
-        <MapLegend directoryOnly={directoryOnly} hasDestination={Boolean(destination)} hasPartner={Boolean(providerPosition)} />
+        <MapLegend directoryOnly={directoryOnly} hasDestination={Boolean(destination)} hasPartner={Boolean(providerPosition)} overlayMode={overlayMode} />
 
       ) : null}
 

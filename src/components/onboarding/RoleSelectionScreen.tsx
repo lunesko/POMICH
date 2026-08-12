@@ -1,5 +1,3 @@
-import type { ProviderAvailability } from "../../api/client"
-
 import { usePomichTheme } from "../../context/PomichThemeProvider"
 
 import { mediaQueries } from "../../lib/breakpoints"
@@ -22,7 +20,7 @@ const ROLE_DESTINATION: Point = { lat: 50.4547, lng: 30.5038 }
 
 
 
-const roleMapProviders: ProviderAvailability[] = [
+const roleMapProviders = [
 
   {
 
@@ -30,7 +28,7 @@ const roleMapProviders: ProviderAvailability[] = [
 
     name: "Олександр",
 
-    status: "online",
+    status: "online" as const,
 
     vehicle: "Volkswagen Transporter",
 
@@ -50,7 +48,7 @@ const roleMapProviders: ProviderAvailability[] = [
 
     name: "Михайло",
 
-    status: "busy",
+    status: "busy" as const,
 
     vehicle: "Renault Master",
 
@@ -165,77 +163,41 @@ function RoleBadge({ label }: { label: string }) {
 
 
 function RoleHeroBackground({ isDark }: { isDark: boolean }) {
-
   if (isDark) {
-
     return (
-
       <>
-
         <div className="absolute inset-0 opacity-40 saturate-[1.18] contrast-[1.05]">
-
           <RouteMap pickup={ROLE_PICKUP} destination={ROLE_DESTINATION} providers={roleMapProviders} subtitle="POMICH live map" full showBadges={false} />
-
         </div>
-
         <div
-
           className="absolute inset-0"
-
           style={{
-
             background:
-
               "radial-gradient(circle at 50% 26%, rgba(22,163,106,0.18), rgba(9,11,14,0.18) 34%, #090B0E 78%), linear-gradient(180deg, rgba(9,11,14,0.58), rgba(9,11,14,0.96))",
-
           }}
-
         />
-
       </>
-
     )
-
   }
 
-
-
   return (
-
     <>
-
       <div
-
         className="absolute inset-0"
-
         style={{
-
           background:
-
             "radial-gradient(ellipse 120% 80% at 20% 0%, rgba(22, 163, 106, 0.14), transparent 55%), radial-gradient(ellipse 90% 70% at 85% 15%, rgba(47, 128, 237, 0.1), transparent 50%), linear-gradient(165deg, #FAFCFB 0%, #F0F7F3 48%, #E3EFE8 100%)",
-
         }}
-
       />
-
       <div
-
         className="absolute inset-0 opacity-45"
-
         style={{
-
           backgroundImage: "radial-gradient(circle at center, rgba(22, 163, 106, 0.09) 1px, transparent 1px)",
-
           backgroundSize: "28px 28px",
-
         }}
-
       />
-
     </>
-
   )
-
 }
 
 
@@ -266,7 +228,7 @@ export default function RoleSelectionScreen({ compact: compactProp, saving = fal
 
   return (
 
-    <div className="relative min-h-dvh overflow-hidden" style={{ background: colors.bg, color: colors.text }}>
+    <div className="relative min-h-dvh overflow-x-hidden pomich-role-select" style={{ background: colors.bg, color: colors.text }}>
 
       <RoleHeroBackground isDark={isDark} />
 

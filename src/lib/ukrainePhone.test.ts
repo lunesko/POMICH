@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest"
 
 import {
   formatLocalPhoneDisplay,
+  nationalDigitsFromPhone,
   normalizeUkrainePhone,
   parseUkrainePhoneInput,
+  phoneInputValueFromStored,
   toE164,
   validateUkraineMobilePhone,
 } from "./ukrainePhone"
@@ -51,7 +53,20 @@ describe("ukrainePhone", () => {
     expect(validateUkraineMobilePhone("").valid).toBe(false)
   })
 
+  it("normalizes stored phone for PhoneInput display", () => {
+    expect(phoneInputValueFromStored("+380661007434")).toBe("+380661007434")
+    expect(phoneInputValueFromStored("0661007434")).toBe("+380661007434")
+    expect(phoneInputValueFromStored("+380")).toBe("")
+    expect(phoneInputValueFromStored("+38066")).toBe("+38066")
+  })
+
   it("builds partial E.164 while typing", () => {
     expect(toE164("66")).toBe("+38066")
+  })
+
+  it("keeps the first national digit visible while typing", () => {
+    expect(nationalDigitsFromPhone("+3806")).toBe("6")
+    expect(phoneInputValueFromStored("+3806")).toBe("+3806")
+    expect(formatLocalPhoneDisplay(nationalDigitsFromPhone("+380661007434"))).toBe("66 100 74 34")
   })
 })

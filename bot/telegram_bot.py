@@ -195,6 +195,9 @@ class TelegramBotClient:
             payload["parse_mode"] = parse_mode
         return self.request("sendMessage", payload)
 
+    def delete_message(self, chat_id: str | int, message_id: int) -> dict[str, Any]:
+        return self.request("deleteMessage", {"chat_id": chat_id, "message_id": message_id})
+
 
 def _build_webapp_keyboard(*, role: str | None = None) -> dict[str, Any] | None:
     url = _webapp_url_for_role(role)
@@ -316,9 +319,22 @@ def handle_update(update: dict[str, Any], client: TelegramBotClient | None = Non
     return {"handled": True, "type": "fallback"}
 
 
-def send_message(chat_id: str, text: str, username: Optional[str] = None) -> dict[str, Any]:
+def send_message(
+    chat_id: str,
+    text: str,
+    username: Optional[str] = None,
+    *,
+    parse_mode: str | None = None,
+) -> dict[str, Any]:
     try:
-        return TelegramBotClient().send_message(chat_id, text)
+        return TelegramBotClient().send_message(chat_id, text, parse_mode=parse_mode)
+    except TelegramApiError as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+def delete_message(chat_id: str | int, message_id: int) -> dict[str, Any]:
+    try:
+        return TelegramBotClient().delete_message(chat_id, message_id)
     except TelegramApiError as exc:
         return {"ok": False, "error": str(exc)}
 
@@ -338,6 +354,24 @@ def notify_order_created(chat_id: str | None, order: dict[str, Any]) -> dict[str
     except TelegramApiError as exc:
         print(f"Telegram API error while notifying order: {exc}", flush=True)
         return {"ok": False, "error": str(exc)}
+
+
+def notify_order_cancelled(order: dict[str, Any]) -> list[dict[str, Any]]:
+    from bot.order_store import partner_telegram_user_ids_for_order
+
+    order_id = str(order.get("id") or "").strip()
+    if not order_id:
+        return []
+
+    text = f"Заявку #{order_id} скасовано клієнтом"
+    results: list[dict[str, Any]] = []
+    for telegram_user_id in partner_telegram_user_ids_for_order(order_id, order):
+        try:
+            results.append(TelegramBotClient().send_message(str(telegram_user_id), text))
+        except TelegramApiError as exc:
+            print(f"Telegram API error while notifying partner cancel: {exc}", flush=True)
+            results.append({"ok": False, "error": str(exc), "chat_id": telegram_user_id})
+    return results
 
 
 def _pid_file() -> Path:

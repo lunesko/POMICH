@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 import pytest
 
 from bot import otp_verification
-from bot.order_store import get_customer_profile, update_customer_profile
+from bot.order_store import get_customer_profile, get_provider_profile, update_customer_profile, update_provider_profile
 
 
 @pytest.fixture
@@ -15,7 +15,7 @@ def otp_env(monkeypatch, tmp_path):
     monkeypatch.setenv("POMICH_RUNTIME", "dev")
     monkeypatch.delenv("SMTP_HOST", raising=False)
     monkeypatch.setattr(otp_verification, "_default_otp_store_path", lambda: otp_path)
-    monkeypatch.setattr(otp_verification, "_send_telegram_otp", lambda chat_id, code: None)
+    monkeypatch.setattr(otp_verification, "_send_telegram_otp", lambda chat_id, code: 12345)
     return customer_path, otp_path
 
 
@@ -74,6 +74,70 @@ def test_rate_limit_blocks_fourth_send(otp_env) -> None:
     assert exc.value.code == "rate_limit_exceeded"
 
 
+def test_telegram_otp_message_uses_html_code_tag(monkeypatch) -> None:
+    sent_messages: list[dict] = []
+
+    def fake_send_message(chat_id, text, **kwargs):
+        sent_messages.append({"chat_id": chat_id, "text": text, **kwargs})
+        return {"ok": True, "result": {"message_id": 9876}}
+
+    monkeypatch.setattr("bot.telegram_bot.send_message", fake_send_message)
+    message_id = otp_verification._send_telegram_otp("12345", "378741")
+
+    assert message_id == 9876
+    assert len(sent_messages) == 1
+    assert sent_messages[0]["chat_id"] == "12345"
+    assert sent_messages[0]["text"] == (
+        "Ваш код підтвердження POMICH: <code>378741</code>\n\nДійсний 10 хв."
+    )
+    assert sent_messages[0]["parse_mode"] == "HTML"
+
+
+def test_confirm_deletes_telegram_otp_message(otp_env, monkeypatch) -> None:
+    customer_path, _ = otp_env
+    deleted: list[tuple[str, int]] = []
+    monkeypatch.setattr(otp_verification, "_generate_otp_code", lambda: "654321")
+    monkeypatch.setattr(otp_verification, "_send_telegram_otp", lambda chat_id, code: 555)
+    monkeypatch.setattr(
+        otp_verification,
+        "_delete_stored_otp_telegram_message",
+        lambda record: deleted.append((str(record.get("telegramChatId")), int(record["telegramMessageId"])))
+        if record.get("telegramChatId") and record.get("telegramMessageId") is not None
+        else None,
+    )
+    update_customer_profile("tg-42", {"name": "Maria", "phone": "+380501112233"}, customer_path)
+
+    otp_verification.send_customer_verification_code("tg-42", "telegram", customer_store_path=customer_path)
+    otp_verification.confirm_customer_verification_code("tg-42", "654321", customer_store_path=customer_path)
+
+    assert deleted == [("42", 555)]
+
+
+def test_expired_cleanup_deletes_telegram_otp_message(monkeypatch, otp_env) -> None:
+    customer_path, otp_path = otp_env
+    deleted: list[tuple[str, int]] = []
+    monkeypatch.setattr(otp_verification, "_send_telegram_otp", lambda chat_id, code: 777)
+    monkeypatch.setattr(
+        otp_verification,
+        "_delete_stored_otp_telegram_message",
+        lambda record: deleted.append((str(record.get("telegramChatId")), int(record["telegramMessageId"])))
+        if record.get("telegramChatId") and record.get("telegramMessageId") is not None
+        else None,
+    )
+    update_customer_profile("tg-7", {"name": "Olena", "phone": "+380931234567"}, customer_path)
+    otp_verification.send_customer_verification_code("tg-7", "telegram", customer_store_path=customer_path)
+
+    store = otp_verification._load_otp_store(otp_path)
+    expired_at = (datetime.utcnow() - timedelta(minutes=1)).isoformat(timespec="seconds") + "Z"
+    store["tg-7"]["expiresAt"] = expired_at
+    otp_verification._save_otp_store(store, otp_path)
+
+    with pytest.raises(otp_verification.OtpVerificationError) as exc:
+        otp_verification.confirm_customer_verification_code("tg-7", "123456", customer_store_path=customer_path)
+    assert exc.value.code == "code_expired"
+    assert deleted == [("7", 777)]
+
+
 def test_email_channel_sets_email_flag(otp_env) -> None:
     customer_path, _ = otp_env
     update_customer_profile(
@@ -97,3 +161,85 @@ def test_email_channel_sets_email_flag(otp_env) -> None:
     )
     assert profile["verification"]["email"] is True
     assert get_customer_profile("guest-1", customer_path)["verificationStatus"] == "verified"
+
+
+def test_telegram_otp_resolves_chat_id_by_phone(otp_env) -> None:
+    customer_path, _ = otp_env
+    update_customer_profile(
+        "tg-777888",
+        {"name": "Bot User", "phone": "+380501112233"},
+        customer_path,
+    )
+    update_customer_profile(
+        "guest-web-1",
+        {"name": "Web User", "phone": "+380501112233"},
+        customer_path,
+    )
+
+    sent = otp_verification.send_customer_verification_code(
+        "guest-web-1",
+        "telegram",
+        phone="+380501112233",
+        customer_store_path=customer_path,
+    )
+    assert sent["ok"] is True
+    assert sent["channel"] == "telegram"
+
+
+def test_telegram_otp_requires_bot_link_when_phone_unknown(otp_env) -> None:
+    customer_path, _ = otp_env
+    update_customer_profile(
+        "guest-2",
+        {"name": "Lonely Web", "phone": "+380661007434"},
+        customer_path,
+    )
+
+    with pytest.raises(otp_verification.OtpVerificationError) as exc:
+        otp_verification.send_customer_verification_code(
+            "guest-2",
+            "telegram",
+            phone="+380661007434",
+            customer_store_path=customer_path,
+        )
+    assert exc.value.code == "telegram_not_linked"
+
+
+def test_otp_verification_auto_verifies_linked_provider(otp_env, tmp_path, monkeypatch) -> None:
+    customer_path, otp_path = otp_env
+    provider_path = tmp_path / "providers.json"
+    monkeypatch.setattr("bot.order_store._default_provider_store_path", lambda: provider_path)
+
+    update_customer_profile(
+        "guest-partner-1",
+        {"name": "Partner User", "phone": "+380501112233", "linkedProviderId": "provider-guest-partner-1"},
+        customer_path,
+    )
+    update_provider_profile(
+        "provider-guest-partner-1",
+        {
+            "name": "Partner User",
+            "phone": "+380501112233",
+            "vehicle": "Ford Transit",
+            "plate": "AA 1111 AA",
+            "specialties": ["tow"],
+            "serviceRadiusKm": 12,
+        },
+        store_path=provider_path,
+    )
+
+    monkeypatch.setattr(otp_verification, "_generate_otp_code", lambda: "654321")
+    otp_verification.send_customer_verification_code(
+        "guest-partner-1",
+        "email",
+        email="partner@example.com",
+        customer_store_path=customer_path,
+    )
+    otp_verification.confirm_customer_verification_code(
+        "guest-partner-1",
+        "654321",
+        customer_store_path=customer_path,
+    )
+
+    provider = get_provider_profile("provider-guest-partner-1", provider_path)
+    assert provider["verificationStatus"] == "verified"
+    assert provider["verification"]["phone"] is True

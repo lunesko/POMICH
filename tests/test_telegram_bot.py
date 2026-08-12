@@ -6,6 +6,7 @@ from bot.telegram_bot import (
     _build_webapp_keyboard,
     _webapp_url_for_role,
     handle_update,
+    notify_order_cancelled,
 )
 
 
@@ -159,3 +160,15 @@ def test_missing_chat_id():
 def test_webapp_keyboard_without_url_returns_none():
     with patch.dict(os.environ, {"WEB_APP_URL": ""}, clear=False):
         assert _build_webapp_keyboard() is None
+
+
+def test_notify_order_cancelled_sends_partner_message():
+    client = FakeTelegramClient()
+
+    with patch("bot.telegram_bot.TelegramBotClient", return_value=client):
+        with patch("bot.order_store.partner_telegram_user_ids_for_order", return_value=["445566"]):
+            results = notify_order_cancelled({"id": "PM-123456"})
+
+    assert results[0]["ok"] is True
+    assert client.messages[0]["chat_id"] == "445566"
+    assert client.messages[0]["text"] == "Заявку #PM-123456 скасовано клієнтом"

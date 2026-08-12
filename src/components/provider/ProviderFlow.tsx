@@ -9,25 +9,31 @@ import {
   DEFAULT_SERVICE_RADIUS_KM,
   PICKUP,
   PROVIDER_START,
+  composePartnerVehicle,
+  emptyPartnerRegistrationForm,
   getActiveProviderId,
   getProviderCapabilityLabel,
   getServiceEmoji,
-  isVerified,
+  hydratePartnerVehicleFromProfile,
+  isProviderPhoneVerified,
+  partnerVehicleSelectionIsComplete,
   provider,
+  resolvePartnerVehicleMake,
   services,
   toServiceKeys,
   type OrderStatus,
   type PartnerRegistrationForm,
   type Point,
 } from "../../lib/constants"
+import { PartnerVehicleFields } from "./PartnerVehicleFields"
 import {
   acceptProviderOffer,
   createProviderAccountSession,
   createProviderSession,
   declineProviderOffer,
+  getOrder,
   getProviderOffers,
   getProviders,
-  submitProviderVerification,
   updateProviderOrderStatus,
   updateProviderPresence,
   updateProviderProfile,
@@ -36,18 +42,24 @@ import {
   type ProviderAvailability,
 } from "../../api/client"
 import { PrimaryButton } from "../ui/PrimaryButton"
+import { DutyStatusToggle, PresenceToast, presenceErrorMessage } from "../ui/DutyStatusToggle"
 import { SecondaryButton } from "../ui/SecondaryButton"
-import { VerificationPill } from "../ui/VerificationPill"
 import { Timeline } from "../ui/Timeline"
 import { ProviderCard } from "../ui/ProviderCard"
+import { OtpVerificationPanel } from "../ui/OtpVerificationPanel"
+import type { CustomerProfile } from "../../api/client"
+import { getTelegramContext } from "../../telegram"
 import ScreenLayout from "../layout/ScreenLayout"
 import FormContainer, { FormHeader } from "../layout/FormContainer"
 import Header from "../layout/Header"
 import { ServiceRadiusField } from "../ui/ServiceRadiusField"
 import RouteMap from "../map/RouteMap"
-import { authSessionStorageKey, isAuthSessionToken, parseApiDateMs, readStoredAuthSession, storeAuthSession } from "../../lib/auth"
+import { authSessionStorageKey, isAuthSessionToken, readStoredAuthSession, storeAuthSession } from "../../lib/auth"
+import { filterActiveOffers, isOfferActive, offerSecondsLeft } from "../../lib/dispatchOffer"
 import { validateUkraineMobilePhone } from "../../lib/ukrainePhone"
+import { isValidUkrainePlate, validateUkrainePlate } from "../../lib/ukrainePlate"
 import { PhoneInput } from "../ui/PhoneInput"
+import { UkrainePlateInput } from "../ui/UkrainePlateInput"
 import type { ServiceKey } from "../../lib/pomichDomain"
 
 function AccountLoginStep({
@@ -106,42 +118,40 @@ function ProviderRegistrationStep({
   onToggleSpecialty: (specialty: ServiceKey) => void
   onSubmit: () => void
 }) {
+  const composedVehicle = composePartnerVehicle(form.vehicleMake, form.vehicleModel, form.vehicleMakeOther)
   const canSubmit = Boolean(
     form.name.trim()
     && validateUkraineMobilePhone(form.phone).valid
-    && form.vehicle.trim()
+    && partnerVehicleSelectionIsComplete(form.vehicleMake, form.vehicleMakeOther, form.vehicleModel)
+    && composedVehicle.trim()
+    && isValidUkrainePlate(form.plate)
     && form.specialties.length > 0,
   )
-  const documentsReady = Boolean(form.identityDocumentRef.trim() && form.driverLicenseRef.trim() && form.vehicleRegistrationRef.trim() && form.serviceProofRef.trim() && form.selfieRef.trim())
 
   return (
-    <ScreenLayout footer={<PrimaryButton label={saving ? "Зберігаємо профіль…" : documentsReady ? "Зберегти і подати на перевірку" : "Зберегти профіль"} onClick={onSubmit} disabled={!canSubmit || saving} />}>
+    <ScreenLayout footer={<PrimaryButton label={saving ? "Зберігаємо профіль…" : "Зареєструватись"} onClick={onSubmit} disabled={!canSubmit || saving} />}>
       <Header title="Реєстрація партнера" subtitle="Вкажіть, яку допомогу ви реально можете виконувати" />
       <div style={{ padding: "8px 16px 16px", display: "grid", gap: 12 }}>
         <div style={{ background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 18, padding: 14, display: "grid", gap: 10 }}>
           <label style={{ display: "grid", gap: 6 }}>
             <span style={{ color: "#6B7280", fontSize: 12, fontWeight: 850 }}>Ім'я партнера</span>
-            <input value={form.name} onChange={(event) => onChange({ name: event.target.value })} style={{ height: 44, borderRadius: 12, border: `1px solid ${BORDER}`, padding: "0 12px", font: "inherit", fontWeight: 750, color: DARK }} />
+            <input value={form.name} onChange={(event) => onChange({ name: event.target.value })} placeholder="Ваше ім'я" style={{ height: 44, borderRadius: 12, border: `1px solid ${BORDER}`, padding: "0 12px", font: "inherit", fontWeight: 750, color: DARK }} />
           </label>
           <label style={{ display: "grid", gap: 6 }}>
             <span style={{ color: "#6B7280", fontSize: 12, fontWeight: 850 }}>Телефон</span>
             <PhoneInput value={form.phone} onChange={(phone) => onChange({ phone })} />
           </label>
-          <label style={{ display: "grid", gap: 6 }}>
-            <span style={{ color: "#6B7280", fontSize: 12, fontWeight: 850 }}>Telegram</span>
-            <input value={form.telegram} onChange={(event) => onChange({ telegram: event.target.value })} style={{ height: 44, borderRadius: 12, border: `1px solid ${BORDER}`, padding: "0 12px", font: "inherit", fontWeight: 750, color: DARK }} />
-          </label>
         </div>
 
         <div style={{ background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 18, padding: 14, display: "grid", gap: 10 }}>
-          <label style={{ display: "grid", gap: 6 }}>
-            <span style={{ color: "#6B7280", fontSize: 12, fontWeight: 850 }}>Авто / техніка</span>
-            <input value={form.vehicle} onChange={(event) => onChange({ vehicle: event.target.value })} style={{ height: 44, borderRadius: 12, border: `1px solid ${BORDER}`, padding: "0 12px", font: "inherit", fontWeight: 750, color: DARK }} />
-          </label>
+          <PartnerVehicleFields form={form} onChange={onChange} />
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
             <label style={{ display: "grid", gap: 6 }}>
               <span style={{ color: "#6B7280", fontSize: 12, fontWeight: 850 }}>Номер</span>
-              <input value={form.plate} onChange={(event) => onChange({ plate: event.target.value })} style={{ height: 44, borderRadius: 12, border: `1px solid ${BORDER}`, padding: "0 12px", font: "inherit", fontWeight: 750, color: DARK }} />
+              <UkrainePlateInput
+                value={form.plate}
+                onChange={(plate) => onChange({ plate })}
+              />
             </label>
             <label style={{ display: "grid", gap: 6 }}>
               <span style={{ color: "#6B7280", fontSize: 12, fontWeight: 850 }}>Радіус, км</span>
@@ -164,39 +174,15 @@ function ProviderRegistrationStep({
             {services.map((service) => {
               const selected = form.specialties.includes(service.key)
               return (
-                <button key={service.key} onClick={() => onToggleSpecialty(service.key)} style={{ minHeight: 62, border: selected ? `1.5px solid ${BRAND}` : `1px solid ${BORDER}`, background: selected ? "#E8F8F1" : service.tone, borderRadius: 14, padding: 10, textAlign: "left", cursor: "pointer", fontFamily: "inherit", color: DARK }}>
+                <button key={service.key} type="button" onClick={() => onToggleSpecialty(service.key)} className="pomich-service-card" style={{ border: selected ? `1.5px solid ${BRAND}` : `1px solid ${BORDER}`, background: selected ? "#E8F8F1" : service.tone, color: DARK, textAlign: "left", cursor: "pointer", fontFamily: "inherit" }}>
                   <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                    <span style={{ fontSize: 20 }}>{service.emoji}</span>
-                    <span style={{ fontWeight: 900, fontSize: 13, lineHeight: 1.2 }}>{getProviderCapabilityLabel(service.key)}</span>
+                    <span style={{ fontSize: "clamp(1rem, 0.92rem + 0.35vw, 1.25rem)" }}>{service.emoji}</span>
+                    <span style={{ fontWeight: 900, fontSize: "var(--pomich-text-sm)", lineHeight: 1.2 }}>{getProviderCapabilityLabel(service.key)}</span>
                   </div>
                 </button>
               )
             })}
           </div>
-        </div>
-
-        <div style={{ background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 18, padding: 14, display: "grid", gap: 10 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
-            <div>
-              <div style={{ fontWeight: 950, color: DARK }}>Перевірка партнера</div>
-              <div style={{ color: "#6B7280", fontSize: 12, fontWeight: 800, marginTop: 3 }}>Допуск до заявок після review диспетчера</div>
-            </div>
-            <div style={{ borderRadius: 999, padding: "7px 10px", background: documentsReady ? "#E8F8F1" : "#FFF7ED", color: documentsReady ? BRAND : "#B45309", fontSize: 12, fontWeight: 950 }}>
-              {documentsReady ? "Готово" : "Документи"}
-            </div>
-          </div>
-          {[
-            ["identityDocumentRef", "ID / паспорт", "doc://passport-front"],
-            ["driverLicenseRef", "Водійське посвідчення", "doc://driver-license"],
-            ["vehicleRegistrationRef", "Реєстрація авто", "doc://vehicle-registration"],
-            ["serviceProofRef", "Підтвердження сервісу", "doc://tools-or-company"],
-            ["selfieRef", "Selfie-check", "doc://selfie"],
-          ].map(([key, label, placeholder]) => (
-            <label key={key} style={{ display: "grid", gap: 6 }}>
-              <span style={{ color: "#6B7280", fontSize: 12, fontWeight: 850 }}>{label}</span>
-              <input value={String(form[key as keyof PartnerRegistrationForm] ?? "")} onChange={(event) => onChange({ [key]: event.target.value } as Partial<PartnerRegistrationForm>)} placeholder={placeholder} style={{ height: 42, borderRadius: 12, border: `1px solid ${BORDER}`, padding: "0 12px", font: "inherit", fontWeight: 750, color: DARK }} />
-            </label>
-          ))}
         </div>
 
         {error ? <div style={{ background: "#FFF1F2", color: "#BE123C", borderRadius: 14, padding: 12, fontWeight: 800 }}>{error}</div> : null}
@@ -207,38 +193,85 @@ function ProviderRegistrationStep({
 
 function IncomingOfferStep({
   offer,
+  providerLocation,
   secondsLeft,
   saving,
   error,
+  proposedPrice,
+  priceNote,
+  onProposedPriceChange,
+  onPriceNoteChange,
   onAccept,
   onDecline,
+  onAcceptBlocked,
 }: {
   offer: DispatchOffer
+  providerLocation: Point
   secondsLeft: number
   saving: boolean
   error?: string
+  proposedPrice: string
+  priceNote: string
+  onProposedPriceChange: (value: string) => void
+  onPriceNoteChange: (value: string) => void
   onAccept: () => void
   onDecline: () => void
+  onAcceptBlocked?: (reason: "expired" | "price") => void
 }) {
+  const parsedPrice = Number(proposedPrice.replace(",", "."))
+  const priceValid = Number.isFinite(parsedPrice) && parsedPrice > 0
+  const customerPickup = offer.customerCoordinates ?? PICKUP
+  const eta = offer.etaMinutes ?? Math.ceil((offer.distanceKm ?? 1) * 4)
+  const distanceLabel = typeof offer.distanceKm === "number" ? `${offer.distanceKm.toFixed(1)} км до клієнта` : "Відстань уточнюється"
+  const handleAcceptClick = () => {
+    if (saving) return
+    if (secondsLeft <= 0) {
+      onAcceptBlocked?.("expired")
+      return
+    }
+    if (!priceValid) {
+      onAcceptBlocked?.("price")
+      return
+    }
+    onAccept()
+  }
+
   return (
-    <ScreenLayout footer={<div style={{ display: "grid", gap: 10 }}><PrimaryButton label={saving ? "Приймаємо…" : "ПРИЙНЯТИ"} onClick={onAccept} disabled={saving || secondsLeft <= 0} /><SecondaryButton label="ПРОПУСТИТИ" onClick={onDecline} /></div>}>
+    <ScreenLayout footer={<div style={{ display: "grid", gap: 10 }}><PrimaryButton label={saving ? "Приймаємо…" : secondsLeft <= 0 ? "Час вийшов" : "ПРИЙНЯТИ З ЦІНОЮ"} onClick={handleAcceptClick} disabled={saving} /><SecondaryButton label="ПРОПУСТИТИ" onClick={onDecline} /></div>}>
       <Header title="Нове замовлення" subtitle={secondsLeft > 0 ? `${secondsLeft} сек` : "Час вийшов"} status="searching" />
       <div style={{ padding: "8px 16px 16px", display: "grid", gap: 12 }}>
+        <RouteMap
+          pickup={customerPickup}
+          providers={[{ id: offer.providerId, name: "Ви", status: "online", location: providerLocation, etaMinutes: eta }]}
+          subtitle={`${distanceLabel} · ~${eta} хв`}
+        />
+        <div style={{ background: "var(--pomich-accent-panel-bg)", color: "#fff", borderRadius: 18, padding: 16, textAlign: "center" }}>
+          <div style={{ color: "#A7F3D0", fontWeight: 800, fontSize: 12 }}>До клієнта</div>
+          <div style={{ fontSize: 32, fontWeight: 950, marginTop: 6 }}>{typeof offer.distanceKm === "number" ? `${offer.distanceKm.toFixed(1)} км` : "—"}</div>
+          <div style={{ color: "#D1FAE5", fontWeight: 800, marginTop: 4 }}>~{eta} хв до місця подачі</div>
+        </div>
         <div style={{ background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 18, padding: 16 }}>
           <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
             <div>
               <div style={{ fontWeight: 950, fontSize: 20, color: DARK }}>{getServiceEmoji(offer.service)} {getProviderCapabilityLabel(offer.service)}</div>
-              <div style={{ color: "#6B7280", fontWeight: 750, marginTop: 5 }}>До клієнта: {offer.distanceKm?.toFixed(1) ?? "?"} км</div>
+              <div style={{ color: "#6B7280", fontWeight: 750, marginTop: 5 }}>{distanceLabel}</div>
             </div>
-            <div style={{ background: "#E8F8F1", color: BRAND, borderRadius: 999, padding: "8px 10px", fontWeight: 950 }}>~{offer.etaMinutes ?? Math.ceil((offer.distanceKm ?? 1) * 4)} хв</div>
+            <div style={{ background: "#E8F8F1", color: BRAND, borderRadius: 999, padding: "8px 10px", fontWeight: 950 }}>~{eta} хв</div>
           </div>
           <div style={{ marginTop: 14, display: "grid", gap: 8, color: DARK, fontSize: 13 }}>
             <div><strong>Авто:</strong> {offer.vehicleState ?? "Не вказано"}</div>
             <div><strong>Район:</strong> {offer.approximateLocation ?? "Поруч із вами"}</div>
+            {offer.customerComment ? (
+              <div style={{ background: "#EFF6FF", color: "#1D4ED8", borderRadius: 12, padding: "10px 12px", lineHeight: 1.4 }}>
+                <strong>Коментар клієнта:</strong> {offer.customerComment}
+              </div>
+            ) : null}
           </div>
-          <div style={{ marginTop: 14 }}>
-            <Timeline status="searching" />
-          </div>
+        </div>
+        <div style={{ background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 18, padding: 16, display: "grid", gap: 12 }}>
+          <div style={{ fontWeight: 950, color: DARK }}>Запропонуйте ціну клієнту</div>
+          <input value={proposedPrice} onChange={(event) => onProposedPriceChange(event.target.value)} inputMode="decimal" placeholder="Вартість, ₴" style={{ width: "100%", minHeight: 50, padding: "0 14px", borderRadius: 16, border: `1px solid ${BORDER}`, fontSize: 16, fontWeight: 800, fontFamily: "inherit" }} />
+          <input value={priceNote} onChange={(event) => onPriceNoteChange(event.target.value)} placeholder="Примітка (необов'язково)" style={{ width: "100%", minHeight: 46, padding: "0 14px", borderRadius: 16, border: `1px solid ${BORDER}`, fontSize: 14, fontWeight: 700, fontFamily: "inherit" }} />
         </div>
         {error ? <div style={{ background: "#FFF1F2", color: "#BE123C", borderRadius: 14, padding: 12, fontWeight: 800 }}>{error}</div> : null}
       </div>
@@ -255,7 +288,7 @@ function interpolate(from: Point, to: Point, progress: number): Point {
 }
 
 function normalizeOrderStatus(status?: string): OrderStatus {
-  if (status === "searching" || status === "assigned" || status === "en_route" || status === "arrived" || status === "in_progress" || status === "completed" || status === "cancelled" || status === "draft") {
+  if (status === "searching" || status === "accepted" || status === "price_confirmed" || status === "assigned" || status === "en_route" || status === "arrived" || status === "in_progress" || status === "completed" || status === "cancelled" || status === "draft") {
     return status
   }
   if (status === "created" || status === "matching") return "searching"
@@ -275,49 +308,39 @@ export default function ProviderFlow({ providerToken }: { providerToken?: string
   const [accountLogin, setAccountLogin] = useState(providerId)
   const [accountPassword, setAccountPassword] = useState("")
   const [authSaving, setAuthSaving] = useState(false)
-  const [step, setStep] = useState<"register" | "duty" | "offer" | "navigation" | "arrived" | "completed">(() => {
+  const [step, setStep] = useState<"register" | "verify" | "duty" | "offer" | "navigation" | "arrived" | "completed">(() => {
     if (typeof window === "undefined") return "register"
     return window.localStorage.getItem(`pomichPartnerRegistered:${getActiveProviderId()}`) ? "duty" : "register"
   })
   const [onDuty, setOnDuty] = useState(false)
   const [presenceSaving, setPresenceSaving] = useState(false)
+  const [presenceToast, setPresenceToast] = useState<string | undefined>()
   const [registrationSaving, setRegistrationSaving] = useState(false)
   const [registrationError, setRegistrationError] = useState<string | undefined>()
   const [incomingOffers, setIncomingOffers] = useState<DispatchOffer[]>([])
   const [activeOrder, setActiveOrder] = useState<OrderResponse | undefined>()
   const [offerError, setOfferError] = useState<string | undefined>()
   const [offerSaving, setOfferSaving] = useState(false)
+  const [proposedPrice, setProposedPrice] = useState("")
+  const [priceNote, setPriceNote] = useState("")
   const [offerClock, setOfferClock] = useState(Date.now())
   const [progress, setProgress] = useState(18)
   const [providerLocation, setProviderLocation] = useState<Point>(PROVIDER_START)
   const [providerProfile, setProviderProfile] = useState<ProviderAvailability>({
     id: providerId,
-    name: provider.name,
+    name: "",
     rating: provider.rating,
-    vehicle: provider.vehicle,
-    plate: provider.plate,
-    phone: provider.phone,
+    vehicle: "",
+    plate: "",
+    phone: "",
     telegram: provider.telegram,
     status: "offline",
     etaMinutes: provider.etaMinutes,
     location: PROVIDER_START,
-    specialties: ["tow", "battery", "wheel"],
-    serviceRadiusKm: 7,
+    specialties: [],
+    serviceRadiusKm: DEFAULT_SERVICE_RADIUS_KM,
   })
-  const [registrationForm, setRegistrationForm] = useState<PartnerRegistrationForm>({
-    name: provider.name,
-    phone: provider.phone,
-    telegram: provider.telegram,
-    vehicle: provider.vehicle,
-    plate: provider.plate,
-    specialties: ["tow", "battery", "wheel"],
-    serviceRadiusKm: 7,
-    identityDocumentRef: "",
-    driverLicenseRef: "",
-    vehicleRegistrationRef: "",
-    serviceProofRef: "",
-    selfieRef: "",
-  })
+  const [registrationForm, setRegistrationForm] = useState<PartnerRegistrationForm>(() => emptyPartnerRegistrationForm())
   const pickup = PICKUP
   const destination = DEFAULT_DESTINATION
   const providerSpecialties = toServiceKeys(providerProfile.specialties)
@@ -335,9 +358,16 @@ export default function ProviderFlow({ providerToken }: { providerToken?: string
     specialties: providerSpecialties.length > 0 ? providerSpecialties : registrationForm.specialties,
     serviceRadiusKm: providerProfile.serviceRadiusKm ?? registrationForm.serviceRadiusKm,
     verificationStatus: providerProfile.verificationStatus,
+    verification: providerProfile.verification,
     trustedBadges: providerProfile.trustedBadges,
+    providerKind: "dispatch",
   }
-  const providerCanGoOnline = isVerified(providerProfile.verificationStatus)
+  const providerCanGoOnline = isProviderPhoneVerified(providerProfile)
+  const telegramContext = useMemo(() => getTelegramContext(), [])
+  const customerIdForOtp = typeof window !== "undefined" ? window.sessionStorage.getItem("pomichCustomerId") : null
+  const customerTokenForOtp = customerIdForOtp
+    ? readStoredAuthSession(authSessionStorageKey("customer", customerIdForOtp), "customer", customerIdForOtp)
+    : undefined
 
   useEffect(() => {
     if (providerAuthToken) return
@@ -381,23 +411,29 @@ export default function ProviderFlow({ providerToken }: { providerToken?: string
         if (!currentProvider) return
         const currentSpecialties = toServiceKeys(currentProvider.specialties)
         setProviderProfile((profile) => ({ ...profile, ...currentProvider, specialties: currentSpecialties.length > 0 ? currentSpecialties : profile.specialties }))
-        setRegistrationForm((form) => ({
-          name: currentProvider.name || form.name,
-          phone: currentProvider.phone || form.phone,
-          telegram: currentProvider.telegram || form.telegram,
-          vehicle: currentProvider.vehicle || form.vehicle,
-          plate: currentProvider.plate || form.plate,
-          specialties: currentSpecialties.length > 0 ? currentSpecialties : form.specialties,
-          serviceRadiusKm: currentProvider.serviceRadiusKm ?? form.serviceRadiusKm,
-          identityDocumentRef: form.identityDocumentRef,
-          driverLicenseRef: form.driverLicenseRef,
-          vehicleRegistrationRef: form.vehicleRegistrationRef,
-          serviceProofRef: form.serviceProofRef,
-          selfieRef: form.selfieRef,
-        }))
+        if (currentProvider.registeredAt) {
+          const vehicleFields = hydratePartnerVehicleFromProfile(currentProvider as { vehicle?: string; vehicleMake?: string; vehicleModel?: string })
+          setRegistrationForm((form) => ({
+            name: currentProvider.name || form.name,
+            phone: currentProvider.phone || form.phone,
+            telegram: currentProvider.telegram || form.telegram,
+            ...vehicleFields,
+            plate: currentProvider.plate || form.plate,
+            city: (currentProvider as { city?: string }).city || form.city || "",
+            specialties: currentSpecialties.length > 0 ? currentSpecialties : form.specialties,
+            serviceRadiusKm: currentProvider.serviceRadiusKm ?? form.serviceRadiusKm,
+            identityDocumentRef: form.identityDocumentRef,
+            driverLicenseRef: form.driverLicenseRef,
+            vehicleRegistrationRef: form.vehicleRegistrationRef,
+            serviceProofRef: form.serviceProofRef,
+            selfieRef: form.selfieRef,
+          }))
+          setStep(isProviderPhoneVerified(currentProvider) ? "duty" : "verify")
+        } else {
+          setStep("register")
+        }
         setOnDuty(currentProvider.status === "online" || currentProvider.status === "busy")
         if (currentProvider.location) setProviderLocation(currentProvider.location)
-        if (!currentProvider.registeredAt) setStep("register")
       })
       .catch(() => {
         // Demo mode stays usable even when the backend is temporarily unavailable.
@@ -451,8 +487,9 @@ export default function ProviderFlow({ providerToken }: { providerToken?: string
       getProviderOffers(providerId, providerAuthToken)
         .then((offers) => {
           if (!cancelled) {
-            setIncomingOffers(Array.isArray(offers) ? offers : [])
-            if (offers.length > 0) setOfferError(undefined)
+            const activeOffers = filterActiveOffers(Array.isArray(offers) ? offers : [], offerClock)
+            setIncomingOffers(activeOffers)
+            if (activeOffers.length > 0) setOfferError(undefined)
           }
         })
         .catch(() => {
@@ -466,26 +503,86 @@ export default function ProviderFlow({ providerToken }: { providerToken?: string
       cancelled = true
       window.clearInterval(interval)
     }
-  }, [activeOrder, onDuty, providerAuthToken, providerId, step])
+  }, [activeOrder, onDuty, providerAuthToken, providerId, step, offerClock])
 
-  const activeOffer = incomingOffers[0]
-  const secondsLeft = activeOffer?.expiresAt ? Math.max(0, Math.ceil((parseApiDateMs(activeOffer.expiresAt) - offerClock) / 1000)) : 0
+  useEffect(() => {
+    if (!activeOrder?.id) return
+    let cancelled = false
+
+    const refreshActiveOrder = () => {
+      getOrder(activeOrder.id!)
+        .then((order) => {
+          if (cancelled) return
+          const normalizedStatus = normalizeOrderStatus(order.status)
+          if (normalizedStatus === "cancelled") {
+            setActiveOrder(undefined)
+            setIncomingOffers([])
+            setProviderProfile((profile) => ({ ...profile, status: "online", assignedOrderId: undefined } as ProviderAvailability))
+            setStep("duty")
+            setOfferError("Заявку скасовано клієнтом.")
+            return
+          }
+          setActiveOrder(order)
+        })
+        .catch(() => undefined)
+    }
+
+    refreshActiveOrder()
+    const interval = window.setInterval(refreshActiveOrder, 4000)
+    return () => {
+      cancelled = true
+      window.clearInterval(interval)
+    }
+  }, [activeOrder?.id])
+
+  const activeOffer = incomingOffers.find((offer) => isOfferActive(offer, offerClock))
+  const secondsLeft = offerSecondsLeft(activeOffer, offerClock)
+
+  useEffect(() => {
+    if (step !== "offer" || !activeOffer || secondsLeft > 0) return
+    setOfferError("Пропозиція вже завершилась. Очікуйте нову заявку.")
+    setIncomingOffers((offers) => offers.filter((item) => item.id !== activeOffer.id))
+    setStep("duty")
+  }, [activeOffer, secondsLeft, step])
+
+  const handleOfferAcceptBlocked = (reason: "expired" | "price") => {
+    if (reason === "expired") {
+      setOfferError("Пропозиція вже завершилась. Очікуйте нову заявку.")
+      if (activeOffer) {
+        setIncomingOffers((offers) => offers.filter((item) => item.id !== activeOffer.id))
+      }
+      setStep("duty")
+      return
+    }
+    setOfferError("Вкажіть вартість послуги в гривнях.")
+  }
 
   const acceptOffer = async (offer: DispatchOffer) => {
+    const parsedPrice = Number(proposedPrice.replace(",", "."))
+    if (!Number.isFinite(parsedPrice) || parsedPrice <= 0) {
+      setOfferError("Вкажіть вартість послуги в гривнях.")
+      return
+    }
+
     setOfferSaving(true)
     setOfferError(undefined)
     try {
       if (!providerAuthToken) throw new Error("provider_session_missing")
-      const result = await acceptProviderOffer(providerId, offer.id, providerAuthToken)
+      const result = await acceptProviderOffer(providerId, offer.id, providerAuthToken, {
+        proposedPrice: parsedPrice,
+        priceNote: priceNote.trim() || undefined,
+      })
       setActiveOrder(result.order)
       setProviderProfile((profile) => ({ ...profile, status: "busy", assignedOrderId: result.order.id } as ProviderAvailability))
       setIncomingOffers([])
       setOnDuty(true)
+      setProposedPrice("")
+      setPriceNote("")
       setStep("navigation")
       setProgress(18)
     } catch (error) {
       const detail = (error as { detail?: { code?: string; message?: string } }).detail
-      setOfferError(detail?.code === "OFFER_EXPIRED" ? "Пропозиція вже завершилась." : "Замовлення вже прийняв інший виконавець.")
+      setOfferError(detail?.code === "OFFER_EXPIRED" ? "Пропозиція вже завершилась." : detail?.code === "PRICE_REQUIRED" ? "Вкажіть вартість послуги." : "Замовлення вже прийняв інший виконавець.")
       setIncomingOffers((offers) => offers.filter((item) => item.id !== offer.id))
     } finally {
       setOfferSaving(false)
@@ -541,8 +638,17 @@ export default function ProviderFlow({ providerToken }: { providerToken?: string
 
   const saveRegistration = async () => {
     const phoneValidation = validateUkraineMobilePhone(registrationForm.phone)
-    if (!registrationForm.name.trim() || !phoneValidation.valid || !registrationForm.vehicle.trim() || registrationForm.specialties.length === 0) {
-      setRegistrationError(phoneValidation.valid ? "Заповніть профіль і оберіть хоча б одну послугу." : (phoneValidation.error || "Введіть коректний номер телефону"))
+    const plateValidation = validateUkrainePlate(registrationForm.plate)
+    const vehicleMake = resolvePartnerVehicleMake(registrationForm.vehicleMake, registrationForm.vehicleMakeOther)
+    const vehicle = composePartnerVehicle(registrationForm.vehicleMake, registrationForm.vehicleModel, registrationForm.vehicleMakeOther)
+    if (!registrationForm.name.trim() || !phoneValidation.valid || !plateValidation.valid || !partnerVehicleSelectionIsComplete(registrationForm.vehicleMake, registrationForm.vehicleMakeOther, registrationForm.vehicleModel) || !vehicle.trim() || registrationForm.specialties.length === 0) {
+      setRegistrationError(
+        !phoneValidation.valid
+          ? (phoneValidation.error || "Введіть коректний номер телефону")
+          : !plateValidation.valid
+            ? (plateValidation.error || "Введіть коректний номер авто")
+            : "Заповніть профіль і оберіть хоча б одну послугу.",
+      )
       return
     }
 
@@ -551,23 +657,21 @@ export default function ProviderFlow({ providerToken }: { providerToken?: string
     try {
       if (!providerAuthToken) throw new Error("provider_session_missing")
       const updated = await updateProviderProfile(providerId, {
-        ...registrationForm,
+        name: registrationForm.name,
         phone: phoneValidation.e164,
+        telegram: registrationForm.telegram,
+        vehicle,
+        vehicleMake,
+        vehicleModel: registrationForm.vehicleModel,
+        plate: plateValidation.plate,
+        city: registrationForm.city,
+        specialties: registrationForm.specialties,
+        serviceRadiusKm: registrationForm.serviceRadiusKm,
         location: providerLocation,
       }, providerAuthToken)
-      const documentsReady = Boolean(registrationForm.identityDocumentRef.trim() && registrationForm.driverLicenseRef.trim() && registrationForm.vehicleRegistrationRef.trim() && registrationForm.serviceProofRef.trim() && registrationForm.selfieRef.trim())
-      const trustedProfile = documentsReady
-        ? await submitProviderVerification(providerId, {
-          identityDocumentRef: registrationForm.identityDocumentRef,
-          driverLicenseRef: registrationForm.driverLicenseRef,
-          vehicleRegistrationRef: registrationForm.vehicleRegistrationRef,
-          serviceProofRef: registrationForm.serviceProofRef,
-          selfieRef: registrationForm.selfieRef,
-        }, providerAuthToken)
-        : updated
-      setProviderProfile((profile) => ({ ...profile, ...trustedProfile, specialties: toServiceKeys(trustedProfile.specialties) }))
+      setProviderProfile((profile) => ({ ...profile, ...updated, specialties: toServiceKeys(updated.specialties) }))
       if (typeof window !== "undefined") window.localStorage.setItem(`pomichPartnerRegistered:${providerId}`, "1")
-      setStep("duty")
+      setStep(isProviderPhoneVerified(updated) ? "duty" : "verify")
     } catch {
       setRegistrationError("Не вдалося зберегти профіль партнера.")
     } finally {
@@ -575,25 +679,50 @@ export default function ProviderFlow({ providerToken }: { providerToken?: string
     }
   }
 
+  useEffect(() => {
+    if (!presenceToast) return
+    const timeout = window.setTimeout(() => setPresenceToast(undefined), 5000)
+    return () => window.clearTimeout(timeout)
+  }, [presenceToast])
+
   const setDuty = async (nextDuty: boolean) => {
     if (nextDuty && !providerCanGoOnline) {
-      setOfferError("Після перевірки профілю диспетчер відкриє доступ до заявок.")
+      const message = "Підтвердіть телефон кодом у Telegram, щоб вийти на лінію."
+      setOfferError(message)
+      setPresenceToast(message)
+      setStep("verify")
       return
     }
     setPresenceSaving(true)
-    setOnDuty(nextDuty)
+    setOfferError(undefined)
+    setPresenceToast(undefined)
     try {
-      if (!providerAuthToken) throw new Error("provider_session_missing")
-      await updateProviderPresence(providerId, {
+      if (!providerAuthToken) throw Object.assign(new Error("provider_session_missing"), { detail: "provider_session_missing" })
+      const updated = await updateProviderPresence(providerId, {
         status: nextDuty ? "online" : "offline",
         location: providerLocation,
         etaMinutes: providerProfile.etaMinutes ?? provider.etaMinutes,
       }, providerAuthToken)
-    } catch {
-      // The local UI still changes so the duty scenario remains usable in demo mode.
+      setOnDuty(nextDuty)
+      setProviderProfile((profile) => ({ ...profile, ...updated, status: updated.status ?? (nextDuty ? "online" : "offline") }))
+    } catch (error) {
+      setOnDuty(false)
+      const detail = (error as { detail?: string }).detail
+      const message = presenceErrorMessage(typeof detail === "string" ? detail : undefined)
+      setOfferError(message)
+      setPresenceToast(message)
     } finally {
       setPresenceSaving(false)
     }
+  }
+
+  const handleDutyToggle = () => {
+    if (presenceSaving) return
+    if (!onDuty && !providerCanGoOnline) {
+      setStep("verify")
+      return
+    }
+    void setDuty(!onDuty)
   }
 
   const submitProviderAccountLogin = async () => {
@@ -637,6 +766,40 @@ export default function ProviderFlow({ providerToken }: { providerToken?: string
     )
   }
 
+  if (step === "verify") {
+    const otpProfile: CustomerProfile = {
+      id: customerIdForOtp || providerId,
+      name: providerProfile.name || registrationForm.name,
+      phone: providerProfile.phone || registrationForm.phone,
+      verificationStatus: providerProfile.verificationStatus,
+    }
+    return (
+      <ScreenLayout>
+        <Header title="Підтвердження телефону" subtitle="Код надійде у Telegram — як для клієнта" />
+        <div style={{ padding: "8px 16px 16px" }}>
+          <div style={{ background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 18, padding: 14 }}>
+            <OtpVerificationPanel
+              profile={otpProfile}
+              customerToken={customerTokenForOtp}
+              isTelegram={telegramContext.isTelegram}
+              autoSendChannel={telegramContext.isTelegram ? "telegram" : undefined}
+              onVerified={async () => {
+                const providers = await getProviders()
+                const currentProvider = Array.isArray(providers) ? providers.find((item) => item.id === providerId) : undefined
+                if (currentProvider) {
+                  setProviderProfile((profile) => ({ ...profile, ...currentProvider, specialties: toServiceKeys(currentProvider.specialties) }))
+                } else {
+                  setProviderProfile((profile) => ({ ...profile, verificationStatus: "verified", verification: { ...profile.verification, phone: true } }))
+                }
+                setStep("duty")
+              }}
+            />
+          </div>
+        </div>
+      </ScreenLayout>
+    )
+  }
+
   if (step === "register") {
     return (
       <ProviderRegistrationStep
@@ -655,82 +818,66 @@ export default function ProviderFlow({ providerToken }: { providerToken?: string
       return (
         <IncomingOfferStep
           offer={activeOffer}
+          providerLocation={providerLocation}
           secondsLeft={secondsLeft}
           saving={offerSaving}
           error={offerError}
+          proposedPrice={proposedPrice}
+          priceNote={priceNote}
+          onProposedPriceChange={setProposedPrice}
+          onPriceNoteChange={setPriceNote}
           onAccept={() => acceptOffer(activeOffer)}
           onDecline={() => declineOffer(activeOffer)}
+          onAcceptBlocked={handleOfferAcceptBlocked}
         />
       )
     }
 
     return (
-      <ScreenLayout footer={onDuty ? <div style={{ display: "grid", gap: 10 }}><PrimaryButton label="Дивитися заявки поруч" onClick={() => setStep("offer")} disabled={!providerAuthToken} /><SecondaryButton label="Піти з лінії" onClick={() => setDuty(false)} disabled={!providerAuthToken} /><SecondaryButton label="Редагувати профіль" onClick={() => setStep("register")} /></div> : <div style={{ display: "grid", gap: 10 }}><PrimaryButton label={!providerCanGoOnline ? "Очікує перевірки" : presenceSaving ? "Оновлюємо статус…" : "Вийти на лінію"} onClick={() => setDuty(true)} disabled={!providerAuthToken || !providerCanGoOnline || presenceSaving} /><SecondaryButton label="Редагувати профіль" onClick={() => setStep("register")} /></div>}>
+      <ScreenLayout footer={onDuty ? <div style={{ display: "grid", gap: 10 }}><PrimaryButton label="Дивитися заявки поруч" onClick={() => setStep("offer")} disabled={!providerAuthToken} /><SecondaryButton label="Піти з лінії" onClick={() => setDuty(false)} disabled={presenceSaving} /><SecondaryButton label="Редагувати профіль" onClick={() => setStep("register")} /></div> : <div style={{ display: "grid", gap: 10 }}><PrimaryButton label={!providerCanGoOnline ? "Підтвердити телефон" : presenceSaving ? "Оновлюємо статус…" : "Вийти на лінію"} onClick={() => (providerCanGoOnline ? setDuty(true) : setStep("verify"))} disabled={presenceSaving} /><SecondaryButton label="Редагувати профіль" onClick={() => setStep("register")} /></div>}>
         <Header title="Партнер POMICH" subtitle={onDuty ? "Ви на лінії та бачите заявки поруч" : "Почніть зміну, щоб клієнти бачили вас на карті"} />
-        <div style={{ padding: "0 16px 16px", display: "grid", gap: 12 }}>
-          {authError ? <div style={{ background: "#FFF1F2", color: "#BE123C", borderRadius: 14, padding: 12, fontWeight: 800 }}>{authError}</div> : null}
-          <RouteMap pickup={providerLocation} providers={[providerPresence]} subtitle={onDuty ? "Ваша позиція активна" : "Ваша позиція прихована для клієнтів"} />
-          <div style={{ background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 18, padding: 16 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
+        <div className="pomich-flow-panel">
+          {authError ? <div style={{ background: "#FFF1F2", color: "#BE123C", borderRadius: 14, padding: 12, fontWeight: 800, fontSize: "var(--pomich-text-sm)" }}>{authError}</div> : null}
+          <RouteMap pickup={providerLocation} providers={onDuty ? [providerPresence] : []} subtitle={onDuty ? "Ваша позиція активна" : "Ваша позиція прихована для клієнтів"} />
+          <div className="pomich-duty-panel">
+            <div className="pomich-duty-panel__head">
               <div>
-                <div style={{ color: "#6B7280", fontWeight: 800, fontSize: 12 }}>Статус зміни</div>
-                <div style={{ color: DARK, fontWeight: 950, fontSize: 22, marginTop: 4 }}>{onDuty ? "На лінії" : "Поза лінією"}</div>
+                <div className="pomich-duty-panel__label">Статус зміни</div>
+                <div className="pomich-duty-panel__status">{onDuty ? "На лінії" : "Поза лінією"}</div>
               </div>
-              <div style={{ width: 54, height: 34, borderRadius: 999, padding: 4, background: onDuty ? "#DCFCE7" : "#E5E7EB", display: "flex", justifyContent: onDuty ? "flex-end" : "flex-start", alignItems: "center" }}>
-                <div style={{ width: 26, height: 26, borderRadius: 999, background: onDuty ? BRAND : "#9CA3AF" }} />
+              <DutyStatusToggle onDuty={onDuty} saving={presenceSaving} disabled={!providerAuthToken} onToggle={handleDutyToggle} />
+            </div>
+            <div className="pomich-duty-stat-grid">
+              <div className="pomich-duty-stat">
+                <div className="pomich-duty-stat__label">Зона</div>
+                <div className="pomich-duty-stat__value">Ужгород · 7 км</div>
+              </div>
+              <div className="pomich-duty-stat">
+                <div className="pomich-duty-stat__label">ETA клієнту</div>
+                <div className="pomich-duty-stat__value">~{provider.etaMinutes} хв</div>
               </div>
             </div>
-            <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-              <div style={{ background: BG, borderRadius: 14, padding: 12 }}>
-                <div style={{ color: "#6B7280", fontSize: 12, fontWeight: 800 }}>Зона</div>
-                <div style={{ color: DARK, fontWeight: 950, marginTop: 4 }}>Ужгород · 7 км</div>
-              </div>
-              <div style={{ background: BG, borderRadius: 14, padding: 12 }}>
-                <div style={{ color: "#6B7280", fontSize: 12, fontWeight: 800 }}>ETA клієнту</div>
-                <div style={{ color: DARK, fontWeight: 950, marginTop: 4 }}>~{provider.etaMinutes} хв</div>
-              </div>
-            </div>
-            <div style={{ color: "#6B7280", fontWeight: 700, fontSize: 13, marginTop: 12 }}>
+            <div className="pomich-duty-panel__note">
               {onDuty ? "Клієнти бачать вашу картку, рейтинг, приблизний час прибуття та можуть отримати вас після створення заявки." : "Поки ви поза лінією, клієнт бачить менше доступних механіків поруч."}
             </div>
           </div>
-          <div style={{ background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 18, padding: 14 }}>
+          <div className="pomich-inline-card">
             <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
               <div>
-                <div style={{ fontWeight: 950, color: DARK }}>Верифікація</div>
-                <div style={{ color: "#6B7280", fontSize: 12, fontWeight: 800, marginTop: 3 }}>Доступ до заявок тільки після перевірки</div>
+                <div style={{ fontWeight: 950, color: DARK, fontSize: "var(--pomich-text-base)" }}>Профіль допомоги</div>
+                <div style={{ color: "#6B7280", fontSize: "var(--pomich-text-xs)", fontWeight: 800, marginTop: 3 }}>{providerPresence.vehicle || "Авто не вказано"} · радіус {providerPresence.serviceRadiusKm ?? DEFAULT_SERVICE_RADIUS_KM} км</div>
               </div>
-              <VerificationPill status={providerProfile.verificationStatus} />
+              <button type="button" onClick={() => setStep("register")} style={{ border: `1px solid ${BORDER}`, background: BG, color: DARK, borderRadius: 999, padding: "6px 9px", fontSize: "var(--pomich-text-xs)", fontWeight: 900, cursor: "pointer", fontFamily: "inherit" }}>Змінити</button>
             </div>
-            <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-              {[
-                ["ID", providerProfile.verification?.identityDocument],
-                ["Права", providerProfile.verification?.driverLicense],
-                ["Авто", providerProfile.verification?.vehicleRegistration],
-                ["Сервіс", providerProfile.verification?.serviceProof],
-              ].map(([label, done]) => (
-                <div key={String(label)} style={{ borderRadius: 12, background: done ? "#E8F8F1" : BG, color: done ? BRAND : "#6B7280", padding: "9px 10px", fontSize: 12, fontWeight: 950 }}>
-                  {done ? "✓" : "•"} {label}
-                </div>
-              ))}
-            </div>
-          </div>
-          <div style={{ background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 18, padding: 14 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
-              <div>
-                <div style={{ fontWeight: 950, color: DARK }}>Профіль допомоги</div>
-                <div style={{ color: "#6B7280", fontSize: 12, fontWeight: 800, marginTop: 3 }}>{providerPresence.vehicle} · радіус {providerPresence.serviceRadiusKm ?? 7} км</div>
-              </div>
-              <button onClick={() => setStep("register")} style={{ border: `1px solid ${BORDER}`, background: BG, color: DARK, borderRadius: 999, padding: "8px 10px", fontSize: 12, fontWeight: 900, cursor: "pointer", fontFamily: "inherit" }}>Змінити</button>
-            </div>
-            <div style={{ marginTop: 12, display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <div style={{ marginTop: 10, display: "flex", gap: 6, flexWrap: "wrap" }}>
               {(providerPresence.specialties ?? []).map((specialty) => (
-                <span key={specialty} style={{ borderRadius: 999, padding: "7px 10px", background: "#E8F8F1", color: BRAND, fontSize: 12, fontWeight: 900 }}>{getProviderCapabilityLabel(specialty)}</span>
+                <span key={specialty} style={{ borderRadius: 999, padding: "5px 9px", background: "#E8F8F1", color: BRAND, fontSize: "var(--pomich-text-xs)", fontWeight: 900 }}>{getProviderCapabilityLabel(specialty)}</span>
               ))}
             </div>
           </div>
-          {offerError ? <div style={{ background: "#FFF7ED", color: "#B45309", borderRadius: 14, padding: 12, fontWeight: 850 }}>{offerError}</div> : null}
+          {offerError ? <div style={{ background: "#FFF7ED", color: "#B45309", borderRadius: 14, padding: 10, fontWeight: 850, fontSize: "var(--pomich-text-sm)" }}>{offerError}</div> : null}
         </div>
+        {presenceToast ? <PresenceToast message={presenceToast} /> : null}
       </ScreenLayout>
     )
   }

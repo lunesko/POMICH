@@ -10,13 +10,17 @@ from bot.order_store import (
     MAX_PROVIDER_OFFERS,
     accept_offer,
     apply_provider_presence_ttl,
+    confirm_order_price,
     decline_offer,
     dispatch_order,
+    enrich_order_for_client,
     get_provider_offers,
     get_telegram_session,
     load_offers,
     load_orders,
     load_providers,
+    partner_telegram_user_ids_for_order,
+    resolve_provider_telegram_user_id,
     review_provider_verification,
     save_order,
     save_offers,
@@ -50,11 +54,11 @@ def test_update_order_status_adds_history(tmp_path):
     store_path = tmp_path / "orders.json"
     order = save_order({"service": "tow"}, store_path=store_path)
 
-    updated = update_order_status(order["id"], "assigned", store_path=store_path)
+    updated = update_order_status(order["id"], "accepted", store_path=store_path)
 
     assert updated is not None
-    assert updated["status"] == "assigned"
-    assert updated["statusHistory"][-1]["status"] == "assigned"
+    assert updated["status"] == "accepted"
+    assert updated["statusHistory"][-1]["status"] == "accepted"
 
 
 def test_update_order_status_rejects_invalid_transition(tmp_path):
@@ -111,7 +115,7 @@ def test_provider_profile_registration_updates_capabilities(tmp_path):
     assert updated["serviceRadiusKm"] == 12
 
 
-def test_new_provider_requires_verification_before_online(tmp_path):
+def test_new_provider_requires_otp_before_online(tmp_path):
     store_path = tmp_path / "providers.json"
 
     created = update_provider_profile(
@@ -136,26 +140,17 @@ def test_new_provider_requires_verification_before_online(tmp_path):
             store_path=store_path,
         )
 
-    submitted = submit_provider_verification(
-        "provider-new",
-        {
-            "identityDocumentRef": "doc/passport",
-            "driverLicenseRef": "doc/license",
-            "vehicleRegistrationRef": "doc/vehicle",
-            "serviceProofRef": "doc/tools",
-            "selfieRef": "doc/selfie",
-        },
-        store_path=store_path,
-    )
-    reviewed = review_provider_verification("provider-new", {"status": "verified"}, store_path=store_path)
+    from bot.order_store import verify_provider_phone_otp
+
+    verified = verify_provider_phone_otp("provider-new", store_path=store_path)
     online = update_provider_presence(
         "provider-new",
         {"status": "online", "location": {"lat": 48.63, "lng": 22.27}},
         store_path=store_path,
     )
 
-    assert submitted["verificationStatus"] == "pending"
-    assert reviewed["verificationStatus"] == "verified"
+    assert verified["verificationStatus"] == "verified"
+    assert verified["verification"]["phone"] is True
     assert online["status"] == "online"
 
 
@@ -252,6 +247,34 @@ def test_dispatch_creates_max_five_sorted_eligible_offers(tmp_path):
     assert all(offer["status"] == "pending" for offer in offers)
 
 
+def test_provider_offer_payload_includes_customer_coordinates(tmp_path):
+    order_path = tmp_path / "orders.json"
+    provider_path = tmp_path / "providers.json"
+    offer_path = tmp_path / "offers.json"
+    pickup = {"lat": 48.6208, "lng": 22.2879}
+
+    save_providers([_provider("p1", 48.6218, 22.2879)], provider_path)
+    order = save_order(
+        {
+            "service": "tow",
+            "customerCoordinates": pickup,
+            "customerLocation": "вул. Швабська, Ужгород",
+            "vehicleState": "Не заводиться",
+        },
+        store_path=order_path,
+    )
+    dispatch_order(order["id"], order_path, provider_path, offer_path)
+
+    offers = get_provider_offers("p1", order_path, offer_path)
+
+    assert len(offers) == 1
+    assert offers[0]["customerCoordinates"] == pickup
+    assert offers[0]["approximateLocation"] == "вул. Швабська, Ужгород"
+    assert offers[0]["vehicleState"] == "Не заводиться"
+    assert offers[0]["distanceKm"] > 0
+    assert offers[0]["etaMinutes"] >= 2
+
+
 def test_dispatch_reports_no_providers_when_none_are_eligible(tmp_path):
     order_path = tmp_path / "orders.json"
     provider_path = tmp_path / "providers.json"
@@ -285,6 +308,91 @@ def test_dispatch_skips_unverified_provider(tmp_path):
     assert dispatched["dispatchInfo"]["eligibleProviders"] == 0
 
 
+def test_dispatch_reoffers_provider_after_offer_expires(tmp_path, monkeypatch):
+    order_path = tmp_path / "orders.json"
+    provider_path = tmp_path / "providers.json"
+    offer_path = tmp_path / "offers.json"
+    pickup = {"lat": 48.6208, "lng": 22.2879}
+
+    save_providers([_provider("p1", 48.6218, 22.2879)], provider_path)
+    order = save_order({"service": "tow", "customerCoordinates": pickup}, store_path=order_path)
+    dispatch_order(order["id"], order_path, provider_path, offer_path)
+    offers = load_offers(offer_path)
+    assert len(offers) == 1
+    offers[0]["status"] = "expired"
+    save_offers(offers, offer_path)
+
+    redispatched = dispatch_order(order["id"], order_path, provider_path, offer_path)
+    active_offers = [offer for offer in load_offers(offer_path) if offer.get("status") == "pending"]
+
+    assert redispatched is not None
+    assert redispatched["dispatchState"] == "OFFERS_SENT"
+    assert len(active_offers) == 1
+    assert active_offers[0]["providerId"] == "p1"
+
+
+def test_redispatch_offers_searching_orders_when_provider_goes_online(tmp_path, monkeypatch):
+    order_path = tmp_path / "orders.json"
+    provider_path = tmp_path / "providers.json"
+    offer_path = tmp_path / "offers.json"
+    monkeypatch.setenv("POMICH_ORDER_STORE_PATH", str(order_path))
+    monkeypatch.setenv("POMICH_PROVIDER_STORE_PATH", str(provider_path))
+    monkeypatch.setenv("POMICH_OFFER_STORE_PATH", str(offer_path))
+    pickup = {"lat": 48.6208, "lng": 22.2879}
+
+    save_providers([_provider("p1", 48.6218, 22.2879, status="offline")], provider_path)
+    order = save_order({"service": "tow", "customerCoordinates": pickup}, store_path=order_path)
+    initial = dispatch_order(order["id"], order_path, provider_path, offer_path)
+
+    assert initial is not None
+    assert initial["dispatchState"] == "NO_PROVIDERS_AVAILABLE"
+    assert load_offers(offer_path) == []
+
+    update_provider_presence(
+        "p1",
+        {"status": "online", "location": {"lat": 48.6218, "lng": 22.2879}},
+        store_path=provider_path,
+    )
+
+    offers = load_offers(offer_path)
+    assert len(offers) == 1
+    assert offers[0]["providerId"] == "p1"
+    assert offers[0]["orderId"] == order["id"]
+
+
+def test_accept_offer_requires_proposed_price(tmp_path):
+    order_path = tmp_path / "orders.json"
+    provider_path = tmp_path / "providers.json"
+    offer_path = tmp_path / "offers.json"
+
+    save_providers([_provider("p1", 48.6218, 22.2879)], provider_path)
+    order = save_order({"service": "tow", "customerCoordinates": {"lat": 48.6208, "lng": 22.2879}}, store_path=order_path)
+    dispatch_order(order["id"], order_path, provider_path, offer_path)
+    offer = load_offers(offer_path)[0]
+
+    with pytest.raises(DispatchConflict) as exc_info:
+        accept_offer(offer["id"], "p1", order_path, provider_path, offer_path)
+    assert exc_info.value.code == "PRICE_REQUIRED"
+
+
+def test_customer_can_confirm_partner_price(tmp_path):
+    order_path = tmp_path / "orders.json"
+    provider_path = tmp_path / "providers.json"
+    offer_path = tmp_path / "offers.json"
+
+    save_providers([_provider("p1", 48.6218, 22.2879)], provider_path)
+    order = save_order({"service": "tow", "customerCoordinates": {"lat": 48.6208, "lng": 22.2879}}, store_path=order_path)
+    dispatch_order(order["id"], order_path, provider_path, offer_path)
+    offer = load_offers(offer_path)[0]
+    accept_offer(offer["id"], "p1", order_path, provider_path, offer_path, proposed_price=980, price_note="Подача включена")
+
+    confirmed = confirm_order_price(order["id"], order_path, offer_path)
+
+    assert confirmed["status"] == "price_confirmed"
+    assert confirmed["partnerProposedPrice"] == 980
+    assert confirmed["priceConfirmedAt"]
+
+
 def test_provider_can_decline_offer_and_cannot_accept_it_later(tmp_path):
     order_path = tmp_path / "orders.json"
     provider_path = tmp_path / "providers.json"
@@ -300,7 +408,7 @@ def test_provider_can_decline_offer_and_cannot_accept_it_later(tmp_path):
     assert declined["status"] == "declined"
     assert get_provider_offers("p1", order_path, offer_path) == []
     with pytest.raises(DispatchConflict) as exc_info:
-        accept_offer(offer["id"], "p1", order_path, provider_path, offer_path)
+        accept_offer(offer["id"], "p1", order_path, provider_path, offer_path, proposed_price=1200)
     assert exc_info.value.code == "OFFER_DECLINED"
 
 
@@ -338,7 +446,7 @@ def test_first_provider_acceptance_wins_and_loser_gets_conflict(tmp_path):
 
     def try_accept(offer):
         try:
-            result = accept_offer(offer["id"], offer["providerId"], order_path, provider_path, offer_path)
+            result = accept_offer(offer["id"], offer["providerId"], order_path, provider_path, offer_path, proposed_price=1200)
             return ("accepted", result["provider"]["id"])
         except DispatchConflict as exc:
             return ("conflict", exc.code)
@@ -355,7 +463,8 @@ def test_first_provider_acceptance_wins_and_loser_gets_conflict(tmp_path):
     assert result_counts == {"accepted": 1, "conflict": 1}
     assert ("conflict", "ORDER_ALREADY_ACCEPTED") in results
     assert Counter(offer["status"] for offer in persisted_offers) == {"accepted": 1, "lost": 1}
-    assert persisted_order["status"] == "assigned"
+    assert persisted_order["status"] == "accepted"
+    assert persisted_order["partnerProposedPrice"] == 1200
     assert persisted_order["assignedProviderId"] == accepted_provider_id
     assert providers[accepted_provider_id]["status"] == "busy"
     assert providers[accepted_provider_id]["assignedOrderId"] == persisted_order["id"]
@@ -370,7 +479,8 @@ def test_assigned_provider_drives_order_lifecycle_and_returns_online(tmp_path):
     order = save_order({"service": "tow", "customerCoordinates": {"lat": 48.6208, "lng": 22.2879}}, store_path=order_path)
     dispatch_order(order["id"], order_path, provider_path, offer_path)
     offer = load_offers(offer_path)[0]
-    accept_offer(offer["id"], "p1", order_path, provider_path, offer_path)
+    accept_offer(offer["id"], "p1", order_path, provider_path, offer_path, proposed_price=1500)
+    confirm_order_price(order["id"], order_path, offer_path)
 
     assert update_provider_order_status("p1", order["id"], "en_route", order_path, provider_path, offer_path)["status"] == "en_route"
     assert update_provider_order_status("p1", order["id"], "arrived", order_path, provider_path, offer_path)["status"] == "arrived"
@@ -392,3 +502,211 @@ def test_customer_profile_does_not_auto_verify_on_save(tmp_path):
 
     assert created["verificationStatus"] == "unverified"
     assert created["verification"]["phone"] is False
+
+
+def test_guest_inherits_verification_from_tg_profile_by_phone(tmp_path, monkeypatch):
+    from bot import otp_verification
+
+    store_path = tmp_path / "customers.json"
+    otp_path = tmp_path / "otp_codes.json"
+    monkeypatch.setattr("bot.order_store._default_customer_store_path", lambda: store_path)
+    monkeypatch.setenv("POMICH_OTP_SECRET", "test-otp-secret")
+    monkeypatch.setenv("POMICH_RUNTIME", "dev")
+    monkeypatch.setattr(otp_verification, "_default_otp_store_path", lambda: otp_path)
+    monkeypatch.setattr(otp_verification, "_generate_otp_code", lambda: "654321")
+    monkeypatch.setattr(otp_verification, "_send_telegram_otp", lambda chat_id, code: None)
+
+    update_customer_profile(
+        "tg-829741830",
+        {"name": "Vitaliy", "phone": "+380661007434"},
+        store_path=store_path,
+    )
+    otp_verification.send_customer_verification_code("tg-829741830", "telegram", customer_store_path=store_path)
+    otp_verification.confirm_customer_verification_code("tg-829741830", "654321", customer_store_path=store_path)
+
+    guest = update_customer_profile(
+        "guest-browser-1",
+        {"name": "Vitaliy", "phone": "+380661007434"},
+        store_path=store_path,
+    )
+    assert guest["verificationStatus"] == "verified"
+    assert guest["verification"]["phone"] is True
+
+    from bot.order_store import get_customer_profile
+
+    loaded = get_customer_profile("guest-browser-1", store_path=store_path)
+    assert loaded["verificationStatus"] == "verified"
+
+
+def test_default_customer_profile_has_empty_city(tmp_path):
+    from bot.order_store import get_customer_profile
+
+    profile = get_customer_profile("guest-new-user", store_path=tmp_path / "customers.json")
+    assert profile["city"] == ""
+
+
+def test_resolve_provider_telegram_user_id_from_linked_customer(tmp_path):
+    customer_store = tmp_path / "customers.json"
+    update_customer_profile(
+        "tg-998877",
+        {"name": "Partner", "phone": "+380671112233", "linkedProviderId": "provider-tg-998877"},
+        store_path=customer_store,
+    )
+
+    assert resolve_provider_telegram_user_id("provider-tg-998877", customer_store_path=customer_store) == "998877"
+
+
+def test_partner_telegram_user_ids_for_cancelled_order(tmp_path):
+    order_store = tmp_path / "orders.json"
+    offer_store = tmp_path / "offers.json"
+    customer_store = tmp_path / "customers.json"
+    update_customer_profile(
+        "tg-445566",
+        {"name": "Partner", "phone": "+380671112244", "linkedProviderId": "provider-tg-445566"},
+        store_path=customer_store,
+    )
+    order = save_order({"service": "tow", "status": "searching"}, store_path=order_store)
+    save_offers([
+        {
+            "id": "OF-1",
+            "orderId": order["id"],
+            "providerId": "provider-tg-445566",
+            "status": "pending",
+            "distanceKm": 1.2,
+            "createdAt": "2026-08-12T12:00:00Z",
+            "expiresAt": "2026-08-12T12:00:20Z",
+        }
+    ], store_path=offer_store)
+
+    telegram_ids = partner_telegram_user_ids_for_order(
+        order["id"],
+        order,
+        customer_store_path=customer_store,
+        offer_store_path=offer_store,
+    )
+    assert telegram_ids == ["445566"]
+
+
+def test_enrich_order_for_client_fills_provider_name_and_price(tmp_path):
+    provider_store = tmp_path / "providers.json"
+    save_providers([
+        {
+            "id": "provider-tg-123",
+            "name": "Олександр",
+            "rating": 4.9,
+            "vehicle": "Volkswagen Transporter",
+            "plate": "AO 1248 CH",
+            "phone": "+380671112233",
+            "telegram": "pomich_help_bot",
+            "status": "busy",
+            "etaMinutes": 12,
+            "location": {"lat": 48.632, "lng": 22.271},
+            "specialties": ["tow"],
+            "serviceRadiusKm": 15,
+            "verificationStatus": "verified",
+        }
+    ], store_path=provider_store)
+
+    enriched = enrich_order_for_client(
+        {
+            "id": "PM-1",
+            "status": "accepted",
+            "assignedProviderId": "provider-tg-123",
+            "partnerProposedPrice": 1500,
+        },
+        provider_store_path=provider_store,
+    )
+
+    assert enriched["providerName"] == "Олександр"
+    assert enriched["assignedProvider"]["name"] == "Олександр"
+    assert enriched["partnerProposedPrice"] == 1500
+
+
+def test_cancel_order_releases_assigned_provider(tmp_path):
+    order_store = tmp_path / "orders.json"
+    provider_store = tmp_path / "providers.json"
+    offer_store = tmp_path / "offers.json"
+    save_providers([
+        {
+            "id": "provider-tg-777",
+            "name": "Partner",
+            "rating": 4.8,
+            "vehicle": "Van",
+            "plate": "AA 1111 BB",
+            "phone": "+380671112233",
+            "telegram": "pomich_help_bot",
+            "status": "busy",
+            "assignedOrderId": "PM-777",
+            "etaMinutes": 10,
+            "location": {"lat": 48.62, "lng": 22.28},
+            "specialties": ["tow"],
+            "serviceRadiusKm": 15,
+            "verificationStatus": "verified",
+        }
+    ], store_path=provider_store)
+    save_order(
+        {
+            "id": "PM-777",
+            "service": "tow",
+            "status": "accepted",
+            "assignedProviderId": "provider-tg-777",
+        },
+        store_path=order_store,
+    )
+
+    updated = update_order_status(
+        "PM-777",
+        "cancelled",
+        store_path=order_store,
+        provider_store_path=provider_store,
+        offer_store_path=offer_store,
+    )
+
+    assert updated is not None
+    assert updated["status"] == "cancelled"
+    provider = load_providers(provider_store)[0]
+    assert provider["status"] == "online"
+    assert "assignedOrderId" not in provider
+
+
+def test_save_order_normalizes_customer_comment(tmp_path):
+    store_path = tmp_path / "orders.json"
+
+    order = save_order({
+        "service": "tow",
+        "comment": "  Авто біля входу  ",
+    }, store_path=store_path)
+
+    assert order["customerComment"] == "Авто біля входу"
+    assert "comment" not in load_orders(store_path)[0]
+
+
+def test_save_order_truncates_long_customer_comment(tmp_path):
+    store_path = tmp_path / "orders.json"
+    long_text = "а" * 600
+
+    order = save_order({"service": "tow", "customerComment": long_text}, store_path=store_path)
+
+    assert len(order["customerComment"]) == 500
+
+
+def test_provider_offer_includes_customer_comment(tmp_path):
+    order_path = tmp_path / "orders.json"
+    offer_path = tmp_path / "offers.json"
+    provider_path = tmp_path / "providers.json"
+    pickup = {"lat": 48.6208, "lng": 22.2879}
+
+    save_providers([_provider("p1", 48.6218, 22.2879)], provider_path)
+    order = save_order({
+        "service": "tow",
+        "status": "searching",
+        "customerLocation": "вул. Швабська",
+        "customerCoordinates": pickup,
+        "customerComment": "Паркінг -1, біля ліфта",
+    }, store_path=order_path)
+
+    dispatch_order(order["id"], order_path, provider_path, offer_path)
+    offers = get_provider_offers("p1", order_path, offer_path)
+
+    assert len(offers) == 1
+    assert offers[0]["customerComment"] == "Паркінг -1, біля ліфта"

@@ -1,5 +1,3 @@
-import { BRAND } from "../../lib/constants"
-
 interface PrimaryButtonProps {
   label: string
   onClick?: () => void
@@ -8,11 +6,14 @@ interface PrimaryButtonProps {
 }
 
 export function PrimaryButton({ label, onClick, loading = false, disabled = false }: PrimaryButtonProps) {
+  const isDisabled = disabled || loading
+
   return (
     <button
+      type="button"
       onClick={onClick}
-      disabled={disabled || loading}
-      style={{ width: "100%", minHeight: 48, padding: "14px 16px", borderRadius: 14, background: disabled || loading ? "#CBD5E1" : BRAND, color: "#fff", border: "none", fontSize: 15, fontWeight: 800, cursor: disabled || loading ? "not-allowed" : "pointer", fontFamily: "inherit" }}
+      disabled={isDisabled}
+      className={`pomich-primary-btn${isDisabled ? " is-disabled" : ""}`}
     >
       {loading ? "Створюємо заявку…" : label}
     </button>

@@ -1,5 +1,6 @@
 import { useCallback, useEffect } from "react"
-import { applyTelegramTheme, initTelegramApp, telegramHaptic, type TelegramWebApp } from "../telegram"
+import { applyTelegramTheme, enableTelegramPageScroll, initTelegramApp, telegramHaptic, type TelegramWebApp } from "../telegram"
+import { useMobileCompact } from "./useMobileCompact"
 import { useTelegram } from "./useTelegram"
 
 interface MainButtonConfig {
@@ -17,6 +18,7 @@ interface BackButtonConfig {
 
 export function useTelegramUx() {
   const ctx = useTelegram()
+  useMobileCompact()
 
   useEffect(() => {
     if (!ctx.isTelegram) return
@@ -30,7 +32,10 @@ export function useTelegramUx() {
     const webApp = ctx.webApp
     applyTelegramTheme(webApp)
 
-    const syncViewport = () => applyTelegramTheme(webApp)
+    const syncViewport = () => {
+      enableTelegramPageScroll(webApp)
+      applyTelegramTheme(webApp)
+    }
     const onThemeChanged = () => applyTelegramTheme(webApp)
 
     syncViewport()

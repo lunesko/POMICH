@@ -41,10 +41,19 @@ export function parseUkrainePhoneInput(raw: string): string {
   return national.slice(0, 9)
 }
 
-/** Extract national digits from stored E.164 or mixed input. */
+/** Extract national digits from stored E.164 or mixed input. Empty when only country code remains. */
 export function nationalDigitsFromPhone(phone: string): string {
   if (!phone) return ""
   return parseUkrainePhoneInput(phone)
+}
+
+/** Normalize stored profile phone for PhoneInput (always valid E.164 or empty). */
+export function phoneInputValueFromStored(phone: string | undefined): string {
+  if (!phone) return ""
+  const validation = validateUkraineMobilePhone(phone)
+  if (validation.valid) return validation.e164
+  const national = nationalDigitsFromPhone(phone)
+  return national ? toE164(national) : ""
 }
 
 /** Format national digits for display: 66 123 45 67 */

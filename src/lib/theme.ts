@@ -46,7 +46,7 @@ export const pomichThemeColors = {
   },
   dark: {
     bg: "#090B0E",
-    surface: "rgba(255, 255, 255, 0.06)",
+    surface: "#12151A",
     text: "#FFFFFF",
     border: "rgba(255, 255, 255, 0.13)",
     brand: "#16A36A",
@@ -132,8 +132,18 @@ export function clearPomichTelegramThemeOverrides() {
   }
 }
 
+export function syncPomichThemeToTelegramWebApp(mode: PomichThemeMode) {
+  if (typeof window === "undefined") return
+  const webApp = window.Telegram?.WebApp
+  if (!webApp) return
+  const colors = pomichThemeColors[mode]
+  webApp.setHeaderColor?.(mode === "dark" ? "#090B0E" : "#FFFFFF")
+  webApp.setBackgroundColor?.(colors.bg)
+}
+
 export function applyPomichThemeToDocument(mode: PomichThemeMode) {
   if (typeof document === "undefined") return
   document.documentElement.dataset.pomichTheme = mode
   clearPomichTelegramThemeOverrides()
+  syncPomichThemeToTelegramWebApp(mode)
 }

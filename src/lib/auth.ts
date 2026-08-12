@@ -44,6 +44,31 @@ export function readStoredAuthSession(storageKey: string, expectedRole: "admin" 
 }
 
 export const CUSTOMER_ID_STORAGE_KEY = "pomichCustomerId"
+export const EXPLICIT_LOGOUT_STORAGE_KEY = "pomichExplicitLogout"
+
+/** Set after user clicks «Вийти» — blocks Telegram initData auto-login until next explicit sign-in. */
+export function markExplicitLogout(telegramChatId?: string) {
+  if (typeof window === "undefined") return
+  window.localStorage.setItem(EXPLICIT_LOGOUT_STORAGE_KEY, telegramChatId ? `tg-${telegramChatId}` : "web")
+}
+
+export function clearExplicitLogout() {
+  if (typeof window === "undefined") return
+  window.localStorage.removeItem(EXPLICIT_LOGOUT_STORAGE_KEY)
+}
+
+export function isExplicitLogout(telegramChatId?: string): boolean {
+  if (typeof window === "undefined") return false
+  const flag = window.localStorage.getItem(EXPLICIT_LOGOUT_STORAGE_KEY)
+  if (!flag) return false
+  if (telegramChatId) return flag === `tg-${telegramChatId}`
+  return flag === "web"
+}
+
+/** Only reuse a persisted guest-* id; never the shared customer-web singleton. */
+export function guestSessionCustomerIdForRestore(customerId: string): string | undefined {
+  return customerId.startsWith("guest-") ? customerId : undefined
+}
 
 export function readPersistedCustomerId(telegramChatId?: string): string {
   if (telegramChatId) return `tg-${telegramChatId}`
@@ -74,18 +99,74 @@ export function readStoredCustomerAuthSession(options?: { telegramChatId?: strin
     return tryCustomerId(`tg-${options.telegramChatId}`)
   }
 
-  const persisted = tryCustomerId(readPersistedCustomerId())
-  if (persisted) return persisted
+  return tryCustomerId(readPersistedCustomerId())
+}
 
+/** Drop auth tokens and persisted ids that belong to another customer (e.g. stale web guest). */
+export function purgeStaleCustomerSessions(activeCustomerId: string) {
+  if (typeof window === "undefined" || !activeCustomerId) return
+
+  const persistedLocal = window.localStorage.getItem(CUSTOMER_ID_STORAGE_KEY)
+  const persistedSession = window.sessionStorage.getItem(CUSTOMER_ID_STORAGE_KEY)
+  if (persistedLocal && persistedLocal !== activeCustomerId) {
+    window.localStorage.removeItem(CUSTOMER_ID_STORAGE_KEY)
+  }
+  if (persistedSession && persistedSession !== activeCustomerId) {
+    window.sessionStorage.removeItem(CUSTOMER_ID_STORAGE_KEY)
+  }
+
+  const keysToRemove: string[] = []
   for (let index = 0; index < window.sessionStorage.length; index += 1) {
     const key = window.sessionStorage.key(index)
     if (!key?.startsWith("pomichAuthSession:customer:")) continue
     const customerId = key.slice("pomichAuthSession:customer:".length)
-    const restored = tryCustomerId(customerId)
-    if (restored) return restored
+    if (customerId !== activeCustomerId) keysToRemove.push(key)
   }
+  keysToRemove.forEach((key) => window.sessionStorage.removeItem(key))
+}
 
-  return undefined
+/** True when browser persisted id differs from the Telegram user (stale desktop guest session). */
+export function detectStoredCustomerMismatch(telegramChatId?: string): boolean {
+  if (!telegramChatId || typeof window === "undefined") return false
+  const expected = `tg-${telegramChatId}`
+  const persistedLocal = window.localStorage.getItem(CUSTOMER_ID_STORAGE_KEY)
+  const persistedSession = window.sessionStorage.getItem(CUSTOMER_ID_STORAGE_KEY)
+  return Boolean((persistedLocal && persistedLocal !== expected) || (persistedSession && persistedSession !== expected))
+}
+
+/** Clear all customer auth state (e.g. when switching role or logging out). */
+export function clearCustomerAuthStorage() {
+  if (typeof window === "undefined") return
+
+  window.localStorage.removeItem(CUSTOMER_ID_STORAGE_KEY)
+  window.sessionStorage.removeItem(CUSTOMER_ID_STORAGE_KEY)
+  window.sessionStorage.removeItem("pomichBootstrapProfile")
+  window.localStorage.removeItem("pomichClientName")
+  window.localStorage.removeItem("pomichClientVerification")
+
+  const keysToRemove: string[] = []
+  for (let index = 0; index < window.sessionStorage.length; index += 1) {
+    const key = window.sessionStorage.key(index)
+    if (key?.startsWith("pomichAuthSession:customer:")) keysToRemove.push(key)
+  }
+  keysToRemove.forEach((key) => window.sessionStorage.removeItem(key))
+}
+
+/** Clear every auth token and persisted session (logout / role switch). */
+export function clearAllAuthStorage() {
+  if (typeof window === "undefined") return
+
+  clearCustomerAuthStorage()
+  window.sessionStorage.removeItem("pomichProviderToken")
+  window.sessionStorage.removeItem("pomichAdminToken")
+  window.sessionStorage.removeItem("pomichLinkedProviderId")
+
+  const keysToRemove: string[] = []
+  for (let index = 0; index < window.sessionStorage.length; index += 1) {
+    const key = window.sessionStorage.key(index)
+    if (key?.startsWith("pomichAuthSession:")) keysToRemove.push(key)
+  }
+  keysToRemove.forEach((key) => window.sessionStorage.removeItem(key))
 }
 
 export function storeAuthSession(storageKey: string, session: AuthSession) {

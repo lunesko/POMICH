@@ -1,7 +1,7 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 
-import { messageFromFetchError, updateCustomerProfile, type CustomerProfile, type OrderResponse } from "../../api/client"
-import { getProfileChecklist, isCustomerVerified, profileChecklistSummary } from "../../lib/customerProfile"
+import { getUserAccount, messageFromFetchError, updateCustomerProfile, type CustomerProfile, type OrderResponse } from "../../api/client"
+import { getProfileChecklist, isCustomerVerified, profileChecklistItemStatus, profileChecklistSummary } from "../../lib/customerProfile"
 import { roleLabel, type UserRole } from "../../lib/userAccount"
 import { validateUkraineMobilePhone } from "../../lib/ukrainePhone"
 import { verificationHelpText, verificationSteps } from "../../lib/verificationHelp"
@@ -19,9 +19,11 @@ interface ClientCabinetProps {
   customerToken?: string
   orders?: OrderResponse[]
   currentRole: UserRole
+  sessionMismatchWarning?: string
   onBack: () => void
   onStartOrder: () => void
   onSwitchRole: () => void
+  onLogout?: () => void
   onProfileUpdate?: (profile: CustomerProfile) => void
 }
 
@@ -34,6 +36,8 @@ export default function ClientCabinet({
   onBack,
   onStartOrder,
   onSwitchRole,
+  onLogout,
+  sessionMismatchWarning,
   onProfileUpdate,
 }: ClientCabinetProps) {
   const [editing, setEditing] = useState(false)
@@ -47,6 +51,17 @@ export default function ClientCabinet({
     city: profile.city || "",
     telegram: profile.telegram || "",
   })
+
+  useEffect(() => {
+    if (editing) return
+    setForm({
+      name: profile.name?.trim() && profile.name !== "Клієнт POMICH" ? profile.name : "",
+      phone: profile.phone || "",
+      email: profile.email || "",
+      city: profile.city || "",
+      telegram: profile.telegram || "",
+    })
+  }, [profile.id, profile.name, profile.phone, profile.email, profile.city, profile.telegram, editing])
 
   const name = profile.name?.trim() || "Клієнт POMICH"
   const checklist = getProfileChecklist(profile)
@@ -92,12 +107,23 @@ export default function ClientCabinet({
           name: form.name.trim(),
           phone: phoneValidation.e164,
           email: form.email.trim(),
-          city: form.city.trim() || "Київ",
+          city: form.city.trim(),
           telegram: form.telegram.trim().replace(/^@/, ""),
         },
         customerToken,
       )
-      onProfileUpdate?.(saved)
+
+      if (saved.id && saved.id !== customerId) {
+        if (typeof window !== "undefined") window.location.reload()
+        return
+      }
+
+      if (customerToken) {
+        const status = await getUserAccount(customerId, customerToken)
+        onProfileUpdate?.(status.profile ?? saved)
+      } else {
+        onProfileUpdate?.(saved)
+      }
       setEditing(false)
     } catch (err) {
       setSaveError(messageFromFetchError(err, "Не вдалося зберегти профіль. Спробуйте ще раз."))
@@ -115,15 +141,27 @@ export default function ClientCabinet({
           onBack={onBack}
           compactToggle
           actions={
-            <button type="button" onClick={onSwitchRole} className="pomich-cabinet-chip-btn">
-              Змінити роль
-            </button>
+            <>
+              <button type="button" onClick={onSwitchRole} className="pomich-cabinet-chip-btn">
+                Змінити роль
+              </button>
+              {onLogout ? (
+                <button type="button" onClick={onLogout} className="pomich-cabinet-chip-btn pomich-cabinet-chip-btn--muted">
+                  Вийти
+                </button>
+              ) : null}
+            </>
           }
         />
       </div>
 
       <div className="pomich-cabinet-body">
         <div className="pomich-cabinet-inner">
+          {sessionMismatchWarning ? (
+            <div className="pomich-form-error" style={{ marginBottom: 12 }}>
+              {sessionMismatchWarning}
+            </div>
+          ) : null}
           <div className="pomich-cabinet-card">
             {editing ? (
               <div className="pomich-cabinet-edit-form">
@@ -163,7 +201,7 @@ export default function ClientCabinet({
                   <input
                     value={form.city}
                     onChange={(e) => setForm((prev) => ({ ...prev, city: e.target.value }))}
-                    placeholder="Київ"
+                    placeholder="Ужгород"
                     className="pomich-form-input"
                   />
                 </label>
@@ -217,23 +255,25 @@ export default function ClientCabinet({
             )}
           </div>
 
-          <div className="pomich-cabinet-card pomich-cabinet-verification-help">
-            <div className="pomich-cabinet-section-title">Статус профілю</div>
-            <p className="pomich-cabinet-help-text">{helpText}</p>
-            <ol className="pomich-cabinet-help-steps">
-              {steps.map((step) => (
-                <li key={step}>{step}</li>
-              ))}
-            </ol>
-            {!profileVerified && !editing ? (
-              <OtpVerificationPanel
-                profile={profile}
-                customerToken={customerToken}
-                isTelegram={telegramContext.isTelegram}
-                onVerified={(saved) => onProfileUpdate?.(saved)}
-              />
-            ) : null}
-          </div>
+          {!profileVerified ? (
+            <div className="pomich-cabinet-card pomich-cabinet-verification-help">
+              <div className="pomich-cabinet-section-title">Статус профілю</div>
+              <p className="pomich-cabinet-help-text">{helpText}</p>
+              <ol className="pomich-cabinet-help-steps">
+                {steps.map((step) => (
+                  <li key={step}>{step}</li>
+                ))}
+              </ol>
+              {!editing ? (
+                <OtpVerificationPanel
+                  profile={profile}
+                  customerToken={customerToken}
+                  isTelegram={telegramContext.isTelegram}
+                  onVerified={(saved) => onProfileUpdate?.(saved)}
+                />
+              ) : null}
+            </div>
+          ) : null}
 
           <div className="pomich-cabinet-grid">
             <div className="pomich-cabinet-card">
@@ -250,7 +290,7 @@ export default function ClientCabinet({
                       {item.required ? " *" : ""}
                     </span>
                     <span className="pomich-cabinet-checklist-mark" aria-hidden="true">
-                      {item.filled ? "✓" : "—"}
+                      {item.filled ? "✓" : item.required ? "—" : "○"}
                     </span>
                   </div>
                 ))}

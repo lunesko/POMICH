@@ -395,6 +395,25 @@ def _load_payload_list(table: Table, order_by: Any) -> tuple[bool, list[dict[str
     return bool(rows), [_json_safe_copy(row[0]) for row in rows]
 
 
+def _load_providers_with_presence() -> tuple[bool, list[dict[str, Any]]]:
+    engine = get_engine()
+    with engine.begin() as connection:
+        rows = connection.execute(
+            select(
+                providers.c.payload.label("provider_payload"),
+                provider_presence.c.payload.label("presence_payload"),
+            )
+            .select_from(providers.outerjoin(provider_presence, providers.c.id == provider_presence.c.provider_id))
+            .order_by(providers.c.id)
+        ).mappings().all()
+    if not rows:
+        return False, []
+    return True, [
+        _merge_provider_payload(row["provider_payload"], row["presence_payload"])
+        for row in rows
+    ]
+
+
 def _load_legacy_collection(name: str) -> tuple[bool, Any]:
     engine = get_engine()
     with engine.begin() as connection:
@@ -413,7 +432,7 @@ def load_collection(name: str) -> tuple[bool, Any]:
     elif name == "offers":
         found, payload = _load_payload_list(dispatch_offers, dispatch_offers.c.created_at)
     elif name == "providers":
-        found, payload = _load_payload_list(providers, providers.c.id)
+        found, payload = _load_providers_with_presence()
     elif name == "customers":
         found, payload = _load_payload_list(customers, customers.c.id)
     elif name == "telegram_sessions":
@@ -448,7 +467,13 @@ def sql_candidate_providers_for_order(
     return _portable_candidate_providers(order_id, service, offered_ids, max_radius_km, threshold_iso)
 
 
-def sql_accept_offer(offer_id: str, provider_id: str, now: datetime | None = None) -> dict[str, Any]:
+def sql_accept_offer(
+    offer_id: str,
+    provider_id: str,
+    proposed_price: float | None = None,
+    price_note: str | None = None,
+    now: datetime | None = None,
+) -> dict[str, Any]:
     engine = get_engine()
     now_dt = now or datetime.utcnow()
     now_iso = f"{now_dt.isoformat(timespec='seconds')}Z"
@@ -550,15 +575,25 @@ def sql_accept_offer(offer_id: str, provider_id: str, now: datetime | None = Non
         if str(provider_row["verification_status"] or "") != "verified":
             raise SqlDispatchConflict("PROVIDER_NOT_VERIFIED", "Provider verification is not approved.")
 
+        if proposed_price is None or proposed_price <= 0:
+            raise SqlDispatchConflict("PRICE_REQUIRED", "Partner must specify proposed price when accepting.")
+
         order = _json_object(order_row["payload"])
         provider = _merge_provider_payload(provider_row["provider_payload"], provider_row["presence_payload"])
         accepted_offer = _json_object(offer)
 
         accepted_offer["status"] = "accepted"
         accepted_offer["respondedAt"] = now_iso
-        order["status"] = "assigned"
+        accepted_offer["proposedPrice"] = proposed_price
+        if price_note:
+            accepted_offer["priceNote"] = price_note
+        order["status"] = "accepted"
         order["assignedProviderId"] = str(provider_id)
+        order["partnerId"] = str(provider_id)
         order["assignedOfferId"] = str(offer_id)
+        order["partnerProposedPrice"] = proposed_price
+        order["partnerPriceNote"] = price_note
+        order["acceptedAt"] = now_iso
         order["assignedProvider"] = {
             "id": provider.get("id"),
             "name": provider.get("name"),
@@ -573,19 +608,19 @@ def sql_accept_offer(offer_id: str, provider_id: str, now: datetime | None = Non
             "distanceKm": accepted_offer.get("distanceKm"),
             "etaMinutes": max(2, math.ceil(float(accepted_offer.get("distanceKm") or 0) * 4)),
         }
-        order["dispatchState"] = "ASSIGNED"
+        order["dispatchState"] = "ACCEPTED"
         order["updatedAt"] = now_iso
         history = order.get("statusHistory") if isinstance(order.get("statusHistory"), list) else []
-        history.append({"status": "assigned", "at": now_iso})
+        history.append({"status": "accepted", "at": now_iso})
         order["statusHistory"] = history
-        _append_event(order, "OFFER_ACCEPTED", now_iso, {"offerId": str(offer_id), "providerId": str(provider_id)})
+        _append_event(order, "OFFER_ACCEPTED", now_iso, {"offerId": str(offer_id), "providerId": str(provider_id), "proposedPrice": proposed_price})
         _append_event(order, "PROVIDER_ASSIGNED", now_iso, {"providerId": str(provider_id)})
 
         order_update = connection.execute(
             update(orders)
             .where(orders.c.id == str(order.get("id")), orders.c.status == "searching")
             .values(
-                status="assigned",
+                status="accepted",
                 assigned_provider_id=str(provider_id),
                 updated_at=now_iso,
                 payload=order,
@@ -686,7 +721,10 @@ def _postgres_candidate_providers(
           AND o.customer_lng IS NOT NULL
           AND pp.lat IS NOT NULL
           AND pp.lng IS NOT NULL
-          AND p.verification_status = 'verified'
+          AND (
+              p.verification_status = 'verified'
+              OR COALESCE((p.payload->'verification'->>'phone')::boolean, false)
+          )
           AND p.capabilities LIKE :capability
           AND pp.status = 'online'
           AND pp.assigned_order_id IS NULL
@@ -746,7 +784,6 @@ def _portable_candidate_providers(
             )
             .select_from(providers.join(provider_presence, providers.c.id == provider_presence.c.provider_id))
             .where(
-                providers.c.verification_status == "verified",
                 providers.c.capabilities.like(f"%|{service}|%"),
                 provider_presence.c.status == "online",
                 provider_presence.c.assigned_order_id.is_(None),
@@ -763,6 +800,11 @@ def _portable_candidate_providers(
     pickup = {"lat": float(order_row["customer_lat"]), "lng": float(order_row["customer_lng"])}
     candidates: list[dict[str, Any]] = []
     for row in rows:
+        provider_payload = _json_object(row["provider_payload"])
+        verification = provider_payload.get("verification") if isinstance(provider_payload.get("verification"), dict) else {}
+        phone_verified = bool(verification.get("phone"))
+        if str(provider_payload.get("verificationStatus") or "") != "verified" and not phone_verified:
+            continue
         provider_point = {"lat": float(row["lat"]), "lng": float(row["lng"])}
         distance_km = _haversine_distance_km(pickup, provider_point)
         provider_radius = float(row["service_radius_km"] or 15)
@@ -907,6 +949,78 @@ def _save_offers(connection, offer_payloads: list[dict[str, Any]]) -> None:
                 payload=offer,
             )
         )
+
+
+def sql_upsert_provider(provider: dict[str, Any]) -> dict[str, Any]:
+    payload = _json_safe_copy(provider)
+    provider_id = str(payload.get("id") or "").strip()
+    if not provider_id:
+        raise ValueError("provider id is required")
+
+    now_iso = str(payload.get("updatedAt") or payload.get("lastSeenAt") or datetime.utcnow().isoformat(timespec="seconds") + "Z")
+    payload["updatedAt"] = now_iso
+    location_lat, location_lng = _point(payload.get("location"))
+    presence_payload = {
+        "status": payload.get("status") or "offline",
+        "location": payload.get("location"),
+        "etaMinutes": payload.get("etaMinutes"),
+        "assignedOrderId": payload.get("assignedOrderId"),
+        "lastSeenAt": payload.get("lastSeenAt"),
+        "lastLocationAt": payload.get("lastLocationAt"),
+        "updatedAt": now_iso,
+    }
+
+    with get_engine().begin() as connection:
+        existing = connection.execute(select(providers.c.id).where(providers.c.id == provider_id)).first()
+        provider_values = {
+            "id": provider_id,
+            "name": str(payload.get("name") or "") or None,
+            "phone": str(payload.get("phone") or "") or None,
+            "telegram": str(payload.get("telegram") or "") or None,
+            "vehicle": str(payload.get("vehicle") or "") or None,
+            "plate": str(payload.get("plate") or "") or None,
+            "capabilities": _capability_index(payload.get("specialties")),
+            "rating": float(payload.get("rating")) if payload.get("rating") is not None else None,
+            "verification_status": str(payload.get("verificationStatus") or "unverified"),
+            "service_radius_km": float(payload.get("serviceRadiusKm")) if payload.get("serviceRadiusKm") is not None else None,
+            "registered_at": str(payload.get("registeredAt") or ""),
+            "updated_at": now_iso,
+            "payload": payload,
+        }
+        if existing:
+            connection.execute(
+                update(providers)
+                .where(providers.c.id == provider_id)
+                .values(**{key: value for key, value in provider_values.items() if key != "id"})
+            )
+        else:
+            connection.execute(insert(providers).values(**provider_values))
+
+        presence_values = {
+            "provider_id": provider_id,
+            "status": str(payload.get("status") or "offline"),
+            "lat": location_lat,
+            "lng": location_lng,
+            "eta_minutes": float(payload.get("etaMinutes")) if payload.get("etaMinutes") is not None else None,
+            "assigned_order_id": str(payload.get("assignedOrderId") or "") or None,
+            "last_seen_at": str(payload.get("lastSeenAt") or ""),
+            "last_location_at": str(payload.get("lastLocationAt") or ""),
+            "updated_at": now_iso,
+            "payload": presence_payload,
+        }
+        existing_presence = connection.execute(
+            select(provider_presence.c.provider_id).where(provider_presence.c.provider_id == provider_id)
+        ).first()
+        if existing_presence:
+            connection.execute(
+                update(provider_presence)
+                .where(provider_presence.c.provider_id == provider_id)
+                .values(**{key: value for key, value in presence_values.items() if key != "provider_id"})
+            )
+        else:
+            connection.execute(insert(provider_presence).values(**presence_values))
+
+    return payload
 
 
 def _save_providers(connection, provider_payloads: list[dict[str, Any]]) -> None:

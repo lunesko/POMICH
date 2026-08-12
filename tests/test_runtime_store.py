@@ -18,6 +18,7 @@ from bot.order_store import (
     load_providers,
     save_order,
     save_providers,
+    update_provider_presence,
 )
 
 
@@ -142,12 +143,13 @@ def test_sql_runtime_store_supports_dispatch_and_offer_acceptance(sql_runtime):
 
     dispatched = dispatch_order(order["id"])
     offer = get_provider_offers("p1")[0]
-    accepted = accept_offer(offer["id"], "p1")
+    accepted = accept_offer(offer["id"], "p1", proposed_price=1200)
 
     assert dispatched is not None
     assert dispatched["dispatchState"] == "OFFERS_SENT"
     assert load_offers()[0]["status"] == "accepted"
-    assert accepted["order"]["status"] == "assigned"
+    assert accepted["order"]["status"] == "accepted"
+    assert accepted["order"]["partnerProposedPrice"] == 1200
     assert load_orders()[0]["assignedProviderId"] == "p1"
     assert load_providers()[0]["status"] == "busy"
     assert _table_count(runtime_store.orders) == 1
@@ -194,7 +196,7 @@ def test_sql_first_accept_wins_with_transaction(sql_runtime):
 
     def try_accept(offer):
         try:
-            result = accept_offer(offer["id"], offer["providerId"])
+            result = accept_offer(offer["id"], offer["providerId"], proposed_price=1200)
             return ("accepted", result["provider"]["id"])
         except DispatchConflict as exc:
             return ("conflict", exc.code)
@@ -210,6 +212,26 @@ def test_sql_first_accept_wins_with_transaction(sql_runtime):
     assert Counter(offer["status"] for offer in load_offers()) == {"accepted": 1, "lost": 1}
     assert load_orders()[0]["assignedProviderId"] == accepted_provider_id
     assert {provider["id"]: provider for provider in load_providers()}[accepted_provider_id]["status"] == "busy"
+
+
+def test_sql_provider_presence_upsert_merges_live_status(sql_runtime):
+    save_providers([_provider("p1", 48.6208, 22.2879, status="offline")])
+    updated = update_provider_presence(
+        "p1",
+        {"status": "online", "location": {"lat": 48.6208, "lng": 22.2879}, "etaMinutes": 12},
+    )
+
+    assert updated["status"] == "online"
+    loaded = load_providers()[0]
+    assert loaded["status"] == "online"
+    assert loaded["lastSeenAt"] == updated["lastSeenAt"]
+
+    order = save_order({"service": "tow", "customerCoordinates": {"lat": 48.621, "lng": 22.288}})
+    dispatched = dispatch_order(order["id"])
+
+    assert dispatched is not None
+    assert dispatched["dispatchState"] == "OFFERS_SENT"
+    assert get_provider_offers("p1")
 
 
 def test_sql_runtime_store_preserves_explicit_empty_provider_collection(sql_runtime):

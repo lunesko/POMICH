@@ -28,22 +28,26 @@ from bot.order_store import (
     build_admin_activity_feed,
     build_admin_stats,
     build_user_account_status,
+    confirm_order_price,
     decline_offer,
     dispatch_order,
     expire_offers,
+    find_registered_customer_by_phone,
     get_customer_profile,
     get_order,
     get_provider_profile,
     get_provider_offers,
     get_telegram_session,
     invalidate_order_offers,
+    list_admin_customer_profiles,
     load_offers,
     load_orders,
     load_providers,
-    load_customer_profiles,
     mark_user_role_registered,
     merge_directory_providers,
     nearby_searching_orders,
+    normalize_order_status,
+    purge_stale_guest_customers,
     review_customer_verification,
     review_provider_verification,
     save_order,
@@ -61,7 +65,7 @@ from bot.provider_importer import import_uzhgorod_providers
 from bot.field_encryption import encryption_enabled
 from bot.otp_verification import OtpVerificationError, confirm_customer_verification_code, send_customer_verification_code
 from bot.telegram_auth import verify_telegram_init_data
-from bot.telegram_bot import get_configured_token, handle_update, notify_order_created
+from bot.telegram_bot import get_configured_token, handle_update, notify_order_cancelled, notify_order_created
 
 DIST_DIR = Path(__file__).resolve().parent.parent / "dist"
 ASSETS_DIR = DIST_DIR / "assets"
@@ -475,23 +479,23 @@ def admin_stats(
 @app.get("/api/admin/clients")
 def admin_list_clients(
     q: str | None = None,
+    includeGuests: bool = False,
     x_pomich_admin_token: str | None = Header(default=None),
     authorization: str | None = Header(default=None),
 ) -> list[dict]:
     _require_admin_auth(x_pomich_admin_token, authorization)
-    clients = load_customer_profiles()
-    if q:
-        needle = q.strip().lower()
-        clients = [
-            client
-            for client in clients
-            if needle in str(client.get("id") or "").lower()
-            or needle in str(client.get("name") or "").lower()
-            or needle in str(client.get("phone") or "").lower()
-            or needle in str(client.get("email") or "").lower()
-            or needle in str(client.get("city") or "").lower()
-        ]
-    return sorted(clients, key=lambda item: str(item.get("updatedAt") or item.get("createdAt") or ""), reverse=True)
+    return list_admin_customer_profiles(include_guests=includeGuests, query=q)
+
+
+@app.post("/admin/clients/purge-guests")
+@app.post("/api/admin/clients/purge-guests")
+def admin_purge_guest_clients(
+    days: int = 7,
+    x_pomich_admin_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+) -> dict:
+    _require_admin_auth(x_pomich_admin_token, authorization)
+    return purge_stale_guest_customers(days=days)
 
 
 @app.get("/admin/providers")
@@ -869,6 +873,45 @@ def customer_verify_confirm(payload: dict, authorization: str | None = Header(de
         raise HTTPException(status_code=status_code, detail=exc.code) from exc
 
 
+@app.post("/auth/customer/phone/login/send")
+@app.post("/api/auth/customer/phone/login/send")
+def customer_phone_login_send(payload: dict) -> dict:
+    phone = str(payload.get("phone") or "").strip()
+    if not phone:
+        raise HTTPException(status_code=400, detail="invalid_phone")
+    profile = find_registered_customer_by_phone(phone)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="customer_not_found")
+    customer_id = str(profile.get("id") or "").strip()
+    try:
+        return send_customer_verification_code(customer_id, "telegram", phone=phone)
+    except OtpVerificationError as exc:
+        status_code = 429 if exc.code == "rate_limit_exceeded" else 400
+        raise HTTPException(status_code=status_code, detail=exc.code) from exc
+
+
+@app.post("/auth/customer/phone/login/confirm")
+@app.post("/api/auth/customer/phone/login/confirm")
+def customer_phone_login_confirm(payload: dict) -> dict:
+    phone = str(payload.get("phone") or "").strip()
+    code = str(payload.get("code") or "").strip()
+    if not phone:
+        raise HTTPException(status_code=400, detail="invalid_phone")
+    profile = find_registered_customer_by_phone(phone)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="customer_not_found")
+    customer_id = str(profile.get("id") or "").strip()
+    try:
+        confirmed_profile = confirm_customer_verification_code(customer_id, code)
+    except OtpVerificationError as exc:
+        raise HTTPException(status_code=400, detail=exc.code) from exc
+    session = _issue_role_session("customer", customer_id, _configured_customer_secret())
+    session["customerId"] = customer_id
+    session["profile"] = confirmed_profile
+    session["account"] = build_user_account_status(customer_id)
+    return session
+
+
 @app.get("/providers/{provider_id}/profile")
 @app.get("/api/providers/{provider_id}/profile")
 def read_provider_profile(
@@ -1020,12 +1063,16 @@ def provider_offers(
 def provider_accept_offer(
     provider_id: str,
     offer_id: str,
+    payload: dict | None = None,
     x_pomich_provider_token: str | None = Header(default=None),
     authorization: str | None = Header(default=None),
 ) -> dict:
     _require_provider_auth(provider_id, x_pomich_provider_token, authorization)
+    body = payload or {}
+    proposed_price = body.get("proposedPrice", body.get("partnerProposedPrice"))
+    price_note = body.get("priceNote", body.get("partnerPriceNote"))
     try:
-        return accept_offer(offer_id, provider_id)
+        return accept_offer(offer_id, provider_id, proposed_price=proposed_price, price_note=price_note)
     except DispatchConflict as exc:
         raise _dispatch_conflict(exc) from exc
 
@@ -1042,8 +1089,10 @@ def accept_offer_legacy(
     if not provider_id:
         raise HTTPException(status_code=400, detail="providerId missing")
     _require_provider_auth(provider_id, x_pomich_provider_token, authorization)
+    proposed_price = payload.get("proposedPrice", payload.get("partnerProposedPrice"))
+    price_note = payload.get("priceNote", payload.get("partnerPriceNote"))
     try:
-        return accept_offer(offer_id, provider_id)
+        return accept_offer(offer_id, provider_id, proposed_price=proposed_price, price_note=price_note)
     except DispatchConflict as exc:
         raise _dispatch_conflict(exc) from exc
 
@@ -1081,6 +1130,15 @@ def decline_offer_legacy(
         raise _dispatch_conflict(exc) from exc
 
 
+@app.post("/orders/{order_id}/confirm-price")
+@app.post("/api/orders/{order_id}/confirm-price")
+def confirm_order_price_endpoint(order_id: str) -> dict:
+    try:
+        return confirm_order_price(order_id)
+    except DispatchConflict as exc:
+        raise _dispatch_conflict(exc) from exc
+
+
 @app.patch("/providers/{provider_id}/orders/{order_id}/status")
 @app.patch("/api/providers/{provider_id}/orders/{order_id}/status")
 def provider_patch_order_status(
@@ -1111,7 +1169,9 @@ def cancel_order(order_id: str) -> dict:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if order is None:
         raise HTTPException(status_code=404, detail="order not found")
-    return attach_dispatch_to_order(order, load_offers())
+    payload = attach_dispatch_to_order(order, load_offers())
+    notify_order_cancelled(payload)
+    return payload
 
 
 @app.patch("/orders/{order_id}/status")
@@ -1133,7 +1193,10 @@ def patch_order_status(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if order is None:
         raise HTTPException(status_code=404, detail="order not found")
-    return attach_dispatch_to_order(order, load_offers())
+    payload = attach_dispatch_to_order(order, load_offers())
+    if normalize_order_status(payload.get("status")) == "cancelled":
+        notify_order_cancelled(payload)
+    return payload
 
 
 @app.get("/telegram/session/{chat_id}")

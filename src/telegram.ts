@@ -81,6 +81,9 @@ export interface TelegramWebApp {
   setBackgroundColor?: (color: string) => void
   enableClosingConfirmation?: () => void
   disableClosingConfirmation?: () => void
+  isVerticalSwipesEnabled?: boolean
+  enableVerticalSwipes?: () => void
+  disableVerticalSwipes?: () => void
 }
 
 export interface TelegramContext {
@@ -190,10 +193,19 @@ export function applyTelegramTheme(webApp?: TelegramWebApp) {
     root.style.setProperty("--tg-viewport-stable-height", `${stableHeight}px`)
   }
 
+  if (usesPomichTheme) {
+    return
+  }
+
   const headerColor = params.header_bg_color ?? params.bg_color
   const backgroundColor = params.bg_color
   if (headerColor) webApp?.setHeaderColor?.(headerColor)
   if (backgroundColor) webApp?.setBackgroundColor?.(backgroundColor)
+}
+
+/** Allow finger scroll inside the Mini App (Bot API 7.7+). */
+export function enableTelegramPageScroll(webApp?: TelegramWebApp) {
+  webApp?.disableVerticalSwipes?.()
 }
 
 export function initTelegramApp(): TelegramContext {
@@ -201,6 +213,7 @@ export function initTelegramApp(): TelegramContext {
   if (ctx.isTelegram && ctx.webApp) {
     ctx.webApp.ready?.()
     ctx.webApp.expand?.()
+    enableTelegramPageScroll(ctx.webApp)
     applyTelegramTheme(ctx.webApp)
   }
   return ctx

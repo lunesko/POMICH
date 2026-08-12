@@ -1,7 +1,13 @@
 import type { LatLngTuple } from "leaflet"
 import type { ProviderAvailability, VerificationStatus } from "../api/client"
+import {
+  PARTNER_VEHICLE_MAKE_OTHER,
+  partnerVehicleMakes,
+} from "./partnerVehicleCatalog"
 import { calculateDistanceKm, type ServiceKey } from "./pomichDomain"
 import { resolveProviderIdForCustomer } from "./userAccount"
+
+export { PARTNER_VEHICLE_MAKE_OTHER, partnerVehicleMakes } from "./partnerVehicleCatalog"
 
 export type Role = "customer" | "provider" | "admin"
 
@@ -10,8 +16,9 @@ export type Screen =
   | "location"
   | "destination"
   | "details"
-  | "price"
+  | "review"
   | "searching"
+  | "accepted"
   | "assigned"
   | "tracking"
   | "arrived"
@@ -23,6 +30,8 @@ export type Screen =
 export type OrderStatus =
   | "draft"
   | "searching"
+  | "accepted"
+  | "price_confirmed"
   | "assigned"
   | "en_route"
   | "arrived"
@@ -54,6 +63,9 @@ export interface PartnerRegistrationForm {
   phone: string
   telegram: string
   vehicle: string
+  vehicleMake: string
+  vehicleMakeOther: string
+  vehicleModel: string
   plate: string
   city: string
   specialties: ServiceKey[]
@@ -63,6 +75,104 @@ export interface PartnerRegistrationForm {
   vehicleRegistrationRef: string
   serviceProofRef: string
   selfieRef: string
+}
+
+export function emptyPartnerRegistrationForm(): PartnerRegistrationForm {
+  return {
+    name: "",
+    phone: "",
+    telegram: "",
+    vehicle: "",
+    vehicleMake: "",
+    vehicleMakeOther: "",
+    vehicleModel: "",
+    plate: "",
+    city: "",
+    specialties: [],
+    serviceRadiusKm: DEFAULT_SERVICE_RADIUS_KM,
+    identityDocumentRef: "",
+    driverLicenseRef: "",
+    vehicleRegistrationRef: "",
+    serviceProofRef: "",
+    selfieRef: "",
+  }
+}
+
+export function resolvePartnerVehicleMake(make: string, customMake = ""): string {
+  const normalizedMake = make.trim()
+  if (normalizedMake === PARTNER_VEHICLE_MAKE_OTHER) return customMake.trim()
+  return normalizedMake
+}
+
+export function composePartnerVehicle(make: string, model: string, customMake = ""): string {
+  const effectiveMake = resolvePartnerVehicleMake(make, customMake)
+  const normalizedModel = model.trim()
+  if (effectiveMake && normalizedModel) return `${effectiveMake} ${normalizedModel}`.trim()
+  return effectiveMake
+}
+
+export function partnerVehicleSelectionIsComplete(make: string, customMake = "", model = ""): boolean {
+  if (!make.trim()) return false
+  if (make.trim() === PARTNER_VEHICLE_MAKE_OTHER) return Boolean(customMake.trim())
+  return Boolean(make.trim())
+}
+
+export function hydratePartnerVehicleFromProfile(profile: {
+  vehicle?: string
+  vehicleMake?: string
+  vehicleModel?: string
+}): Pick<PartnerRegistrationForm, "vehicle" | "vehicleMake" | "vehicleMakeOther" | "vehicleModel"> {
+  const storedMake = String(profile.vehicleMake || "").trim()
+  const storedModel = String(profile.vehicleModel || "").trim()
+  const vehicle = String(profile.vehicle || "").trim()
+  const knownMakes = partnerVehicleMakes as readonly string[]
+
+  if (storedMake && knownMakes.includes(storedMake)) {
+    return {
+      vehicleMake: storedMake,
+      vehicleMakeOther: "",
+      vehicleModel: storedModel,
+      vehicle: composePartnerVehicle(storedMake, storedModel, ""),
+    }
+  }
+
+  if (storedMake) {
+    return {
+      vehicleMake: PARTNER_VEHICLE_MAKE_OTHER,
+      vehicleMakeOther: storedMake,
+      vehicleModel: storedModel,
+      vehicle: composePartnerVehicle(PARTNER_VEHICLE_MAKE_OTHER, storedModel, storedMake),
+    }
+  }
+
+  for (const make of partnerVehicleMakes) {
+    if (make === PARTNER_VEHICLE_MAKE_OTHER) continue
+    if (vehicle === make || vehicle.startsWith(`${make} `)) {
+      const model = vehicle === make ? storedModel : vehicle.slice(make.length).trim()
+      return {
+        vehicleMake: make,
+        vehicleMakeOther: "",
+        vehicleModel: model,
+        vehicle: composePartnerVehicle(make, model, ""),
+      }
+    }
+  }
+
+  if (vehicle) {
+    return {
+      vehicleMake: PARTNER_VEHICLE_MAKE_OTHER,
+      vehicleMakeOther: vehicle,
+      vehicleModel: storedModel,
+      vehicle: composePartnerVehicle(PARTNER_VEHICLE_MAKE_OTHER, storedModel, vehicle),
+    }
+  }
+
+  return {
+    vehicleMake: "",
+    vehicleMakeOther: "",
+    vehicleModel: "",
+    vehicle: "",
+  }
 }
 
 export const BRAND = "#16A36A"
@@ -114,7 +224,9 @@ export const vehicleOptions = [
 
 export const orderStatusLabels: Record<OrderStatus, string> = {
   draft: "Чернетка",
-  searching: "Шукаємо виконавця",
+  searching: "Очікуємо партнера",
+  accepted: "Партнер прийняв",
+  price_confirmed: "Ціна підтверджена",
   assigned: "Виконавця призначено",
   en_route: "Виконавець у дорозі",
   arrived: "Виконавець на місці",
@@ -219,7 +331,13 @@ export function verificationTone(status?: VerificationStatus): { background: str
 }
 
 export function isVerified(status?: VerificationStatus): boolean {
-  return !status || status === "verified"
+  return status === "verified"
+}
+
+export function isProviderPhoneVerified(profile?: Pick<ProviderAvailability, "verificationStatus" | "verification">): boolean {
+  if (!profile) return false
+  if (profile.verificationStatus === "verified") return true
+  return Boolean(profile.verification?.phone)
 }
 
 export function providerPoint(item: ProviderAvailability): Point | undefined {
@@ -228,7 +346,13 @@ export function providerPoint(item: ProviderAvailability): Point | undefined {
 }
 
 export function isProviderAvailable(item: ProviderAvailability): boolean {
-  return (item.status === "online" || item.status === "busy") && isVerified(item.verificationStatus)
+  return (item.status === "online" || item.status === "busy") && isProviderPhoneVerified(item)
+}
+
+export function normalizeTelegramHref(telegram?: string): string | undefined {
+  const handle = (telegram || "").trim().replace(/^@+/, "")
+  if (!handle) return undefined
+  return `https://t.me/${handle}`
 }
 
 export function distanceToProvider(pickup: Point, item: ProviderAvailability): number {

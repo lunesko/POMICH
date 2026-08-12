@@ -522,6 +522,24 @@ def test_fastapi_rejects_admin_orders_without_token(monkeypatch) -> None:
     assert bootstrap_response.json()["detail"] == "admin_session_required"
 
 
+def test_fastapi_create_order_persists_customer_comment(monkeypatch, tmp_path) -> None:
+    _use_temp_store(monkeypatch, tmp_path)
+    client = TestClient(app)
+
+    created = client.post(
+        "/api/orders",
+        json={
+            "service": "tow",
+            "status": "searching",
+            "customerComment": "Ключі в бардачку",
+        },
+    )
+
+    assert created.status_code == 201
+    payload = created.json()
+    assert payload["customerComment"] == "Ключі в бардачку"
+
+
 def test_fastapi_rejects_invalid_order_transition(monkeypatch) -> None:
     monkeypatch.setenv("POMICH_ADMIN_TOKEN", ADMIN_TOKEN)
     client = TestClient(app)
@@ -567,18 +585,62 @@ def test_fastapi_dispatches_order_and_first_offer_acceptance_wins(monkeypatch, t
 
     first_offer = client.get("/api/providers/p1/offers", headers=first_provider_headers).json()[0]
     second_offer = client.get("/api/providers/p2/offers", headers=second_provider_headers).json()[0]
-    accepted = client.post(f"/api/providers/p1/offers/{first_offer['id']}/accept", headers=first_provider_headers)
-    lost = client.post(f"/api/providers/p2/offers/{second_offer['id']}/accept", headers=second_provider_headers)
+    accepted = client.post(
+        f"/api/providers/p1/offers/{first_offer['id']}/accept",
+        headers=first_provider_headers,
+        json={"proposedPrice": 1200},
+    )
+    lost = client.post(
+        f"/api/providers/p2/offers/{second_offer['id']}/accept",
+        headers=second_provider_headers,
+        json={"proposedPrice": 1300},
+    )
 
     assert accepted.status_code == 200
-    assert accepted.json()["order"]["status"] == "assigned"
+    assert accepted.json()["order"]["status"] == "accepted"
+    assert accepted.json()["order"]["partnerProposedPrice"] == 1200
     assert accepted.json()["provider"]["status"] == "busy"
     assert lost.status_code == 409
     assert lost.json()["detail"]["code"] == "ORDER_ALREADY_ACCEPTED"
 
     order = client.get(f"/api/orders/{created_order['id']}").json()
     assert order["assignedProviderId"] == "p1"
+    assert order["status"] == "accepted"
+    assert order["partnerProposedPrice"] == 1200
+    assert order["providerName"] == order["assignedProvider"]["name"]
     assert {offer["status"] for offer in order["offers"]} == {"accepted", "lost"}
+
+
+def test_fastapi_cancel_order_notifies_partner(monkeypatch, tmp_path) -> None:
+    _use_temp_store(monkeypatch, tmp_path)
+    _use_provider_auth(monkeypatch)
+    order_store.save_providers([_api_provider("p1", 48.6218, 22.2879)])
+    client = TestClient(app)
+    provider_headers = _provider_session_headers(client, "p1")
+
+    created_order = client.post(
+        "/api/orders",
+        json={
+            "service": "tow",
+            "status": "searching",
+            "customerCoordinates": {"lat": 48.6208, "lng": 22.2879},
+        },
+    ).json()
+    sent_messages: list[dict[str, str]] = []
+
+    def _fake_notify(order: dict) -> list[dict]:
+        sent_messages.append({"id": str(order.get("id")), "status": str(order.get("status"))})
+        return [{"ok": True}]
+
+    monkeypatch.setattr("bot.fastapi_app.notify_order_cancelled", _fake_notify)
+
+    cancelled = client.post(f"/api/orders/{created_order['id']}/cancel")
+    assert cancelled.status_code == 200
+    assert cancelled.json()["status"] == "cancelled"
+    assert sent_messages == [{"id": created_order["id"], "status": "cancelled"}]
+
+    offers = client.get("/api/providers/p1/offers", headers=provider_headers).json()
+    assert offers == []
 
 
 def test_fastapi_assigned_provider_can_drive_lifecycle(monkeypatch, tmp_path) -> None:
@@ -597,7 +659,12 @@ def test_fastapi_assigned_provider_can_drive_lifecycle(monkeypatch, tmp_path) ->
         },
     ).json()
     offer = client.get("/api/providers/p1/offers", headers=provider_headers).json()[0]
-    client.post(f"/api/providers/p1/offers/{offer['id']}/accept", headers=provider_headers)
+    client.post(
+        f"/api/providers/p1/offers/{offer['id']}/accept",
+        headers=provider_headers,
+        json={"proposedPrice": 1500, "priceNote": "Евакуатор + подача"},
+    )
+    client.post(f"/api/orders/{created_order['id']}/confirm-price")
 
     assert client.patch(f"/api/providers/p1/orders/{created_order['id']}/status", headers=provider_headers, json={"status": "en_route"}).json()["status"] == "en_route"
     assert client.patch(f"/api/providers/p1/orders/{created_order['id']}/status", headers=provider_headers, json={"status": "arrived"}).json()["status"] == "arrived"
@@ -644,6 +711,54 @@ def test_admin_endpoints_require_session_and_expose_ops_data(monkeypatch, tmp_pa
     assert "corsOrigins" in settings
 
 
+def test_admin_clients_decrypt_filter_and_purge_guests(monkeypatch, tmp_path) -> None:
+    from bot.field_encryption import generate_encryption_key
+
+    key = generate_encryption_key()
+    monkeypatch.setenv("POMICH_ENCRYPTION_KEY", key)
+    import bot.field_encryption as encryption_module
+
+    encryption_module._fernet = None
+    encryption_module._fernet_checked = False
+
+    monkeypatch.setenv("POMICH_RUNTIME", "dev")
+    monkeypatch.setenv("POMICH_ADMIN_TOKEN", ADMIN_TOKEN)
+    monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", CUSTOMER_SESSION_SECRET)
+    _use_temp_store(monkeypatch, tmp_path)
+
+    order_store.update_customer_profile("tg-99", {"name": "Олексій", "phone": "+380671112233", "telegram": "alex"})
+    order_store.update_customer_profile("guest-empty", {"name": "Клієнт POMICH"})
+    order_store.update_customer_profile("guest-real", {"name": "Марія", "phone": "+380501112233"})
+
+    profiles = order_store.load_customer_profiles()
+    for profile in profiles:
+        if profile["id"] == "guest-empty":
+            profile["createdAt"] = "2020-01-01T00:00:00"
+            profile["updatedAt"] = "2020-01-01T00:00:00"
+    order_store.save_customer_profiles(profiles)
+
+    client = TestClient(app)
+    admin_headers = _admin_session_headers(client)
+
+    default_clients = client.get("/api/admin/clients", headers=admin_headers).json()
+    default_ids = {item["id"] for item in default_clients}
+    assert "tg-99" in default_ids
+    assert "guest-real" in default_ids
+    assert "guest-empty" not in default_ids
+
+    telegram_client = next(item for item in default_clients if item["id"] == "tg-99")
+    assert telegram_client["name"] == "Олексій"
+    assert telegram_client["displayName"] == "Олексій"
+    assert not str(telegram_client["name"]).startswith("enc:v1:")
+
+    all_clients = client.get("/api/admin/clients?includeGuests=true", headers=admin_headers).json()
+    assert any(item["id"] == "guest-empty" for item in all_clients)
+
+    purge = client.post("/api/admin/clients/purge-guests?days=7", headers=admin_headers).json()
+    assert purge["deleted"] >= 1
+    assert "guest-empty" in purge["customerIds"]
+
+
 def test_fastapi_customer_otp_send_and_confirm(monkeypatch, tmp_path) -> None:
     _use_temp_store(monkeypatch, tmp_path)
     otp_path = tmp_path / "otp_codes.json"
@@ -677,3 +792,35 @@ def test_fastapi_customer_otp_send_and_confirm(monkeypatch, tmp_path) -> None:
     assert confirm_response.status_code == 200
     assert confirm_response.json()["profile"]["verificationStatus"] == "verified"
     assert confirm_response.json()["profile"]["verification"]["email"] is True
+
+
+def test_customer_phone_login_send_and_confirm(monkeypatch, tmp_path) -> None:
+    _use_temp_store(monkeypatch, tmp_path)
+    otp_path = tmp_path / "otp_codes.json"
+    monkeypatch.setattr("bot.otp_verification._default_otp_store_path", lambda: otp_path)
+    monkeypatch.setattr("bot.otp_verification._generate_otp_code", lambda: "445566")
+    monkeypatch.setattr("bot.otp_verification._send_telegram_otp", lambda chat_id, code: 321)
+    monkeypatch.setenv("POMICH_OTP_SECRET", "test-otp-secret")
+    order_store.update_customer_profile(
+        "tg-829741830",
+        {"name": "Vitaliy", "phone": "+380661007434"},
+    )
+
+    client = TestClient(app)
+    missing = client.post("/api/auth/customer/phone/login/send", json={"phone": "+380000000000"})
+    assert missing.status_code == 404
+    assert missing.json()["detail"] == "customer_not_found"
+
+    send_response = client.post("/api/auth/customer/phone/login/send", json={"phone": "+380661007434"})
+    assert send_response.status_code == 200
+    assert send_response.json()["channel"] == "telegram"
+
+    confirm_response = client.post(
+        "/api/auth/customer/phone/login/confirm",
+        json={"phone": "+380661007434", "code": "445566"},
+    )
+    assert confirm_response.status_code == 200
+    body = confirm_response.json()
+    assert body["customerId"] == "tg-829741830"
+    assert body["profile"]["name"] == "Vitaliy"
+    assert body["account"]["clientRegistered"] is True

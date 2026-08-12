@@ -13,6 +13,7 @@ import {
   getAdminStats,
   getMapProviders,
   importUzhgorodProviders,
+  purgeStaleGuestClients,
   reviewProviderVerification,
   retryDispatch,
   updateOrderStatus,
@@ -35,6 +36,7 @@ import {
   type OrderStatus,
 } from "../../lib/constants"
 import { authSessionStorageKey, isAuthSessionToken, readStoredAuthSession, storeAuthSession } from "../../lib/auth"
+import { formatCustomerCity, formatCustomerDisplayName } from "../../lib/customerDisplay"
 import { VerificationPill } from "../ui/VerificationPill"
 import { StatusPill } from "../ui/StatusPill"
 import { Timeline } from "../ui/Timeline"
@@ -52,7 +54,7 @@ const NAV: Array<{ id: AdminSection; label: string; icon: string }> = [
 ]
 
 function normalizeOrderStatus(status?: string): OrderStatus {
-  if (status === "searching" || status === "assigned" || status === "en_route" || status === "arrived" || status === "in_progress" || status === "completed" || status === "cancelled" || status === "draft") {
+  if (status === "searching" || status === "accepted" || status === "price_confirmed" || status === "assigned" || status === "en_route" || status === "arrived" || status === "in_progress" || status === "completed" || status === "cancelled" || status === "draft") {
     return status
   }
   if (status === "created" || status === "matching") return "searching"
@@ -63,8 +65,10 @@ function normalizeOrderStatus(status?: string): OrderStatus {
 function nextOrderStatuses(status: OrderStatus): OrderStatus[] {
   const transitions: Record<OrderStatus, OrderStatus[]> = {
     draft: ["searching", "cancelled"],
-    searching: ["assigned", "cancelled"],
-    assigned: ["en_route", "cancelled"],
+    searching: ["accepted", "cancelled"],
+    accepted: ["price_confirmed", "cancelled"],
+    price_confirmed: ["en_route", "cancelled"],
+    assigned: ["price_confirmed", "en_route", "cancelled"],
     en_route: ["arrived", "cancelled"],
     arrived: ["in_progress", "cancelled"],
     in_progress: ["completed", "cancelled"],
@@ -147,6 +151,7 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
   const [orders, setOrders] = useState<OrderResponse[]>([])
   const [settings, setSettings] = useState<AdminSettings | null>(null)
   const [clientQuery, setClientQuery] = useState("")
+  const [showGuestSessions, setShowGuestSessions] = useState(false)
   const [providerQuery, setProviderQuery] = useState("")
   const [orderFilter, setOrderFilter] = useState<OrderStatus | "all">("all")
   const [selectedClientId, setSelectedClientId] = useState<string | undefined>()
@@ -160,6 +165,7 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
   const [accountPassword, setAccountPassword] = useState("")
   const [authSaving, setAuthSaving] = useState(false)
   const [importStatus, setImportStatus] = useState<string | undefined>()
+  const [purgeStatus, setPurgeStatus] = useState<string | undefined>()
 
   useEffect(() => {
     if (adminAuthToken) return
@@ -214,7 +220,7 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
     try {
       const [nextStats, nextClients, nextProviders, nextOrders, nextSettings, nextMapProviders] = await Promise.all([
         getAdminStats(adminAuthToken),
-        getAdminClients(adminAuthToken, clientQuery || undefined),
+        getAdminClients(adminAuthToken, clientQuery || undefined, showGuestSessions),
         getAdminProviders(adminAuthToken, providerQuery || undefined),
         getAdminOrders(adminAuthToken, orderFilter === "all" ? undefined : orderFilter),
         getAdminSettings(adminAuthToken),
@@ -231,7 +237,7 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
     } finally {
       setLoading(false)
     }
-  }, [adminAuthToken, clientQuery, providerQuery, orderFilter])
+  }, [adminAuthToken, clientQuery, providerQuery, orderFilter, showGuestSessions])
 
   useEffect(() => {
     refreshAll()
@@ -305,6 +311,22 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
       setSelectedProviderId(undefined)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Не вдалося видалити партнера.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const runGuestPurge = async () => {
+    if (!adminAuthToken) return
+    if (!window.confirm("Видалити guest-сесії старші за 7 днів без телефону та без заявок?")) return
+    setPurgeStatus(undefined)
+    setSaving(true)
+    try {
+      const result = await purgeStaleGuestClients(adminAuthToken, 7)
+      setPurgeStatus(`Видалено ${result.deleted} guest-сесій, залишилось ${result.remaining}`)
+      await refreshAll()
+    } catch {
+      setPurgeStatus("Не вдалося очистити guest-сесії.")
     } finally {
       setSaving(false)
     }
@@ -430,19 +452,34 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
               <div className="admin-panel">
                 <div className="admin-panel-head">
                   <h2>Клієнти</h2>
-                  <input className="admin-search" value={clientQuery} onChange={(event) => setClientQuery(event.target.value)} placeholder="Пошук…" />
+                  <div className="admin-panel-actions">
+                    <label className="admin-toggle">
+                      <input
+                        type="checkbox"
+                        checked={showGuestSessions}
+                        onChange={(event) => setShowGuestSessions(event.target.checked)}
+                      />
+                      <span>Показати guest-сесії</span>
+                    </label>
+                    <button className="admin-ghost-btn" onClick={() => runGuestPurge()} disabled={saving}>
+                      Очистити старі guest
+                    </button>
+                    <input className="admin-search" value={clientQuery} onChange={(event) => setClientQuery(event.target.value)} placeholder="Пошук…" />
+                  </div>
                 </div>
+                {purgeStatus ? <div className="admin-muted admin-panel-note">{purgeStatus}</div> : null}
                 <div className="admin-list">
                   {clients.map((client) => (
                     <button key={client.id} className={`admin-list-item${selectedClient?.id === client.id ? " admin-list-item-active" : ""}`} onClick={() => setSelectedClientId(client.id)}>
                       <div>
-                        <strong>{client.name || client.id}</strong>
-                        <div className="admin-muted">{client.phone || "—"} · {client.city || "місто не вказано"}</div>
+                        <strong>{formatCustomerDisplayName(client)}</strong>
+                        <div className="admin-muted">{client.phone || "—"} · {formatCustomerCity(client.city)}</div>
+                        {client.isGuestSession ? <div className="admin-muted">guest-сесія · {client.id}</div> : null}
                       </div>
                       <VerificationPill status={client.verificationStatus} />
                     </button>
                   ))}
-                  {clients.length === 0 ? <EmptyState text="Клієнтів не знайдено." /> : null}
+                  {clients.length === 0 ? <EmptyState text={showGuestSessions ? "Клієнтів не знайдено." : "Реальних клієнтів не знайдено. Увімкніть «Показати guest-сесії», щоб побачити тимчасові візити."} /> : null}
                 </div>
               </div>
               {selectedClient ? (
@@ -493,7 +530,7 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
                 <div className="admin-panel-head">
                   <h2>Заявки</h2>
                   <div className="admin-chip-row">
-                    {(["all", "searching", "assigned", "en_route", "in_progress", "completed"] as const).map((filter) => (
+                    {(["all", "searching", "accepted", "price_confirmed", "assigned", "en_route", "in_progress", "completed"] as const).map((filter) => (
                       <button key={filter} className={`admin-chip${orderFilter === filter ? " admin-chip-active" : ""}`} onClick={() => setOrderFilter(filter)}>
                         {filter === "all" ? "Усі" : orderStatusLabels[filter]}
                       </button>
@@ -607,7 +644,11 @@ function ClientEditor({ client, saving, onSave }: { client: CustomerProfile; sav
 
   return (
     <div className="admin-panel admin-panel-detail">
-      <div className="admin-panel-head"><h2>{client.name || client.id}</h2><VerificationPill status={client.verificationStatus} /></div>
+      <div className="admin-panel-head">
+        <h2>{formatCustomerDisplayName(client)}</h2>
+        <VerificationPill status={client.verificationStatus} />
+      </div>
+      <div className="admin-muted admin-panel-note">ID: {client.id}{client.isGuestSession ? " · guest-сесія" : ""}</div>
       <div className="admin-form-grid">
         <label className="admin-field"><span>Імʼя</span><input value={name} onChange={(event) => setName(event.target.value)} /></label>
         <label className="admin-field"><span>Телефон</span><input value={phone} onChange={(event) => setPhone(event.target.value)} /></label>

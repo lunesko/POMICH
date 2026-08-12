@@ -20,6 +20,7 @@ from bot.order_store import (
     _parse_iso,
     _verification_badges,
     _write_json_atomic,
+    find_telegram_user_id_by_phone,
     get_customer_profile,
     normalize_verification_status,
     save_customer_profiles,
@@ -32,7 +33,8 @@ OTP_RATE_LIMIT_WINDOW_SECONDS = 600
 OTP_RATE_LIMIT_MAX_SENDS = 3
 OTP_CODE_LENGTH = 6
 
-UK_OTP_MESSAGE = "Ваш код підтвердження POMICH: {code}. Дійсний 10 хв."
+UK_OTP_EMAIL_MESSAGE = "Ваш код підтвердження POMICH: {code}. Дійсний 10 хв."
+UK_OTP_TELEGRAM_MESSAGE = "Ваш код підтвердження POMICH: <code>{code}</code>\n\nДійсний 10 хв."
 UK_EMAIL_SUBJECT = "Код підтвердження POMICH"
 
 
@@ -99,11 +101,48 @@ def _cleanup_expired_otp_records(store: Dict[str, Any], now: Optional[datetime] 
             record = {**record, "sendHistory": recent_sends}
             cleaned[str(customer_id)] = record
         elif recent_sends:
+            if expires_at is None or expires_at <= checked_at:
+                _delete_stored_otp_telegram_message(record)
             cleaned[str(customer_id)] = {"sendHistory": recent_sends}
+        else:
+            _delete_stored_otp_telegram_message(record)
     return cleaned
 
 
-def _telegram_chat_id_for_customer(customer_id: str, profile: Dict[str, Any]) -> Optional[str]:
+def _delete_stored_otp_telegram_message(record: Dict[str, Any]) -> None:
+    chat_id = record.get("telegramChatId")
+    message_id = record.get("telegramMessageId")
+    if chat_id is None or message_id is None:
+        return
+    from bot.telegram_bot import delete_message
+
+    try:
+        delete_message(str(chat_id), int(message_id))
+    except (TypeError, ValueError):
+        return
+
+
+def _schedule_otp_message_deletion(chat_id: str, message_id: int, delay_seconds: int) -> None:
+    def _run() -> None:
+        from bot.telegram_bot import delete_message
+
+        try:
+            delete_message(chat_id, message_id)
+        except Exception:
+            return
+
+    timer = threading.Timer(max(delay_seconds, 1), _run)
+    timer.daemon = True
+    timer.start()
+
+
+def _telegram_chat_id_for_customer(
+    customer_id: str,
+    profile: Dict[str, Any],
+    *,
+    phone: Optional[str] = None,
+    customer_store_path: Optional[Path] = None,
+) -> Optional[str]:
     if str(customer_id).startswith("tg-"):
         return str(customer_id)[3:]
     verification = profile.get("verification") if isinstance(profile.get("verification"), dict) else {}
@@ -113,6 +152,9 @@ def _telegram_chat_id_for_customer(customer_id: str, profile: Dict[str, Any]) ->
     identity = profile.get("customerIdentity") if isinstance(profile.get("customerIdentity"), dict) else {}
     if str(identity.get("telegramUserId") or "").strip():
         return str(identity.get("telegramUserId"))
+    lookup_phone = str(phone or profile.get("phone") or "").strip()
+    if lookup_phone:
+        return find_telegram_user_id_by_phone(lookup_phone, customer_store_path)
     return None
 
 
@@ -120,12 +162,21 @@ def _smtp_configured() -> bool:
     return bool(os.getenv("SMTP_HOST") and os.getenv("SMTP_USER") and os.getenv("SMTP_PASS"))
 
 
-def _send_telegram_otp(chat_id: str, code: str) -> None:
+def _send_telegram_otp(chat_id: str, code: str) -> int:
     from bot.telegram_bot import send_message
 
-    result = send_message(chat_id, UK_OTP_MESSAGE.format(code=code))
+    result = send_message(
+        chat_id,
+        UK_OTP_TELEGRAM_MESSAGE.format(code=code),
+        parse_mode="HTML",
+    )
     if isinstance(result, dict) and result.get("ok") is False:
         raise OtpVerificationError("telegram_send_failed", "Не вдалося надіслати код у Telegram")
+    message = result.get("result") if isinstance(result, dict) else None
+    message_id = message.get("message_id") if isinstance(message, dict) else None
+    if message_id is None:
+        raise OtpVerificationError("telegram_send_failed", "Не вдалося надіслати код у Telegram")
+    return int(message_id)
 
 
 def _send_email_otp(email: str, code: str) -> None:
@@ -140,7 +191,7 @@ def _send_email_otp(email: str, code: str) -> None:
     sender = os.getenv("SMTP_FROM") or user
     use_tls = str(os.getenv("SMTP_USE_TLS", "true")).strip().lower() not in {"0", "false", "no"}
 
-    message = MIMEText(UK_OTP_MESSAGE.format(code=code), "plain", "utf-8")
+    message = MIMEText(UK_OTP_EMAIL_MESSAGE.format(code=code), "plain", "utf-8")
     message["Subject"] = UK_EMAIL_SUBJECT
     message["From"] = sender
     message["To"] = email
@@ -201,13 +252,23 @@ def send_customer_verification_code(
 
         code = _generate_otp_code()
         code_hash = _hash_otp_code(customer_id, normalized_channel, code)
+        telegram_message_id: Optional[int] = None
+        telegram_chat_id: Optional[str] = None
 
         if normalized_channel == "telegram":
-            chat_id = _telegram_chat_id_for_customer(customer_id, profile)
-            if not chat_id:
-                raise OtpVerificationError("telegram_unavailable", "telegram user id not linked")
-            _send_telegram_otp(chat_id, code)
-            target = chat_id
+            telegram_chat_id = _telegram_chat_id_for_customer(
+                customer_id,
+                profile,
+                phone=str(profile.get("phone") or phone or "").strip() or None,
+                customer_store_path=customer_store_path,
+            )
+            if not telegram_chat_id:
+                raise OtpVerificationError(
+                    "telegram_not_linked",
+                    "telegram user id not linked; start @pomich_ua_bot with the same phone",
+                )
+            telegram_message_id = _send_telegram_otp(telegram_chat_id, code)
+            target = telegram_chat_id
         else:
             target_email = str(email or profile.get("email") or "").strip()
             if not target_email or "@" not in target_email:
@@ -216,13 +277,18 @@ def send_customer_verification_code(
             target = target_email
 
         recent_sends.append(now_iso)
-        store[customer_id] = {
+        record: Dict[str, Any] = {
             "codeHash": code_hash,
             "channel": normalized_channel,
             "target": target,
             "expiresAt": f"{expires_at.isoformat(timespec='seconds')}Z",
             "sendHistory": recent_sends,
         }
+        if normalized_channel == "telegram" and telegram_chat_id and telegram_message_id is not None:
+            record["telegramChatId"] = str(telegram_chat_id)
+            record["telegramMessageId"] = telegram_message_id
+            _schedule_otp_message_deletion(str(telegram_chat_id), telegram_message_id, OTP_TTL_SECONDS)
+        store[customer_id] = record
         _save_otp_store(store, otp_path)
 
     response: Dict[str, Any] = {
@@ -257,6 +323,7 @@ def confirm_customer_verification_code(
 
         expires_at = _parse_iso(record.get("expiresAt"))
         if expires_at is None or expires_at <= now:
+            _delete_stored_otp_telegram_message(record)
             store.pop(customer_id, None)
             _save_otp_store(store, otp_path)
             raise OtpVerificationError("code_expired", "verification code expired")
@@ -267,6 +334,7 @@ def confirm_customer_verification_code(
         if not hmac.compare_digest(expected_hash, actual_hash):
             raise OtpVerificationError("code_invalid", "verification code is invalid")
 
+        _delete_stored_otp_telegram_message(record)
         store.pop(customer_id, None)
         _save_otp_store(store, otp_path)
 
@@ -309,4 +377,17 @@ def _apply_customer_otp_verification(
             raise OtpVerificationError("customer_not_found", "customer profile not found")
 
         save_customer_profiles(profiles, path)
+        _verify_linked_provider_after_otp(customer_id, customer_store_path)
         return dict(updated)
+
+
+def _verify_linked_provider_after_otp(customer_id: str, customer_store_path: Optional[Path] = None) -> None:
+    from bot.order_store import get_customer_profile, resolve_linked_provider_id, verify_provider_phone_otp
+
+    profile = get_customer_profile(customer_id, customer_store_path)
+    if profile is None:
+        return
+    provider_id = resolve_linked_provider_id(customer_id, profile)
+    if not provider_id:
+        return
+    verify_provider_phone_otp(provider_id)

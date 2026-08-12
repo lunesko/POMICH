@@ -1,5 +1,5 @@
 import type { CustomerProfile, VerificationStatus } from "../../api/client"
-import { customerProfileStatusLabel, customerProfileStatusTone } from "../../lib/customerProfile"
+import { customerProfileStatusLabel, customerProfileStatusTone, isCustomerVerified } from "../../lib/customerProfile"
 import { verificationLabel, verificationTone } from "../../lib/constants"
 
 interface VerificationPillProps {
@@ -9,6 +9,8 @@ interface VerificationPillProps {
 }
 
 export function VerificationPill({ status, profile }: VerificationPillProps) {
+  if (profile && isCustomerVerified(profile)) return null
+
   const tone = profile ? customerProfileStatusTone(profile) : verificationTone(status)
   const label = profile ? customerProfileStatusLabel(profile) : verificationLabel(status)
 

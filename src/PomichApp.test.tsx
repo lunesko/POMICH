@@ -4,7 +4,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import CustomerApp from './CustomerApp'
 import { PomichThemeProvider } from './context/PomichThemeProvider'
-import { authSessionStorageKey, storeAuthSession } from './lib/auth'
+import { authSessionStorageKey, EXPLICIT_LOGOUT_STORAGE_KEY, storeAuthSession } from './lib/auth'
+import { applyPomichThemeToDocument } from './lib/theme'
 
 function renderApp() {
   return render(
@@ -20,7 +21,13 @@ vi.mock('react-leaflet', () => ({
   Polyline: () => <div />,
   Marker: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   Popup: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  useMap: () => ({ invalidateSize: () => undefined, getContainer: () => document.createElement('div') }),
+  useMap: () => ({
+    invalidateSize: () => undefined,
+    getContainer: () => document.createElement('div'),
+    getZoom: () => 13,
+    flyTo: () => undefined,
+    fitBounds: () => undefined,
+  }),
   useMapEvents: () => null,
 }))
 
@@ -53,7 +60,12 @@ function mockRegisteredCustomerFetch(extra?: (url: string, init?: RequestInit) =
           customerId: 'guest-test',
           accessToken: TEST_CUSTOMER_TOKEN,
           expiresAt: Math.floor(Date.now() / 1000) + 3600,
-          profile: verifiedTestProfile,
+          profile: {
+            id: 'guest-test',
+            name: 'Клієнт POMICH',
+            phone: '',
+            verificationStatus: 'unverified',
+          },
           account: {
             customerId: 'guest-test',
             preferredRole: '',
@@ -137,6 +149,51 @@ describe('POMICH role-based flows', () => {
     }
   }
 
+  it('shows stale web session on registration and allows logout', async () => {
+    const user = userEvent.setup()
+    storeAuthSession(authSessionStorageKey('customer', 'guest-roman'), {
+      role: 'customer',
+      subjectId: 'guest-roman',
+      customerId: 'guest-roman',
+      tokenType: 'Bearer',
+      accessToken: TEST_CUSTOMER_TOKEN,
+      expiresAt: Math.floor(Date.now() / 1000) + 3600,
+      profile: { id: 'guest-roman', name: 'Roman', phone: '+380671112233', verificationStatus: 'verified' },
+    })
+    window.localStorage.setItem('pomichCustomerId', 'guest-roman')
+    window.sessionStorage.setItem('pomichBootstrapProfile', JSON.stringify({ id: 'guest-roman', name: 'Roman', phone: '+380671112233' }))
+
+    vi.stubGlobal('fetch', mockRegisteredCustomerFetch((url) => {
+      if (url.includes('/users/') && url.includes('/account')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            customerId: 'guest-roman',
+            preferredRole: '',
+            linkedProviderId: '',
+            rolesRegistered: [],
+            clientRegistered: false,
+            providerRegistered: false,
+            needsOnboarding: true,
+            profile: { id: 'guest-roman', name: 'Roman', phone: '+380671112233', verificationStatus: 'verified' },
+          }),
+        })
+      }
+      return undefined
+    }))
+
+    renderApp()
+    await user.click(await screen.findByRole('button', { name: /Зареєструватися/i }))
+    await user.click(await screen.findByRole('button', { name: /Я клієнт/i }))
+
+    expect(await screen.findByText('Що сталося?')).toBeInTheDocument()
+    expect(screen.getByText(/Ви увійшли як:.*Roman/i)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /^Вийти$/i }))
+
+    expect(await screen.findByText(/Ласкаво просимо до/i)).toBeInTheDocument()
+    expect(window.localStorage.getItem('pomichCustomerId')).toBeNull()
+  })
+
   it('opens client registration directly from role deep link', async () => {
     window.history.pushState({}, '', '/?role=customer')
     renderApp()
@@ -161,7 +218,7 @@ describe('POMICH role-based flows', () => {
     expect(screen.getByRole('link', { name: 'Послуги' })).toBeInTheDocument()
   })
 
-  it('restores a registered client when clicking login instead of registration', async () => {
+  it('opens phone login instead of registration when clicking login on web', async () => {
     const user = userEvent.setup()
     window.localStorage.setItem('pomichCustomerId', 'guest-test')
     window.sessionStorage.setItem('pomichCustomerId', 'guest-test')
@@ -178,9 +235,106 @@ describe('POMICH role-based flows', () => {
     renderApp()
     await user.click(await screen.findByRole('button', { name: /^Увійти$/i }))
 
-    expect(await screen.findByText('Що сталося?')).toBeInTheDocument()
+    expect(await screen.findByText(/Код надійде у Telegram/i)).toBeInTheDocument()
     expect(screen.queryByText('Реєстрація клієнта')).not.toBeInTheDocument()
     expect(screen.queryByText('Оберіть вашу роль')).not.toBeInTheDocument()
+  })
+
+  it('shows phone login instead of registration when browser login has no stored session', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('fetch', mockRegisteredCustomerFetch((url, init) => {
+      if (url.includes('/auth/customer/guest/session')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            role: 'customer',
+            subjectId: 'guest-fresh',
+            customerId: 'guest-fresh',
+            accessToken: TEST_CUSTOMER_TOKEN,
+            expiresAt: Math.floor(Date.now() / 1000) + 3600,
+            profile: { id: 'guest-fresh', name: 'Клієнт POMICH', phone: '', verificationStatus: 'unverified' },
+            account: {
+              customerId: 'guest-fresh',
+              preferredRole: '',
+              linkedProviderId: '',
+              rolesRegistered: [],
+              clientRegistered: false,
+              providerRegistered: false,
+              needsOnboarding: true,
+            },
+          }),
+        })
+      }
+      if (url.includes('/users/') && url.includes('/account')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            customerId: 'guest-fresh',
+            preferredRole: '',
+            linkedProviderId: '',
+            rolesRegistered: [],
+            clientRegistered: false,
+            providerRegistered: false,
+            needsOnboarding: true,
+          }),
+        })
+      }
+      return undefined
+    }))
+
+    renderApp()
+    await user.click(await screen.findByRole('button', { name: /^Увійти$/i }))
+
+    expect(await screen.findByText(/Код надійде у Telegram/i)).toBeInTheDocument()
+    expect(screen.queryByText('Реєстрація клієнта')).not.toBeInTheDocument()
+  })
+
+  it('shows phone login when login boot cannot restore stale web session', async () => {
+    const user = userEvent.setup()
+    window.localStorage.setItem('pomichCustomerId', 'guest-test')
+    window.sessionStorage.setItem('pomichCustomerId', 'guest-test')
+    window.sessionStorage.setItem('pomichBootstrapProfile', JSON.stringify(verifiedTestProfile))
+    storeAuthSession(authSessionStorageKey('customer', 'guest-test'), {
+      role: 'customer',
+      subjectId: 'guest-test',
+      customerId: 'guest-test',
+      tokenType: 'Bearer',
+      accessToken: TEST_CUSTOMER_TOKEN,
+      expiresAt: Math.floor(Date.now() / 1000) + 3600,
+      profile: verifiedTestProfile,
+    })
+
+    vi.stubGlobal('fetch', mockRegisteredCustomerFetch((url, init) => {
+      if (url.includes('/auth/customer/guest/session')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            role: 'customer',
+            subjectId: 'guest-fresh',
+            customerId: 'guest-fresh',
+            accessToken: TEST_CUSTOMER_TOKEN,
+            expiresAt: Math.floor(Date.now() / 1000) + 3600,
+            profile: { id: 'guest-fresh', name: 'Клієнт POMICH', phone: '', verificationStatus: 'unverified' },
+            account: {
+              customerId: 'guest-fresh',
+              preferredRole: '',
+              linkedProviderId: '',
+              rolesRegistered: [],
+              clientRegistered: false,
+              providerRegistered: false,
+              needsOnboarding: true,
+            },
+          }),
+        })
+      }
+      return undefined
+    }))
+
+    renderApp()
+    await user.click(await screen.findByRole('button', { name: /^Увійти$/i }))
+
+    expect(await screen.findByText(/Код надійде у Telegram/i)).toBeInTheDocument()
+    expect(screen.queryByText('Реєстрація клієнта')).not.toBeInTheDocument()
   })
 
   it('skips registration for returning client opened via role deep link', async () => {
@@ -259,12 +413,284 @@ describe('POMICH role-based flows', () => {
     expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/auth/customer/telegram/session'), expect.any(Object))
   })
 
+  it('logs out in Telegram WebApp and stays on landing after reload', async () => {
+    const user = userEvent.setup()
+    const tgProfile = { ...verifiedTestProfile, id: 'tg-42', name: 'Vitaliy' }
+    window.Telegram = {
+      WebApp: {
+        initData: 'telegram-init-data-stub',
+        initDataUnsafe: { user: { id: 42, first_name: 'Vitaliy' } },
+      },
+    }
+
+    const telegramSessionCalls: string[] = []
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/auth/customer/telegram/session')) {
+        telegramSessionCalls.push(url)
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            role: 'customer',
+            subjectId: 'tg-42',
+            customerId: 'tg-42',
+            accessToken: TEST_CUSTOMER_TOKEN,
+            expiresAt: Math.floor(Date.now() / 1000) + 3600,
+            profile: tgProfile,
+            account: {
+              customerId: 'tg-42',
+              preferredRole: 'customer',
+              linkedProviderId: '',
+              rolesRegistered: ['customer'],
+              clientRegistered: true,
+              providerRegistered: false,
+              needsOnboarding: false,
+              profile: tgProfile,
+            },
+          }),
+        })
+      }
+      if (url.includes('/map/providers') || url.endsWith('/providers')) {
+        return Promise.resolve({ ok: true, json: async () => [] })
+      }
+      return Promise.resolve({ ok: true, json: async () => ({}) })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const view = renderApp()
+
+    expect(await screen.findByText('Що сталося?')).toBeInTheDocument()
+    expect(telegramSessionCalls.length).toBeGreaterThan(0)
+
+    await user.click(screen.getByRole('button', { name: /^Вийти$/i }))
+
+    expect(await screen.findByText(/Ласкаво просимо до/i)).toBeInTheDocument()
+    expect(window.localStorage.getItem(EXPLICIT_LOGOUT_STORAGE_KEY)).toBe('tg-42')
+    expect(screen.queryByText('Що сталося?')).not.toBeInTheDocument()
+
+    view.unmount()
+    telegramSessionCalls.length = 0
+    renderApp()
+
+    expect(await screen.findByText(/Ласкаво просимо до/i)).toBeInTheDocument()
+    expect(screen.queryByText('Що сталося?')).not.toBeInTheDocument()
+    await waitFor(() => {
+      expect(telegramSessionCalls).toHaveLength(0)
+    })
+  })
+
+  it('restores registered Telegram client after logout when clicking login', async () => {
+    const user = userEvent.setup()
+    const tgProfile = { ...verifiedTestProfile, id: 'tg-829741830', name: 'Vitaliy', phone: '+380661007434' }
+    window.Telegram = {
+      WebApp: {
+        initData: 'telegram-init-data-stub',
+        initDataUnsafe: { user: { id: 829741830, first_name: 'Vitaliy' } },
+      },
+    }
+
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/auth/customer/telegram/session')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            role: 'customer',
+            subjectId: 'tg-829741830',
+            customerId: 'tg-829741830',
+            accessToken: TEST_CUSTOMER_TOKEN,
+            expiresAt: Math.floor(Date.now() / 1000) + 3600,
+            profile: tgProfile,
+            account: {
+              customerId: 'tg-829741830',
+              preferredRole: 'customer',
+              linkedProviderId: '',
+              rolesRegistered: ['customer'],
+              clientRegistered: true,
+              providerRegistered: false,
+              needsOnboarding: false,
+              profile: tgProfile,
+            },
+          }),
+        })
+      }
+      if (url.includes('/map/providers') || url.endsWith('/providers')) {
+        return Promise.resolve({ ok: true, json: async () => [] })
+      }
+      return Promise.resolve({ ok: true, json: async () => ({}) })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderApp()
+    expect(await screen.findByText('Що сталося?')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /^Вийти$/i }))
+    expect(await screen.findByText(/Ласкаво просимо до/i)).toBeInTheDocument()
+    expect(window.localStorage.getItem(EXPLICIT_LOGOUT_STORAGE_KEY)).toBe('tg-829741830')
+
+    await user.click(screen.getByRole('button', { name: /^Меню$/i }))
+    await user.click(screen.getByRole('button', { name: /^Увійти$/i }))
+
+    expect(await screen.findByText('Що сталося?')).toBeInTheDocument()
+    expect(screen.queryByText('Реєстрація клієнта')).not.toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/auth/customer/telegram/session'), expect.any(Object))
+  })
+
+  it('styles partner vehicle make select for dark theme', async () => {
+    window.history.pushState({}, '', '/?role=provider')
+    renderApp()
+
+    expect(await screen.findByText('Реєстрація партнера')).toBeInTheDocument()
+    applyPomichThemeToDocument('dark')
+    expect(document.documentElement.dataset.pomichTheme).toBe('dark')
+
+    const vehicleMakeSelect = screen.getByRole('combobox', { name: /Марка авто/i })
+    expect(vehicleMakeSelect).toHaveClass('pomich-form-input')
+    expect(getComputedStyle(document.documentElement).getPropertyValue('--pomich-text').trim()).toBe('#FFFFFF')
+    expect(getComputedStyle(document.documentElement).getPropertyValue('--pomich-surface').trim()).toBe('#12151A')
+    expect(vehicleMakeSelect.querySelectorAll('option').length).toBeGreaterThan(1)
+  })
+
+  it('shows custom make input when partner selects Інше', async () => {
+    const user = userEvent.setup()
+    window.history.pushState({}, '', '/?role=provider')
+    renderApp()
+
+    expect(await screen.findByText('Реєстрація партнера')).toBeInTheDocument()
+
+    const vehicleMakeSelect = screen.getByRole('combobox', { name: /Марка авто/i })
+    expect(screen.getByRole('option', { name: 'Scania' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Mercedes-Benz' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Mercedes Sprinter' })).toBeInTheDocument()
+    expect(screen.queryByRole('combobox', { name: /^Модель$/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('textbox', { name: /Вкажіть марку/i })).not.toBeInTheDocument()
+
+    await user.selectOptions(vehicleMakeSelect, 'Інше')
+
+    const customMakeInput = screen.getByRole('textbox', { name: /Вкажіть марку/i })
+    expect(customMakeInput).toBeInTheDocument()
+    await user.type(customMakeInput, 'ZAZ')
+    expect(customMakeInput).toHaveValue('ZAZ')
+    expect(screen.getByRole('textbox', { name: /^Модель$/i })).toBeInTheDocument()
+  })
+
+  it('shows dependent model dropdown after make selection', async () => {
+    const user = userEvent.setup()
+    window.history.pushState({}, '', '/?role=provider')
+    renderApp()
+
+    expect(await screen.findByText('Реєстрація партнера')).toBeInTheDocument()
+    expect(screen.queryByRole('combobox', { name: /^Модель$/i })).not.toBeInTheDocument()
+
+    const vehicleMakeSelect = screen.getByRole('combobox', { name: /Марка авто/i })
+    await user.selectOptions(vehicleMakeSelect, 'Volkswagen')
+
+    const vehicleModelSelect = screen.getByRole('combobox', { name: /^Модель$/i })
+    expect(vehicleModelSelect).toBeEnabled()
+    expect(vehicleModelSelect).toHaveClass('pomich-form-input')
+    expect(screen.getByRole('option', { name: 'Transporter' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Crafter' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Інша модель' })).toBeInTheDocument()
+
+    await user.selectOptions(vehicleModelSelect, 'Transporter')
+    expect(vehicleModelSelect).toHaveValue('Transporter')
+
+    await user.selectOptions(vehicleMakeSelect, 'Ford')
+    expect(screen.getByRole('combobox', { name: /^Модель$/i })).toHaveValue('')
+    expect(screen.getByRole('option', { name: 'Transit' })).toBeInTheDocument()
+  })
+
+  it('shows custom model input when partner selects Інша модель', async () => {
+    const user = userEvent.setup()
+    window.history.pushState({}, '', '/?role=provider')
+    renderApp()
+
+    expect(await screen.findByText('Реєстрація партнера')).toBeInTheDocument()
+
+    const vehicleMakeSelect = screen.getByRole('combobox', { name: /Марка авто/i })
+    await user.selectOptions(vehicleMakeSelect, 'Mercedes-Benz')
+
+    const vehicleModelSelect = screen.getByRole('combobox', { name: /^Модель$/i })
+    await user.selectOptions(vehicleModelSelect, 'Інша модель')
+
+    const customModelInput = screen.getByRole('textbox', { name: /Вкажіть модель/i })
+    expect(customModelInput).toBeInTheDocument()
+    await user.type(customModelInput, 'Sprinter 316')
+    expect(customModelInput).toHaveValue('Sprinter 316')
+  })
+
+  it('switches customer home to dark theme when toggled', async () => {
+    const user = userEvent.setup()
+    window.localStorage.setItem('pomichCustomerId', 'guest-test')
+    window.sessionStorage.setItem('pomichCustomerId', 'guest-test')
+    storeAuthSession(authSessionStorageKey('customer', 'guest-test'), {
+      role: 'customer',
+      subjectId: 'guest-test',
+      customerId: 'guest-test',
+      tokenType: 'Bearer',
+      accessToken: TEST_CUSTOMER_TOKEN,
+      expiresAt: Math.floor(Date.now() / 1000) + 3600,
+      profile: verifiedTestProfile,
+    })
+    window.history.pushState({}, '', '/?role=customer')
+
+    renderApp()
+    expect(await screen.findByText('Що сталося?')).toBeInTheDocument()
+    expect(document.documentElement.dataset.pomichTheme).not.toBe('dark')
+
+    await user.click(screen.getByRole('switch', { name: /Увімкнено світлу тему/i }))
+
+    expect(document.documentElement.dataset.pomichTheme).toBe('dark')
+    expect(window.localStorage.getItem('pomichLandingTheme')).toBe('dark')
+    expect(getComputedStyle(document.documentElement).getPropertyValue('--pomich-bg').trim()).toBe('#090B0E')
+  })
+
   it('opens role selection from register and enters the customer flow', async () => {
     const user = userEvent.setup()
     await openCustomerHome(user)
 
     expect(await screen.findByText('Що сталося?')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Евакуатор/i })).toBeInTheDocument()
+  })
+
+  it('shows refresh geolocation control on customer home and requests location again', async () => {
+    const user = userEvent.setup()
+    const getCurrentPosition = vi.fn((success: PositionCallback) => {
+      success({
+        coords: {
+          latitude: 48.6208,
+          longitude: 22.2879,
+          accuracy: 10,
+          altitude: null,
+          altitudeAccuracy: null,
+          heading: null,
+          speed: null,
+        },
+        timestamp: Date.now(),
+      } as GeolocationPosition)
+    })
+    vi.stubGlobal('navigator', {
+      ...navigator,
+      geolocation: {
+        getCurrentPosition,
+        watchPosition: vi.fn(() => 1),
+        clearWatch: vi.fn(),
+      },
+    })
+
+    await openCustomerHome(user)
+
+    expect(await screen.findByText('Поточне місце')).toBeInTheDocument()
+    const refreshButton = screen.getByRole('button', { name: /Оновити геолокацію/i })
+    expect(refreshButton).toBeInTheDocument()
+
+    const initialCalls = getCurrentPosition.mock.calls.length
+    await user.click(refreshButton)
+
+    await waitFor(() => {
+      expect(getCurrentPosition.mock.calls.length).toBeGreaterThan(initialCalls)
+    })
+    expect(refreshButton).toHaveTextContent('Оновити')
   })
 
   it('returns to role selection when switching role from the header', async () => {
@@ -279,6 +705,280 @@ describe('POMICH role-based flows', () => {
     expect(screen.getByRole('button', { name: /Надаю послуги/i })).toBeInTheDocument()
   })
 
+  it('logs out from header and clears stored auth', async () => {
+    const user = userEvent.setup()
+    window.localStorage.setItem('pomichCustomerId', 'guest-test')
+    window.sessionStorage.setItem('pomichCustomerId', 'guest-test')
+    storeAuthSession(authSessionStorageKey('customer', 'guest-test'), {
+      role: 'customer',
+      subjectId: 'guest-test',
+      customerId: 'guest-test',
+      tokenType: 'Bearer',
+      accessToken: TEST_CUSTOMER_TOKEN,
+      expiresAt: Math.floor(Date.now() / 1000) + 3600,
+      profile: verifiedTestProfile,
+    })
+
+    await openCustomerHome(user)
+    expect(await screen.findByText('Що сталося?')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /^Вийти$/i }))
+
+    expect(await screen.findByText(/Ласкаво просимо до/i)).toBeInTheDocument()
+    expect(window.localStorage.getItem('pomichCustomerId')).toBeNull()
+    expect(window.sessionStorage.getItem(authSessionStorageKey('customer', 'guest-test'))).toBeNull()
+  })
+
+  it('starts fresh registration after logout then login instead of reusing customer-web profile', async () => {
+    const user = userEvent.setup()
+    const romanProfile = {
+      id: 'guest-roman',
+      name: 'Roman',
+      phone: '+380935718207',
+      verificationStatus: 'verified' as const,
+    }
+
+    storeAuthSession(authSessionStorageKey('customer', 'guest-roman'), {
+      role: 'customer',
+      subjectId: 'guest-roman',
+      customerId: 'guest-roman',
+      tokenType: 'Bearer',
+      accessToken: TEST_CUSTOMER_TOKEN,
+      expiresAt: Math.floor(Date.now() / 1000) + 3600,
+      profile: romanProfile,
+    })
+    window.localStorage.setItem('pomichCustomerId', 'guest-roman')
+    window.sessionStorage.setItem('pomichBootstrapProfile', JSON.stringify(romanProfile))
+
+    const guestSessionCalls: Array<string | undefined> = []
+    vi.stubGlobal('fetch', mockRegisteredCustomerFetch((url, init) => {
+      if (url.includes('/auth/customer/guest/session')) {
+        const body = init?.body ? JSON.parse(String(init.body)) as { customerId?: string } : {}
+        guestSessionCalls.push(body.customerId)
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            role: 'customer',
+            subjectId: 'guest-fresh',
+            customerId: 'guest-fresh',
+            accessToken: TEST_CUSTOMER_TOKEN,
+            expiresAt: Math.floor(Date.now() / 1000) + 3600,
+            profile: { id: 'guest-fresh', name: 'Клієнт POMICH', phone: '', verificationStatus: 'unverified' },
+            account: {
+              customerId: 'guest-fresh',
+              preferredRole: '',
+              linkedProviderId: '',
+              rolesRegistered: [],
+              clientRegistered: false,
+              providerRegistered: false,
+              needsOnboarding: true,
+            },
+          }),
+        })
+      }
+      return undefined
+    }))
+
+    await openCustomerHome(user)
+    expect(await screen.findByText('Що сталося?')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /^Вийти$/i }))
+    expect(await screen.findByText(/Ласкаво просимо до/i)).toBeInTheDocument()
+
+    await user.click(await screen.findByRole('button', { name: /^Увійти$/i }))
+
+    expect(guestSessionCalls.some((customerId) => customerId === 'customer-web')).toBe(false)
+    expect(guestSessionCalls.length).toBeGreaterThan(0)
+    expect(screen.queryByText('Roman')).not.toBeInTheDocument()
+    expect(screen.queryByText(/Ви увійшли як:.*Roman/i)).not.toBeInTheDocument()
+  })
+
+  it('shows logout button in client cabinet', async () => {
+    const user = userEvent.setup()
+    window.localStorage.setItem('pomichCustomerId', 'guest-test')
+    window.sessionStorage.setItem('pomichCustomerId', 'guest-test')
+    storeAuthSession(authSessionStorageKey('customer', 'guest-test'), {
+      role: 'customer',
+      subjectId: 'guest-test',
+      customerId: 'guest-test',
+      tokenType: 'Bearer',
+      accessToken: TEST_CUSTOMER_TOKEN,
+      expiresAt: Math.floor(Date.now() / 1000) + 3600,
+      profile: verifiedTestProfile,
+    })
+
+    await openCustomerHome(user)
+    expect(await screen.findByText('Що сталося?')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /^Кабінет$/i }))
+    expect(await screen.findByText('Особистий кабінет')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Вийти$/i })).toBeInTheDocument()
+  })
+
+  it('enters customer flow when stored profile is complete but OTP is pending', async () => {
+    const pendingProfile = { ...verifiedTestProfile, verificationStatus: 'pending' as const }
+    window.localStorage.setItem('pomichCustomerId', 'guest-test')
+    window.sessionStorage.setItem('pomichCustomerId', 'guest-test')
+    window.sessionStorage.setItem('pomichBootstrapProfile', JSON.stringify(pendingProfile))
+    storeAuthSession(authSessionStorageKey('customer', 'guest-test'), {
+      role: 'customer',
+      subjectId: 'guest-test',
+      customerId: 'guest-test',
+      tokenType: 'Bearer',
+      accessToken: TEST_CUSTOMER_TOKEN,
+      expiresAt: Math.floor(Date.now() / 1000) + 3600,
+      profile: pendingProfile,
+    })
+    window.history.pushState({}, '', '/?role=customer')
+
+    vi.stubGlobal('fetch', mockRegisteredCustomerFetch((url) => {
+      if (url.includes('/users/') && url.includes('/account') && !url.includes('/role')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            customerId: 'guest-test',
+            preferredRole: 'customer',
+            linkedProviderId: '',
+            rolesRegistered: ['customer'],
+            clientRegistered: true,
+            providerRegistered: false,
+            needsOnboarding: false,
+            profile: pendingProfile,
+          }),
+        })
+      }
+      return undefined
+    }))
+
+    renderApp()
+
+    expect(await screen.findByText('Код діє 10 хвилин')).toBeInTheDocument()
+    expect(screen.queryByText('Що сталося?')).not.toBeInTheDocument()
+    expect(screen.queryByText('Реєстрація клієнта')).not.toBeInTheDocument()
+  })
+
+  it('shows registration for stale bootstrap without matching auth session', async () => {
+    window.sessionStorage.setItem('pomichBootstrapProfile', JSON.stringify({ ...verifiedTestProfile, id: 'guest-other-device' }))
+    window.history.pushState({}, '', '/?role=customer')
+
+    vi.stubGlobal('fetch', mockRegisteredCustomerFetch((url) => {
+      if (url.includes('/users/') && url.includes('/account')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            customerId: 'guest-test',
+            preferredRole: '',
+            linkedProviderId: '',
+            rolesRegistered: [],
+            clientRegistered: false,
+            providerRegistered: false,
+            needsOnboarding: true,
+          }),
+        })
+      }
+      return undefined
+    }))
+
+    renderApp()
+
+    expect(await screen.findByText('Реєстрація клієнта')).toBeInTheDocument()
+    expect(screen.queryByText('Що сталося?')).not.toBeInTheDocument()
+  })
+
+  it('shows OTP verification after client registration instead of entering app', async () => {
+    const user = userEvent.setup()
+    const unverifiedProfile = {
+      id: 'guest-test',
+      name: 'PowerGear',
+      phone: '+380635236801',
+      verificationStatus: 'unverified' as const,
+    }
+
+    vi.stubGlobal('fetch', mockRegisteredCustomerFetch((url, init) => {
+      if (url.includes('/users/') && url.includes('/account/role')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            customerId: 'guest-test',
+            preferredRole: 'customer',
+            linkedProviderId: '',
+            rolesRegistered: [],
+            clientRegistered: false,
+            providerRegistered: false,
+            needsOnboarding: true,
+            profile: {
+              id: 'guest-test',
+              name: 'Клієнт POMICH',
+              phone: '',
+              verificationStatus: 'unverified',
+            },
+          }),
+        })
+      }
+      if (url.includes('/customers/') && url.includes('/profile') && init?.method === 'PATCH') {
+        return Promise.resolve({ ok: true, json: async () => unverifiedProfile })
+      }
+      if (url.includes('/users/') && url.includes('/account') && !url.includes('/role')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            customerId: 'guest-test',
+            preferredRole: 'customer',
+            linkedProviderId: '',
+            rolesRegistered: ['customer'],
+            clientRegistered: true,
+            providerRegistered: false,
+            needsOnboarding: false,
+            profile: unverifiedProfile,
+          }),
+        })
+      }
+      if (url.includes('/auth/customer/verify/send')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ channel: 'telegram', expiresAt: new Date(Date.now() + 600000).toISOString() }),
+        })
+      }
+      return undefined
+    }))
+
+    renderApp()
+    await user.click(await screen.findByRole('button', { name: /Зареєструватися/i }))
+    await user.click(await screen.findByRole('button', { name: /Я клієнт/i }))
+    expect(await screen.findByText('Реєстрація клієнта')).toBeInTheDocument()
+
+    await user.clear(screen.getByPlaceholderText(/Ваше ім'я/i))
+    await user.type(screen.getByPlaceholderText(/Ваше ім'я/i), 'PowerGear')
+    await user.type(screen.getByPlaceholderText(/66 123 45 67/i), '635236801')
+    await user.click(screen.getByRole('button', { name: /Продовжити/i }))
+
+    expect(await screen.findByText('Код діє 10 хвилин')).toBeInTheDocument()
+    expect(screen.queryByText('Що сталося?')).not.toBeInTheDocument()
+  })
+
+  it('hides profile form on home when customer profile is verified', async () => {
+    const user = userEvent.setup()
+    window.localStorage.setItem('pomichCustomerId', 'guest-test')
+    window.sessionStorage.setItem('pomichCustomerId', 'guest-test')
+    window.sessionStorage.setItem('pomichBootstrapProfile', JSON.stringify(verifiedTestProfile))
+    storeAuthSession(authSessionStorageKey('customer', 'guest-test'), {
+      role: 'customer',
+      subjectId: 'guest-test',
+      customerId: 'guest-test',
+      tokenType: 'Bearer',
+      accessToken: TEST_CUSTOMER_TOKEN,
+      expiresAt: Math.floor(Date.now() / 1000) + 3600,
+      profile: verifiedTestProfile,
+    })
+    window.history.pushState({}, '', '/?role=customer')
+
+    renderApp()
+
+    expect(await screen.findByText('Що сталося?')).toBeInTheDocument()
+    expect(screen.queryByText('Ваш профіль')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Зберегти профіль/i })).not.toBeInTheDocument()
+  })
+
   it('shows nearby providers before a customer creates an order', async () => {
     const user = userEvent.setup()
     vi.stubGlobal('fetch', mockRegisteredCustomerFetch((url) => {
@@ -290,6 +990,7 @@ describe('POMICH role-based flows', () => {
               id: 'provider-oleksandr',
               name: 'Олександр',
               status: 'online',
+              verificationStatus: 'verified',
               vehicle: 'Volkswagen Transporter',
               etaMinutes: 12,
               location: { lat: 48.622, lng: 22.289 },
@@ -298,6 +999,7 @@ describe('POMICH role-based flows', () => {
               id: 'provider-mykhailo',
               name: 'Михайло',
               status: 'online',
+              verificationStatus: 'verified',
               vehicle: 'Renault Master',
               etaMinutes: 18,
               location: { lat: 48.612, lng: 22.303 },
@@ -383,7 +1085,7 @@ describe('POMICH role-based flows', () => {
     expect(await screen.findByText('Партнер POMICH')).toBeInTheDocument()
     expect(screen.getByText('Поза лінією')).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: /Вийти на лінію/i }))
+    await user.click(screen.getByRole('switch', { name: /Поза лінією/i }))
 
     expect(await screen.findByText('На лінії')).toBeInTheDocument()
     await waitFor(() => {
@@ -395,6 +1097,265 @@ describe('POMICH role-based flows', () => {
         }),
       )
     })
+  })
+
+  it('opens incoming offer details and accepts with price', async () => {
+    const user = userEvent.setup()
+    const providerSessionToken = 'pomich_auth_v1.provider-session'
+    const watchPosition = vi.fn()
+    const clearWatch = vi.fn()
+    const navigatorStub = {
+      ...navigator,
+      geolocation: { getCurrentPosition: vi.fn(), watchPosition, clearWatch },
+    }
+    vi.stubGlobal('navigator', navigatorStub)
+    const pendingOffer = {
+      id: 'OF-TEST-1',
+      orderId: 'ORD-TEST-1',
+      providerId: 'provider-oleksandr',
+      status: 'pending',
+      service: 'tow',
+      distanceKm: 4.2,
+      vehicleState: 'Не заводиться',
+      approximateLocation: 'вул. Швабська, Ужгород',
+      customerComment: 'Потрібен евакуатор',
+      customerCoordinates: { lat: 48.62, lng: 22.29 },
+      expiresAt: new Date(Date.now() + 20000).toISOString(),
+    }
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes('/auth/provider/session')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            role: 'provider',
+            subjectId: 'provider-oleksandr',
+            providerId: 'provider-oleksandr',
+            tokenType: 'Bearer',
+            accessToken: providerSessionToken,
+            expiresAt: Math.floor(Date.now() / 1000) + 3600,
+          }),
+        })
+      }
+      if (url.includes('/providers/provider-oleksandr/presence') && init?.method === 'PATCH') {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: 'provider-oleksandr',
+            name: 'Олександр',
+            status: 'online',
+            registeredAt: '2026-08-09T00:00:00',
+            verificationStatus: 'verified',
+            specialties: ['tow', 'fuel'],
+            serviceRadiusKm: 9,
+          }),
+        })
+      }
+      if (url.includes('/providers/provider-oleksandr/offers') && init?.method === 'POST') {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            offer: { ...pendingOffer, status: 'accepted' },
+            order: { id: 'ORD-TEST-1', status: 'accepted', partnerProposedPrice: 1200 },
+            provider: { id: 'provider-oleksandr', status: 'busy' },
+          }),
+        })
+      }
+      if (url.includes('/providers/provider-oleksandr/offers')) {
+        return Promise.resolve({ ok: true, json: async () => [pendingOffer] })
+      }
+      if (url.includes('/map/orders/nearby')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => [{
+            id: 'ORD-TEST-1',
+            service: 'tow',
+            customerLocation: 'вул. Швабська, Ужгород',
+            vehicleState: 'Не заводиться',
+            customerComment: 'Потрібен евакуатор',
+            customerCoordinates: { lat: 48.62, lng: 22.29 },
+            distanceKm: 4.2,
+          }],
+        })
+      }
+      if (url.endsWith('/providers')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => [{
+            id: 'provider-oleksandr',
+            name: 'Олександр',
+            status: 'online',
+            registeredAt: '2026-08-09T00:00:00',
+            verificationStatus: 'verified',
+            specialties: ['tow', 'fuel'],
+            serviceRadiusKm: 9,
+          }],
+        })
+      }
+      if (url.includes('/map/providers')) {
+        return Promise.resolve({ ok: true, json: async () => [] })
+      }
+      return Promise.resolve({ ok: true, json: async () => [] })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/?providerToken=partner-secret')
+
+    renderApp()
+
+    expect(await screen.findByText('Партнер POMICH')).toBeInTheDocument()
+    expect(await screen.findByText('На лінії')).toBeInTheDocument()
+
+    await waitFor(() => {
+      expect(screen.getByText('Нове замовлення')).toBeInTheDocument()
+    }, { timeout: 5000 })
+    await user.type(screen.getByPlaceholderText('Наприклад: 1200'), '1200')
+    await user.click(screen.getByRole('button', { name: /ПРИЙНЯТИ З ЦІНОЮ/i }))
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/providers/provider-oleksandr/offers/OF-TEST-1/accept'),
+        expect.objectContaining({
+          method: 'POST',
+          body: expect.stringContaining('"proposedPrice":1200'),
+        }),
+      )
+    })
+    expect(await screen.findByText('Очікуємо клієнта')).toBeInTheDocument()
+  })
+
+  it('shows provider cabinet with synced online status and editable profile', async () => {
+    const user = userEvent.setup()
+    const providerSessionToken = 'pomich_auth_v1.provider-session'
+    let providerStatus = 'offline'
+    const providerRecord = {
+      id: 'provider-oleksandr',
+      name: 'Олександр',
+      phone: '+380671112233',
+      city: 'Ужгород',
+      vehicle: 'Volkswagen Crafter',
+      registeredAt: '2026-08-09T00:00:00',
+      verificationStatus: 'verified',
+      specialties: ['tow', 'fuel'],
+      serviceRadiusKm: 9,
+      get status() {
+        return providerStatus
+      },
+    }
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes('/auth/provider/session')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            role: 'provider',
+            subjectId: 'provider-oleksandr',
+            providerId: 'provider-oleksandr',
+            tokenType: 'Bearer',
+            accessToken: providerSessionToken,
+            expiresAt: Math.floor(Date.now() / 1000) + 3600,
+          }),
+        })
+      }
+      if (url.includes('/providers/provider-oleksandr/profile') && init?.method === 'PATCH') {
+        return Promise.resolve({ ok: true, json: async () => ({ ...providerRecord, name: 'Михайло' }) })
+      }
+      if (url.includes('/providers/provider-oleksandr/profile')) {
+        return Promise.resolve({ ok: true, json: async () => providerRecord })
+      }
+      if (url.includes('/providers/provider-oleksandr/presence') && init?.method === 'PATCH') {
+        providerStatus = 'online'
+        return Promise.resolve({ ok: true, json: async () => ({ ...providerRecord, status: 'online' }) })
+      }
+      if (url.includes('/providers/provider-oleksandr/offers')) {
+        return Promise.resolve({ ok: true, json: async () => [] })
+      }
+      if (url.endsWith('/providers')) {
+        return Promise.resolve({ ok: true, json: async () => [providerRecord] })
+      }
+      if (url.includes('/map/providers')) {
+        return Promise.resolve({ ok: true, json: async () => [] })
+      }
+      return Promise.resolve({ ok: true, json: async () => providerRecord })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/?providerToken=partner-secret')
+
+    renderApp()
+
+    expect(await screen.findByText('Партнер POMICH')).toBeInTheDocument()
+    await user.click(screen.getByRole('switch', { name: /Поза лінією/i }))
+    expect(await screen.findByText('На лінії')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /^Кабінет$/i }))
+    expect(await screen.findByText('Кабінет партнера')).toBeInTheDocument()
+    expect(screen.getByText('Олександр')).toBeInTheDocument()
+    expect(screen.getAllByText('На лінії').length).toBeGreaterThan(0)
+    expect(screen.queryByText('Не перевірено')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /^Редагувати$/i }))
+    const nameInput = screen.getByPlaceholderText("Ваше ім'я")
+    await user.clear(nameInput)
+    await user.type(nameInput, 'Михайло')
+    await user.click(screen.getByRole('button', { name: /^Зберегти$/i }))
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/providers/provider-oleksandr/profile'),
+        expect.objectContaining({ method: 'PATCH' }),
+      )
+    })
+  })
+
+  it('shows ukrainian toast when go-online fails', async () => {
+    const user = userEvent.setup()
+    const providerSessionToken = 'pomich_auth_v1.provider-session'
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/auth/provider/session')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            role: 'provider',
+            subjectId: 'provider-oleksandr',
+            providerId: 'provider-oleksandr',
+            tokenType: 'Bearer',
+            accessToken: providerSessionToken,
+            expiresAt: Math.floor(Date.now() / 1000) + 3600,
+          }),
+        })
+      }
+      if (url.endsWith('/providers')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => [{
+            id: 'provider-oleksandr',
+            name: 'Олександр',
+            status: 'offline',
+            registeredAt: '2026-08-09T00:00:00',
+            verificationStatus: 'verified',
+            specialties: ['tow'],
+          }],
+        })
+      }
+      if (url.includes('/map/providers')) {
+        return Promise.resolve({ ok: true, json: async () => [] })
+      }
+      if (url.includes('/presence')) {
+        return Promise.resolve({
+          ok: false,
+          json: async () => ({ detail: 'provider verification must be approved before going online' }),
+        })
+      }
+      return Promise.resolve({ ok: true, json: async () => ({}) })
+    }))
+    window.history.pushState({}, '', '/?providerToken=partner-secret')
+
+    renderApp()
+
+    expect(await screen.findByText('Партнер POMICH')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /Вийти на лінію/i }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Підтвердіть телефон у Telegram')
   })
 
   it('lets a provider sign in with an account before registration', async () => {
@@ -441,10 +1402,10 @@ describe('POMICH role-based flows', () => {
 
     await user.click(screen.getByRole('button', { name: /Евакуатор/i }))
 
-    expect(screen.getByText('Підтвердьте місце')).toBeInTheDocument()
+    expect(screen.getByText('Де ви зараз?')).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: /Підтвердити місце/i }))
-    expect(screen.getByText('Отримайте ETA і ціну')).toBeInTheDocument()
+    expect(screen.getByText('Перевірте заявку')).toBeInTheDocument()
   })
 
   it('submits an order and shows the success state', async () => {
@@ -470,14 +1431,14 @@ describe('POMICH role-based flows', () => {
 
     await user.click(screen.getByRole('button', { name: /Евакуатор/i }))
     await user.click(screen.getByRole('button', { name: /Підтвердити місце/i }))
-    await user.click(screen.getByRole('button', { name: /Підтвердити заявку/i }))
+    await user.click(screen.getByRole('button', { name: /Надіслати заявку/i }))
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalled()
     })
 
-    expect(await screen.findByText(/Заявку створено/i)).toBeInTheDocument()
-    expect(screen.getByText(/Замовлення #/i)).toBeInTheDocument()
+    expect(await screen.findByText(/Заявку надіслано/i)).toBeInTheDocument()
+    expect(await screen.findByText('Замовлення #PM-123456')).toBeInTheDocument()
   })
 
   it('opens the admin panel and updates an order status', async () => {
@@ -512,7 +1473,7 @@ describe('POMICH role-based flows', () => {
       if (url.includes('/orders/PM-1/status')) {
         return Promise.resolve({
           ok: true,
-          json: async () => ({ id: 'PM-1', status: 'assigned', updatedAt: '2026-08-09T00:05:00' }),
+          json: async () => ({ id: 'PM-1', status: 'en_route', updatedAt: '2026-08-09T00:05:00' }),
         })
       }
       if (url.includes('/admin/orders') || url.endsWith('/orders')) {
@@ -521,7 +1482,7 @@ describe('POMICH role-based flows', () => {
           json: async () => [
             {
               id: 'PM-1',
-              status: 'matching',
+              status: 'assigned',
               service: 'tow',
               source: 'telegram',
               customerLocation: 'вул. Собранецька',
@@ -545,8 +1506,8 @@ describe('POMICH role-based flows', () => {
     expect(await screen.findByText('POMICH Admin')).toBeInTheDocument()
     expect(window.location.search).not.toContain('adminToken')
     await user.click(screen.getByRole('button', { name: /Заявки/i }))
-    const statusButtons = await screen.findAllByRole('button', { name: /Виконавця призначено/i })
-    await user.click(statusButtons[statusButtons.length - 1])
+    const enRouteButtons = await screen.findAllByRole('button', { name: /Виконавець у дорозі/i })
+    await user.click(enRouteButtons[enRouteButtons.length - 1])
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
@@ -557,6 +1518,28 @@ describe('POMICH role-based flows', () => {
         }),
       )
     })
+  })
+
+  it('opens admin login from #admin hash on initial load', async () => {
+    window.history.pushState({}, '', '/#admin')
+
+    renderApp()
+
+    expect(await screen.findByText('Захищена адмін-панель')).toBeInTheDocument()
+    expect(screen.queryByText(/Ласкаво просимо до/i)).not.toBeInTheDocument()
+    expect(window.location.search).toBe('?role=admin')
+    expect(window.location.hash).toBe('')
+  })
+
+  it('opens admin login when hash changes to #admin', async () => {
+    renderApp()
+    expect(await screen.findByText(/Ласкаво просимо до/i)).toBeInTheDocument()
+
+    window.location.hash = '#admin'
+    window.dispatchEvent(new HashChangeEvent('hashchange'))
+
+    expect(await screen.findByText('Захищена адмін-панель')).toBeInTheDocument()
+    expect(window.location.search).toBe('?role=admin')
   })
 
   it('lets an admin sign in with an account without a bootstrap token', async () => {

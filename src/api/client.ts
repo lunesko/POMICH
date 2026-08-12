@@ -9,8 +9,11 @@ const providerErrorMessages: Record<string, string> = {
   rate_limit_exceeded: 'Забагато спроб. Спробуйте через 10 хвилин.',
   invalid_channel: 'Невірний канал підтвердження.',
   telegram_unavailable: 'Telegram недоступний. Спробуйте email.',
+  telegram_not_linked:
+    'Спочатку відкрийте @pomich_ua_bot у Telegram і надішліть /start. Номер телефону в профілі має збігатися з номером у боті. Або надішліть код на email.',
   email_missing: 'Введіть email для підтвердження.',
   invalid_phone: 'Невірний номер телефону.',
+  customer_not_found: 'Акаунт з цим номером не знайдено. Зареєструйтеся або перевірте номер.',
   code_not_found: 'Код не знайдено. Надішліть новий.',
   code_expired: 'Код прострочено. Надішліть новий.',
   code_invalid: 'Невірний код. Перевірте та спробуйте ще раз.',
@@ -68,6 +71,7 @@ export interface OrderResponse {
   chatId?: string
   telegramUsername?: string
   vehicleState?: string
+  customerComment?: string
   customerCoordinates?: {
     lat: number
     lng: number
@@ -78,6 +82,12 @@ export interface OrderResponse {
   }
   assignedProviderId?: string
   assignedOfferId?: string
+  partnerId?: string
+  partnerProposedPrice?: number
+  partnerPriceNote?: string
+  providerName?: string
+  acceptedAt?: string
+  priceConfirmedAt?: string
   assignedProvider?: ProviderAvailability & {
     distanceKm?: number
     etaMinutes?: number
@@ -175,6 +185,9 @@ export interface CustomerProfile {
   rolesRegistered?: Array<'customer' | 'provider'>
   createdAt?: string
   updatedAt?: string
+  displayName?: string
+  clientRegistered?: boolean
+  isGuestSession?: boolean
 }
 
 export interface CustomerIdentity {
@@ -198,6 +211,11 @@ export interface DispatchOffer {
   service?: string
   vehicleState?: string
   approximateLocation?: string
+  customerComment?: string
+  customerCoordinates?: {
+    lat: number
+    lng: number
+  }
   etaMinutes?: number
 }
 
@@ -206,6 +224,8 @@ export interface ProviderAvailability {
   name: string
   rating?: number
   vehicle?: string
+  vehicleMake?: string
+  vehicleModel?: string
   plate?: string
   phone?: string
   telegram?: string
@@ -243,6 +263,7 @@ export interface MapRequestPin {
   status?: string
   customerLocation?: string
   vehicleState?: string
+  customerComment?: string
   customerCoordinates?: {
     lat: number
     lng: number
@@ -380,7 +401,9 @@ export async function createTelegramCustomerSession(initData: string) {
 }
 
 export async function getOrder(orderId: string) {
-  const response = await fetch(`${getBaseUrl()}/orders/${encodeURIComponent(orderId)}`)
+  const response = await fetch(`${getBaseUrl()}/orders/${encodeURIComponent(orderId)}`, {
+    cache: 'no-store',
+  })
 
   if (!response.ok) {
     throw new Error(`Order request failed with ${response.status}`)
@@ -396,6 +419,20 @@ export async function cancelOrder(orderId: string) {
 
   if (!response.ok) {
     throw new Error(`Order cancel request failed with ${response.status}`)
+  }
+
+  return response.json() as Promise<OrderResponse>
+}
+
+export async function confirmOrderPrice(orderId: string, customerToken?: string) {
+  const response = await fetch(`${getBaseUrl()}/orders/${encodeURIComponent(orderId)}/confirm-price`, {
+    method: 'POST',
+    headers: authHeaders(customerToken) ?? {},
+  })
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => undefined)
+    throw Object.assign(new Error(`Order price confirm failed with ${response.status}`), { status: response.status, detail: error?.detail })
   }
 
   return response.json() as Promise<OrderResponse>
@@ -539,6 +576,34 @@ export async function confirmCustomerVerificationCode(payload: { code: string },
   return response.json() as Promise<CustomerVerifyConfirmResponse>
 }
 
+export async function sendCustomerPhoneLoginCode(phone: string) {
+  const response = await fetch(`${getBaseUrl()}/auth/customer/phone/login/send`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ phone }),
+  })
+
+  if (!response.ok) {
+    throw new Error(await parseApiError(response, 'Не вдалося надіслати код для входу.'))
+  }
+
+  return response.json() as Promise<CustomerVerifySendResponse>
+}
+
+export async function confirmCustomerPhoneLoginCode(payload: { phone: string; code: string }) {
+  const response = await fetch(`${getBaseUrl()}/auth/customer/phone/login/confirm`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+
+  if (!response.ok) {
+    throw new Error(await parseApiError(response, 'Не вдалося увійти за кодом.'))
+  }
+
+  return response.json() as Promise<AuthSession>
+}
+
 export async function submitCustomerVerification(customerId: string, payload: Record<string, unknown>, customerToken?: string) {
   const response = await fetch(`${getBaseUrl()}/customers/${encodeURIComponent(customerId)}/verification/submit`, {
     method: 'POST',
@@ -605,10 +670,19 @@ export async function getProviderOffers(providerId: string, providerToken?: stri
   return response.json() as Promise<DispatchOffer[]>
 }
 
-export async function acceptProviderOffer(providerId: string, offerId: string, providerToken?: string) {
+export async function acceptProviderOffer(
+  providerId: string,
+  offerId: string,
+  providerToken?: string,
+  payload?: { proposedPrice: number; priceNote?: string },
+) {
   const response = await fetch(`${getBaseUrl()}/providers/${encodeURIComponent(providerId)}/offers/${encodeURIComponent(offerId)}/accept`, {
     method: 'POST',
-    headers: providerHeaders(providerToken),
+    headers: providerJsonHeaders(providerToken),
+    body: JSON.stringify({
+      proposedPrice: payload?.proposedPrice,
+      priceNote: payload?.priceNote,
+    }),
   })
 
   if (!response.ok) {
@@ -641,7 +715,8 @@ export async function updateProviderPresence(providerId: string, payload: { stat
   })
 
   if (!response.ok) {
-    throw new Error(`Provider presence request failed with ${response.status}`)
+    const error = await response.json().catch(() => undefined)
+    throw Object.assign(new Error(`Provider presence request failed with ${response.status}`), { status: response.status, detail: error?.detail })
   }
 
   return response.json() as Promise<ProviderAvailability>
@@ -667,6 +742,8 @@ export async function updateProviderProfile(providerId: string, payload: {
   phone: string
   telegram?: string
   vehicle: string
+  vehicleMake?: string
+  vehicleModel?: string
   plate?: string
   city?: string
   specialties: string[]
@@ -817,11 +894,23 @@ export async function getAdminStats(adminToken?: string) {
   return response.json() as Promise<AdminStats>
 }
 
-export async function getAdminClients(adminToken?: string, query?: string) {
-  const params = query?.trim() ? `?q=${encodeURIComponent(query.trim())}` : ''
-  const response = await fetch(`${getBaseUrl()}/admin/clients${params}`, { headers: adminHeaders(adminToken) })
+export async function getAdminClients(adminToken?: string, query?: string, includeGuests = false) {
+  const params = new URLSearchParams()
+  if (query?.trim()) params.set('q', query.trim())
+  if (includeGuests) params.set('includeGuests', 'true')
+  const suffix = params.toString() ? `?${params.toString()}` : ''
+  const response = await fetch(`${getBaseUrl()}/admin/clients${suffix}`, { headers: adminHeaders(adminToken) })
   if (!response.ok) throw new Error(`Admin clients request failed with ${response.status}`)
   return response.json() as Promise<CustomerProfile[]>
+}
+
+export async function purgeStaleGuestClients(adminToken?: string, days = 7) {
+  const response = await fetch(`${getBaseUrl()}/admin/clients/purge-guests?days=${encodeURIComponent(String(days))}`, {
+    method: 'POST',
+    headers: adminHeaders(adminToken),
+  })
+  if (!response.ok) throw new Error(await parseApiError(response, 'Не вдалося очистити guest-сесії.'))
+  return response.json() as Promise<{ deleted: number; customerIds: string[]; remaining: number }>
 }
 
 export async function getAdminProviders(adminToken?: string, query?: string, kind?: string) {
