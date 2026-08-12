@@ -11,34 +11,41 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Optional
 
-from bot.order_store import get_telegram_session, load_orders, save_order, save_telegram_session
+from bot.order_store import get_customer_profile
 
-START_TEXT = (
-    "Вітаємо у POMICH 👋\n\n"
-    "Оберіть роль, щоб продовжити."
+
+WELCOME_TEXT = (
+    "Вітаємо у POMICH! 👋\n\n"
+    "Оберіть роль нижче — кожна кнопка відкриває додаток одразу з потрібним сценарієм."
 )
+
+WELCOME_BACK_TEXT = (
+    "З поверненням! 👋\n\n"
+    "Натисніть кнопку нижче, щоб відкрити додаток."
+)
+
+
+def _customer_display_name(profile: dict) -> str:
+    name = str(profile.get("name") or "").strip()
+    if name and name != "Клієнт POMICH":
+        return name
+    return ""
+
+
+def _check_customer_registered(tg_user_id: str) -> bool:
+    """True when tg-{id} profile has name + phone in the shared DB."""
+    if not tg_user_id:
+        return False
+    profile = get_customer_profile(f"tg-{tg_user_id}")
+    name = _customer_display_name(profile)
+    phone = str(profile.get("phone") or "").strip()
+    return bool(name and phone)
+
 
 HELP_TEXT = (
-    "POMICH допоможе викликати евакуатор, запуск АКБ, допомогу з колесом, "
-    "пальним або іншою несправністю."
+    "POMICH — допомога на дорозі.\n\n"
+    "Натисніть кнопку нижче або /start, щоб відкрити додаток."
 )
-
-SERVICE_BUTTONS: dict[str, str] = {
-    "tow": "🚛 Евакуатор",
-    "battery": "🔋 Не заводиться",
-    "wheel": "🛞 Проблема з колесом",
-    "fuel": "⛽ Закінчилось пальне",
-    "lockout": "🔑 Не можу відкрити авто",
-    "mechanic": "🔧 Інша несправність",
-}
-
-ROLE_BUTTONS: dict[str, str] = {
-    "customer": "👤 Клієнт",
-    "provider": "🚛 Партнер",
-    "admin": "🧭 Адмін",
-}
-
-SESSION_STATE: dict[str, dict[str, Any]] = {}
 
 
 class TelegramApiError(RuntimeError):
@@ -103,6 +110,20 @@ def get_web_app_url() -> str | None:
     return url if _is_public_https_url(url) else None
 
 
+def _webapp_url_for_role(role: str | None = None) -> str | None:
+    """Build WebApp URL; role is customer|provider for deep-linked onboarding."""
+    base = get_web_app_url()
+    if not base:
+        return None
+    if not role:
+        return base
+    parsed = urllib.parse.urlparse(base)
+    query = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
+    query["role"] = [role]
+    new_query = urllib.parse.urlencode(query, doseq=True)
+    return urllib.parse.urlunparse(parsed._replace(query=new_query))
+
+
 def _request_json(url: str, payload: dict[str, Any] | None = None, *, timeout: int = 30) -> dict[str, Any]:
     data = json.dumps(payload).encode("utf-8") if payload is not None else None
     request = urllib.request.Request(
@@ -152,7 +173,7 @@ class TelegramBotClient:
     def get_updates(self, *, offset: int | None = None, timeout_seconds: int = 30) -> list[dict[str, Any]]:
         payload: dict[str, Any] = {
             "timeout": timeout_seconds,
-            "allowed_updates": ["message"],
+            "allowed_updates": ["message", "callback_query"],
         }
         if offset is not None:
             payload["offset"] = offset
@@ -175,179 +196,83 @@ class TelegramBotClient:
         return self.request("sendMessage", payload)
 
 
-def build_start_keyboard(web_app_url: str | None = None) -> dict[str, Any]:
-    help_button: dict[str, Any] = {"text": "🆘 Викликати допомогу"}
-    if _is_public_https_url(web_app_url):
-        help_button["web_app"] = {"url": web_app_url}
-
+def _build_webapp_keyboard(*, role: str | None = None) -> dict[str, Any] | None:
+    url = _webapp_url_for_role(role)
+    if not url:
+        return None
+    labels = {
+        None: "Відкрити POMICH",
+        "customer": "Відкрити POMICH",
+        "provider": "Відкрити POMICH",
+    }
     return {
-        "keyboard": [
-            [ROLE_BUTTONS["customer"], ROLE_BUTTONS["provider"], ROLE_BUTTONS["admin"]],
-            [help_button],
-            [{"text": "📍 Надіслати геолокацію", "request_location": True}],
-            [{"text": "ℹ️ Допомога"}, {"text": "📋 Мої заявки"}],
-        ],
-        "resize_keyboard": True,
-        "one_time_keyboard": False,
+        "inline_keyboard": [[{
+            "text": labels.get(role, "Відкрити POMICH"),
+            "web_app": {"url": url},
+        }]]
     }
 
 
-def build_service_keyboard() -> dict[str, Any]:
-    values = list(SERVICE_BUTTONS.values())
-    return {
-        "keyboard": [
-            values[0:2],
-            values[2:4],
-            values[4:6],
-            ["📋 Мої заявки", "⬅️ Назад"],
-        ],
-        "resize_keyboard": True,
-        "one_time_keyboard": False,
-    }
+def _build_role_keyboard() -> dict[str, Any]:
+    """Three distinct WebApp entry points: smart entry, client onboarding, provider onboarding."""
+    base_url = _webapp_url_for_role()
+    customer_url = _webapp_url_for_role("customer")
+    provider_url = _webapp_url_for_role("provider")
+    keyboard: dict[str, Any] = {"inline_keyboard": []}
+    if base_url:
+        keyboard["inline_keyboard"].append([{
+            "text": "Відкрити POMICH",
+            "web_app": {"url": base_url},
+        }])
+    if customer_url:
+        keyboard["inline_keyboard"].append([{
+            "text": "Я клієнт",
+            "web_app": {"url": customer_url},
+        }])
+    if provider_url:
+        keyboard["inline_keyboard"].append([{
+            "text": "Я партнер",
+            "web_app": {"url": provider_url},
+        }])
+    return keyboard
 
 
-def build_provider_keyboard() -> dict[str, Any]:
-    return {
-        "keyboard": [
-            ["✅ Прийняти заявку", "🚗 Я в дорозі"],
-            ["📍 Я на місці", "🏁 Завершити"],
-            ["📋 Мої заявки", "⬅️ Назад"],
-        ],
-        "resize_keyboard": True,
-        "one_time_keyboard": False,
-    }
-
-
-def build_admin_keyboard(web_app_url: str | None = None) -> dict[str, Any]:
-    admin_button: dict[str, Any] = {"text": "🧭 Відкрити адмін панель"}
-    admin_url = f"{web_app_url}?role=admin" if web_app_url else None
-    if _is_public_https_url(admin_url):
-        admin_button["web_app"] = {"url": admin_url}
-
-    return {
-        "keyboard": [
-            [admin_button],
-            ["📋 Усі заявки", "🔄 Оновити статуси"],
-            ["👤 Клієнт", "🚛 Партнер"],
-            ["⬅️ Назад"],
-        ],
-        "resize_keyboard": True,
-        "one_time_keyboard": False,
-    }
-
-
-def build_reply(message: str, username: Optional[str] = None) -> str:
-    text = (message or "").strip()
-    if not text:
-        return "Надішліть /start, щоб почати"
-
-    if text.startswith("/start"):
-        return START_TEXT
-
-    if text.startswith("/help") or text == "ℹ️ Допомога":
-        return HELP_TEXT
-
-    if text == ROLE_BUTTONS["customer"]:
-        return "Клієнтський сценарій активний. Натисніть 🆘 Викликати допомогу або надішліть геолокацію."
-
-    if text == ROLE_BUTTONS["provider"]:
-        return "Партнерський сценарій активний. Тут можна приймати заявку та оновлювати статус виконання."
-
-    if text == ROLE_BUTTONS["admin"]:
-        return "Адмін сценарій активний. Тут можна дивитися заявки та керувати статусами."
-
-    name = (username or "клієнте").strip()
-    if text == "🆘 Викликати допомогу":
-        if get_web_app_url():
-            return f"{name}, відкрийте POMICH через кнопку нижче або надішліть геолокацію."
-        return (
-            "Для локальної розробки WEB_APP_URL ще не заданий як публічний HTTPS URL.\n\n"
-            "Можете продовжити прямо в боті: надішліть геолокацію або оберіть послугу."
+def _handle_callback(callback: dict[str, Any], client: TelegramBotClient | None = None) -> dict[str, Any]:
+    bot = client or TelegramBotClient()
+    data = str(callback.get("data") or "")
+    message = callback.get("message") or {}
+    chat = message.get("chat") or {}
+    chat_id = chat.get("id")
+    callback_id = callback.get("id")
+    if callback_id:
+        try:
+            bot.request("answerCallbackQuery", {"callback_query_id": callback_id})
+        except TelegramApiError:
+            pass
+    if not chat_id:
+        return {"handled": False, "reason": "chat_id missing"}
+    if data == "role:customer":
+        bot.send_message(
+            chat_id,
+            "Реєстрація клієнта — натисніть кнопку нижче.",
+            reply_markup=_build_webapp_keyboard(role="customer"),
         )
-
-    return "Я розумію /start, /help, геолокацію та вибір послуги."
-
-
-def _service_key_from_text(text: str) -> str | None:
-    normalized = text.strip().lower()
-    for key, label in SERVICE_BUTTONS.items():
-        if normalized == label.lower() or normalized == label.split(" ", 1)[-1].lower():
-            return key
-    return None
-
-
-def _safe_location_text(latitude: float, longitude: float) -> str:
-    return f"{latitude:.5f},{longitude:.5f}"
-
-
-def _session_for(chat_id: str) -> dict[str, Any]:
-    return SESSION_STATE.setdefault(chat_id, {})
-
-
-def _create_order_from_session(chat_id: str, user: dict[str, Any], service_key: str) -> dict[str, Any]:
-    session = {**(get_telegram_session(chat_id) or {}), **_session_for(chat_id)}
-    location = session.get("location") or {}
-    latitude = location.get("latitude")
-    longitude = location.get("longitude")
-    customer_location = (
-        f"Telegram location {_safe_location_text(float(latitude), float(longitude))}"
-        if latitude is not None and longitude is not None
-        else "Telegram chat"
-    )
-
-    return save_order(
-        {
-            "source": "telegram-bot",
-            "service": service_key,
-            "customerLocation": customer_location,
-            "customerCoordinates": location if location else None,
-            "destination": "Уточнюється в чаті",
-            "distanceKm": 1.0,
-            "status": "created",
-            "chatId": chat_id,
-            "telegramUserId": user.get("id"),
-            "telegramUsername": user.get("username"),
-        }
-    )
-
-
-def _format_order_summary(order: dict[str, Any]) -> str:
-    service = SERVICE_BUTTONS.get(str(order.get("service")), str(order.get("service") or "Послуга"))
-    return (
-        f"✅ Заявку створено: #{order.get('id')}\n\n"
-        f"Послуга: {service}\n"
-        "Статус: шукаємо допомогу поруч."
-    )
-
-
-def _list_orders_for_chat(chat_id: str) -> str:
-    orders = [order for order in load_orders() if str(order.get("chatId")) == str(chat_id)]
-    if not orders:
-        return "Поки немає заявок. Натисніть 🆘 Викликати допомогу або надішліть геолокацію."
-
-    latest = orders[-3:]
-    lines = ["Ваші останні заявки:"]
-    for order in latest:
-        service = SERVICE_BUTTONS.get(str(order.get("service")), str(order.get("service") or "Послуга"))
-        lines.append(f"#{order.get('id')} · {service} · {order.get('status', 'created')}")
-    return "\n".join(lines)
-
-
-def _list_admin_orders() -> str:
-    orders = load_orders()
-    if not orders:
-        return "Заявок поки немає."
-
-    latest = orders[-8:]
-    lines = ["Останні заявки:"]
-    for order in latest:
-        service = SERVICE_BUTTONS.get(str(order.get("service")), str(order.get("service") or "Послуга"))
-        lines.append(f"#{order.get('id')} · {service} · {order.get('status', 'created')}")
-    return "\n".join(lines)
+        return {"handled": True, "type": "role-customer"}
+    if data == "role:provider":
+        bot.send_message(
+            chat_id,
+            "Реєстрація партнера — натисніть кнопку нижче.",
+            reply_markup=_build_webapp_keyboard(role="provider"),
+        )
+        return {"handled": True, "type": "role-provider"}
+    return {"handled": True, "type": "callback-ignored"}
 
 
 def handle_update(update: dict[str, Any], client: TelegramBotClient | None = None) -> dict[str, Any]:
-    bot = client or TelegramBotClient()
+    callback = update.get("callback_query") or {}
+    if callback:
+        return _handle_callback(callback, client)
+
     message = update.get("message") or {}
     chat = message.get("chat") or {}
     user = message.get("from") or {}
@@ -356,80 +281,38 @@ def handle_update(update: dict[str, Any], client: TelegramBotClient | None = Non
     if not chat_id:
         return {"handled": False, "reason": "chat_id missing"}
 
-    chat_id_text = str(chat_id)
+    bot = client or TelegramBotClient()
+
     text = (message.get("text") or "").strip()
-    location = message.get("location")
+    tg_user_id = str(user.get("id") or "")
 
-    if location:
-        latitude = float(location["latitude"])
-        longitude = float(location["longitude"])
-        session_payload = {
-            "telegramUserId": user.get("id"),
-            "telegramUsername": user.get("username"),
-            "firstName": user.get("first_name"),
-            "location": {"latitude": latitude, "longitude": longitude},
-        }
-        _session_for(chat_id_text).update(session_payload)
-        save_telegram_session(chat_id_text, session_payload)
-        print(
-            f"Location received telegram_user_id={user.get('id')} "
-            f"latitude={latitude:.5f} longitude={longitude:.5f}",
-            flush=True,
-        )
-        bot.send_message(
-            chat_id,
-            "📍 Геолокацію отримано.\n\nЩо сталося?",
-            reply_markup=build_service_keyboard(),
-        )
-        return {"handled": True, "type": "location"}
+    keyboard = _build_webapp_keyboard()
 
-    if text.startswith("/start") or text == "⬅️ Назад":
-        bot.send_message(chat_id, START_TEXT, reply_markup=build_start_keyboard(get_web_app_url()))
-        return {"handled": True, "type": "start"}
+    if text.startswith("/start"):
+        registered = _check_customer_registered(tg_user_id)
+        if registered:
+            profile = get_customer_profile(f"tg-{tg_user_id}")
+            display_name = _customer_display_name(profile)
+            greeting = (
+                f"З поверненням, {display_name}! 👋\n\nНатисніть кнопку нижче, щоб відкрити додаток."
+                if display_name
+                else WELCOME_BACK_TEXT
+            )
+        else:
+            greeting = WELCOME_TEXT
+        reply_markup = _build_webapp_keyboard() if registered else _build_role_keyboard()
+        bot.send_message(chat_id, greeting, reply_markup=reply_markup)
+        return {"handled": True, "type": "start", "registered": registered}
 
-    if text == ROLE_BUTTONS["customer"]:
-        _session_for(chat_id_text)["role"] = "customer"
-        save_telegram_session(chat_id_text, {"role": "customer", "telegramUserId": user.get("id")})
-        bot.send_message(chat_id, build_reply(text, user.get("first_name")), reply_markup=build_start_keyboard(get_web_app_url()))
-        return {"handled": True, "type": "role", "role": "customer"}
-
-    if text == ROLE_BUTTONS["provider"]:
-        _session_for(chat_id_text)["role"] = "provider"
-        save_telegram_session(chat_id_text, {"role": "provider", "telegramUserId": user.get("id")})
-        bot.send_message(chat_id, build_reply(text, user.get("first_name")), reply_markup=build_provider_keyboard())
-        return {"handled": True, "type": "role", "role": "provider"}
-
-    if text == ROLE_BUTTONS["admin"]:
-        _session_for(chat_id_text)["role"] = "admin"
-        save_telegram_session(chat_id_text, {"role": "admin", "telegramUserId": user.get("id")})
-        bot.send_message(chat_id, build_reply(text, user.get("first_name")), reply_markup=build_admin_keyboard(get_web_app_url()))
-        return {"handled": True, "type": "role", "role": "admin"}
-
-    if text.startswith("/help") or text == "ℹ️ Допомога":
-        bot.send_message(chat_id, HELP_TEXT, reply_markup=build_start_keyboard(get_web_app_url()))
+    if text.startswith("/help"):
+        bot.send_message(chat_id, HELP_TEXT, reply_markup=keyboard)
         return {"handled": True, "type": "help"}
 
-    if text in {"/admin", "📋 Усі заявки", "🔄 Оновити статуси", "🧭 Відкрити адмін панель"}:
-        bot.send_message(chat_id, _list_admin_orders(), reply_markup=build_admin_keyboard(get_web_app_url()))
-        return {"handled": True, "type": "admin_orders"}
-
-    if text in {"/status", "/orders", "📋 Мої заявки"}:
-        bot.send_message(chat_id, _list_orders_for_chat(chat_id_text), reply_markup=build_start_keyboard(get_web_app_url()))
-        return {"handled": True, "type": "orders"}
-
-    if text == "🆘 Викликати допомогу":
-        bot.send_message(chat_id, build_reply(text, user.get("first_name")), reply_markup=build_service_keyboard())
-        return {"handled": True, "type": "help_request"}
-
-    service_key = _service_key_from_text(text)
-    if service_key:
-        _session_for(chat_id_text)["service"] = service_key
-        save_telegram_session(chat_id_text, {"service": service_key, "telegramUserId": user.get("id")})
-        order = _create_order_from_session(chat_id_text, user, service_key)
-        bot.send_message(chat_id, _format_order_summary(order), reply_markup=build_start_keyboard(get_web_app_url()))
-        return {"handled": True, "type": "service", "orderId": order.get("id")}
-
-    bot.send_message(chat_id, build_reply(text, user.get("first_name")), reply_markup=build_start_keyboard(get_web_app_url()))
+    bot.send_message(
+        chat_id,
+        "Натисніть /start або кнопку нижче, щоб відкрити POMICH.",
+        reply_markup=keyboard,
+    )
     return {"handled": True, "type": "fallback"}
 
 
@@ -437,15 +320,21 @@ def send_message(chat_id: str, text: str, username: Optional[str] = None) -> dic
     try:
         return TelegramBotClient().send_message(chat_id, text)
     except TelegramApiError as exc:
-        return {"ok": False, "error": str(exc), "reply": build_reply(text, username)}
+        return {"ok": False, "error": str(exc)}
 
 
 def notify_order_created(chat_id: str | None, order: dict[str, Any]) -> dict[str, Any] | None:
     if not chat_id:
         return None
 
+    service = str(order.get("service") or "Послуга")
+    text = (
+        f"✅ Заявку створено: #{order.get('id')}\n\n"
+        f"Послуга: {service}\n"
+        "Статус: шукаємо допомогу поруч."
+    )
     try:
-        return TelegramBotClient().send_message(str(chat_id), _format_order_summary(order))
+        return TelegramBotClient().send_message(str(chat_id), text)
     except TelegramApiError as exc:
         print(f"Telegram API error while notifying order: {exc}", flush=True)
         return {"ok": False, "error": str(exc)}

@@ -100,6 +100,7 @@ def test_sql_runtime_store_persists_orders_without_json_file(sql_runtime):
         "2026081102",
         "2026081103",
         "2026081104",
+        "2026081201",
     ]
 
 

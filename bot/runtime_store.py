@@ -24,11 +24,11 @@ customers = Table(
     "customers",
     _METADATA,
     Column("id", String(120), primary_key=True),
-    Column("name", String(180)),
-    Column("phone", String(80)),
-    Column("email", String(180)),
+    Column("name", String(512)),
+    Column("phone", String(512)),
+    Column("email", String(512)),
     Column("telegram", String(180)),
-    Column("city", String(120)),
+    Column("city", String(512)),
     Column("verification_status", String(40)),
     Column("created_at", String(40)),
     Column("updated_at", String(40)),
@@ -208,6 +208,7 @@ def _run_schema_migrations(engine: Engine) -> None:
         ("2026081102", "provider capabilities backfill", _migration_provider_capabilities),
         ("2026081103", "dispatch core indexes", _migration_dispatch_core_indexes),
         ("2026081104", "postgis dispatch geo indexes", _migration_postgis_dispatch_geo_indexes),
+        ("2026081201", "widen customer encrypted columns", _migration_customer_encrypted_columns),
     )
 
     with engine.begin() as connection:
@@ -299,6 +300,19 @@ def _migration_postgis_dispatch_geo_indexes(connection, engine: Engine) -> None:
         USING GIST ((ST_SetSRID(ST_MakePoint(customer_lng, customer_lat), 4326)::geography))
         WHERE customer_lat IS NOT NULL AND customer_lng IS NOT NULL
     """))
+
+
+def _migration_customer_encrypted_columns(connection, engine: Engine) -> None:
+    if engine.dialect.name != "postgresql":
+        return
+    alters = (
+        "ALTER TABLE customers ALTER COLUMN name TYPE VARCHAR(512)",
+        "ALTER TABLE customers ALTER COLUMN phone TYPE VARCHAR(512)",
+        "ALTER TABLE customers ALTER COLUMN email TYPE VARCHAR(512)",
+        "ALTER TABLE customers ALTER COLUMN city TYPE VARCHAR(512)",
+    )
+    for statement in alters:
+        connection.execute(text(statement))
 
 
 def applied_schema_migrations() -> list[dict[str, Any]]:
@@ -682,7 +696,7 @@ def _postgres_candidate_providers(
           AND ST_DWithin(
               ST_SetSRID(ST_MakePoint(pp.lng, pp.lat), 4326)::geography,
               ST_SetSRID(ST_MakePoint(o.customer_lng, o.customer_lat), 4326)::geography,
-              LEAST(COALESCE(p.service_radius_km, 7), :max_radius_km) * 1000
+              LEAST(COALESCE(p.service_radius_km, 15), :max_radius_km) * 1000
           )
         ORDER BY distance_km ASC
     """)
@@ -751,7 +765,7 @@ def _portable_candidate_providers(
     for row in rows:
         provider_point = {"lat": float(row["lat"]), "lng": float(row["lng"])}
         distance_km = _haversine_distance_km(pickup, provider_point)
-        provider_radius = float(row["service_radius_km"] or 7)
+        provider_radius = float(row["service_radius_km"] or 15)
         if distance_km > min(provider_radius, max_radius_km):
             continue
         candidates.append(_merge_provider_payload(row["provider_payload"], row["presence_payload"], distance_km))
@@ -941,17 +955,27 @@ def _save_providers(connection, provider_payloads: list[dict[str, Any]]) -> None
         )
 
 
+def _customer_column_value(value: Any, max_len: int) -> str | None:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return None
+    # Encrypted PII lives in payload JSON only; indexed columns stay plaintext-sized.
+    if normalized.startswith("enc:v1:"):
+        return None
+    return normalized[:max_len]
+
+
 def _save_customers(connection, customer_payloads: list[dict[str, Any]]) -> None:
     connection.execute(delete(customers))
     for customer in customer_payloads:
         connection.execute(
             insert(customers).values(
                 id=str(customer.get("id")),
-                name=str(customer.get("name") or "") or None,
-                phone=str(customer.get("phone") or "") or None,
-                email=str(customer.get("email") or "") or None,
-                telegram=str(customer.get("telegram") or "") or None,
-                city=str(customer.get("city") or "") or None,
+                name=_customer_column_value(customer.get("name"), 180),
+                phone=_customer_column_value(customer.get("phone"), 80),
+                email=_customer_column_value(customer.get("email"), 180),
+                telegram=_customer_column_value(customer.get("telegram"), 180),
+                city=_customer_column_value(customer.get("city"), 120),
                 verification_status=str(customer.get("verificationStatus") or "unverified"),
                 created_at=str(customer.get("createdAt") or ""),
                 updated_at=str(customer.get("updatedAt") or ""),

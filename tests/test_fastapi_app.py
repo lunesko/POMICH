@@ -239,7 +239,7 @@ def test_fastapi_customer_profile_and_verification_review(monkeypatch, tmp_path)
     assert submitted.json()["verificationStatus"] == "pending"
     assert reviewed.status_code == 200
     assert reviewed.json()["verificationStatus"] == "verified"
-    assert "Профіль підтверджено" in reviewed.json()["trustedBadges"]
+    assert "Профіль заповнено" in reviewed.json()["trustedBadges"]
 
 
 def test_fastapi_customer_profile_requires_matching_session(monkeypatch, tmp_path) -> None:
@@ -607,3 +607,73 @@ def test_fastapi_assigned_provider_can_drive_lifecycle(monkeypatch, tmp_path) ->
     provider = client.get("/api/providers").json()[0]
     assert provider["status"] == "online"
     assert "assignedOrderId" not in provider
+
+
+def test_admin_endpoints_require_session_and_expose_ops_data(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("POMICH_RUNTIME", "dev")
+    monkeypatch.setenv("POMICH_ADMIN_TOKEN", ADMIN_TOKEN)
+    monkeypatch.setenv("POMICH_PROVIDER_TOKEN", PROVIDER_TOKEN)
+    monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", CUSTOMER_SESSION_SECRET)
+    _use_temp_store(monkeypatch, tmp_path)
+    order_store.save_providers([_api_provider("p1", 48.6218, 22.2879)])
+    order_store.update_customer_profile("guest-1", {"name": "Test Client", "phone": "+380501234567", "city": "Ужгород"})
+    order_store.save_order({"service": "tow", "status": "searching", "customerLocation": "Test", "destination": "Garage"})
+    client = TestClient(app)
+    admin_headers = _admin_session_headers(client)
+
+    assert client.get("/api/admin/stats").status_code == 401
+    stats = client.get("/api/admin/stats", headers=admin_headers).json()
+    assert stats["totals"]["clients"] >= 1
+    assert stats["totals"]["orders"] >= 1
+    assert isinstance(stats["activity"], list)
+
+    clients = client.get("/api/admin/clients", headers=admin_headers).json()
+    assert any(item["id"] == "guest-1" for item in clients)
+
+    providers = client.get("/api/admin/providers", headers=admin_headers).json()
+    assert any(item["id"] == "p1" for item in providers)
+
+    updated = client.patch("/api/admin/clients/guest-1", headers=admin_headers, json={"city": "Київ"}).json()
+    assert updated["city"] == "Київ"
+
+    provider_updated = client.patch("/api/admin/providers/p1", headers=admin_headers, json={"status": "offline", "city": "Ужгород"}).json()
+    assert provider_updated["status"] == "offline"
+
+    settings = client.get("/api/admin/settings", headers=admin_headers).json()
+    assert settings["runtime"] == "dev"
+    assert "corsOrigins" in settings
+
+
+def test_fastapi_customer_otp_send_and_confirm(monkeypatch, tmp_path) -> None:
+    _use_temp_store(monkeypatch, tmp_path)
+    otp_path = tmp_path / "otp_codes.json"
+    monkeypatch.setattr("bot.otp_verification._default_otp_store_path", lambda: otp_path)
+    monkeypatch.setattr("bot.otp_verification._generate_otp_code", lambda: "112233")
+    monkeypatch.setenv("POMICH_OTP_SECRET", "test-otp-secret")
+    monkeypatch.delenv("SMTP_HOST", raising=False)
+    client = TestClient(app)
+    customer_headers = _customer_session_headers(client, "guest-otp-1")
+
+    client.patch(
+        "/api/customers/guest-otp-1/profile",
+        json={"name": "Test User", "phone": "+380501112233", "email": "user@example.com"},
+        headers=customer_headers,
+    )
+
+    send_response = client.post(
+        "/api/auth/customer/verify/send",
+        json={"channel": "email", "email": "user@example.com"},
+        headers=customer_headers,
+    )
+    confirm_response = client.post(
+        "/api/auth/customer/verify/confirm",
+        json={"code": "112233"},
+        headers=customer_headers,
+    )
+
+    assert send_response.status_code == 200
+    assert send_response.json()["channel"] == "email"
+    assert send_response.json()["devCode"] == "112233"
+    assert confirm_response.status_code == 200
+    assert confirm_response.json()["profile"]["verificationStatus"] == "verified"
+    assert confirm_response.json()["profile"]["verification"]["email"] is True

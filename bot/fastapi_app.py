@@ -2,9 +2,11 @@ import base64
 import binascii
 import hashlib
 import hmac
+import ipaddress
 import json
 import os
 import time
+import urllib.parse
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,8 +20,14 @@ from bot.order_store import (
     DispatchConflict,
     InvalidStatusTransition,
     accept_offer,
+    admin_delete_provider,
+    admin_update_customer_profile,
+    admin_update_provider_profile,
     attach_dispatch_to_order,
     attach_dispatch_to_orders,
+    build_admin_activity_feed,
+    build_admin_stats,
+    build_user_account_status,
     decline_offer,
     dispatch_order,
     expire_offers,
@@ -32,9 +40,14 @@ from bot.order_store import (
     load_offers,
     load_orders,
     load_providers,
+    load_customer_profiles,
+    mark_user_role_registered,
+    merge_directory_providers,
+    nearby_searching_orders,
     review_customer_verification,
     review_provider_verification,
     save_order,
+    set_user_preferred_role,
     submit_customer_verification,
     submit_provider_verification,
     upsert_telegram_customer_profile,
@@ -44,6 +57,9 @@ from bot.order_store import (
     update_provider_presence,
     update_provider_profile,
 )
+from bot.provider_importer import import_uzhgorod_providers
+from bot.field_encryption import encryption_enabled
+from bot.otp_verification import OtpVerificationError, confirm_customer_verification_code, send_customer_verification_code
 from bot.telegram_auth import verify_telegram_init_data
 from bot.telegram_bot import get_configured_token, handle_update, notify_order_created
 
@@ -73,6 +89,29 @@ def _is_public_https_origin(origin: str) -> bool:
     return not any(host in normalized for host in ("localhost", "127.0.0.1", "0.0.0.0", "::1", "*"))
 
 
+def _allow_http_pilot() -> bool:
+    return os.getenv("POMICH_ALLOW_HTTP_PILOT", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _is_public_http_pilot_origin(origin: str) -> bool:
+    normalized = origin.strip().rstrip("/")
+    if not normalized.lower().startswith("http://"):
+        return False
+    parsed = urllib.parse.urlparse(normalized)
+    host = (parsed.hostname or "").lower()
+    if not host or host in {"localhost", "127.0.0.1", "0.0.0.0", "::1"}:
+        return False
+    try:
+        ipaddress.ip_address(host)
+        return True
+    except ValueError:
+        return False
+
+
+def _is_allowed_public_origin(origin: str) -> bool:
+    return _is_public_https_origin(origin) or (_allow_http_pilot() and _is_public_http_pilot_origin(origin))
+
+
 def _is_configured_secret(value: str | None, *, min_length: int = 24) -> bool:
     normalized = (value or "").strip()
     if len(normalized) < min_length:
@@ -96,7 +135,7 @@ def _runtime_config_errors() -> list[str]:
     if "*" in cors_origins:
         errors.append("POMICH_CORS_ORIGINS must use exact HTTPS origins in production")
     else:
-        invalid_origins = [origin for origin in cors_origins if not _is_public_https_origin(origin)]
+        invalid_origins = [origin for origin in cors_origins if not _is_allowed_public_origin(origin)]
         if invalid_origins:
             errors.append("POMICH_CORS_ORIGINS contains non-public or non-HTTPS origins")
 
@@ -116,7 +155,7 @@ def _runtime_config_errors() -> list[str]:
     telegram_token = (os.getenv("TELEGRAM_BOT_TOKEN") or os.getenv("VITE_TELEGRAM_BOT_TOKEN") or "").strip()
     if telegram_token and not web_app_url:
         errors.append("WEB_APP_URL must be set when Telegram is configured in production")
-    elif telegram_token and not _is_public_https_origin(web_app_url):
+    elif telegram_token and not _is_allowed_public_origin(web_app_url):
         errors.append("WEB_APP_URL must be a public HTTPS URL when Telegram is configured in production")
 
     return errors
@@ -372,6 +411,13 @@ def _optional_customer_auth(authorization: str | None = None) -> AuthPrincipal |
     return _verify_role_session(bearer_token, "customer", _configured_customer_secret())
 
 
+def _require_customer_auth_from_bearer(authorization: str | None = None) -> AuthPrincipal:
+    bearer_token = _extract_bearer_token(authorization)
+    if not bearer_token:
+        raise HTTPException(status_code=401, detail="customer_session_required")
+    return _verify_role_session(bearer_token, "customer", _configured_customer_secret())
+
+
 def _apply_verified_telegram_identity(payload: dict, verified_telegram: dict | None) -> None:
     user = (verified_telegram or {}).get("user") or {}
     telegram_user_id = str(user.get("id") or "").strip()
@@ -396,6 +442,153 @@ def _dispatch_conflict(exc: DispatchConflict) -> HTTPException:
     return HTTPException(status_code=409, detail={"code": exc.code, "message": exc.message})
 
 
+def _build_admin_settings_payload() -> dict:
+    cors_origins = _get_cors_origins()
+    web_app_url = (os.getenv("WEB_APP_URL") or "").strip()
+    runtime = os.getenv("POMICH_RUNTIME") or os.getenv("VITE_APP_ENV") or "dev"
+    return {
+        "runtime": runtime,
+        "webAppUrl": web_app_url or None,
+        "corsOrigins": cors_origins,
+        "encryptionEnabled": encryption_enabled(),
+        "databaseUrlConfigured": bool((os.getenv("DATABASE_URL") or "").strip()),
+        "telegramConfigured": bool(get_configured_token()),
+        "adminAccountsConfigured": bool(_load_account_configs("POMICH_ADMIN_ACCOUNTS")),
+        "providerAccountsConfigured": bool(_load_account_configs("POMICH_PROVIDER_ACCOUNTS")),
+        "allowHttpPilot": _allow_http_pilot(),
+        "sessionTtlSeconds": _session_ttl_seconds(),
+    }
+
+
+@app.get("/admin/stats")
+@app.get("/api/admin/stats")
+def admin_stats(
+    x_pomich_admin_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+) -> dict:
+    _require_admin_auth(x_pomich_admin_token, authorization)
+    stats = build_admin_stats()
+    return {**stats, "activity": build_admin_activity_feed(12)}
+
+
+@app.get("/admin/clients")
+@app.get("/api/admin/clients")
+def admin_list_clients(
+    q: str | None = None,
+    x_pomich_admin_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+) -> list[dict]:
+    _require_admin_auth(x_pomich_admin_token, authorization)
+    clients = load_customer_profiles()
+    if q:
+        needle = q.strip().lower()
+        clients = [
+            client
+            for client in clients
+            if needle in str(client.get("id") or "").lower()
+            or needle in str(client.get("name") or "").lower()
+            or needle in str(client.get("phone") or "").lower()
+            or needle in str(client.get("email") or "").lower()
+            or needle in str(client.get("city") or "").lower()
+        ]
+    return sorted(clients, key=lambda item: str(item.get("updatedAt") or item.get("createdAt") or ""), reverse=True)
+
+
+@app.get("/admin/providers")
+@app.get("/api/admin/providers")
+def admin_list_providers(
+    q: str | None = None,
+    kind: str | None = None,
+    x_pomich_admin_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+) -> list[dict]:
+    _require_admin_auth(x_pomich_admin_token, authorization)
+    providers = load_providers()
+    if kind:
+        normalized = kind.strip().lower()
+        providers = [provider for provider in providers if str(provider.get("providerKind") or "dispatch").lower() == normalized]
+    if q:
+        needle = q.strip().lower()
+        providers = [
+            provider
+            for provider in providers
+            if needle in str(provider.get("id") or "").lower()
+            or needle in str(provider.get("name") or "").lower()
+            or needle in str(provider.get("phone") or "").lower()
+            or needle in str(provider.get("city") or "").lower()
+        ]
+    return providers
+
+
+@app.get("/admin/orders")
+@app.get("/api/admin/orders")
+def admin_list_orders(
+    status: str | None = None,
+    x_pomich_admin_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+) -> list[dict]:
+    _require_admin_auth(x_pomich_admin_token, authorization)
+    orders = attach_dispatch_to_orders(load_orders(), load_offers())
+    if status and status.strip().lower() not in {"", "all"}:
+        normalized = status.strip().lower()
+        orders = [order for order in orders if str(order.get("status") or "").lower() == normalized]
+    return orders
+
+
+@app.get("/admin/settings")
+@app.get("/api/admin/settings")
+def admin_settings(
+    x_pomich_admin_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+) -> dict:
+    _require_admin_auth(x_pomich_admin_token, authorization)
+    return _build_admin_settings_payload()
+
+
+@app.patch("/admin/clients/{customer_id}")
+@app.patch("/api/admin/clients/{customer_id}")
+def admin_patch_client(
+    customer_id: str,
+    payload: dict,
+    x_pomich_admin_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+) -> dict:
+    _require_admin_auth(x_pomich_admin_token, authorization)
+    try:
+        return admin_update_customer_profile(customer_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.patch("/admin/providers/{provider_id}")
+@app.patch("/api/admin/providers/{provider_id}")
+def admin_patch_provider(
+    provider_id: str,
+    payload: dict,
+    x_pomich_admin_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+) -> dict:
+    _require_admin_auth(x_pomich_admin_token, authorization)
+    try:
+        return admin_update_provider_profile(provider_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.delete("/admin/providers/{provider_id}")
+@app.delete("/api/admin/providers/{provider_id}")
+def admin_remove_provider(
+    provider_id: str,
+    x_pomich_admin_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+) -> dict:
+    _require_admin_auth(x_pomich_admin_token, authorization)
+    try:
+        return admin_delete_provider(provider_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @app.get("/orders")
 @app.get("/api/orders")
 def list_orders(x_pomich_admin_token: str | None = Header(default=None), authorization: str | None = Header(default=None)) -> list[dict]:
@@ -405,9 +598,66 @@ def list_orders(x_pomich_admin_token: str | None = Header(default=None), authori
 
 @app.get("/providers")
 @app.get("/api/providers")
-def list_providers() -> list[dict]:
+def list_providers(kind: str | None = None) -> list[dict]:
     expire_offers()
+    providers = load_providers()
+    if kind:
+        normalized = kind.strip().lower()
+        providers = [provider for provider in providers if str(provider.get("providerKind") or "dispatch").lower() == normalized]
+    return providers
+
+
+@app.get("/map/providers")
+@app.get("/api/map/providers")
+def map_providers() -> list[dict]:
+    """All providers for map display, including directory listings."""
     return load_providers()
+
+
+@app.get("/map/orders/nearby")
+@app.get("/api/map/orders/nearby")
+def map_nearby_orders(
+    lat: float,
+    lng: float,
+    radius_km: float = 20.0,
+    service: str | None = None,
+    x_pomich_provider_token: str | None = Header(default=None),
+    authorization: str | None = None,
+) -> list[dict]:
+    """Searching orders near a provider location for map pins."""
+    if authorization or x_pomich_provider_token:
+        # Optional auth — endpoint is usable for provider map mode.
+        pass
+    return nearby_searching_orders(lat, lng, radius_km=radius_km, service=service)
+
+
+@app.post("/admin/providers/import/uzhgorod")
+@app.post("/api/admin/providers/import/uzhgorod")
+def admin_import_uzhgorod_providers(
+    payload: dict | None = None,
+    x_pomich_admin_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+) -> dict:
+    if authorization or x_pomich_admin_token:
+        try:
+            _require_admin_auth(x_pomich_admin_token, authorization)
+        except HTTPException:
+            secret = (os.getenv("POMICH_ADMIN_TOKEN") or "").strip()
+            if not secret or x_pomich_admin_token != secret:
+                raise
+    else:
+        raise HTTPException(status_code=401, detail="admin_session_required")
+    options = payload or {}
+    prefer_osm = bool(options.get("preferOsm", True))
+    seed_only = bool(options.get("seedOnly", False))
+    result = import_uzhgorod_providers(prefer_osm=prefer_osm and not seed_only, use_seed=seed_only)
+    merge_result = merge_directory_providers(result["providers"])
+    return {
+        "source": result["source"],
+        "counts": result["counts"],
+        "merge": merge_result,
+        "center": result["center"],
+    }
 
 
 @app.get("/customers/{customer_id}/profile")
@@ -423,7 +673,44 @@ def read_customer_profile(customer_id: str, authorization: str | None = Header(d
 @app.patch("/api/customers/{customer_id}/profile")
 def patch_customer_profile(customer_id: str, payload: dict, authorization: str | None = Header(default=None)) -> dict:
     _require_customer_auth(customer_id, authorization)
-    return update_customer_profile(customer_id, payload)
+    profile = update_customer_profile(customer_id, payload)
+    if payload.get("name") and payload.get("phone"):
+        mark_user_role_registered(customer_id, "customer")
+    return profile
+
+
+@app.get("/users/{customer_id}/account")
+@app.get("/api/users/{customer_id}/account")
+def read_user_account(customer_id: str, authorization: str | None = Header(default=None), x_telegram_init_data: str | None = Header(default=None)) -> dict:
+    principal = _optional_customer_auth(authorization)
+    if principal is not None and principal.subject_id != str(customer_id):
+        raise HTTPException(status_code=403, detail="customer_identity_mismatch")
+    if principal is None:
+        verified = _verify_init_data_or_raise(x_telegram_init_data)
+        if verified is None:
+            raise HTTPException(status_code=401, detail="customer_session_required")
+        user = verified.get("user") or {}
+        telegram_user_id = str(user.get("id") or "").strip()
+        if str(customer_id) != f"tg-{telegram_user_id}":
+            raise HTTPException(status_code=403, detail="customer_identity_mismatch")
+    return build_user_account_status(customer_id)
+
+
+@app.patch("/users/{customer_id}/account/role")
+@app.patch("/api/users/{customer_id}/account/role")
+def patch_user_preferred_role(customer_id: str, payload: dict, authorization: str | None = Header(default=None)) -> dict:
+    _require_customer_auth(customer_id, authorization)
+    role = str(payload.get("role") or payload.get("preferredRole") or "").strip()
+    try:
+        return set_user_preferred_role(customer_id, role)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/users/{customer_id}/account/role")
+@app.post("/api/users/{customer_id}/account/role")
+def post_user_preferred_role(customer_id: str, payload: dict, authorization: str | None = Header(default=None)) -> dict:
+    return patch_user_preferred_role(customer_id, payload, authorization)
 
 
 @app.post("/customers/{customer_id}/verification/submit")
@@ -483,6 +770,23 @@ def create_provider_session(payload: dict, x_pomich_provider_token: str | None =
     return session
 
 
+@app.post("/auth/provider/self/session")
+@app.post("/api/auth/provider/self/session")
+def create_self_provider_session(payload: dict, authorization: str | None = Header(default=None)) -> dict:
+    from bot.order_store import resolve_linked_provider_id
+
+    customer_id = str(payload.get("customerId") or "").strip()
+    if not customer_id:
+        raise HTTPException(status_code=400, detail="customerId missing")
+    _require_customer_auth(customer_id, authorization)
+    provider_id = resolve_linked_provider_id(customer_id)
+    if not provider_id:
+        raise HTTPException(status_code=400, detail="provider_not_linked")
+    session = _issue_role_session("provider", provider_id, _configured_provider_secret())
+    session["providerId"] = provider_id
+    return session
+
+
 @app.post("/auth/provider/login")
 @app.post("/api/auth/provider/login")
 def create_provider_account_session(payload: dict) -> dict:
@@ -508,12 +812,15 @@ def create_guest_customer_session(payload: dict | None = None) -> dict:
     session = _issue_role_session("customer", customer_id, _configured_customer_secret())
     session["customerId"] = customer_id
     session["profile"] = profile
+    session["account"] = build_user_account_status(customer_id)
     return session
 
 
 @app.post("/auth/customer/telegram/session")
 @app.post("/api/auth/customer/telegram/session")
 def create_telegram_customer_session(payload: dict | None = None, x_telegram_init_data: str | None = Header(default=None)) -> dict:
+    # Unified TG + Web identity: Telegram initData -> customerId tg-{user_id} in shared DB.
+    # Web Mini App auto-login; bot /start reads the same profile via get_customer_profile.
     init_data = x_telegram_init_data or str((payload or {}).get("initData") or "").strip()
     verified = _verify_init_data_or_raise(init_data)
     if verified is None:
@@ -528,7 +835,38 @@ def create_telegram_customer_session(payload: dict | None = None, x_telegram_ini
     session["customerId"] = customer_id
     session["profile"] = profile
     session["customerIdentity"] = profile.get("customerIdentity")
+    session["account"] = build_user_account_status(customer_id)
     return session
+
+
+@app.post("/auth/customer/verify/send")
+@app.post("/api/auth/customer/verify/send")
+def customer_verify_send(payload: dict, authorization: str | None = Header(default=None)) -> dict:
+    principal = _require_customer_auth_from_bearer(authorization)
+    channel = str(payload.get("channel") or "").strip().lower()
+    try:
+        return send_customer_verification_code(
+            principal.subject_id,
+            channel,
+            phone=payload.get("phone"),
+            email=payload.get("email"),
+        )
+    except OtpVerificationError as exc:
+        status_code = 429 if exc.code == "rate_limit_exceeded" else 400
+        raise HTTPException(status_code=status_code, detail=exc.code) from exc
+
+
+@app.post("/auth/customer/verify/confirm")
+@app.post("/api/auth/customer/verify/confirm")
+def customer_verify_confirm(payload: dict, authorization: str | None = Header(default=None)) -> dict:
+    principal = _require_customer_auth_from_bearer(authorization)
+    code = str(payload.get("code") or "").strip()
+    try:
+        profile = confirm_customer_verification_code(principal.subject_id, code)
+        return {"ok": True, "profile": profile}
+    except OtpVerificationError as exc:
+        status_code = 400
+        raise HTTPException(status_code=status_code, detail=exc.code) from exc
 
 
 @app.get("/providers/{provider_id}/profile")

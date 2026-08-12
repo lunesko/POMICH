@@ -1,0 +1,757 @@
+import { useCallback, useEffect, useMemo, useState } from "react"
+
+import {
+  adminDeleteProvider,
+  adminUpdateClient,
+  adminUpdateProvider,
+  createAdminAccountSession,
+  createAdminSession,
+  getAdminClients,
+  getAdminOrders,
+  getAdminProviders,
+  getAdminSettings,
+  getAdminStats,
+  getMapProviders,
+  importUzhgorodProviders,
+  reviewProviderVerification,
+  retryDispatch,
+  updateOrderStatus,
+  type AdminActivityItem,
+  type AdminSettings,
+  type AdminStats,
+  type CustomerProfile,
+  type OrderResponse,
+  type ProviderAvailability,
+  type VerificationStatus,
+} from "../../api/client"
+import {
+  getProviderCapabilityLabel,
+  getServiceEmoji,
+  getServiceLabel,
+  isVerified,
+  orderStatusLabels,
+  providerStatusLabel,
+  toServiceKeys,
+  type OrderStatus,
+} from "../../lib/constants"
+import { authSessionStorageKey, isAuthSessionToken, readStoredAuthSession, storeAuthSession } from "../../lib/auth"
+import { VerificationPill } from "../ui/VerificationPill"
+import { StatusPill } from "../ui/StatusPill"
+import { Timeline } from "../ui/Timeline"
+
+type AdminSection = "dashboard" | "clients" | "providers" | "orders" | "map" | "verification" | "settings"
+
+const NAV: Array<{ id: AdminSection; label: string; icon: string }> = [
+  { id: "dashboard", label: "Дашборд", icon: "📊" },
+  { id: "clients", label: "Клієнти", icon: "👤" },
+  { id: "providers", label: "Партнери", icon: "🚛" },
+  { id: "orders", label: "Заявки", icon: "📋" },
+  { id: "map", label: "Карта", icon: "🗺️" },
+  { id: "verification", label: "Перевірка", icon: "✅" },
+  { id: "settings", label: "Налаштування", icon: "⚙️" },
+]
+
+function normalizeOrderStatus(status?: string): OrderStatus {
+  if (status === "searching" || status === "assigned" || status === "en_route" || status === "arrived" || status === "in_progress" || status === "completed" || status === "cancelled" || status === "draft") {
+    return status
+  }
+  if (status === "created" || status === "matching") return "searching"
+  if (status === "tracking") return "en_route"
+  return "draft"
+}
+
+function nextOrderStatuses(status: OrderStatus): OrderStatus[] {
+  const transitions: Record<OrderStatus, OrderStatus[]> = {
+    draft: ["searching", "cancelled"],
+    searching: ["assigned", "cancelled"],
+    assigned: ["en_route", "cancelled"],
+    en_route: ["arrived", "cancelled"],
+    arrived: ["in_progress", "cancelled"],
+    in_progress: ["completed", "cancelled"],
+    completed: [],
+    cancelled: [],
+  }
+  return transitions[status] ?? []
+}
+
+function AdminLogin({
+  login,
+  password,
+  saving,
+  error,
+  onLoginChange,
+  onPasswordChange,
+  onSubmit,
+}: {
+  login: string
+  password: string
+  saving: boolean
+  error?: string
+  onLoginChange: (value: string) => void
+  onPasswordChange: (value: string) => void
+  onSubmit: () => void
+}) {
+  return (
+    <div className="admin-login-shell">
+      <div className="admin-login-card">
+        <div className="admin-login-badge">POMICH OPS</div>
+        <h1 className="admin-login-title">Захищена адмін-панель</h1>
+        <p className="admin-login-subtitle">Увійдіть для керування системою, заявками та перевірками.</p>
+        <label className="admin-field">
+          <span>Логін</span>
+          <input value={login} onChange={(event) => onLoginChange(event.target.value)} autoComplete="username" aria-label="Логін" />
+        </label>
+        <label className="admin-field">
+          <span>Пароль</span>
+          <input value={password} onChange={(event) => onPasswordChange(event.target.value)} type="password" autoComplete="current-password" aria-label="Пароль" />
+        </label>
+        {error ? <div className="admin-alert admin-alert-error">{error}</div> : null}
+        <button className="admin-primary-btn" onClick={onSubmit} disabled={!login.trim() || !password.trim() || saving}>
+          {saving ? "Входимо…" : "Увійти"}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function StatCard({ label, value, tone }: { label: string; value: number | string; tone?: "brand" | "warn" | "muted" }) {
+  return (
+    <div className={`admin-stat-card${tone ? ` admin-stat-card-${tone}` : ""}`}>
+      <div className="admin-stat-label">{label}</div>
+      <div className="admin-stat-value">{value}</div>
+    </div>
+  )
+}
+
+function EmptyState({ text }: { text: string }) {
+  return <div className="admin-empty">{text}</div>
+}
+
+function LoadingState({ text = "Завантажуємо…" }: { text?: string }) {
+  return <div className="admin-loading">{text}</div>
+}
+
+export default function AdminFlow({ adminToken }: { adminToken?: string }) {
+  const adminSessionStorageKey = useMemo(() => authSessionStorageKey("admin", "admin"), [])
+  const [adminAccessToken, setAdminAccessToken] = useState<string | undefined>(() => {
+    if (isAuthSessionToken(adminToken)) return adminToken
+    return readStoredAuthSession(adminSessionStorageKey, "admin", "admin")
+  })
+  const adminAuthToken = adminAccessToken
+  const [section, setSection] = useState<AdminSection>("dashboard")
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [stats, setStats] = useState<AdminStats | null>(null)
+  const [clients, setClients] = useState<CustomerProfile[]>([])
+  const [providers, setProviders] = useState<ProviderAvailability[]>([])
+  const [mapProviders, setMapProviders] = useState<ProviderAvailability[]>([])
+  const [orders, setOrders] = useState<OrderResponse[]>([])
+  const [settings, setSettings] = useState<AdminSettings | null>(null)
+  const [clientQuery, setClientQuery] = useState("")
+  const [providerQuery, setProviderQuery] = useState("")
+  const [orderFilter, setOrderFilter] = useState<OrderStatus | "all">("all")
+  const [selectedClientId, setSelectedClientId] = useState<string | undefined>()
+  const [selectedProviderId, setSelectedProviderId] = useState<string | undefined>()
+  const [selectedOrderId, setSelectedOrderId] = useState<string | undefined>()
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | undefined>()
+  const [authError, setAuthError] = useState<string | undefined>()
+  const [accountLogin, setAccountLogin] = useState("dispatcher")
+  const [accountPassword, setAccountPassword] = useState("")
+  const [authSaving, setAuthSaving] = useState(false)
+  const [importStatus, setImportStatus] = useState<string | undefined>()
+
+  useEffect(() => {
+    if (adminAuthToken) return
+    if (!adminToken) {
+      setAuthError(undefined)
+      return
+    }
+    if (isAuthSessionToken(adminToken)) {
+      if (typeof window !== "undefined") window.sessionStorage.setItem(adminSessionStorageKey, adminToken)
+      setAdminAccessToken(adminToken)
+      setAuthError(undefined)
+      return
+    }
+    let cancelled = false
+    createAdminSession(adminToken)
+      .then((session) => {
+        if (cancelled) return
+        storeAuthSession(adminSessionStorageKey, session)
+        setAdminAccessToken(session.accessToken)
+        setAuthError(undefined)
+      })
+      .catch(() => {
+        if (!cancelled) setAuthError("Не вдалося відкрити захищену адмін-сесію.")
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [adminAuthToken, adminSessionStorageKey, adminToken])
+
+  const submitAdminAccountLogin = async () => {
+    setAuthSaving(true)
+    setAuthError(undefined)
+    try {
+      const session = await createAdminAccountSession(accountLogin, accountPassword)
+      storeAuthSession(adminSessionStorageKey, session)
+      setAdminAccessToken(session.accessToken)
+      setAccountPassword("")
+    } catch {
+      setAuthError("Не вдалося увійти в адмін-акаунт.")
+    } finally {
+      setAuthSaving(false)
+    }
+  }
+
+  const refreshAll = useCallback(async () => {
+    if (!adminAuthToken) {
+      setLoading(false)
+      return
+    }
+    setLoading(true)
+    setError(undefined)
+    try {
+      const [nextStats, nextClients, nextProviders, nextOrders, nextSettings, nextMapProviders] = await Promise.all([
+        getAdminStats(adminAuthToken),
+        getAdminClients(adminAuthToken, clientQuery || undefined),
+        getAdminProviders(adminAuthToken, providerQuery || undefined),
+        getAdminOrders(adminAuthToken, orderFilter === "all" ? undefined : orderFilter),
+        getAdminSettings(adminAuthToken),
+        getMapProviders(),
+      ])
+      setStats(nextStats)
+      setClients(nextClients)
+      setProviders(nextProviders)
+      setOrders(nextOrders.slice().reverse())
+      setSettings(nextSettings)
+      setMapProviders(nextMapProviders)
+    } catch {
+      setError("Не вдалося завантажити дані адмін-панелі.")
+    } finally {
+      setLoading(false)
+    }
+  }, [adminAuthToken, clientQuery, providerQuery, orderFilter])
+
+  useEffect(() => {
+    refreshAll()
+    const interval = window.setInterval(refreshAll, 15000)
+    return () => window.clearInterval(interval)
+  }, [refreshAll])
+
+  const selectedClient = clients.find((item) => item.id === selectedClientId) ?? clients[0]
+  const selectedProvider = providers.find((item) => item.id === selectedProviderId) ?? providers[0]
+  const filteredOrders = orders.filter((order) => orderFilter === "all" || normalizeOrderStatus(order.status) === orderFilter)
+  const selectedOrder = filteredOrders.find((order) => order.id === selectedOrderId) ?? filteredOrders[0]
+  const pendingProviders = providers.filter((item) => item.verificationStatus === "pending")
+
+  const saveClient = async (payload: Partial<CustomerProfile> & { accountStatus?: string }) => {
+    if (!selectedClient?.id || !adminAuthToken) return
+    setSaving(true)
+    setError(undefined)
+    try {
+      const updated = await adminUpdateClient(selectedClient.id, payload, adminAuthToken)
+      setClients((items) => items.map((item) => item.id === updated.id ? updated : item))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не вдалося зберегти клієнта.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const saveProvider = async (payload: Partial<ProviderAvailability> & { accountStatus?: string }) => {
+    if (!selectedProvider?.id || !adminAuthToken) return
+    setSaving(true)
+    setError(undefined)
+    try {
+      const updated = await adminUpdateProvider(selectedProvider.id, payload, adminAuthToken)
+      setProviders((items) => items.map((item) => item.id === updated.id ? updated : item))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не вдалося зберегти партнера.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const setOrderStatus = async (order: OrderResponse, status: OrderStatus) => {
+    if (!order.id || !adminAuthToken) return
+    try {
+      const updated = await updateOrderStatus(order.id, status, adminAuthToken)
+      setOrders((items) => items.map((item) => item.id === order.id ? { ...item, ...updated } : item))
+      setError(undefined)
+    } catch {
+      setError("Недопустимий перехід статусу або немає доступу адміністратора.")
+    }
+  }
+
+  const setProviderVerification = async (item: ProviderAvailability, status: "verified" | "rejected") => {
+    if (!adminAuthToken) return
+    try {
+      const updated = await reviewProviderVerification(item.id, { status }, adminAuthToken)
+      setProviders((items) => items.map((providerItem) => providerItem.id === item.id ? { ...providerItem, ...updated } : providerItem))
+      setError(undefined)
+    } catch {
+      setError("Не вдалося оновити перевірку партнера.")
+    }
+  }
+
+  const removeProvider = async (providerId: string) => {
+    if (!adminAuthToken) return
+    setSaving(true)
+    try {
+      await adminDeleteProvider(providerId, adminAuthToken)
+      setProviders((items) => items.filter((item) => item.id !== providerId))
+      setMapProviders((items) => items.filter((item) => item.id !== providerId))
+      setSelectedProviderId(undefined)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не вдалося видалити партнера.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const runMapImport = async (seedOnly = false) => {
+    if (!adminAuthToken) return
+    setImportStatus(undefined)
+    setSaving(true)
+    try {
+      const result = await importUzhgorodProviders(adminAuthToken, { seedOnly, preferOsm: !seedOnly })
+      setImportStatus(`Імпорт: ${result.source}, додано ${result.merge.added}, оновлено ${result.merge.updated}`)
+      await refreshAll()
+    } catch {
+      setImportStatus("Помилка імпорту провайдерів.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (!adminAuthToken && !adminToken) {
+    return (
+      <AdminLogin
+        login={accountLogin}
+        password={accountPassword}
+        saving={authSaving}
+        error={authError}
+        onLoginChange={setAccountLogin}
+        onPasswordChange={setAccountPassword}
+        onSubmit={submitAdminAccountLogin}
+      />
+    )
+  }
+
+  const sectionTitle = NAV.find((item) => item.id === section)?.label ?? "Адмін"
+
+  return (
+    <div className="admin-shell">
+      <aside className={`admin-sidebar${sidebarOpen ? " admin-sidebar-open" : ""}`}>
+        <div className="admin-brand">
+          <span className="admin-brand-mark">P</span>
+          <div>
+            <div className="admin-brand-title">POMICH Admin</div>
+            <div className="admin-brand-sub">Operations Console</div>
+          </div>
+        </div>
+        <nav className="admin-nav">
+          {NAV.map((item) => (
+            <button
+              key={item.id}
+              className={`admin-nav-item${section === item.id ? " admin-nav-item-active" : ""}`}
+              onClick={() => {
+                setSection(item.id)
+                setSidebarOpen(false)
+              }}
+            >
+              <span>{item.icon}</span>
+              <span>{item.label}</span>
+              {item.id === "verification" && pendingProviders.length > 0 ? (
+                <span className="admin-nav-badge">{pendingProviders.length}</span>
+              ) : null}
+            </button>
+          ))}
+        </nav>
+        <div className="admin-sidebar-foot">
+          <div className="admin-session-pill">🔒 JWT сесія активна</div>
+        </div>
+      </aside>
+
+      <div className="admin-main">
+        <header className="admin-topbar">
+          <button className="admin-menu-btn" onClick={() => setSidebarOpen((value) => !value)} aria-label="Меню">☰</button>
+          <div>
+            <div className="admin-topbar-title">{sectionTitle}</div>
+            <div className="admin-topbar-sub">Повний контроль системи POMICH</div>
+          </div>
+          <button className="admin-ghost-btn" onClick={() => refreshAll()} disabled={loading}>Оновити</button>
+        </header>
+
+        {error ? <div className="admin-alert admin-alert-error admin-alert-inline">{error}</div> : null}
+
+        <div className="admin-content">
+          {loading && !stats ? <LoadingState /> : null}
+
+          {section === "dashboard" && stats ? (
+            <div className="admin-grid">
+              <div className="admin-stat-grid">
+                <StatCard label="Клієнти" value={stats.totals.clients} />
+                <StatCard label="Партнери" value={stats.totals.providers} />
+                <StatCard label="Активні заявки" value={stats.totals.activeOrders} tone="brand" />
+                <StatCard label="Завершені" value={stats.totals.completedOrders} />
+                <StatCard label="На лінії" value={stats.providers.online} tone="brand" />
+                <StatCard label="У роботі" value={stats.providers.busy} tone="warn" />
+                <StatCard label="Verified" value={stats.providers.verified} />
+                <StatCard label="На перевірці" value={stats.providers.pendingVerification} tone="warn" />
+              </div>
+              <div className="admin-panel">
+                <div className="admin-panel-head">
+                  <h2>Остання активність</h2>
+                  <span>{stats.activity?.length ?? 0} подій</span>
+                </div>
+                <div className="admin-activity-list">
+                  {(stats.activity ?? []).map((item: AdminActivityItem) => (
+                    <div key={`${item.type}-${item.id}-${item.at}`} className="admin-activity-item">
+                      <div>
+                        <strong>{item.id ?? "—"}</strong>
+                        <div className="admin-muted">{getServiceEmoji(item.service)} {getServiceLabel(item.service)} · {item.source ?? "web"}</div>
+                      </div>
+                      <div className="admin-activity-meta">
+                        <StatusPill status={normalizeOrderStatus(item.status)} />
+                        <span className="admin-muted">{item.at ?? "—"}</span>
+                      </div>
+                    </div>
+                  ))}
+                  {(stats.activity ?? []).length === 0 ? <EmptyState text="Ще немає активності." /> : null}
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {section === "clients" ? (
+            <div className="admin-split">
+              <div className="admin-panel">
+                <div className="admin-panel-head">
+                  <h2>Клієнти</h2>
+                  <input className="admin-search" value={clientQuery} onChange={(event) => setClientQuery(event.target.value)} placeholder="Пошук…" />
+                </div>
+                <div className="admin-list">
+                  {clients.map((client) => (
+                    <button key={client.id} className={`admin-list-item${selectedClient?.id === client.id ? " admin-list-item-active" : ""}`} onClick={() => setSelectedClientId(client.id)}>
+                      <div>
+                        <strong>{client.name || client.id}</strong>
+                        <div className="admin-muted">{client.phone || "—"} · {client.city || "місто не вказано"}</div>
+                      </div>
+                      <VerificationPill status={client.verificationStatus} />
+                    </button>
+                  ))}
+                  {clients.length === 0 ? <EmptyState text="Клієнтів не знайдено." /> : null}
+                </div>
+              </div>
+              {selectedClient ? (
+                <ClientEditor client={selectedClient} saving={saving} onSave={saveClient} />
+              ) : null}
+            </div>
+          ) : null}
+
+          {section === "providers" || section === "verification" ? (
+            <div className="admin-split">
+              <div className="admin-panel">
+                <div className="admin-panel-head">
+                  <h2>{section === "verification" ? "Перевірка партнерів" : "Партнери"}</h2>
+                  <input className="admin-search" value={providerQuery} onChange={(event) => setProviderQuery(event.target.value)} placeholder="Пошук…" />
+                </div>
+                <div className="admin-list">
+                  {(section === "verification" ? pendingProviders : providers).map((provider) => (
+                    <button key={provider.id} className={`admin-list-item${selectedProvider?.id === provider.id ? " admin-list-item-active" : ""}`} onClick={() => setSelectedProviderId(provider.id)}>
+                      <div>
+                        <strong>{provider.name}</strong>
+                        <div className="admin-muted">{provider.phone || "—"} · {providerStatusLabel(provider.status)}</div>
+                        <div className="admin-muted">{toServiceKeys(provider.specialties).map(getProviderCapabilityLabel).join(" · ") || "Послуги не вказані"}</div>
+                      </div>
+                      <VerificationPill status={provider.verificationStatus} />
+                    </button>
+                  ))}
+                  {(section === "verification" ? pendingProviders : providers).length === 0 ? (
+                    <EmptyState text={section === "verification" ? "Немає заявок на перевірку." : "Партнерів не знайдено."} />
+                  ) : null}
+                </div>
+              </div>
+              {selectedProvider ? (
+                <ProviderEditor
+                  provider={selectedProvider}
+                  saving={saving}
+                  onSave={saveProvider}
+                  onVerify={(status) => setProviderVerification(selectedProvider, status)}
+                  onDelete={() => removeProvider(selectedProvider.id)}
+                  verificationMode={section === "verification"}
+                />
+              ) : null}
+            </div>
+          ) : null}
+
+          {section === "orders" ? (
+            <div className="admin-split">
+              <div className="admin-panel">
+                <div className="admin-panel-head">
+                  <h2>Заявки</h2>
+                  <div className="admin-chip-row">
+                    {(["all", "searching", "assigned", "en_route", "in_progress", "completed"] as const).map((filter) => (
+                      <button key={filter} className={`admin-chip${orderFilter === filter ? " admin-chip-active" : ""}`} onClick={() => setOrderFilter(filter)}>
+                        {filter === "all" ? "Усі" : orderStatusLabels[filter]}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="admin-list">
+                  {filteredOrders.map((order) => (
+                    <button key={order.id} className={`admin-list-item${selectedOrder?.id === order.id ? " admin-list-item-active" : ""}`} onClick={() => setSelectedOrderId(order.id)}>
+                      <div>
+                        <strong>{order.id}</strong>
+                        <div className="admin-muted">{getServiceEmoji(order.service)} {getServiceLabel(order.service)}</div>
+                        <div className="admin-muted">{order.customerLocation ?? "?"} → {order.destination ?? "?"}</div>
+                      </div>
+                      <StatusPill status={normalizeOrderStatus(order.status)} />
+                    </button>
+                  ))}
+                  {filteredOrders.length === 0 ? <EmptyState text="Заявок у цьому фільтрі немає." /> : null}
+                </div>
+              </div>
+              {selectedOrder ? (
+                <OrderEditor order={selectedOrder} adminAuthToken={adminAuthToken} onStatusChange={setOrderStatus} onRetryDispatch={async () => {
+                  if (!selectedOrder.id) return
+                  try {
+                    const updated = await retryDispatch(selectedOrder.id)
+                    setOrders((items) => items.map((item) => item.id === updated.id ? { ...item, ...updated } : item))
+                  } catch {
+                    setError("Не вдалося повторити диспетчеризацію.")
+                  }
+                }} />
+              ) : null}
+            </div>
+          ) : null}
+
+          {section === "map" ? (
+            <div className="admin-grid">
+              <div className="admin-panel">
+                <div className="admin-panel-head">
+                  <h2>Карта / OSM провайдери</h2>
+                  <div className="admin-inline-actions">
+                    <button className="admin-ghost-btn" onClick={() => runMapImport(false)} disabled={saving}>Імпорт OSM</button>
+                    <button className="admin-ghost-btn" onClick={() => runMapImport(true)} disabled={saving}>Seed</button>
+                  </div>
+                </div>
+                {importStatus ? <div className="admin-alert admin-alert-info">{importStatus}</div> : null}
+                <div className="admin-stat-grid admin-stat-grid-compact">
+                  <StatCard label="На карті" value={mapProviders.length} />
+                  <StatCard label="Dispatch" value={mapProviders.filter((item) => item.providerKind !== "directory").length} />
+                  <StatCard label="Directory" value={mapProviders.filter((item) => item.providerKind === "directory").length} />
+                </div>
+                <div className="admin-list admin-list-scroll">
+                  {mapProviders.slice(0, 40).map((provider) => (
+                    <div key={provider.id} className="admin-list-item admin-list-item-static">
+                      <div>
+                        <strong>{provider.name}</strong>
+                        <div className="admin-muted">{provider.city ?? "—"} · {provider.source ?? provider.providerKind ?? "dispatch"}</div>
+                        <div className="admin-muted">{provider.address ?? provider.location ? `${provider.location?.lat?.toFixed(4)}, ${provider.location?.lng?.toFixed(4)}` : "координати —"}</div>
+                      </div>
+                      <div className="admin-inline-actions">
+                        <button className="admin-chip admin-chip-danger" onClick={() => removeProvider(provider.id)} disabled={saving}>Видалити</button>
+                      </div>
+                    </div>
+                  ))}
+                  {mapProviders.length === 0 ? <EmptyState text="Пінів на карті поки немає." /> : null}
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {section === "settings" && settings ? (
+            <div className="admin-grid">
+              <div className="admin-panel">
+                <div className="admin-panel-head"><h2>Системні налаштування</h2></div>
+                <div className="admin-kv-grid">
+                  <div><span>Runtime</span><strong>{settings.runtime}</strong></div>
+                  <div><span>WEB_APP_URL</span><strong>{settings.webAppUrl ?? "—"}</strong></div>
+                  <div><span>Шифрування PII</span><strong className={settings.encryptionEnabled ? "admin-ok" : "admin-warn"}>{settings.encryptionEnabled ? "Увімкнено" : "Вимкнено"}</strong></div>
+                  <div><span>DATABASE_URL</span><strong>{settings.databaseUrlConfigured ? "Налаштовано" : "JSON store"}</strong></div>
+                  <div><span>Telegram</span><strong>{settings.telegramConfigured ? "Так" : "Ні"}</strong></div>
+                  <div><span>CORS</span><strong>{settings.corsOrigins.join(", ")}</strong></div>
+                  <div><span>Admin accounts</span><strong>{settings.adminAccountsConfigured ? "Налаштовано" : "—"}</strong></div>
+                  <div><span>Session TTL</span><strong>{settings.sessionTtlSeconds}s</strong></div>
+                  <div><span>HTTP pilot</span><strong>{settings.allowHttpPilot ? "Дозволено" : "Ні"}</strong></div>
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </div>
+      {sidebarOpen ? <button className="admin-backdrop" aria-label="Закрити меню" onClick={() => setSidebarOpen(false)} /> : null}
+    </div>
+  )
+}
+
+function ClientEditor({ client, saving, onSave }: { client: CustomerProfile; saving: boolean; onSave: (payload: Partial<CustomerProfile> & { accountStatus?: string }) => Promise<void> }) {
+  const [name, setName] = useState(client.name ?? "")
+  const [phone, setPhone] = useState(client.phone ?? "")
+  const [email, setEmail] = useState(client.email ?? "")
+  const [city, setCity] = useState(client.city ?? "")
+  const [verificationStatus, setVerificationStatus] = useState<VerificationStatus>(client.verificationStatus ?? "unverified")
+  const [accountStatus, setAccountStatus] = useState((client as CustomerProfile & { accountStatus?: string }).accountStatus ?? "active")
+
+  useEffect(() => {
+    setName(client.name ?? "")
+    setPhone(client.phone ?? "")
+    setEmail(client.email ?? "")
+    setCity(client.city ?? "")
+    setVerificationStatus(client.verificationStatus ?? "unverified")
+    setAccountStatus((client as CustomerProfile & { accountStatus?: string }).accountStatus ?? "active")
+  }, [client])
+
+  return (
+    <div className="admin-panel admin-panel-detail">
+      <div className="admin-panel-head"><h2>{client.name || client.id}</h2><VerificationPill status={client.verificationStatus} /></div>
+      <div className="admin-form-grid">
+        <label className="admin-field"><span>Імʼя</span><input value={name} onChange={(event) => setName(event.target.value)} /></label>
+        <label className="admin-field"><span>Телефон</span><input value={phone} onChange={(event) => setPhone(event.target.value)} /></label>
+        <label className="admin-field"><span>Email</span><input value={email} onChange={(event) => setEmail(event.target.value)} /></label>
+        <label className="admin-field"><span>Місто</span><input value={city} onChange={(event) => setCity(event.target.value)} /></label>
+        <label className="admin-field"><span>Статус перевірки</span>
+          <select value={verificationStatus} onChange={(event) => setVerificationStatus(event.target.value as VerificationStatus)}>
+            {(["unverified", "pending", "verified", "rejected"] as const).map((status) => <option key={status} value={status}>{status}</option>)}
+          </select>
+        </label>
+        <label className="admin-field"><span>Акаунт</span>
+          <select value={accountStatus} onChange={(event) => setAccountStatus(event.target.value)}>
+            <option value="active">active</option>
+            <option value="disabled">disabled</option>
+          </select>
+        </label>
+      </div>
+      <button className="admin-primary-btn" disabled={saving} onClick={() => onSave({ name, phone, email, city, verificationStatus, accountStatus })}>{saving ? "Зберігаємо…" : "Зберегти"}</button>
+    </div>
+  )
+}
+
+function ProviderEditor({
+  provider,
+  saving,
+  onSave,
+  onVerify,
+  onDelete,
+  verificationMode,
+}: {
+  provider: ProviderAvailability
+  saving: boolean
+  onSave: (payload: Partial<ProviderAvailability> & { accountStatus?: string }) => Promise<void>
+  onVerify: (status: "verified" | "rejected") => void
+  onDelete: () => void
+  verificationMode?: boolean
+}) {
+  const [name, setName] = useState(provider.name ?? "")
+  const [phone, setPhone] = useState(provider.phone ?? "")
+  const [city, setCity] = useState(provider.city ?? "")
+  const [vehicle, setVehicle] = useState(provider.vehicle ?? "")
+  const [status, setStatus] = useState(provider.status)
+  const [radius, setRadius] = useState(String(provider.serviceRadiusKm ?? 15))
+  const [verificationStatus, setVerificationStatus] = useState<VerificationStatus>(provider.verificationStatus ?? "unverified")
+
+  useEffect(() => {
+    setName(provider.name ?? "")
+    setPhone(provider.phone ?? "")
+    setCity(provider.city ?? "")
+    setVehicle(provider.vehicle ?? "")
+    setStatus(provider.status)
+    setRadius(String(provider.serviceRadiusKm ?? 15))
+    setVerificationStatus(provider.verificationStatus ?? "unverified")
+  }, [provider])
+
+  return (
+    <div className="admin-panel admin-panel-detail">
+      <div className="admin-panel-head">
+        <h2>{provider.name}</h2>
+        <div className="admin-inline-actions">
+          <VerificationPill status={provider.verificationStatus} />
+          {isVerified(provider.verificationStatus) ? null : (
+            <>
+              <button className="admin-chip admin-chip-brand" onClick={() => onVerify("verified")}>Схвалити</button>
+              <button className="admin-chip admin-chip-danger" onClick={() => onVerify("rejected")}>Відхилити</button>
+            </>
+          )}
+        </div>
+      </div>
+      <div className="admin-form-grid">
+        <label className="admin-field"><span>Імʼя</span><input value={name} onChange={(event) => setName(event.target.value)} /></label>
+        <label className="admin-field"><span>Телефон</span><input value={phone} onChange={(event) => setPhone(event.target.value)} /></label>
+        <label className="admin-field"><span>Місто</span><input value={city} onChange={(event) => setCity(event.target.value)} /></label>
+        <label className="admin-field"><span>Авто</span><input value={vehicle} onChange={(event) => setVehicle(event.target.value)} /></label>
+        <label className="admin-field"><span>Статус</span>
+          <select value={status} onChange={(event) => setStatus(event.target.value as ProviderAvailability["status"])}>
+            {(["online", "busy", "offline"] as const).map((item) => <option key={item} value={item}>{providerStatusLabel(item)}</option>)}
+          </select>
+        </label>
+        <label className="admin-field"><span>Радіус, км</span><input value={radius} onChange={(event) => setRadius(event.target.value)} /></label>
+        {!verificationMode ? (
+          <label className="admin-field"><span>Перевірка</span>
+            <select value={verificationStatus} onChange={(event) => setVerificationStatus(event.target.value as VerificationStatus)}>
+              {(["unverified", "pending", "verified", "rejected"] as const).map((item) => <option key={item} value={item}>{item}</option>)}
+            </select>
+          </label>
+        ) : null}
+      </div>
+      <div className="admin-inline-actions">
+        <button className="admin-primary-btn" disabled={saving} onClick={() => onSave({ name, phone, city, vehicle, status, serviceRadiusKm: Number(radius), verificationStatus })}>{saving ? "Зберігаємо…" : "Зберегти"}</button>
+        <button className="admin-chip admin-chip-danger" disabled={saving} onClick={onDelete}>Видалити</button>
+      </div>
+    </div>
+  )
+}
+
+function OrderEditor({
+  order,
+  adminAuthToken,
+  onStatusChange,
+  onRetryDispatch,
+}: {
+  order: OrderResponse
+  adminAuthToken?: string
+  onStatusChange: (order: OrderResponse, status: OrderStatus) => Promise<void>
+  onRetryDispatch: () => Promise<void>
+}) {
+  const status = normalizeOrderStatus(order.status)
+  const offers = order.offers ?? []
+  return (
+    <div className="admin-panel admin-panel-detail">
+      <div className="admin-panel-head">
+        <h2>{order.id}</h2>
+        <StatusPill status={status} />
+      </div>
+      <div className="admin-kv-grid">
+        <div><span>Послуга</span><strong>{getServiceLabel(order.service)}</strong></div>
+        <div><span>Клієнт</span><strong>{order.telegramUsername ? `@${order.telegramUsername}` : order.chatId ?? "web"}</strong></div>
+        <div><span>Маршрут</span><strong>{order.customerLocation ?? "?"} → {order.destination ?? "?"}</strong></div>
+        <div><span>Dispatch</span><strong>{order.dispatchState ?? "—"}</strong></div>
+        <div><span>Виконавець</span><strong>{order.assignedProvider?.name ?? order.assignedProviderId ?? "—"}</strong></div>
+        <div><span>Створено</span><strong>{order.createdAt ?? "—"}</strong></div>
+      </div>
+      <Timeline status={status} />
+      <div className="admin-chip-row">
+        {nextOrderStatuses(status).filter((nextStatus) => nextStatus !== "cancelled").map((nextStatus) => (
+          <button key={nextStatus} className="admin-chip" onClick={() => onStatusChange(order, nextStatus)} disabled={!adminAuthToken}>{orderStatusLabels[nextStatus]}</button>
+        ))}
+        {nextOrderStatuses(status).includes("cancelled") ? (
+          <button className="admin-chip admin-chip-danger" onClick={() => onStatusChange(order, "cancelled")} disabled={!adminAuthToken}>Скасувати</button>
+        ) : null}
+        <button className="admin-chip admin-chip-brand" onClick={onRetryDispatch}>Повторити dispatch</button>
+      </div>
+      {offers.length > 0 ? (
+        <div className="admin-subpanel">
+          <h3>Оффери ({offers.length})</h3>
+          {offers.map((offer) => (
+            <div key={offer.id} className="admin-activity-item">
+              <span>{offer.providerId}</span>
+              <span className="admin-muted">{offer.status}{typeof offer.distanceKm === "number" ? ` · ${offer.distanceKm.toFixed(1)} км` : ""}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}

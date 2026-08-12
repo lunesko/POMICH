@@ -1,9 +1,7 @@
-import { useEffect, useMemo, useState } from "react"
-import { MapContainer, Marker, Polyline, Popup, TileLayer, useMap, useMapEvents } from "react-leaflet"
-import L from "leaflet"
-import "leaflet/dist/leaflet.css"
+import { useCallback, useEffect, useMemo, useState } from "react"
 
-import { acceptProviderOffer, cancelOrder as cancelOrderRequest, createAdminAccountSession, createAdminSession, createGuestCustomerSession, createOrder, createProviderAccountSession, createProviderSession, createTelegramCustomerSession, declineProviderOffer, getOrder, getOrders, getProviderOffers, getProviders, getTelegramSession, retryDispatch, reviewProviderVerification, submitCustomerVerification, submitProviderVerification, updateCustomerProfile, updateOrderStatus, updateProviderOrderStatus, updateProviderPresence, updateProviderProfile, type AuthSession, type CustomerProfile, type DispatchOffer, type OrderResponse, type ProviderAvailability, type VerificationStatus } from "./api/client"
+import { acceptProviderOffer, cancelOrder as cancelOrderRequest, createGuestCustomerSession, createOrder, createProviderAccountSession, createProviderSession, createSelfProviderSession, createTelegramCustomerSession, declineProviderOffer, getMapProviders, getNearbyMapOrders, getOrder, getProviderOffers, getProviders, getTelegramSession, getUserAccount, retryDispatch, setUserPreferredRole, submitProviderVerification, updateCustomerProfile, updateProviderOrderStatus, updateProviderPresence, updateProviderProfile, type AuthSession, type CustomerProfile, type DispatchOffer, type MapRequestPin, type OrderResponse, type ProviderAvailability, type UserAccountStatus, type VerificationStatus } from "./api/client"
+import RouteMap from "./components/map/RouteMap"
 import {
   calculateDistanceKm,
   calculatePrice,
@@ -12,12 +10,29 @@ import {
   type CustomerOrderInput,
   type ServiceKey,
 } from "./lib/pomichDomain"
-import { getTelegramContext } from "./telegram"
-
-import type { LatLngTuple } from "leaflet"
+import { getTelegramContext, resolveEntryRole } from "./telegram"
+import { getProfileChecklist, customerProfileStatusLabel, customerProfileStatusTone, isCustomerProfileComplete, isCustomerReadyForOrder, isCustomerVerified, profileChecklistSummary } from "./lib/customerProfile"
+import { formatLocalPhoneDisplay, nationalDigitsFromPhone, validateUkraineMobilePhone } from "./lib/ukrainePhone"
+import { PhoneInput } from "./components/ui/PhoneInput"
+import { OtpVerificationPanel } from "./components/ui/OtpVerificationPanel"
+import { storeLinkedProviderId, resolveProviderIdForCustomer } from "./lib/userAccount"
+import { mediaQueries } from "./lib/breakpoints"
+import { useMediaQuery } from "./hooks/useMediaQuery"
+import { useTelegramMainButton, useTelegramBackButton, useTelegramUx } from "./hooks/useTelegramUx"
+import OnboardingGate from "./components/onboarding/OnboardingGate"
+import ClientCabinet from "./components/cabinet/ClientCabinet"
+import ProviderCabinet from "./components/cabinet/ProviderCabinet"
+import AdminFlow from "./components/admin/AdminFlow"
+import FormContainer, { FormFooterBar, FormHeader } from "./components/layout/FormContainer"
+import { ServiceRadiusField } from "./components/ui/ServiceRadiusField"
+import { ThemeToggle } from "./components/ui/ThemeToggle"
+import { usePomichTheme } from "./context/PomichThemeProvider"
+import { type PomichThemeColors, type PomichThemeMode } from "./lib/theme"
+import { clearHiddenAdminHash, isHiddenAdminHash } from "./lib/adminAccess"
 
 type Role = "customer" | "provider" | "admin"
 type Screen =
+  | "profile"
   | "home"
   | "location"
   | "destination"
@@ -57,6 +72,7 @@ interface PartnerRegistrationForm {
   telegram: string
   vehicle: string
   plate: string
+  city: string
   specialties: ServiceKey[]
   serviceRadiusKm: number
   identityDocumentRef: string
@@ -70,27 +86,32 @@ const BRAND = "#16A36A"
 const DARK = "#111315"
 const BG = "#F6F7F8"
 const BORDER = "#E5E7EB"
+const DEFAULT_SERVICE_RADIUS_KM = 15
 const PICKUP: Point = { lat: 48.6208, lng: 22.2879 }
 const DEFAULT_DESTINATION: Point = { lat: 48.6175, lng: 22.3056 }
 const PROVIDER_START: Point = { lat: 48.632, lng: 22.271 }
 
 const services = [
   { key: "tow", emoji: "🚛", label: "Евакуатор", tone: "#E8F8F1" },
-  { key: "battery", emoji: "🔋", label: "Не заводиться", tone: "#EFF6FF" },
-  { key: "wheel", emoji: "🛞", label: "Проблема з колесом", tone: "#FFF7ED" },
-  { key: "fuel", emoji: "⛽", label: "Закінчилось пальне", tone: "#F5F3FF" },
-  { key: "lockout", emoji: "🔑", label: "Не можу відкрити авто", tone: "#FCE7F3" },
-  { key: "mechanic", emoji: "🔧", label: "Інша несправність", tone: "#ECFCCB" },
+  { key: "battery", emoji: "🔋", label: "Акумулятор", tone: "#EFF6FF" },
+  { key: "wheel", emoji: "🛞", label: "Колесо", tone: "#FFF7ED" },
+  { key: "fuel", emoji: "⛽", label: "Пальне", tone: "#F5F3FF" },
+  { key: "lockout", emoji: "🔑", label: "Замок", tone: "#FCE7F3" },
+  { key: "mechanic", emoji: "🔧", label: "Інше", tone: "#ECFCCB" },
 ] as const
 
 const providerCapabilityLabels: Record<ServiceKey, string> = {
   tow: "Евакуатор",
-  battery: "Запуск акумулятора",
-  wheel: "Колесо",
-  fuel: "Привезти пальне",
+  battery: "Акумулятор",
+  wheel: "Шиномонтаж",
+  fuel: "Пальне",
   lockout: "Відкрити авто",
-  mechanic: "Механік",
+  mechanic: "СТО",
 }
+
+const partnerRegistrationServices = services.filter((service) =>
+  (["tow", "wheel", "battery", "fuel", "mechanic"] as ServiceKey[]).includes(service.key),
+)
 
 const vehicleOptions = [
   "Авто заводиться",
@@ -137,7 +158,16 @@ function toServiceKeys(value?: string[]): ServiceKey[] {
 
 function getActiveProviderId() {
   if (typeof window === "undefined") return provider.id
-  return new URLSearchParams(window.location.search).get("providerId") || provider.id
+  const fromQuery = new URLSearchParams(window.location.search).get("providerId")
+  if (fromQuery) return fromQuery
+  const linked = window.sessionStorage.getItem("pomichLinkedProviderId")
+  if (linked) return linked
+  const customerId = window.sessionStorage.getItem("pomichCustomerId")
+  if (customerId) {
+    const derived = resolveProviderIdForCustomer(customerId)
+    if (derived) return derived
+  }
+  return provider.id
 }
 
 function getStoredQueryToken(queryName: string, storageName: string) {
@@ -219,6 +249,12 @@ function nearbyProvidersFor(pickup: Point, providers: ProviderAvailability[]) {
     .sort((left, right) => distanceToProvider(pickup, left) - distanceToProvider(pickup, right))
 }
 
+function providerEtaMinutes(pickup: Point, providers: ProviderAvailability[], fallback: number): number {
+  const nearest = nearbyProvidersFor(pickup, providers)[0]
+  if (!nearest) return fallback
+  return nearest.etaMinutes ?? Math.max(8, Math.ceil(distanceToProvider(pickup, nearest) * 4))
+}
+
 function providerStatusLabel(status?: string) {
   if (status === "online") return "На лінії"
   if (status === "busy") return "У роботі"
@@ -253,31 +289,6 @@ function VerificationPill({ status }: { status?: VerificationStatus }) {
   )
 }
 
-const pickupIcon = L.divIcon({
-  className: "pomich-pickup-marker",
-  html: '<div style="width:24px;height:24px;border-radius:999px;background:#16A36A;border:3px solid white;box-shadow:0 8px 24px rgba(0,0,0,0.22)"></div>',
-  iconSize: [24, 24],
-  iconAnchor: [12, 12],
-})
-
-const destinationIcon = L.divIcon({
-  className: "pomich-destination-marker",
-  html: '<div style="width:24px;height:24px;border-radius:999px;background:#F59E0B;border:3px solid white;box-shadow:0 8px 24px rgba(0,0,0,0.22)"></div>',
-  iconSize: [24, 24],
-  iconAnchor: [12, 12],
-})
-
-const providerIcon = L.divIcon({
-  className: "pomich-provider-marker",
-  html: '<div style="width:28px;height:28px;border-radius:999px;background:#111315;border:3px solid white;box-shadow:0 8px 24px rgba(0,0,0,0.24);display:flex;align-items:center;justify-content:center;color:white;font-size:13px">🚛</div>',
-  iconSize: [28, 28],
-  iconAnchor: [14, 14],
-})
-
-function toTuple(point: Point): LatLngTuple {
-  return [point.lat, point.lng]
-}
-
 function interpolate(from: Point, to: Point, progress: number): Point {
   const ratio = Math.max(0, Math.min(100, progress)) / 100
   return {
@@ -286,113 +297,43 @@ function interpolate(from: Point, to: Point, progress: number): Point {
   }
 }
 
-function useMediaQuery(query: string) {
-  const [matches, setMatches] = useState(false)
+const FLOW_STEP_LABELS = ["Оберіть проблему", "Підтвердьте місце", "ETA і ціну", "Стежте за допомогою"] as const
 
-  useEffect(() => {
-    if (typeof window === "undefined" || !window.matchMedia) return
-    const mediaQuery = window.matchMedia(query)
-    setMatches(mediaQuery.matches)
-    const listener = (event: MediaQueryListEvent) => setMatches(event.matches)
-    mediaQuery.addEventListener("change", listener)
-    return () => mediaQuery.removeEventListener("change", listener)
-  }, [query])
-
-  return matches
-}
-
-function ClickToPick({ onPick }: { onPick?: (point: Point) => void }) {
-  useMapEvents({
-    click(event) {
-      onPick?.({ lat: event.latlng.lat, lng: event.latlng.lng })
-    },
-  })
-  return null
-}
-
-function MapSizeController() {
-  const map = useMap()
-
-  useEffect(() => {
-    const invalidate = () => map.invalidateSize(false)
-    const timeoutId = window.setTimeout(invalidate, 0)
-    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(invalidate) : undefined
-    observer?.observe(map.getContainer())
-
-    return () => {
-      window.clearTimeout(timeoutId)
-      observer?.disconnect()
-    }
-  }, [map])
-
-  return null
-}
-
-function RouteMap({
-  pickup,
-  destination,
-  providers,
-  providerPosition,
-  subtitle,
-  onPick,
-  full = false,
-  showBadges = true,
-}: {
-  pickup: Point
-  destination?: Point
-  providers?: ProviderAvailability[]
-  providerPosition?: Point
-  subtitle?: string
-  onPick?: (point: Point) => void
-  full?: boolean
-  showBadges?: boolean
-}) {
-  const [mapMode, setMapMode] = useState<"online" | "offline">(() => (typeof navigator !== "undefined" && !navigator.onLine ? "offline" : "online"))
-  const route = destination ? [toTuple(pickup), toTuple(destination)] : undefined
-  const center = providerPosition ? toTuple(providerPosition) : toTuple(pickup)
-  const visibleProviders = providers?.filter(isProviderAvailable) ?? []
-
+function StepBadge({ step }: { step: 1 | 2 | 3 | 4 }) {
   return (
-    <div style={{ height: full ? "100%" : 244, minHeight: full ? 0 : undefined, borderRadius: full ? 0 : 22, overflow: "hidden", border: full ? "none" : `1px solid ${BORDER}`, position: "relative", background: "#EAF4EE" }}>
-      <MapContainer center={center} zoom={13} zoomControl={false} scrollWheelZoom={false} style={{ width: "100%", height: "100%" }}>
-        <MapSizeController />
-        <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="&copy; OpenStreetMap contributors" eventHandlers={{ tileload: () => setMapMode("online"), tileerror: () => setMapMode("offline") }} />
-        <ClickToPick onPick={onPick} />
-        {route ? <Polyline positions={route} pathOptions={{ color: BRAND, weight: 5, opacity: 0.75 }} /> : null}
-        <Marker position={toTuple(pickup)} icon={pickupIcon}>
-          <Popup>Місце подачі</Popup>
-        </Marker>
-        {visibleProviders.map((item) => {
-          const point = providerPoint(item)
-          return point ? (
-            <Marker key={item.id} position={toTuple(point)} icon={providerIcon}>
-              <Popup>{item.name} · {providerStatusLabel(item.status)}</Popup>
-            </Marker>
-          ) : null
-        })}
-        {destination ? (
-          <Marker position={toTuple(destination)} icon={destinationIcon}>
-            <Popup>Пункт призначення</Popup>
-          </Marker>
-        ) : null}
-        {providerPosition ? (
-          <Marker position={toTuple(providerPosition)} icon={providerIcon}>
-            <Popup>{provider.name} їде до вас</Popup>
-          </Marker>
-        ) : null}
-      </MapContainer>
-      {showBadges && subtitle ? (
-        <div style={{ position: "absolute", zIndex: 1100, left: 12, bottom: 12, background: "rgba(255,255,255,0.94)", borderRadius: 999, padding: "8px 12px", fontSize: 12, fontWeight: 800, color: DARK }}>
-          {subtitle}
-        </div>
-      ) : null}
-      {showBadges ? (
-        <div style={{ position: "absolute", zIndex: 1100, right: 12, top: 12, background: mapMode === "online" ? "rgba(232,248,241,0.96)" : "rgba(255,247,237,0.96)", color: mapMode === "online" ? BRAND : "#B45309", borderRadius: 999, padding: "7px 10px", fontSize: 11, fontWeight: 900, boxShadow: "0 4px 14px rgba(0,0,0,0.08)" }}>
-          {mapMode === "online" ? "Карта онлайн" : "Кеш карти"}
-        </div>
-      ) : null}
+    <div style={{ display: "inline-flex", alignItems: "center", gap: 8, borderRadius: 999, padding: "7px 11px", background: "#E8F8F1", color: BRAND, fontSize: 12, fontWeight: 950, marginBottom: 12 }}>
+      Крок {step} з 4 · {FLOW_STEP_LABELS[step - 1]}
     </div>
   )
+}
+
+async function reverseGeocodeAddress(point: Point): Promise<string> {
+  try {
+    const response = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${point.lat}&lon=${point.lng}&accept-language=uk`,
+      { headers: { Accept: "application/json" } },
+    )
+    if (!response.ok) throw new Error("geocode failed")
+    const data = (await response.json()) as { display_name?: string }
+    if (data.display_name) {
+      return data.display_name.split(",").slice(0, 3).join(",").trim()
+    }
+  } catch {
+    // fall through to coordinates
+  }
+  return `${point.lat.toFixed(5)}, ${point.lng.toFixed(5)}`
+}
+
+function resolveServiceDestination(service: ServiceKey, pickup: Point): { destination: string; destinationPoint: Point } {
+  if (service === "tow") {
+    return { destination: "СТО «Авторемонт»", destinationPoint: DEFAULT_DESTINATION }
+  }
+  return { destination: "На місці обслуговування", destinationPoint: pickup }
+}
+
+function resolveOrderDistanceKm(service: ServiceKey, pickup: Point, destinationPoint: Point): number {
+  const raw = calculateDistanceKm(pickup, destinationPoint)
+  return service === "tow" ? raw : Math.max(0.5, raw)
 }
 
 function PrimaryButton({ label, onClick, loading = false, disabled = false }: { label: string; onClick?: () => void; loading?: boolean; disabled?: boolean }) {
@@ -484,74 +425,99 @@ function ProviderCard({ orderId, eta, assignedProvider }: { orderId?: string; et
   )
 }
 
-function AppShell({ children, compact, role, onRoleChange }: { children: React.ReactNode; compact: boolean; role: Role | null; onRoleChange: (role: Role | null) => void }) {
+function AppShell({ children, compact, role, onRoleChange, onOpenCabinet, onSwitchRole }: { children: React.ReactNode; compact: boolean; role: Role | null; onRoleChange: (role: Role | null) => void; onOpenCabinet?: () => void; onSwitchRole?: () => void }) {
+  const roleLabels: Record<Exclude<Role, null>, string> = { customer: "Клієнт", provider: "Партнер", admin: "Адмін" }
+
   if (compact) {
     return (
-      <div style={{ width: "100vw", maxWidth: "100vw", minHeight: "100vh", height: "100dvh", overflowX: "hidden", background: BG, color: DARK, display: "flex", flexDirection: "column" }}>
+      <div className="pomich-tg-app flex flex-col">
         {role ? (
-          <div style={{ height: 46, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 12px", background: "#fff", borderBottom: `1px solid ${BORDER}` }}>
-            <a href="/" style={{ textDecoration: "none", color: BRAND, fontWeight: 950 }}>← Лендинг</a>
-            <div style={{ fontWeight: 950, color: DARK }}>{role === "customer" ? "Клієнт" : role === "provider" ? "Партнер" : "Адмін"}</div>
-          </div>
+          <header className="pomich-tg-header flex h-11 shrink-0 items-center justify-between px-3 gap-2">
+            <button type="button" onClick={() => onRoleChange(null)} className="pomich-app-header-menu-btn">← Меню</button>
+            <div className="pomich-app-header-role-label">{roleLabels[role]}</div>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <ThemeToggle compact />
+              {onOpenCabinet ? (
+                <button type="button" onClick={onOpenCabinet} className="pomich-app-header-chip pomich-app-header-chip--compact">Кабінет</button>
+              ) : null}
+              {onSwitchRole ? (
+                <button type="button" onClick={onSwitchRole} className="pomich-app-header-chip pomich-app-header-chip--compact">Роль</button>
+              ) : null}
+            </div>
+          </header>
         ) : null}
-        <div style={{ flex: 1, minHeight: 0, minWidth: 0, width: "100%", overflowX: "hidden" }}>{children}</div>
+        <div className="min-h-0 min-w-0 flex-1 overflow-hidden">{children}</div>
       </div>
     )
   }
 
   return (
-    <div style={{ minHeight: "100vh", height: "100vh", background: BG, color: DARK, display: "flex", flexDirection: "column" }}>
+    <div className="pomich-themed-shell min-h-dvh">
       {role ? (
-        <div style={{ height: 62, background: "#fff", borderBottom: `1px solid ${BORDER}`, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 24px" }}>
-          <div style={{ width: "100%", maxWidth: 1280, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
-            <a href="/" style={{ textDecoration: "none", fontSize: 20, fontWeight: 950, color: DARK }}>POMICH</a>
-            <div style={{ display: "flex", gap: 8, alignItems: "center", overflowX: "auto" }}>
+        <header className="pomich-tg-header relative z-[1400] flex h-[62px] shrink-0 items-center justify-center px-6">
+          <div className="flex w-full max-w-7xl items-center justify-between gap-4">
+            <a href="/" className="pomich-app-header-brand text-xl">POMICH</a>
+            <div className="flex items-center gap-2 overflow-x-auto">
               {[
                 { key: "customer", label: "Клієнт" },
                 { key: "provider", label: "Партнер" },
               ].map((item) => (
-                <button key={item.key} onClick={() => onRoleChange(item.key as Role)} style={{ flex: "0 0 auto", border: role === item.key ? `1.5px solid ${BRAND}` : `1px solid ${BORDER}`, background: role === item.key ? "#E8F8F1" : "#fff", color: role === item.key ? BRAND : DARK, borderRadius: 999, padding: "8px 12px", fontWeight: 900, cursor: "pointer", fontFamily: "inherit" }}>
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => onRoleChange(item.key as Role)}
+                  className={`pomich-app-header-chip pomich-app-header-chip--regular${role === item.key ? " is-active" : ""}`}
+                >
                   {item.label}
                 </button>
               ))}
-              <a href="/" style={{ flex: "0 0 auto", border: `1px solid ${BORDER}`, background: "#F3F4F6", color: DARK, borderRadius: 999, padding: "8px 12px", fontWeight: 900, textDecoration: "none" }}>
-                Лендинг
-              </a>
+              <ThemeToggle />
+              {onOpenCabinet ? (
+                <button type="button" onClick={onOpenCabinet} className="pomich-app-header-chip pomich-app-header-chip--regular">Кабінет</button>
+              ) : null}
+              {onSwitchRole ? (
+                <button type="button" onClick={onSwitchRole} className="pomich-app-header-chip pomich-app-header-chip--regular">Змінити роль</button>
+              ) : null}
             </div>
           </div>
-        </div>
+        </header>
       ) : null}
-      <div style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
-        {children}
-      </div>
+      <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
     </div>
   )
 }
 
 function ScreenLayout({ children, footer }: { children: React.ReactNode; footer?: React.ReactNode }) {
   return (
-    <div style={{ width: "100%", maxWidth: "100%", minWidth: 0, height: "100%", minHeight: "100%", display: "flex", flexDirection: "column", overflowX: "hidden", background: BG }}>
+    <div className="pomich-themed-shell" style={{ width: "100%", maxWidth: "100%", minWidth: 0, height: "100%", minHeight: "100%", display: "flex", flexDirection: "column", overflowX: "hidden" }}>
       <div style={{ flex: 1, minWidth: 0, overflow: "auto", overflowX: "hidden" }}>{children}</div>
-      {footer ? <div style={{ padding: 16, background: "#fff", borderTop: `1px solid ${BORDER}` }}>{footer}</div> : null}
+      {footer ? <FormFooterBar>{footer}</FormFooterBar> : null}
     </div>
   )
 }
 
 function Header({ title, subtitle, onBack, status }: { title: string; subtitle?: string; onBack?: () => void; status?: OrderStatus }) {
   return (
-    <div style={{ padding: "16px 16px 8px" }}>
+    <FormHeader>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-          {onBack ? <button aria-label="Назад" onClick={onBack} style={{ border: "none", background: "transparent", fontSize: 24, cursor: "pointer", padding: 0 }}>←</button> : null}
+          {onBack ? <button type="button" aria-label="Назад" onClick={onBack} className="pomich-back-btn">←</button> : null}
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontWeight: 900, fontSize: 18, color: DARK }}>{title}</div>
-            {subtitle ? <div style={{ marginTop: 3, color: "#6B7280", fontSize: 12, fontWeight: 700 }}>{subtitle}</div> : null}
+            <div className="pomich-header-title">{title}</div>
+            {subtitle ? <div className="pomich-header-subtitle">{subtitle}</div> : null}
           </div>
         </div>
-        {status ? <StatusPill status={status} /> : null}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+          <ThemeToggle compact />
+          {status ? <StatusPill status={status} /> : null}
+        </div>
       </div>
-    </div>
+    </FormHeader>
   )
+}
+
+function isolatePanelWheel(event: React.WheelEvent<HTMLElement>) {
+  event.stopPropagation()
 }
 
 function RideScreen({
@@ -559,49 +525,86 @@ function RideScreen({
   destination,
   providers,
   providerPosition,
+  requestPins,
   mapSubtitle,
+  showAllProviders = false,
+  userLocation,
+  onUserLocationChange,
+  onPick,
+  onAcceptRequest,
+  onContactRequest,
   children,
 }: {
   pickup: Point
   destination?: Point
   providers?: ProviderAvailability[]
   providerPosition?: Point
+  requestPins?: MapRequestPin[]
   mapSubtitle?: string
+  showAllProviders?: boolean
+  userLocation?: Point
+  onUserLocationChange?: (point: Point) => void
+  onPick?: (point: Point) => void
+  onAcceptRequest?: (pin: MapRequestPin) => void
+  onContactRequest?: (pin: MapRequestPin) => void
   children: React.ReactNode
 }) {
-  const compact = useMediaQuery("(max-width: 760px)")
+  const isMobile = useMediaQuery(mediaQueries.mobile)
+  const isTablet = useMediaQuery(mediaQueries.tablet)
+  const isDesktop = useMediaQuery(mediaQueries.desktop)
+  const isTelegram = useMemo(() => getTelegramContext().isTelegram, [])
+  const sheetCompact = isTelegram || isMobile
+  const splitView = isTablet || isDesktop
+
+  if (splitView) {
+    return (
+      <div className="flex h-full min-h-0 w-full overflow-hidden bg-[#DDE7E2]">
+        <div className="relative min-w-0 flex-1">
+          <RouteMap pickup={pickup} destination={destination} providers={providers} providerPosition={providerPosition} requestPins={requestPins} subtitle={mapSubtitle} full showAllProviders={showAllProviders} userLocation={userLocation ?? pickup} onUserLocationChange={onUserLocationChange} onPick={onPick} onAcceptRequest={onAcceptRequest} onContactRequest={onContactRequest} />
+          <div className="pointer-events-none absolute top-5 left-6 right-6 z-[1200] flex items-center justify-between gap-3">
+            <div className="inline-flex items-center gap-2 rounded-full border border-border bg-white/95 px-3 py-2 text-sm font-extrabold text-dark shadow-lg">
+              <span className="h-2 w-2 rounded-full bg-brand" />
+              POMICH
+            </div>
+            <div className="inline-flex items-center gap-2 rounded-full border border-border bg-white/95 px-3 py-2 text-xs font-extrabold text-gray-700 shadow-lg">
+              Допомога поруч
+            </div>
+          </div>
+        </div>
+        <div
+          className={`pomich-sheet-panel pomich-sheet-panel--side z-[1300] flex h-full min-h-0 shrink-0 flex-col overflow-hidden border-l border-border shadow-2xl ${
+            isDesktop ? "w-[420px] max-w-[38vw]" : "w-[360px] max-w-[44vw]"
+          }`}
+        >
+          <div className="pomich-sheet-panel__scroll" onWheel={isolatePanelWheel}>
+            <div className="p-4 pb-[calc(16px+env(safe-area-inset-bottom,0px))]">{children}</div>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
-    <div style={{ height: "100%", minHeight: "100%", position: "relative", overflow: "hidden", background: "#DDE7E2" }}>
-      <RouteMap pickup={pickup} destination={destination} providers={providers} providerPosition={providerPosition} subtitle={mapSubtitle} full />
-      <div style={{ position: "absolute", zIndex: 1200, top: compact ? 12 : 20, left: compact ? 12 : 24, right: compact ? 12 : 24, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, pointerEvents: "none" }}>
-        <div style={{ display: "inline-flex", alignItems: "center", gap: 10, background: "rgba(255,255,255,0.96)", border: `1px solid ${BORDER}`, borderRadius: 999, padding: "9px 13px", boxShadow: "0 10px 30px rgba(17,19,21,0.12)", color: DARK, fontWeight: 950 }}>
-          <span style={{ width: 9, height: 9, borderRadius: 999, background: BRAND }} />
+    <div className="relative h-full min-h-0 overflow-hidden bg-[#DDE7E2]">
+      <RouteMap pickup={pickup} destination={destination} providers={providers} providerPosition={providerPosition} requestPins={requestPins} subtitle={mapSubtitle} full showAllProviders={showAllProviders} userLocation={userLocation ?? pickup} onUserLocationChange={onUserLocationChange} onPick={onPick} onAcceptRequest={onAcceptRequest} onContactRequest={onContactRequest} />
+      <div className="pointer-events-none absolute top-3 left-3 right-3 z-[1200] flex items-center justify-between gap-3">
+        <div className="inline-flex items-center gap-2 rounded-full border border-border bg-white/95 px-3 py-2 text-sm font-extrabold text-dark shadow-lg">
+          <span className="h-2 w-2 rounded-full bg-brand" />
           POMICH
         </div>
-        <div style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "rgba(255,255,255,0.96)", border: `1px solid ${BORDER}`, borderRadius: 999, padding: "9px 12px", boxShadow: "0 10px 30px rgba(17,19,21,0.12)", color: "#374151", fontSize: 12, fontWeight: 900 }}>
+        <div className="inline-flex items-center gap-2 rounded-full border border-border bg-white/95 px-3 py-2 text-xs font-extrabold text-gray-700 shadow-lg">
           Допомога поруч
         </div>
       </div>
       <div
+        className={`pomich-sheet-panel absolute bottom-0 left-0 right-0 z-[1300] overflow-y-auto shadow-2xl ${sheetCompact ? "tg-sheet-compact rounded-t-2xl" : "max-h-[min(70%,calc(100%-env(safe-area-inset-top,0px)-56px))] rounded-t-3xl"}`}
         style={{
-          position: "absolute",
-          zIndex: 1300,
-          left: compact ? 0 : 24,
-          right: compact ? 0 : "auto",
-          bottom: compact ? 0 : 24,
-          top: compact ? "auto" : 84,
-          width: compact ? "100%" : 392,
-          maxHeight: compact ? "70%" : "calc(100% - 108px)",
-          overflow: "auto",
-          background: "#fff",
-          border: compact ? "none" : `1px solid ${BORDER}`,
-          borderRadius: compact ? "24px 24px 0 0" : 24,
-          boxShadow: "0 20px 70px rgba(17,19,21,0.22)",
-          padding: compact ? "10px 16px 16px" : 18,
+          maxHeight: sheetCompact ? "min(55%, calc(100% - env(safe-area-inset-top, 0px) - 48px))" : undefined,
+          padding: sheetCompact ? "6px 12px calc(12px + env(safe-area-inset-bottom, 0px))" : "10px 16px calc(16px + env(safe-area-inset-bottom, 0px))",
         }}
+        onWheel={isolatePanelWheel}
       >
-        {compact ? <div style={{ width: 46, height: 4, borderRadius: 999, background: "#D1D5DB", margin: "0 auto 14px" }} /> : null}
+        <div className={`mx-auto rounded-full bg-gray-300 ${sheetCompact ? "mb-2 h-1 w-10" : "mb-3.5 h-1 w-12"}`} />
         {children}
       </div>
     </div>
@@ -609,10 +612,13 @@ function RideScreen({
 }
 
 function SheetHeading({ title, subtitle }: { title: string; subtitle?: string }) {
+  const isMobile = useMediaQuery(mediaQueries.mobile)
+  const isTelegram = useMemo(() => getTelegramContext().isTelegram, [])
+  const compact = isTelegram || isMobile
   return (
     <div>
-      <div style={{ fontSize: 24, lineHeight: 1.08, fontWeight: 950, color: DARK }}>{title}</div>
-      {subtitle ? <div style={{ marginTop: 7, color: "#6B7280", fontSize: 14, lineHeight: 1.35, fontWeight: 750 }}>{subtitle}</div> : null}
+      <div style={{ fontSize: compact ? 20 : 24, lineHeight: 1.08, fontWeight: 950, color: DARK }}>{title}</div>
+      {subtitle ? <div style={{ marginTop: compact ? 5 : 7, color: "#6B7280", fontSize: compact ? 13 : 14, lineHeight: 1.35, fontWeight: 750 }}>{subtitle}</div> : null}
     </div>
   )
 }
@@ -671,41 +677,86 @@ function CustomerTrustPanel({
   profile,
   saving,
   error,
+  customerToken,
+  isTelegram,
+  onChange,
   onVerify,
+  onVerified,
 }: {
   profile: CustomerProfile
   saving: boolean
   error?: string
+  customerToken?: string
+  isTelegram?: boolean
+  onChange: (patch: Partial<CustomerProfile>) => void
   onVerify: () => void
+  onVerified: (profile: CustomerProfile) => void
 }) {
-  const completeness = profile.profileCompleteness ?? 50
+  const checklist = getProfileChecklist(profile)
   const initials = (profile.name || "POMICH").trim().slice(0, 1).toUpperCase()
-  const badges = profile.trustedBadges?.length ? profile.trustedBadges : ["Телефон", "Профіль"]
+  const phoneDisplay = profile.phone?.trim()
+    ? `+380 ${formatLocalPhoneDisplay(nationalDigitsFromPhone(profile.phone))}`
+    : "Не вказано"
+  const nameDisplay = profile.name?.trim() || "Клієнт POMICH"
+  const profileTone = customerProfileStatusTone(profile)
 
   return (
     <div style={{ background: "#fff", borderRadius: 18, border: `1px solid ${BORDER}`, padding: 14, display: "grid", gap: 12 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
-        <div style={{ display: "flex", gap: 12, minWidth: 0 }}>
-          <div style={{ width: 48, height: 48, borderRadius: 999, background: "linear-gradient(135deg, #16A36A, #2F80ED)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 950, fontSize: 20, flex: "0 0 auto" }}>{initials}</div>
-          <div style={{ minWidth: 0 }}>
-            <div style={{ color: DARK, fontWeight: 950, fontSize: 15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{profile.name || "Клієнт POMICH"}</div>
-            <div style={{ color: "#6B7280", fontSize: 12, fontWeight: 800, marginTop: 3 }}>{profile.city || "Київ"} · ★ {profile.rating ?? 5} · {profile.ordersCompleted ?? 0} заявок</div>
-            <div style={{ marginTop: 7 }}><VerificationPill status={profile.verificationStatus} /></div>
+      <div style={{ display: "flex", gap: 12, minWidth: 0, alignItems: "flex-start" }}>
+        <div style={{ width: 48, height: 48, borderRadius: 999, background: "linear-gradient(135deg, #16A36A, #2F80ED)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 950, fontSize: 20, flex: "0 0 auto" }}>{initials}</div>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{ color: DARK, fontWeight: 950, fontSize: 15 }}>Ваш профіль</div>
+          <div style={{ color: "#6B7280", fontSize: 12, fontWeight: 800, marginTop: 3 }}>{nameDisplay} · {phoneDisplay}</div>
+          <div style={{ marginTop: 7 }}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 6, borderRadius: 999, padding: "7px 10px", background: profileTone.background, border: `1px solid ${profileTone.border}`, color: profileTone.color, fontSize: 12, fontWeight: 950, whiteSpace: "nowrap" }}>
+              <span style={{ width: 7, height: 7, borderRadius: 999, background: profileTone.color }} />
+              {customerProfileStatusLabel(profile)}
+            </span>
           </div>
         </div>
-        <div style={{ color: BRAND, fontWeight: 950, fontSize: 13, whiteSpace: "nowrap" }}>{completeness}%</div>
       </div>
-      <div style={{ height: 7, borderRadius: 999, background: "#EEF2F7", overflow: "hidden" }}>
-        <div style={{ width: `${Math.max(12, Math.min(100, completeness))}%`, height: "100%", borderRadius: 999, background: BRAND }} />
+
+      <div style={{ display: "grid", gap: 10 }}>
+        <label style={{ display: "grid", gap: 6 }}>
+          <span style={{ color: "#6B7280", fontSize: 12, fontWeight: 850 }}>Ім'я *</span>
+          <input value={profile.name || ""} onChange={(event) => onChange({ name: event.target.value })} placeholder="Ваше ім'я" className="pomich-form-input" style={{ color: DARK }} />
+        </label>
+        <label style={{ display: "grid", gap: 6 }}>
+          <span style={{ color: "#6B7280", fontSize: 12, fontWeight: 850 }}>Телефон *</span>
+          <PhoneInput value={profile.phone || ""} onChange={(phone) => onChange({ phone })} />
+        </label>
+        <label style={{ display: "grid", gap: 6 }}>
+          <span style={{ color: "#6B7280", fontSize: 12, fontWeight: 850 }}>Email</span>
+          <input value={profile.email || ""} onChange={(event) => onChange({ email: event.target.value })} inputMode="email" placeholder="email@example.com" className="pomich-form-input" style={{ color: DARK }} />
+        </label>
       </div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
-        {badges.slice(0, 3).map((badge) => (
-          <span key={badge} style={{ borderRadius: 999, padding: "6px 9px", background: "#F3F4F6", color: "#374151", fontSize: 11, fontWeight: 900 }}>{badge}</span>
-        ))}
+
+      <div style={{ border: `1px solid ${BORDER}`, borderRadius: 14, padding: 12, background: "#F9FAFB" }}>
+        <div style={{ fontWeight: 950, fontSize: 13, color: DARK, marginBottom: 8 }}>{profileChecklistSummary(profile)}</div>
+        <div style={{ display: "grid", gap: 6 }}>
+          {checklist.map((item) => (
+            <div key={item.key} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 13, fontWeight: 800 }}>
+              <span style={{ color: "#374151" }}>{item.label}{item.required ? " *" : ""}</span>
+              <span style={{ color: item.filled ? BRAND : "#9CA3AF" }}>{item.filled ? "✓ Заповнено" : "— Потрібно"}</span>
+            </div>
+          ))}
+        </div>
       </div>
-      <button onClick={onVerify} disabled={saving} style={{ minHeight: 42, borderRadius: 14, border: `1px solid ${BORDER}`, background: saving ? "#E5E7EB" : "#F9FAFB", color: DARK, fontFamily: "inherit", fontWeight: 950, cursor: saving ? "not-allowed" : "pointer" }}>
-        {saving ? "Надсилаємо…" : profile.verificationStatus === "pending" ? "Оновити перевірку" : "Підтвердити профіль"}
+
+      <button onClick={onVerify} disabled={saving || !isCustomerProfileComplete(profile)} style={{ minHeight: 42, borderRadius: 14, border: "none", background: saving || !isCustomerProfileComplete(profile) ? "#E5E7EB" : BRAND, color: saving || !isCustomerProfileComplete(profile) ? "#6B7280" : "#fff", fontFamily: "inherit", fontWeight: 950, cursor: saving || !isCustomerProfileComplete(profile) ? "not-allowed" : "pointer" }}>
+        {saving ? "Зберігаємо…" : "Зберегти профіль"}
       </button>
+      {!isCustomerVerified(profile) && isCustomerProfileComplete(profile) ? (
+        <OtpVerificationPanel
+          profile={profile}
+          customerToken={customerToken}
+          isTelegram={isTelegram}
+          phone={profile.phone}
+          email={profile.email}
+          compact
+          onVerified={onVerified}
+        />
+      ) : null}
       {error ? <div style={{ background: "#FFF1F2", color: "#BE123C", borderRadius: 12, padding: 10, fontSize: 12, fontWeight: 850 }}>{error}</div> : null}
     </div>
   )
@@ -719,7 +770,12 @@ function HomeStep({
   customerProfile,
   customerVerificationSaving,
   customerVerificationError,
+  customerToken,
+  isTelegram,
+  onProfileChange,
   onVerifyCustomer,
+  onProfileVerified,
+  onRetryGeo,
   onSelect,
 }: {
   pickup: Point
@@ -729,13 +785,27 @@ function HomeStep({
   customerProfile: CustomerProfile
   customerVerificationSaving: boolean
   customerVerificationError?: string
+  customerToken?: string
+  isTelegram?: boolean
+  onProfileChange: (patch: Partial<CustomerProfile>) => void
   onVerifyCustomer: () => void
+  onProfileVerified: (profile: CustomerProfile) => void
+  onRetryGeo: () => void
   onSelect: (service: ServiceKey) => void
 }) {
   const nearby = nearbyProvidersFor(pickup, providers)
+  const profileReady = isCustomerReadyForOrder(customerProfile)
+  const geoFailed = locationLabel.includes("Не вдалося")
+
+  const handleSelect = (service: ServiceKey) => {
+    if (!profileReady) return
+    onSelect(service)
+  }
+
   return (
-    <RideScreen pickup={pickup} providers={providers} mapSubtitle={locationLabel}>
-      <SheetHeading title="Потрібна допомога на дорозі?" subtitle="Оберіть проблему, а POMICH знайде найближчого перевіреного партнера." />
+    <RideScreen pickup={pickup} providers={providers} mapSubtitle={`${locationLabel} · Ужгород`} showAllProviders>
+      <StepBadge step={1} />
+      <SheetHeading title="Потрібна допомога на дорозі?" subtitle="Спочатку заповніть профіль, потім оберіть проблему." />
 
       <div style={{ marginTop: 16, border: `1px solid ${BORDER}`, borderRadius: 18, padding: "4px 14px", background: "#F9FAFB" }}>
         <LocationRow icon="●" title="Поточне місце" subtitle={locationLabel} active />
@@ -743,9 +813,28 @@ function HomeStep({
         <LocationRow icon="🏁" title="Куди везти або де ремонтувати" subtitle="Уточнимо після вибору послуги" />
       </div>
 
+      {geoFailed ? (
+        <div style={{ marginTop: 12, display: "grid", gap: 8 }}>
+          <div style={{ background: "#FFF7ED", color: "#B45309", borderRadius: 14, padding: 12, fontSize: 13, fontWeight: 800 }}>
+            Не вдалося визначити геолокацію. Спробуйте ще раз або оберіть точку на карті під час оформлення заявки.
+          </div>
+          <button onClick={onRetryGeo} style={{ minHeight: 42, border: `1px solid ${BORDER}`, borderRadius: 12, background: "#fff", color: DARK, fontWeight: 900, cursor: "pointer", fontFamily: "inherit" }}>
+            📍 Спробувати знову
+          </button>
+        </div>
+      ) : null}
+
       <div style={{ marginTop: 14 }}>
-        <CustomerTrustPanel profile={customerProfile} saving={customerVerificationSaving} error={customerVerificationError} onVerify={onVerifyCustomer} />
+        <CustomerTrustPanel profile={customerProfile} saving={customerVerificationSaving} error={customerVerificationError} customerToken={customerToken} isTelegram={isTelegram} onChange={onProfileChange} onVerify={onVerifyCustomer} onVerified={onProfileVerified} />
       </div>
+
+      {!profileReady ? (
+        <div style={{ marginTop: 12, background: "#EFF6FF", color: "#1D4ED8", borderRadius: 14, padding: 12, fontSize: 13, fontWeight: 800 }}>
+          {isCustomerProfileComplete(customerProfile)
+            ? "Підтвердіть профіль кодом з Telegram або email, щоб викликати допомогу."
+            : "Заповніть ім'я та телефон, щоб викликати допомогу."}
+        </div>
+      ) : null}
 
       <div style={{ marginTop: 14 }}>
         <AvailabilityPanel pickup={pickup} providers={providers} loading={providersLoading} />
@@ -760,7 +849,7 @@ function HomeStep({
 
       <div style={{ display: "grid", gap: 9 }}>
         {services.map((service) => (
-          <button key={service.key} onClick={() => onSelect(service.key as ServiceKey)} style={{ minHeight: 64, display: "grid", gridTemplateColumns: "44px 1fr auto", alignItems: "center", gap: 12, border: `1px solid ${BORDER}`, borderRadius: 18, padding: "11px 12px", background: "#fff", textAlign: "left", cursor: "pointer", fontFamily: "inherit", boxShadow: "0 8px 22px rgba(17,19,21,0.04)" }}>
+          <button key={service.key} onClick={() => handleSelect(service.key as ServiceKey)} disabled={!profileReady} style={{ minHeight: 64, display: "grid", gridTemplateColumns: "44px 1fr auto", alignItems: "center", gap: 12, border: `1px solid ${BORDER}`, borderRadius: 18, padding: "11px 12px", background: profileReady ? "#fff" : "#F3F4F6", textAlign: "left", cursor: profileReady ? "pointer" : "not-allowed", fontFamily: "inherit", boxShadow: profileReady ? "0 8px 22px rgba(17,19,21,0.04)" : "none", opacity: profileReady ? 1 : 0.7 }}>
             <span style={{ width: 44, height: 44, borderRadius: 15, display: "flex", alignItems: "center", justifyContent: "center", background: service.tone, fontSize: 21 }}>{service.emoji}</span>
             <span style={{ minWidth: 0 }}>
               <span style={{ display: "block", fontSize: 14, fontWeight: 950, color: DARK }}>{service.label}</span>
@@ -774,16 +863,39 @@ function HomeStep({
   )
 }
 
-function LocationStep({ pickup, geoMessage, onPick, onBack, onNext }: { pickup: Point; geoMessage: string; onPick: (point: Point) => void; onBack: () => void; onNext: () => void }) {
+function LocationStep({
+  pickup,
+  addressLabel,
+  geoMessage,
+  onPick,
+  onRetryGeo,
+  onBack,
+  onNext,
+}: {
+  pickup: Point
+  addressLabel: string
+  geoMessage: string
+  onPick: (point: Point) => void
+  onRetryGeo: () => void
+  onBack: () => void
+  onNext: () => void
+}) {
   return (
-    <RideScreen pickup={pickup} mapSubtitle="Точка подачі">
+    <RideScreen pickup={pickup} mapSubtitle="Точка подачі · натисніть на карту" onPick={onPick}>
+      <StepBadge step={2} />
       <button onClick={onBack} style={{ border: "none", background: "#F3F4F6", color: DARK, borderRadius: 999, padding: "8px 11px", fontWeight: 900, cursor: "pointer", fontFamily: "inherit", marginBottom: 14 }}>← Назад</button>
-      <SheetHeading title="Ваше місцезнаходження" subtitle="Натисніть на карту, якщо точка неточна. Партнер побачить лише приблизну адресу." />
+      <SheetHeading title="Підтвердьте місце" subtitle="Перетягніть точку на карті або натисніть, щоб уточнити. Партнер побачить лише приблизну адресу." />
 
       <div style={{ marginTop: 16, border: `1px solid ${BORDER}`, borderRadius: 18, padding: "4px 14px", background: "#F9FAFB" }}>
-        <LocationRow icon="📍" title="Точка подачі" subtitle={`${pickup.lat.toFixed(5)}, ${pickup.lng.toFixed(5)}`} active />
+        <LocationRow icon="📍" title="Адреса" subtitle={addressLabel} active />
         <SheetDivider />
         <LocationRow icon="🛰️" title="Статус геолокації" subtitle={geoMessage} />
+      </div>
+
+      <div style={{ marginTop: 12 }}>
+        <button onClick={onRetryGeo} type="button" style={{ width: "100%", minHeight: 42, border: `1px solid ${BORDER}`, borderRadius: 12, background: "#fff", color: DARK, fontWeight: 900, cursor: "pointer", fontFamily: "inherit" }}>
+          📍 Оновити геолокацію
+        </button>
       </div>
 
       <div style={{ marginTop: 16 }}>
@@ -841,19 +953,49 @@ function DetailsStep({ pickup, destination, value, onChange, onNext, onBack }: {
   )
 }
 
-function PriceStep({ serviceLabel, breakdown, pickup, destination, loading, onConfirm, onBack }: { serviceLabel: string; breakdown: ReturnType<typeof calculatePrice>; pickup: Point; destination: Point; loading: boolean; onConfirm: () => void; onBack: () => void }) {
+function PriceStep({
+  serviceLabel,
+  breakdown,
+  pickup,
+  destination,
+  etaMinutes,
+  loading,
+  onConfirm,
+  onBack,
+}: {
+  serviceLabel: string
+  breakdown: ReturnType<typeof calculatePrice>
+  pickup: Point
+  destination: Point
+  etaMinutes: number
+  loading: boolean
+  onConfirm: () => void
+  onBack: () => void
+}) {
   return (
-    <RideScreen pickup={pickup} destination={destination} mapSubtitle={`${breakdown.distanceKm.toFixed(1)} км · ~${breakdown.etaMinutes} хв`}>
+    <RideScreen pickup={pickup} destination={destination} mapSubtitle={`~${etaMinutes} хв · ~${breakdown.price.toLocaleString("uk-UA")} ₴`}>
+      <StepBadge step={3} />
       <button onClick={onBack} style={{ border: "none", background: "#F3F4F6", color: DARK, borderRadius: 999, padding: "8px 11px", fontWeight: 900, cursor: "pointer", fontFamily: "inherit", marginBottom: 14 }}>← Назад</button>
-      <SheetHeading title="Підтвердження" subtitle="Фіксуємо орієнтовну ціну та показуємо заявку партнерам поруч." />
+      <SheetHeading title="Отримайте ETA і ціну" subtitle="Перевірте орієнтовний час прибуття та вартість перед підтвердженням." />
 
-      <div style={{ marginTop: 16, background: "#111315", color: "#fff", borderRadius: 22, padding: 18 }}>
+      <div style={{ marginTop: 16, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <div style={{ background: "#111315", color: "#fff", borderRadius: 18, padding: 16, textAlign: "center" }}>
+          <div style={{ color: "#A7F3D0", fontWeight: 800, fontSize: 12 }}>ETA</div>
+          <div style={{ fontSize: 28, fontWeight: 950, marginTop: 6 }}>~{etaMinutes} хв</div>
+        </div>
+        <div style={{ background: "#111315", color: "#fff", borderRadius: 18, padding: 16, textAlign: "center" }}>
+          <div style={{ color: "#A7F3D0", fontWeight: 800, fontSize: 12 }}>Ціна</div>
+          <div style={{ fontSize: 28, fontWeight: 950, marginTop: 6 }}>~{breakdown.price.toLocaleString("uk-UA")} ₴</div>
+        </div>
+      </div>
+
+      <div style={{ marginTop: 12, background: "#111315", color: "#fff", borderRadius: 22, padding: 18 }}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 14, alignItems: "flex-start" }}>
           <div>
             <div style={{ color: "#A7F3D0", fontWeight: 900, fontSize: 13 }}>{serviceLabel}</div>
             <div style={{ fontSize: 34, fontWeight: 950, marginTop: 6 }}>{breakdown.price.toLocaleString("uk-UA")} ₴</div>
           </div>
-          <div style={{ background: "rgba(255,255,255,0.12)", borderRadius: 999, padding: "8px 11px", fontSize: 13, fontWeight: 900 }}>~{breakdown.etaMinutes} хв</div>
+          <div style={{ background: "rgba(255,255,255,0.12)", borderRadius: 999, padding: "8px 11px", fontSize: 13, fontWeight: 900 }}>~{etaMinutes} хв</div>
         </div>
       </div>
 
@@ -876,17 +1018,18 @@ function PriceStep({ serviceLabel, breakdown, pickup, destination, loading, onCo
       </div>
 
       <div style={{ marginTop: 16 }}>
-        <PrimaryButton label={`Викликати за ${breakdown.price.toLocaleString("uk-UA")} ₴`} onClick={onConfirm} loading={loading} disabled={loading} />
+        <PrimaryButton label="Підтвердити заявку" onClick={onConfirm} loading={loading} disabled={loading} />
       </div>
     </RideScreen>
   )
 }
 
-function SearchingStep({ orderId, status, order, onCancel, onRetryDispatch }: { orderId?: string; status: OrderStatus; order?: OrderResponse; onCancel: () => void; onRetryDispatch: () => void }) {
+function SearchingStep({ orderId, status, order, pickup, destination, onCancel, onRetryDispatch }: { orderId?: string; status: OrderStatus; order?: OrderResponse; pickup: Point; destination: Point; onCancel: () => void; onRetryDispatch: () => void }) {
   const noProviders = order?.dispatchState === "NO_PROVIDERS_AVAILABLE"
   const offersSent = order?.dispatchInfo?.offersSent ?? order?.offers?.length ?? 0
   return (
-    <RideScreen pickup={PICKUP} destination={DEFAULT_DESTINATION} providers={order?.assignedProvider ? [order.assignedProvider] : undefined} mapSubtitle={orderId ? `#${orderId}` : "Пошук поруч"}>
+    <RideScreen pickup={pickup} destination={destination} providers={order?.assignedProvider ? [order.assignedProvider] : undefined} mapSubtitle={orderId ? `#${orderId}` : "Пошук поруч"}>
+      <StepBadge step={4} />
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
         <SheetHeading title="Заявку створено" subtitle={noProviders ? "Немає вільних партнерів поруч" : orderId ? `Замовлення #${orderId}` : "Шукаємо допомогу поруч…"} />
         <StatusPill status={status} />
@@ -914,10 +1057,11 @@ function SearchingStep({ orderId, status, order, onCancel, onRetryDispatch }: { 
   )
 }
 
-function AssignedStep({ orderId, status, order, onTrack, onCancel }: { orderId?: string; status: OrderStatus; order?: OrderResponse; onTrack: () => void; onCancel: () => void }) {
+function AssignedStep({ orderId, status, order, pickup, destination, onTrack, onCancel }: { orderId?: string; status: OrderStatus; order?: OrderResponse; pickup: Point; destination: Point; onTrack: () => void; onCancel: () => void }) {
   const assignedProvider = order?.assignedProvider
   return (
-    <RideScreen pickup={PICKUP} destination={DEFAULT_DESTINATION} providers={assignedProvider ? [assignedProvider] : undefined} mapSubtitle="Виконавець призначений">
+    <RideScreen pickup={pickup} destination={destination} providers={assignedProvider ? [assignedProvider] : undefined} mapSubtitle="Виконавець призначений">
+      <StepBadge step={4} />
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
         <SheetHeading title="Виконавця призначено" subtitle={orderId ? `Замовлення #${orderId}` : undefined} />
         <StatusPill status={status} />
@@ -938,12 +1082,16 @@ function AssignedStep({ orderId, status, order, onTrack, onCancel }: { orderId?:
 }
 
 function TrackingStep({ orderId, status, order, pickup, destination, progress, onCancel }: { orderId?: string; status: OrderStatus; order?: OrderResponse; pickup: Point; destination: Point; progress: number; onCancel: () => void }) {
-  const start = order?.assignedProvider?.location ?? PROVIDER_START
-  const providerPosition = interpolate(start, pickup, Math.min(progress, 92))
-  const eta = Math.max(1, Math.ceil((100 - progress) / 12))
+  const liveProviderLocation = order?.assignedProvider?.location
+  const start = liveProviderLocation ? { lat: liveProviderLocation.lat, lng: liveProviderLocation.lng } : (order?.assignedProvider ? PROVIDER_START : PROVIDER_START)
+  const providerPosition = liveProviderLocation
+    ? { lat: liveProviderLocation.lat, lng: liveProviderLocation.lng }
+    : interpolate(start, pickup, Math.min(progress, 92))
+  const eta = order?.assignedProvider?.etaMinutes ?? Math.max(1, Math.ceil((100 - progress) / 12))
 
   return (
     <RideScreen pickup={pickup} destination={destination} providerPosition={providerPosition} mapSubtitle={`ETA ${eta} хв · ${Math.round(progress)}% маршруту`}>
+      <StepBadge step={4} />
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
         <SheetHeading title="Виконавець у дорозі" subtitle={orderId ? `Замовлення #${orderId}` : undefined} />
         <div style={{ background: "#111315", color: "#fff", borderRadius: 999, padding: "9px 12px", fontWeight: 950 }}>{eta} хв</div>
@@ -966,9 +1114,10 @@ function TrackingStep({ orderId, status, order, pickup, destination, progress, o
   )
 }
 
-function ArrivedStep({ orderId, status, order, onComplete, onCancel }: { orderId?: string; status: OrderStatus; order?: OrderResponse; onComplete: () => void; onCancel: () => void }) {
+function ArrivedStep({ orderId, status, order, pickup, destination, onComplete, onCancel }: { orderId?: string; status: OrderStatus; order?: OrderResponse; pickup: Point; destination: Point; onComplete: () => void; onCancel: () => void }) {
   return (
-    <RideScreen pickup={PICKUP} destination={DEFAULT_DESTINATION} providerPosition={PICKUP} mapSubtitle="Виконавець на місці">
+    <RideScreen pickup={pickup} destination={destination} providerPosition={pickup} mapSubtitle="Виконавець на місці">
+      <StepBadge step={4} />
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
         <SheetHeading title="Виконавець на місці" subtitle={orderId ? `Замовлення #${orderId}` : undefined} />
         <StatusPill status={status} />
@@ -989,9 +1138,10 @@ function ArrivedStep({ orderId, status, order, onComplete, onCancel }: { orderId
   )
 }
 
-function InProgressStep({ orderId, status, order, onCancel }: { orderId?: string; status: OrderStatus; order?: OrderResponse; onCancel: () => void }) {
+function InProgressStep({ orderId, status, order, pickup, destination, onCancel }: { orderId?: string; status: OrderStatus; order?: OrderResponse; pickup: Point; destination: Point; onCancel: () => void }) {
   return (
-    <RideScreen pickup={PICKUP} destination={DEFAULT_DESTINATION} providerPosition={PICKUP} mapSubtitle="Допомога триває">
+    <RideScreen pickup={pickup} destination={destination} providerPosition={pickup} mapSubtitle="Допомога триває">
+      <StepBadge step={4} />
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
         <SheetHeading title="Допомога триває" subtitle={orderId ? `Замовлення #${orderId}` : undefined} />
         <StatusPill status={status} />
@@ -1047,6 +1197,7 @@ function AccountLoginStep({
   onLoginChange,
   onPasswordChange,
   onSubmit,
+  onRegister,
 }: {
   title: string
   subtitle: string
@@ -1057,23 +1208,29 @@ function AccountLoginStep({
   onLoginChange: (value: string) => void
   onPasswordChange: (value: string) => void
   onSubmit: () => void
+  onRegister?: () => void
 }) {
   return (
     <ScreenLayout footer={<PrimaryButton label={saving ? "Входимо…" : "Увійти"} onClick={onSubmit} disabled={!login.trim() || !password.trim() || saving} />}>
       <Header title={title} subtitle={subtitle} />
-      <div style={{ padding: "8px 16px 16px", display: "grid", gap: 12 }}>
-        <div style={{ background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 18, padding: 14, display: "grid", gap: 10 }}>
+      <FormContainer>
+        <div className="pomich-form-card">
           <label style={{ display: "grid", gap: 6 }}>
-            <span style={{ color: "#6B7280", fontSize: 12, fontWeight: 850 }}>Логін</span>
-            <input value={login} onChange={(event) => onLoginChange(event.target.value)} autoComplete="username" style={{ height: 44, borderRadius: 12, border: `1px solid ${BORDER}`, padding: "0 12px", font: "inherit", fontWeight: 750, color: DARK }} />
+            <span className="pomich-form-label">Логін</span>
+            <input value={login} onChange={(event) => onLoginChange(event.target.value)} autoComplete="username" className="pomich-form-input" />
           </label>
           <label style={{ display: "grid", gap: 6 }}>
-            <span style={{ color: "#6B7280", fontSize: 12, fontWeight: 850 }}>Пароль</span>
-            <input value={password} onChange={(event) => onPasswordChange(event.target.value)} type="password" autoComplete="current-password" style={{ height: 44, borderRadius: 12, border: `1px solid ${BORDER}`, padding: "0 12px", font: "inherit", fontWeight: 750, color: DARK }} />
+            <span className="pomich-form-label">Пароль</span>
+            <input value={password} onChange={(event) => onPasswordChange(event.target.value)} type="password" autoComplete="current-password" className="pomich-form-input" />
           </label>
         </div>
-        {error ? <div style={{ background: "#FFF1F2", color: "#BE123C", borderRadius: 14, padding: 12, fontWeight: 800 }}>{error}</div> : null}
-      </div>
+        {onRegister ? (
+          <button type="button" onClick={onRegister} className="pomich-ghost-btn" style={{ width: "100%", color: "var(--pomich-accent)" }}>
+            Новий партнер? Зареєструватись
+          </button>
+        ) : null}
+        {error ? <div className="pomich-form-error">{error}</div> : null}
+      </FormContainer>
     </ScreenLayout>
   )
 }
@@ -1085,6 +1242,7 @@ function ProviderRegistrationStep({
   onChange,
   onToggleSpecialty,
   onSubmit,
+  onLogin,
 }: {
   form: PartnerRegistrationForm
   saving: boolean
@@ -1092,63 +1250,65 @@ function ProviderRegistrationStep({
   onChange: (patch: Partial<PartnerRegistrationForm>) => void
   onToggleSpecialty: (specialty: ServiceKey) => void
   onSubmit: () => void
+  onLogin?: () => void
 }) {
-  const canSubmit = Boolean(form.name.trim() && form.phone.trim() && form.vehicle.trim() && form.specialties.length > 0)
+  const canSubmit = Boolean(
+    form.name.trim()
+    && validateUkraineMobilePhone(form.phone).valid
+    && form.vehicle.trim()
+    && (form.city || "").trim()
+    && form.specialties.length > 0,
+  )
   const documentsReady = Boolean(form.identityDocumentRef.trim() && form.driverLicenseRef.trim() && form.vehicleRegistrationRef.trim() && form.serviceProofRef.trim() && form.selfieRef.trim())
 
   return (
-    <ScreenLayout footer={<PrimaryButton label={saving ? "Зберігаємо профіль…" : documentsReady ? "Зберегти і подати на перевірку" : "Зберегти профіль"} onClick={onSubmit} disabled={!canSubmit || saving} />}>
-      <Header title="Реєстрація партнера" subtitle="Вкажіть, яку допомогу ви реально можете виконувати" />
-      <div style={{ padding: "8px 16px 16px", display: "grid", gap: 12 }}>
-        <div style={{ background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 18, padding: 14, display: "grid", gap: 10 }}>
+    <ScreenLayout footer={<PrimaryButton label={saving ? "Зберігаємо профіль…" : "Зареєструватись"} onClick={onSubmit} disabled={!canSubmit || saving} />}>
+      <Header title="Реєстрація партнера" subtitle="Заповніть профіль і оберіть послуги, які надаєте" />
+      <FormContainer>
+        <div className="pomich-form-card">
           <label style={{ display: "grid", gap: 6 }}>
-            <span style={{ color: "#6B7280", fontSize: 12, fontWeight: 850 }}>Ім'я партнера</span>
-            <input value={form.name} onChange={(event) => onChange({ name: event.target.value })} style={{ height: 44, borderRadius: 12, border: `1px solid ${BORDER}`, padding: "0 12px", font: "inherit", fontWeight: 750, color: DARK }} />
+            <span className="pomich-form-label">Ім'я</span>
+            <input value={form.name} onChange={(event) => onChange({ name: event.target.value })} className="pomich-form-input" />
           </label>
           <label style={{ display: "grid", gap: 6 }}>
-            <span style={{ color: "#6B7280", fontSize: 12, fontWeight: 850 }}>Телефон</span>
-            <input value={form.phone} onChange={(event) => onChange({ phone: event.target.value })} inputMode="tel" style={{ height: 44, borderRadius: 12, border: `1px solid ${BORDER}`, padding: "0 12px", font: "inherit", fontWeight: 750, color: DARK }} />
+            <span className="pomich-form-label">Телефон</span>
+            <PhoneInput value={form.phone} onChange={(phone) => onChange({ phone })} />
           </label>
           <label style={{ display: "grid", gap: 6 }}>
-            <span style={{ color: "#6B7280", fontSize: 12, fontWeight: 850 }}>Telegram</span>
-            <input value={form.telegram} onChange={(event) => onChange({ telegram: event.target.value })} style={{ height: 44, borderRadius: 12, border: `1px solid ${BORDER}`, padding: "0 12px", font: "inherit", fontWeight: 750, color: DARK }} />
+            <span className="pomich-form-label">Місто</span>
+            <input value={form.city} onChange={(event) => onChange({ city: event.target.value })} placeholder="Ужгород" className="pomich-form-input" />
           </label>
         </div>
 
-        <div style={{ background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 18, padding: 14, display: "grid", gap: 10 }}>
+        <div className="pomich-form-card">
           <label style={{ display: "grid", gap: 6 }}>
-            <span style={{ color: "#6B7280", fontSize: 12, fontWeight: 850 }}>Авто / техніка</span>
-            <input value={form.vehicle} onChange={(event) => onChange({ vehicle: event.target.value })} style={{ height: 44, borderRadius: 12, border: `1px solid ${BORDER}`, padding: "0 12px", font: "inherit", fontWeight: 750, color: DARK }} />
+            <span className="pomich-form-label">Авто / марка</span>
+            <input value={form.vehicle} onChange={(event) => onChange({ vehicle: event.target.value })} placeholder="Volkswagen Transporter" className="pomich-form-input" />
           </label>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-            <label style={{ display: "grid", gap: 6 }}>
-              <span style={{ color: "#6B7280", fontSize: 12, fontWeight: 850 }}>Номер</span>
-              <input value={form.plate} onChange={(event) => onChange({ plate: event.target.value })} style={{ height: 44, borderRadius: 12, border: `1px solid ${BORDER}`, padding: "0 12px", font: "inherit", fontWeight: 750, color: DARK }} />
-            </label>
-            <label style={{ display: "grid", gap: 6 }}>
-              <span style={{ color: "#6B7280", fontSize: 12, fontWeight: 850 }}>Радіус, км</span>
-              <input value={form.serviceRadiusKm} onChange={(event) => onChange({ serviceRadiusKm: Number(event.target.value) || 1 })} min={1} max={50} type="number" inputMode="numeric" style={{ height: 44, borderRadius: 12, border: `1px solid ${BORDER}`, padding: "0 12px", font: "inherit", fontWeight: 750, color: DARK }} />
-            </label>
-          </div>
+          <label style={{ display: "grid", gap: 6 }}>
+            <span className="pomich-form-label">Номер</span>
+            <input value={form.plate} onChange={(event) => onChange({ plate: event.target.value })} className="pomich-form-input" />
+          </label>
+          <ServiceRadiusField value={form.serviceRadiusKm} onChange={(serviceRadiusKm) => onChange({ serviceRadiusKm })} />
         </div>
 
-        <div style={{ background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 18, padding: 14 }}>
+        <div className="pomich-form-card">
           <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
             <div>
-              <div style={{ fontWeight: 950, color: DARK }}>Ваші послуги</div>
-              <div style={{ color: "#6B7280", fontSize: 12, fontWeight: 800, marginTop: 3 }}>{form.specialties.length} обрано</div>
+              <div style={{ fontWeight: 950, color: "var(--pomich-text)" }}>Ваші послуги</div>
+              <div className="pomich-header-subtitle">{form.specialties.length} обрано</div>
             </div>
-            <div style={{ background: form.specialties.length > 0 ? "#E8F8F1" : "#FFF7ED", color: form.specialties.length > 0 ? BRAND : "#B45309", borderRadius: 999, padding: "7px 10px", fontSize: 12, fontWeight: 950 }}>
+            <div style={{ background: form.specialties.length > 0 ? "var(--pomich-selected-bg)" : "#FFF7ED", color: form.specialties.length > 0 ? BRAND : "#B45309", borderRadius: 999, padding: "7px 10px", fontSize: 12, fontWeight: 950 }}>
               {form.specialties.length > 0 ? "Готово" : "Оберіть"}
             </div>
           </div>
-          <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-            {services.map((service) => {
+          <div className="pomich-service-grid">
+            {partnerRegistrationServices.map((service) => {
               const selected = form.specialties.includes(service.key)
               return (
-                <button key={service.key} onClick={() => onToggleSpecialty(service.key)} style={{ minHeight: 62, border: selected ? `1.5px solid ${BRAND}` : `1px solid ${BORDER}`, background: selected ? "#E8F8F1" : service.tone, borderRadius: 14, padding: 10, textAlign: "left", cursor: "pointer", fontFamily: "inherit", color: DARK }}>
+                <button key={service.key} type="button" onClick={() => onToggleSpecialty(service.key)} className={`pomich-service-card${selected ? " is-selected" : ""}`} style={selected ? undefined : { background: service.tone }}>
                   <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                    <span style={{ fontSize: 20 }}>{service.emoji}</span>
+                    <span style={{ fontSize: 18 }}>{service.emoji}</span>
                     <span style={{ fontWeight: 900, fontSize: 13, lineHeight: 1.2 }}>{getProviderCapabilityLabel(service.key)}</span>
                   </div>
                 </button>
@@ -1157,32 +1317,38 @@ function ProviderRegistrationStep({
           </div>
         </div>
 
-        <div style={{ background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 18, padding: 14, display: "grid", gap: 10 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
-            <div>
-              <div style={{ fontWeight: 950, color: DARK }}>Перевірка партнера</div>
-              <div style={{ color: "#6B7280", fontSize: 12, fontWeight: 800, marginTop: 3 }}>Допуск до заявок після review диспетчера</div>
-            </div>
-            <div style={{ borderRadius: 999, padding: "7px 10px", background: documentsReady ? "#E8F8F1" : "#FFF7ED", color: documentsReady ? BRAND : "#B45309", fontSize: 12, fontWeight: 950 }}>
-              {documentsReady ? "Готово" : "Документи"}
-            </div>
-          </div>
-          {[
-            ["identityDocumentRef", "ID / паспорт", "doc://passport-front"],
-            ["driverLicenseRef", "Водійське посвідчення", "doc://driver-license"],
-            ["vehicleRegistrationRef", "Реєстрація авто", "doc://vehicle-registration"],
-            ["serviceProofRef", "Підтвердження сервісу", "doc://tools-or-company"],
-            ["selfieRef", "Selfie-check", "doc://selfie"],
-          ].map(([key, label, placeholder]) => (
-            <label key={key} style={{ display: "grid", gap: 6 }}>
-              <span style={{ color: "#6B7280", fontSize: 12, fontWeight: 850 }}>{label}</span>
-              <input value={String(form[key as keyof PartnerRegistrationForm] ?? "")} onChange={(event) => onChange({ [key]: event.target.value } as Partial<PartnerRegistrationForm>)} placeholder={placeholder} style={{ height: 42, borderRadius: 12, border: `1px solid ${BORDER}`, padding: "0 12px", font: "inherit", fontWeight: 750, color: DARK }} />
-            </label>
-          ))}
-        </div>
+        {onLogin ? (
+          <button type="button" onClick={onLogin} className="pomich-link-btn" style={{ width: "100%" }}>
+            Вже маєте акаунт? Увійти
+          </button>
+        ) : null}
 
-        {error ? <div style={{ background: "#FFF1F2", color: "#BE123C", borderRadius: 14, padding: 12, fontWeight: 800 }}>{error}</div> : null}
-      </div>
+        {documentsReady ? (
+          <div className="pomich-form-card">
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+              <div>
+                <div style={{ fontWeight: 950, color: "var(--pomich-text)" }}>Перевірка партнера</div>
+                <div className="pomich-header-subtitle">Допуск до заявок після review диспетчера</div>
+              </div>
+              <div style={{ borderRadius: 999, padding: "7px 10px", background: "var(--pomich-selected-bg)", color: BRAND, fontSize: 12, fontWeight: 950 }}>Готово</div>
+            </div>
+            {[
+              ["identityDocumentRef", "ID / паспорт", "doc://passport-front"],
+              ["driverLicenseRef", "Водійське посвідчення", "doc://driver-license"],
+              ["vehicleRegistrationRef", "Реєстрація авто", "doc://vehicle-registration"],
+              ["serviceProofRef", "Підтвердження сервісу", "doc://tools-or-company"],
+              ["selfieRef", "Selfie-check", "doc://selfie"],
+            ].map(([key, label, placeholder]) => (
+              <label key={key} style={{ display: "grid", gap: 6 }}>
+                <span className="pomich-form-label">{label}</span>
+                <input value={String(form[key as keyof PartnerRegistrationForm] ?? "")} onChange={(event) => onChange({ [key]: event.target.value } as Partial<PartnerRegistrationForm>)} placeholder={placeholder} className="pomich-form-input" />
+              </label>
+            ))}
+          </div>
+        ) : null}
+
+        {error ? <div className="pomich-form-error">{error}</div> : null}
+      </FormContainer>
     </ScreenLayout>
   )
 }
@@ -1228,31 +1394,46 @@ function IncomingOfferStep({
   )
 }
 
-const LANDING_PICKUP: Point = { lat: 50.4501, lng: 30.5234 }
-const LANDING_DESTINATION: Point = { lat: 50.4547, lng: 30.5038 }
+const LANDING_MAP_CENTER: Point = PICKUP
+const LANDING_DESTINATION: Point = { lat: 48.625, lng: 22.295 }
 
-const landingProviders: ProviderAvailability[] = [
+const landingHeroProviders: ProviderAvailability[] = [
   {
-    id: "landing-oleksandr",
+    id: "hero-oleksandr",
     name: "Олександр",
     status: "online",
     vehicle: "Volkswagen Transporter",
     rating: 4.9,
     etaMinutes: 12,
-    location: { lat: 50.4448, lng: 30.5166 },
+    location: { lat: 48.618, lng: 22.282 },
     specialties: ["tow", "fuel"],
   },
   {
-    id: "landing-mykhailo",
+    id: "hero-mykhailo",
     name: "Михайло",
     status: "busy",
     vehicle: "Renault Master",
     rating: 4.8,
     etaMinutes: 18,
-    location: { lat: 50.4635, lng: 30.5179 },
+    location: { lat: 48.628, lng: 22.301 },
     specialties: ["battery", "wheel"],
   },
 ]
+
+function readLandingUserLocation(): Point | undefined {
+  if (typeof window === "undefined") return undefined
+  try {
+    const raw = window.sessionStorage.getItem("pomichLandingGeo")
+    if (!raw) return undefined
+    const parsed = JSON.parse(raw) as { lat?: number; lng?: number }
+    if (typeof parsed.lat === "number" && typeof parsed.lng === "number") {
+      return { lat: parsed.lat, lng: parsed.lng }
+    }
+  } catch {
+    return undefined
+  }
+  return undefined
+}
 
 const landingStats = [
   ["24/7", "Заявка з дороги"],
@@ -1276,84 +1457,71 @@ const landingSteps = [
   ["4", "Стежте за допомогою", "Виконавець приймає заявку, їде до клієнта й оновлює статус роботи."],
 ] as const
 
-type LandingThemeMode = "dark" | "light"
+type LandingTheme = {
+  page: string
+  section: string
+  sectionAlt: string
+  nav: string
+  navBorder: string
+  text: string
+  muted: string
+  subtle: string
+  navText: string
+  badgeBg: string
+  badgeBorder: string
+  badgeText: string
+  cardBorder: string
+  cardShadow: string
+  ghostBg: string
+  ghostBorder: string
+  footer: string
+  menu: string
+  heroFadeBottom: string
+  heroGradientText: string
+  statValue: string
+  mapOverlay: string
+  heroBg: string
+  heroPattern: string
+}
 
-const landingThemes = {
-  dark: {
-    page: "#090B0E",
-    section: "#090B0E",
-    sectionAlt: "#0D1015",
-    nav: "rgba(9,11,14,0.88)",
-    navBorder: "rgba(255,255,255,0.08)",
-    text: "#FFFFFF",
-    muted: "#B9C2D0",
-    subtle: "#AAB4C3",
-    navText: "#9CA3AF",
-    badgeBg: "rgba(22,163,106,0.12)",
-    badgeBorder: "rgba(22,163,106,0.38)",
-    badgeText: "#8EF0BE",
-    card: "rgba(255,255,255,0.045)",
-    cardStrong: "linear-gradient(180deg, rgba(255,255,255,0.075), rgba(255,255,255,0.035))",
-    cardBorder: "rgba(255,255,255,0.13)",
-    cardShadow: "0 20px 70px rgba(0,0,0,0.26)",
-    clientCard: "rgba(15,18,22,0.92)",
-    clientItem: "rgba(255,255,255,0.06)",
-    clientItemBorder: "rgba(255,255,255,0.1)",
-    partnerCard: "rgba(255,255,255,0.92)",
-    partnerText: DARK,
-    partnerMuted: "#6B7280",
-    ghostBg: "rgba(255,255,255,0.08)",
-    ghostBorder: "rgba(255,255,255,0.16)",
-    footer: "#090B0E",
-    menu: "rgba(15,18,22,0.98)",
-    heroOverlay: "radial-gradient(circle at 50% 26%, rgba(22,163,106,0.18), rgba(9,11,14,0.18) 34%, #090B0E 78%), linear-gradient(180deg, rgba(9,11,14,0.58), rgba(9,11,14,0.96))",
-    mapOverlay: "linear-gradient(180deg, rgba(9,11,14,0.06), rgba(9,11,14,0.28))",
-    toggleTrack: "rgba(255,255,255,0.08)",
-    toggleBorder: "rgba(255,255,255,0.14)",
-    toggleKnob: "#FFFFFF",
-  },
-  light: {
-    page: "#F5F8FB",
-    section: "#F5F8FB",
-    sectionAlt: "#EAF2F7",
-    nav: "rgba(255,255,255,0.9)",
-    navBorder: "#DDE5EF",
-    text: "#0F172A",
-    muted: "#475569",
-    subtle: "#64748B",
-    navText: "#475569",
-    badgeBg: "#EAFBF2",
-    badgeBorder: "#A8EBC7",
-    badgeText: "#0B7A4D",
-    card: "#FFFFFF",
-    cardStrong: "#FFFFFF",
-    cardBorder: "#DDE5EF",
-    cardShadow: "0 18px 44px rgba(15,23,42,0.08)",
-    clientCard: "#FFFFFF",
-    clientItem: "#F3F7FA",
-    clientItemBorder: "#DDE5EF",
-    partnerCard: "#FFFFFF",
-    partnerText: "#0F172A",
-    partnerMuted: "#64748B",
-    ghostBg: "#FFFFFF",
-    ghostBorder: "#DDE5EF",
-    footer: "#EEF4F8",
-    menu: "rgba(255,255,255,0.98)",
-    heroOverlay: "radial-gradient(circle at 50% 26%, rgba(22,163,106,0.16), rgba(245,248,251,0.2) 34%, #F5F8FB 80%), linear-gradient(180deg, rgba(245,248,251,0.32), rgba(245,248,251,0.96))",
-    mapOverlay: "linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.16))",
-    toggleTrack: "#E2E8F0",
-    toggleBorder: "#CBD5E1",
-    toggleKnob: "#FFFFFF",
-  },
-} as const
+function buildLandingTheme(mode: PomichThemeMode, colors: PomichThemeColors): LandingTheme {
+  const isDark = mode === "dark"
+  return {
+    page: colors.bg,
+    section: colors.section,
+    sectionAlt: colors.sectionAlt,
+    nav: colors.nav,
+    navBorder: colors.navBorder,
+    text: colors.text,
+    muted: colors.muted,
+    subtle: colors.subtle,
+    navText: isDark ? "#9CA3AF" : colors.muted,
+    badgeBg: isDark ? "rgba(22,163,106,0.12)" : "#EAFBF2",
+    badgeBorder: isDark ? "rgba(22,163,106,0.38)" : "#A8EBC7",
+    badgeText: colors.badgeText,
+    cardBorder: colors.glassCardBorder,
+    cardShadow: colors.cardShadow,
+    ghostBg: colors.ghostBg,
+    ghostBorder: colors.ghostBorder,
+    footer: isDark ? colors.bg : "#EEF4F8",
+    menu: isDark ? "rgba(15,18,22,0.98)" : "rgba(255,255,255,0.98)",
+    heroFadeBottom: colors.heroFadeBottom,
+    heroGradientText: colors.heroGradientText,
+    statValue: isDark ? "#FACC15" : colors.brand,
+    mapOverlay: isDark
+      ? "linear-gradient(180deg, rgba(9,11,14,0.06), rgba(9,11,14,0.28))"
+      : "linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.16))",
+    heroBg: colors.heroBg,
+    heroPattern: colors.heroPattern,
+  }
+}
 
-type LandingTheme = (typeof landingThemes)[LandingThemeMode]
-
-function getInitialLandingTheme(): LandingThemeMode {
-  if (typeof window === "undefined") return "dark"
-  const stored = window.localStorage.getItem("pomichLandingTheme")
-  if (stored === "light" || stored === "dark") return stored
-  return window.matchMedia?.("(prefers-color-scheme: light)").matches ? "light" : "dark"
+function landingCardSurface(theme: LandingTheme): { border: string; background: string; boxShadow: string } {
+  return {
+    border: `1px solid ${theme.cardBorder}`,
+    background: "var(--pomich-glass-card)",
+    boxShadow: theme.cardShadow,
+  }
 }
 
 function LandingBadge({ label, theme }: { label: string; theme: LandingTheme }) {
@@ -1365,23 +1533,25 @@ function LandingBadge({ label, theme }: { label: string; theme: LandingTheme }) 
   )
 }
 
-function LandingButton({ children, onClick, theme, variant = "primary" }: { children: React.ReactNode; onClick?: () => void; theme: LandingTheme; variant?: "primary" | "secondary" | "ghost" }) {
+function LandingButton({ children, onClick, theme, variant = "primary", compact = false }: { children: React.ReactNode; onClick?: () => void; theme: LandingTheme; variant?: "primary" | "secondary" | "ghost"; compact?: boolean }) {
   const isPrimary = variant === "primary"
   const isGhost = variant === "ghost"
   return (
     <button
       onClick={onClick}
       style={{
-        minHeight: 50,
+        minHeight: compact ? 44 : 50,
         border: isGhost ? `1px solid ${theme.ghostBorder}` : "none",
-        borderRadius: 12,
-        padding: "0 18px",
+        borderRadius: compact ? 10 : 12,
+        padding: compact ? "0 14px" : "0 18px",
+        fontSize: compact ? 14 : undefined,
         background: isPrimary ? "linear-gradient(135deg, #16A36A 0%, #2F80ED 100%)" : isGhost ? theme.ghostBg : "linear-gradient(135deg, #2F80ED 0%, #D6B400 100%)",
         color: isGhost ? theme.text : "#fff",
         boxShadow: isGhost ? "none" : "0 16px 38px rgba(22,163,106,0.22)",
         fontFamily: "inherit",
         fontWeight: 950,
         cursor: "pointer",
+        width: "100%",
       }}
     >
       {children}
@@ -1389,220 +1559,325 @@ function LandingButton({ children, onClick, theme, variant = "primary" }: { chil
   )
 }
 
-function LandingSectionTitle({ eyebrow, title, subtitle, theme }: { eyebrow: string; title: string; subtitle: string; theme: LandingTheme }) {
+function LandingSectionTitle({ eyebrow, title, subtitle, theme, compact = false }: { eyebrow: string; title: string; subtitle: string; theme: LandingTheme; compact?: boolean }) {
   return (
-    <div style={{ textAlign: "center", maxWidth: 760, margin: "0 auto 34px" }}>
-      <div style={{ display: "inline-flex", border: "1px solid rgba(47,128,237,0.42)", background: "rgba(47,128,237,0.14)", color: "#69A7FF", borderRadius: 999, padding: "7px 12px", fontWeight: 900, fontSize: 13 }}>{eyebrow}</div>
-      <h2 style={{ margin: "18px 0 0", color: theme.text, fontSize: "clamp(32px, 5vw, 52px)", lineHeight: 1.03, letterSpacing: 0, fontWeight: 950 }}>{title}</h2>
-      <p style={{ margin: "14px auto 0", color: theme.muted, fontSize: 17, lineHeight: 1.55, fontWeight: 700 }}>{subtitle}</p>
+    <div className="landing-section-title pomich-landing-inner" style={{ textAlign: "center", margin: compact ? "0 auto 14px" : "0 auto 34px" }}>
+      <div style={{ display: "inline-flex", border: "1px solid rgba(47,128,237,0.42)", background: "rgba(47,128,237,0.14)", color: "#69A7FF", borderRadius: 999, padding: compact ? "5px 10px" : "7px 12px", fontWeight: 900, fontSize: compact ? 11 : 13 }}>{eyebrow}</div>
+      <h2 style={{ margin: compact ? "10px 0 0" : "18px 0 0", color: theme.text, fontSize: compact ? 22 : "clamp(28px, 4vw, 42px)", lineHeight: 1.03, letterSpacing: 0, fontWeight: 950 }}>{title}</h2>
+      <p style={{ margin: compact ? "8px auto 0" : "14px auto 0", color: theme.muted, fontSize: compact ? 13 : 17, lineHeight: compact ? 1.45 : 1.55, fontWeight: 700 }}>{subtitle}</p>
     </div>
   )
 }
 
-function LandingThemeToggle({ mode, theme, compact, onToggle }: { mode: LandingThemeMode; theme: LandingTheme; compact: boolean; onToggle: () => void }) {
-  const isLight = mode === "light"
-  const width = compact ? 92 : 132
-  const knobWidth = compact ? 42 : 62
-
+function LandingHeroBackground({
+  providers,
+  theme,
+  isDark,
+}: {
+  providers: ProviderAvailability[]
+  theme: LandingTheme
+  isDark: boolean
+}) {
+  const heroProviders = providers.length > 0 ? providers : landingHeroProviders
   return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={!isLight}
-      aria-label="Перемкнути тему лендингу"
-      onClick={onToggle}
-      style={{ width, height: 42, border: `1px solid ${theme.toggleBorder}`, borderRadius: 999, background: theme.toggleTrack, color: theme.text, position: "relative", display: "grid", gridTemplateColumns: "1fr 1fr", alignItems: "center", padding: 4, fontFamily: "inherit", fontSize: compact ? 11 : 12, fontWeight: 950, cursor: "pointer", boxShadow: mode === "light" ? "0 8px 24px rgba(15,23,42,0.08)" : "none" }}
-    >
-      <span style={{ position: "absolute", top: 4, bottom: 4, left: isLight ? 4 : width - knobWidth - 4, width: knobWidth, borderRadius: 999, background: theme.toggleKnob, boxShadow: "0 6px 18px rgba(0,0,0,0.18)", transition: "left 0.2s ease" }} />
-      <span style={{ position: "relative", zIndex: 1, color: isLight ? DARK : theme.navText }}>{compact ? "Світ" : "Світла"}</span>
-      <span style={{ position: "relative", zIndex: 1, color: isLight ? theme.navText : DARK }}>{compact ? "Тем" : "Темна"}</span>
-    </button>
-  )
-}
-
-function LandingInterfacePreview({ compact, theme }: { compact: boolean; theme: LandingTheme }) {
-  return (
-    <div style={{ maxWidth: 1120, margin: "0 auto", display: "grid", gridTemplateColumns: compact ? "1fr" : "300px minmax(0, 1fr) 300px", gap: compact ? 16 : 22, alignItems: "stretch" }}>
-      <div style={{ order: compact ? 2 : 1, border: `1px solid ${theme.cardBorder}`, borderRadius: 8, background: theme.clientCard, boxShadow: theme.cardShadow, padding: 16, color: theme.text, alignSelf: "center" }}>
-        <div style={{ color: theme.badgeText, fontWeight: 950, fontSize: 13 }}>Клієнтський сценарій</div>
-        <div style={{ marginTop: 8, fontSize: 23, lineHeight: 1.08, fontWeight: 950, color: theme.text }}>Потрібна допомога на дорозі?</div>
-        <div style={{ marginTop: 14, display: "grid", gap: 8 }}>
-          {["Поточне місце", "Евакуатор", "Орієнтовно 12 хв"].map((item, index) => (
-            <div key={item} style={{ display: "grid", gridTemplateColumns: "32px 1fr", alignItems: "center", gap: 10, border: `1px solid ${theme.clientItemBorder}`, borderRadius: 8, padding: "9px 10px", background: theme.clientItem }}>
-              <span style={{ width: 32, height: 32, borderRadius: 8, background: index === 0 ? "rgba(22,163,106,0.22)" : "rgba(47,128,237,0.18)", display: "flex", alignItems: "center", justifyContent: "center" }}>{index === 0 ? "●" : index === 1 ? "🚛" : "⚡"}</span>
-              <span style={{ fontWeight: 900, fontSize: 13 }}>{item}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div style={{ order: compact ? 1 : 2, position: "relative", height: compact ? 360 : 500, borderRadius: 24, overflow: "hidden", border: "1px solid rgba(255,255,255,0.14)", boxShadow: "0 28px 90px rgba(0,0,0,0.38)", background: "#14181D", minWidth: 0 }}>
-        <RouteMap pickup={LANDING_PICKUP} destination={LANDING_DESTINATION} providers={landingProviders} subtitle="Київ · live dispatch" full />
-        <div style={{ position: "absolute", inset: 0, background: theme.mapOverlay, pointerEvents: "none", zIndex: 1150 }} />
-      </div>
-
-      <div style={{ order: 3, border: `1px solid ${theme.cardBorder}`, borderRadius: 8, background: theme.partnerCard, color: theme.partnerText, boxShadow: theme.cardShadow, padding: 16, alignSelf: "center" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
-          <div>
-            <div style={{ fontWeight: 950 }}>Партнер POMICH</div>
-            <div style={{ color: theme.partnerMuted, fontSize: 12, fontWeight: 800, marginTop: 3 }}>На лінії · 1.7 км</div>
+    <>
+      {isDark ? (
+        <>
+          <div style={{ position: "absolute", inset: 0, opacity: 0.4, filter: "saturate(1.18) contrast(1.05)", pointerEvents: "none" }}>
+            <RouteMap
+              pickup={LANDING_MAP_CENTER}
+              destination={LANDING_DESTINATION}
+              providers={heroProviders}
+              subtitle="POMICH live map"
+              full
+              showBadges={false}
+              directoryOnly
+              decorative
+            />
           </div>
-          <div style={{ color: BRAND, background: "#E8F8F1", borderRadius: 999, padding: "7px 10px", fontWeight: 950, fontSize: 12 }}>~12 хв</div>
-        </div>
-        <div style={{ marginTop: 14, height: 8, borderRadius: 999, background: "#E5E7EB" }}>
-          <div style={{ width: "68%", height: "100%", borderRadius: 999, background: BRAND }} />
-        </div>
-        <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-          <div style={{ borderRadius: 8, background: "#F3F4F6", padding: 10, fontSize: 12, fontWeight: 900 }}>Прийнято</div>
-          <div style={{ borderRadius: 8, background: "#111315", color: "#fff", padding: 10, fontSize: 12, fontWeight: 900 }}>У дорозі</div>
-        </div>
-      </div>
-    </div>
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              background: theme.heroBg,
+              pointerEvents: "none",
+            }}
+          />
+        </>
+      ) : (
+        <>
+          <div style={{ position: "absolute", inset: 0, background: theme.heroBg, pointerEvents: "none" }} />
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              background: "radial-gradient(ellipse 90% 70% at 50% 0%, rgba(22,163,106,0.14), transparent 58%)",
+              pointerEvents: "none",
+            }}
+          />
+        </>
+      )}
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          backgroundImage: theme.heroPattern,
+          backgroundSize: "28px 28px",
+          opacity: isDark ? 0.55 : 0.45,
+          pointerEvents: "none",
+        }}
+      />
+      <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 140, background: theme.heroFadeBottom, pointerEvents: "none" }} />
+    </>
   )
 }
 
-function LandingPage({ onSelect }: { onSelect: (role: Role) => void }) {
-  const compact = useMediaQuery("(max-width: 760px)")
+function LandingPage({
+  onSelect,
+  onRegister,
+  onLogin,
+}: {
+  onSelect: (role: Role) => void
+  onRegister: () => void
+  onLogin: () => void
+}) {
+  const telegramContext = useMemo(() => getTelegramContext(), [])
+  const isMobile = useMediaQuery(mediaQueries.mobile)
+  const isTelegram = telegramContext.isTelegram
+  const layoutCompact = isTelegram || isMobile
   const [menuOpen, setMenuOpen] = useState(false)
-  const [themeMode, setThemeMode] = useState<LandingThemeMode>(getInitialLandingTheme)
-  const theme = landingThemes[themeMode]
+  const [mapProviders, setMapProviders] = useState<ProviderAvailability[]>([])
+  const [mapProvidersLoading, setMapProvidersLoading] = useState(true)
+  const [mapUserLocation, setMapUserLocation] = useState<Point | undefined>(() => readLandingUserLocation())
+  const [mapGeoStatus, setMapGeoStatus] = useState<"idle" | "requesting" | "success" | "error">(() => (readLandingUserLocation() ? "success" : "idle"))
+  const { mode, colors, isDark } = usePomichTheme()
+  const theme = buildLandingTheme(mode, colors)
   const navItems = [
     ["#home", "Головна"],
-    ["#interface", "Інтерфейс"],
-    ["#features", "Функції"],
+    ["#services", "Послуги"],
     ["#steps", "Як це працює"],
+    ["#map", "Карта"],
     ["#contacts", "Контакти"],
   ] as const
 
   useEffect(() => {
-    window.localStorage.setItem("pomichLandingTheme", themeMode)
-  }, [themeMode])
+    let cancelled = false
+    getMapProviders()
+      .then((items) => {
+        if (!cancelled) setMapProviders(items)
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (!cancelled) setMapProvidersLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const requestMapGeo = () => {
+    if (typeof navigator === "undefined" || !("geolocation" in navigator)) {
+      setMapGeoStatus("error")
+      return
+    }
+    setMapGeoStatus("requesting")
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const point = { lat: position.coords.latitude, lng: position.coords.longitude }
+        window.sessionStorage.setItem("pomichLandingGeo", JSON.stringify(point))
+        setMapUserLocation(point)
+        setMapGeoStatus("success")
+      },
+      () => setMapGeoStatus("error"),
+      { enableHighAccuracy: true, timeout: 10000 },
+    )
+  }
+
+  const mapProviderCount = mapProviders.length
 
   return (
-    <div style={{ minHeight: "100vh", background: theme.page, color: theme.text, overflowX: "hidden", transition: "background 0.2s ease, color 0.2s ease" }}>
-      <header style={{ position: "sticky", top: 0, zIndex: 2200, height: 66, borderBottom: `1px solid ${theme.navBorder}`, background: theme.nav, backdropFilter: "blur(18px)", display: "flex", alignItems: "center", justifyContent: "center", padding: compact ? "0 16px" : "0 28px" }}>
+    <div className={isTelegram ? "tg-compact pomich-landing" : "pomich-landing"} style={{ minHeight: "100dvh", background: theme.page, color: theme.text, overflowX: "hidden", overflowY: "auto" }}>
+      <header className="pomich-landing-header" style={{ height: layoutCompact ? 52 : 66, borderBottom: "1px solid var(--pomich-nav-border)", background: "var(--pomich-nav)", padding: layoutCompact ? "0 12px" : "0 28px" }}>
         <div style={{ width: "100%", maxWidth: 1070, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 18 }}>
-          <a href="#home" style={{ display: "inline-flex", alignItems: "center", gap: 12, color: theme.text, textDecoration: "none", fontWeight: 950 }}>
-            <span style={{ width: 42, height: 42, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, #16A36A, #2F80ED)", boxShadow: "0 12px 32px rgba(22,163,106,0.28)", fontSize: 20 }}>P</span>
-            <span style={{ fontSize: 20 }}>POMICH</span>
+          <a href="#home" style={{ display: "inline-flex", alignItems: "center", gap: layoutCompact ? 8 : 12, color: "var(--pomich-text)", textDecoration: "none", fontWeight: 950 }}>
+            <span style={{ width: layoutCompact ? 34 : 42, height: layoutCompact ? 34 : 42, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, #16A36A, #2F80ED)", boxShadow: "0 12px 32px rgba(22,163,106,0.28)", fontSize: layoutCompact ? 16 : 20 }}>P</span>
+            <span style={{ fontSize: layoutCompact ? 16 : 20 }}>POMICH</span>
           </a>
-          {compact ? (
+          {layoutCompact ? (
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <LandingThemeToggle mode={themeMode} theme={theme} compact={compact} onToggle={() => setThemeMode((mode) => mode === "dark" ? "light" : "dark")} />
-              <button aria-label="Меню" onClick={() => setMenuOpen((value) => !value)} style={{ width: 44, height: 44, border: `1px solid ${theme.ghostBorder}`, borderRadius: 10, background: theme.ghostBg, color: theme.text, fontSize: 24, fontWeight: 900, cursor: "pointer" }}>☰</button>
+              <ThemeToggle compact={layoutCompact} />
+              <button aria-label="Меню" onClick={() => setMenuOpen((value) => !value)} style={{ width: 44, height: 44, border: `1px solid ${theme.ghostBorder}`, borderRadius: 10, background: theme.ghostBg, color: theme.text, fontSize: 22, fontWeight: 900, cursor: "pointer" }}>☰</button>
             </div>
           ) : (
             <nav style={{ display: "flex", alignItems: "center", gap: 26 }}>
               {navItems.map(([href, label]) => (
-                <a key={href} href={href} style={{ color: theme.navText, textDecoration: "none", fontWeight: 850, fontSize: 14 }}>{label}</a>
+                <a key={href} href={href} className="pomich-landing-nav-link">{label}</a>
               ))}
             </nav>
           )}
-          {!compact ? (
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <LandingThemeToggle mode={themeMode} theme={theme} compact={compact} onToggle={() => setThemeMode((mode) => mode === "dark" ? "light" : "dark")} />
-              <LandingButton theme={theme} onClick={() => onSelect("customer")}>Відкрити Web</LandingButton>
+          {!layoutCompact ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <ThemeToggle compact={layoutCompact} />
+              <LandingButton theme={theme} variant="ghost" onClick={onLogin}>Увійти</LandingButton>
+              <LandingButton theme={theme} onClick={onRegister}>Зареєструватися</LandingButton>
             </div>
           ) : null}
         </div>
-        {compact && menuOpen ? (
-          <div style={{ position: "absolute", top: 66, left: 12, right: 12, border: `1px solid ${theme.ghostBorder}`, borderRadius: 8, background: theme.menu, padding: 12, display: "grid", gap: 4, boxShadow: "0 24px 60px rgba(0,0,0,0.32)" }}>
+        {layoutCompact && menuOpen ? (
+          <div style={{ position: "absolute", top: 52, left: 12, right: 12, border: `1px solid ${theme.ghostBorder}`, borderRadius: 8, background: theme.menu, padding: 12, display: "grid", gap: 4, boxShadow: "0 24px 60px rgba(0,0,0,0.32)" }}>
             {navItems.map(([href, label]) => (
-              <a key={href} href={href} onClick={() => setMenuOpen(false)} style={{ color: theme.text, textDecoration: "none", fontWeight: 900, padding: "12px 10px", borderRadius: 6 }}>{label}</a>
+              <a key={href} href={href} onClick={() => setMenuOpen(false)} style={{ color: theme.text, textDecoration: "none", fontWeight: 900, padding: "10px 10px", borderRadius: 6, fontSize: 14 }}>{label}</a>
             ))}
+            <button type="button" onClick={() => { setMenuOpen(false); onLogin() }} style={{ marginTop: 6, minHeight: 44, border: `1px solid ${theme.ghostBorder}`, borderRadius: 8, background: theme.ghostBg, color: theme.text, fontFamily: "inherit", fontWeight: 900, cursor: "pointer" }}>Увійти</button>
+            <button type="button" onClick={() => { setMenuOpen(false); onRegister() }} style={{ minHeight: 44, border: "none", borderRadius: 8, background: "linear-gradient(135deg, #16A36A 0%, #2F80ED 100%)", color: "#fff", fontFamily: "inherit", fontWeight: 900, cursor: "pointer" }}>Зареєструватися</button>
           </div>
         ) : null}
       </header>
 
       <main>
-        <section id="home" style={{ position: "relative", minHeight: compact ? "600px" : "680px", display: "flex", alignItems: "center", justifyContent: "center", padding: compact ? "40px 18px 24px" : "72px 24px 48px", overflow: "hidden" }}>
-          <div style={{ position: "absolute", inset: 0, opacity: 0.36, filter: "saturate(1.18) contrast(1.05)" }}>
-            <RouteMap pickup={LANDING_PICKUP} destination={LANDING_DESTINATION} providers={landingProviders} subtitle="POMICH live map" full showBadges={false} />
-          </div>
-          <div style={{ position: "absolute", inset: 0, background: theme.heroOverlay }} />
-          <div style={{ position: "relative", zIndex: 2, width: "100%", maxWidth: 960, textAlign: "center" }}>
-            <LandingBadge label="Український roadside assistance marketplace" theme={theme} />
-            <h1 style={{ margin: compact ? "18px 0 0" : "28px 0 0", fontSize: compact ? 40 : "clamp(42px, 7.4vw, 84px)", lineHeight: 0.98, letterSpacing: 0, fontWeight: 950 }}>
-              POMICH —<br />
-              <span style={{ background: "linear-gradient(90deg, #8EF0BE 0%, #69A7FF 52%, #FACC15 100%)", WebkitBackgroundClip: "text", color: "transparent" }}>допомога поруч</span>
+        <section id="home" style={{ position: "relative", minHeight: layoutCompact ? "520px" : "680px", display: "flex", alignItems: "center", justifyContent: "center", padding: layoutCompact ? "20px 12px 16px" : "72px 24px 48px", overflow: "hidden" }}>
+          <LandingHeroBackground providers={mapProviders} theme={theme} isDark={isDark} />
+          <div className="pomich-landing-inner" style={{ position: "relative", zIndex: 2, width: "100%", textAlign: "center" }}>
+            <LandingBadge label="Автодопомога в Ужгороді та по Україні" theme={theme} />
+            <h1 className="landing-hero-title" style={{ margin: layoutCompact ? "12px 0 0" : "28px 0 0", fontSize: layoutCompact ? 24 : "clamp(34px, 5vw, 48px)", lineHeight: layoutCompact ? 1.08 : 1.02, letterSpacing: 0, fontWeight: 950, color: theme.text }}>
+              Ласкаво просимо до
+              <br />
+              <span className="pomich-brand-gradient-text">POMICH</span>
             </h1>
-            <p style={{ margin: compact ? "18px auto 0" : "24px auto 0", maxWidth: 720, color: theme.muted, fontSize: compact ? 16 : 21, lineHeight: compact ? 1.46 : 1.55, fontWeight: 700 }}>
-              Викликайте евакуатор, запуск акумулятора, колесо, пальне або механіка так само швидко, як поїздку: точка на карті, ETA, ціна і перевірений партнер.
+            <p style={{ margin: layoutCompact ? "10px auto 0" : "24px auto 0", maxWidth: 420, color: theme.muted, fontSize: layoutCompact ? 14 : 17, lineHeight: layoutCompact ? 1.4 : 1.55, fontWeight: 700 }}>
+              Маркетплейс автодопомоги: евакуатор, шиномонтаж, запуск акумулятора, пальне та механік. Перегляньте послуги, карту партнерів і ціни — реєстрація лише коли будете готові викликати допомогу.
             </p>
-            <div style={{ margin: compact ? "22px auto 0" : "30px auto 0", color: theme.badgeText, fontSize: 13, fontWeight: 950 }}>Оберіть вашу роль</div>
-            <div style={{ margin: "12px auto 0", display: "grid", gridTemplateColumns: compact ? "1fr" : "repeat(3, minmax(180px, 1fr))", gap: compact ? 10 : 12, maxWidth: 760 }}>
-              <LandingButton theme={theme} onClick={() => onSelect("customer")}>Викликати допомогу</LandingButton>
-              <LandingButton theme={theme} variant="secondary" onClick={() => onSelect("provider")}>Прийняти заявку</LandingButton>
-              <a href="#interface" style={{ textDecoration: "none" }}><LandingButton theme={theme} variant="ghost">Подивитися інтерфейс</LandingButton></a>
+            <div style={{ margin: layoutCompact ? "12px auto 0" : "24px auto 0", color: theme.badgeText, fontSize: 13, fontWeight: 950 }}>Оберіть вашу роль</div>
+            <div style={{ margin: "10px auto 0", display: "grid", gap: layoutCompact ? 8 : 10 }}>
+              <LandingButton theme={theme} compact={layoutCompact} onClick={() => onSelect("customer")}>Потрібна допомога</LandingButton>
+              <LandingButton theme={theme} compact={layoutCompact} variant="secondary" onClick={() => onSelect("provider")}>Надаю послуги</LandingButton>
             </div>
-            <div style={{ margin: compact ? "24px auto 0" : "46px auto 0", display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: compact ? 10 : 28, maxWidth: 680 }}>
+            <div style={{ margin: layoutCompact ? "8px auto 0" : "12px auto 0" }}>
+              <a href="https://t.me/pomich_ua_bot" target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
+                <LandingButton theme={theme} compact={layoutCompact} variant="ghost">@pomich_ua_bot</LandingButton>
+              </a>
+            </div>
+            <div style={{ margin: layoutCompact ? "16px auto 0" : "32px auto 0", display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: layoutCompact ? 8 : 20 }}>
               {landingStats.map(([value, label]) => (
-                <div key={value} style={{ borderLeft: compact ? "none" : "1px solid rgba(255,255,255,0.14)", padding: compact ? "0 4px" : "0 24px" }}>
-                  <div style={{ color: "#FACC15", fontSize: compact ? 26 : 38, fontWeight: 950 }}>{value}</div>
-                  <div style={{ marginTop: 6, color: theme.subtle, fontSize: compact ? 11 : 13, fontWeight: 800 }}>{label}</div>
+                <div key={value}>
+                  <div style={{ color: theme.statValue, fontSize: layoutCompact ? 20 : 28, fontWeight: 950 }}>{value}</div>
+                  <div style={{ marginTop: layoutCompact ? 4 : 6, color: theme.subtle, fontSize: layoutCompact ? 10 : 12, fontWeight: 800 }}>{label}</div>
                 </div>
               ))}
             </div>
           </div>
         </section>
 
-        <section id="interface" style={{ padding: compact ? "54px 16px 72px" : "76px 24px 96px", background: theme.section }}>
-          <LandingSectionTitle eyebrow="Інтерфейс" title="Як виглядає POMICH" subtitle="Карта, заявка і статуси залишаються на одному екрані: клієнт бачить допомогу, партнер бачить роботу, диспетчер бачить процес." theme={theme} />
-          <LandingInterfacePreview compact={compact} theme={theme} />
-        </section>
-
-        <section id="features" style={{ padding: compact ? "48px 16px 64px" : "74px 24px 90px", background: theme.sectionAlt }}>
-          <LandingSectionTitle eyebrow="Функції" title="Все, що потрібно для допомоги на дорозі" subtitle="POMICH зшиває клієнта, виконавця і диспетчера в один короткий, зрозумілий процес." theme={theme} />
-          <div style={{ maxWidth: 1070, margin: "0 auto", display: "grid", gridTemplateColumns: compact ? "1fr" : "repeat(3, 1fr)", gap: 24 }}>
-            {landingFeatures.map(([icon, title, text], index) => (
-              <div key={title} style={{ minHeight: 218, border: `1px solid ${theme.cardBorder}`, borderRadius: 8, background: index < 2 ? theme.cardStrong : theme.card, padding: 28, boxShadow: themeMode === "light" ? "0 12px 32px rgba(15,23,42,0.05)" : "none" }}>
-                {index < 3 ? <div style={{ float: "right", borderRadius: 999, padding: "7px 11px", background: "#FACC15", color: "#111315", fontSize: 12, fontWeight: 950 }}>Нове</div> : null}
-                <div style={{ fontSize: 28 }}>{icon}</div>
-                <h3 style={{ margin: "24px 0 0", color: theme.text, fontSize: 20, lineHeight: 1.18, fontWeight: 950 }}>{title}</h3>
-                <p style={{ margin: "12px 0 0", color: theme.muted, fontSize: 15, lineHeight: 1.55, fontWeight: 700 }}>{text}</p>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section id="steps" style={{ padding: compact ? "56px 16px 70px" : "80px 24px 100px", background: theme.section }}>
-          <LandingSectionTitle eyebrow="Як це працює" title="Чотири кроки до допомоги" subtitle="Короткий сценарій для стресової ситуації: без зайвих форм і без телефонних списків." theme={theme} />
-          <div style={{ maxWidth: 700, margin: "0 auto", display: "grid", gap: 0 }}>
-            {landingSteps.map(([number, title, text], index) => (
-              <div key={number} style={{ display: "grid", gridTemplateColumns: compact ? "54px 1fr" : "74px 1fr", gap: compact ? 16 : 24, position: "relative", paddingBottom: index === landingSteps.length - 1 ? 0 : 34 }}>
-                {index < landingSteps.length - 1 ? <div style={{ position: "absolute", left: compact ? 26 : 36, top: 54, bottom: 0, width: 2, background: theme.cardBorder }} /> : null}
-                <div style={{ width: compact ? 54 : 62, height: compact ? 54 : 62, borderRadius: 999, display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, #16A36A, #2F80ED)", color: "#fff", fontWeight: 950, boxShadow: "0 0 0 6px rgba(47,128,237,0.16)", zIndex: 1 }}>{number}</div>
-                <div style={{ paddingTop: 4 }}>
-                  <h3 style={{ margin: 0, color: theme.text, fontSize: compact ? 19 : 22, fontWeight: 950 }}>{title}</h3>
-                  <p style={{ margin: "10px 0 0", color: theme.muted, fontSize: 16, lineHeight: 1.55, fontWeight: 700 }}>{text}</p>
+        <section id="services" className="pomich-landing-section" style={{ padding: layoutCompact ? "24px 12px" : "76px 24px 96px" }}>
+          <LandingSectionTitle theme={theme} eyebrow="Послуги" title="Що можна викликати через POMICH" subtitle="Орієнтовна базова вартість без реєстрації. Точна ціна залежить від відстані та ситуації на дорозі." compact={layoutCompact} />
+          <div className="landing-services-grid pomich-landing-inner" style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: layoutCompact ? 10 : 12 }}>
+            {services.map((service) => {
+              const basePrice = calculatePrice(service.key, 0).price
+              const cardSurface = landingCardSurface(theme)
+              return (
+                <div key={service.key} style={{ ...cardSurface, borderRadius: layoutCompact ? 10 : 16, padding: layoutCompact ? 12 : 16, color: theme.text }}>
+                  <div style={{ fontSize: layoutCompact ? 24 : 28 }}>{service.emoji}</div>
+                  <h3 style={{ margin: layoutCompact ? "8px 0 0" : "10px 0 0", fontSize: layoutCompact ? 14 : 16, fontWeight: 950 }}>{service.label}</h3>
+                  <p style={{ margin: "4px 0 0", color: theme.muted, fontSize: layoutCompact ? 12 : 13, fontWeight: 700 }}>від {basePrice} ₴ · +90 ₴/км</p>
                 </div>
-              </div>
-            ))}
+              )
+            })}
+          </div>
+          <p className="pomich-landing-inner" style={{ margin: layoutCompact ? "16px auto 0" : "24px auto 0", textAlign: "center", color: theme.subtle, fontSize: layoutCompact ? 12 : 14, fontWeight: 700 }}>
+            Щоб створити заявку, потрібна реєстрація — це займе хвилину.
+          </p>
+        </section>
+
+        <section id="steps" className="pomich-landing-section-alt" style={{ padding: layoutCompact ? "24px 12px" : "64px 24px 80px" }}>
+          <LandingSectionTitle theme={theme} eyebrow="Як це працює" title="Чотири кроки до допомоги" subtitle="Короткий сценарій для стресової ситуації: без зайвих форм і без телефонних списків." compact={layoutCompact} />
+          <div className="landing-steps-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: layoutCompact ? 10 : 12 }}>
+            {landingSteps.map(([number, title, text]) => {
+              const cardSurface = landingCardSurface(theme)
+              return (
+                <div key={number} style={{ ...cardSurface, borderRadius: 10, padding: layoutCompact ? 12 : 14, color: theme.text }}>
+                  <div className="landing-step-circle" style={{ width: 40, height: 40, borderRadius: 999, display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, #16A36A, #2F80ED)", color: "#fff", fontWeight: 950, fontSize: 15, boxShadow: "0 0 0 4px rgba(47,128,237,0.14)", marginBottom: 8 }}>{number}</div>
+                  <h3 style={{ margin: 0, fontSize: layoutCompact ? 14 : 15, fontWeight: 950, lineHeight: 1.2 }}>{title}</h3>
+                  <p style={{ margin: "4px 0 0", color: theme.muted, fontSize: layoutCompact ? 12 : 13, lineHeight: 1.4, fontWeight: 700 }}>{text}</p>
+                </div>
+              )
+            })}
           </div>
         </section>
 
-        <section id="contacts" style={{ padding: compact ? "56px 16px 72px" : "82px 24px 96px", background: `radial-gradient(circle at 50% 0%, rgba(22,163,106,0.18), transparent 34%), ${theme.sectionAlt}`, textAlign: "center" }}>
-          <LandingSectionTitle eyebrow="Спільнота" title="Підключаємо водіїв і партнерів по Україні" subtitle="Клієнти отримують швидку допомогу, партнери отримують прозорі заявки, диспетчер має контроль над якістю." theme={theme} />
-          <div style={{ maxWidth: 820, margin: "0 auto", display: "grid", gridTemplateColumns: compact ? "1fr" : "repeat(2, 1fr)", gap: 14 }}>
-            <button onClick={() => onSelect("customer")} style={{ minHeight: 74, border: `1px solid ${theme.cardBorder}`, borderRadius: 8, background: theme.card, color: theme.text, fontFamily: "inherit", cursor: "pointer", textAlign: "left", padding: "14px 18px", fontWeight: 950, boxShadow: themeMode === "light" ? "0 12px 32px rgba(15,23,42,0.05)" : "none" }}>
-              <span style={{ display: "block", color: "#8EF0BE", fontSize: 13 }}>Водіям</span>
-              <span style={{ display: "block", marginTop: 4, fontSize: 18 }}>Відкрити клієнтський Web</span>
+        <section id="map" className="pomich-landing-section" style={{ padding: layoutCompact ? "24px 12px" : "76px 24px 96px" }}>
+          <LandingSectionTitle
+            theme={theme}
+            eyebrow="Карта"
+            title="Партнери в Ужгороді"
+            subtitle={mapProvidersLoading ? "Завантажуємо довідник…" : `${mapProviderCount} сервісів на карті · перегляд без реєстрації`}
+            compact={layoutCompact}
+          />
+          <div className="landing-map-frame">
+            <RouteMap pickup={LANDING_MAP_CENTER} providers={mapProviders} subtitle="Ужгород · довідник сервісів" full directoryOnly userLocation={mapUserLocation} onUserLocationChange={(point) => {
+              window.sessionStorage.setItem("pomichLandingGeo", JSON.stringify(point))
+              setMapUserLocation(point)
+              setMapGeoStatus("success")
+            }} />
+            <div style={{ position: "absolute", inset: 0, background: theme.mapOverlay, pointerEvents: "none", zIndex: 1150 }} />
+            <button
+              type="button"
+              onClick={requestMapGeo}
+              disabled={mapGeoStatus === "requesting"}
+              style={{
+                position: "absolute",
+                zIndex: 1200,
+                right: layoutCompact ? 10 : 14,
+                bottom: layoutCompact ? 10 : 14,
+                minHeight: 36,
+                border: "1px solid rgba(255,255,255,0.18)",
+                borderRadius: 999,
+                background: "rgba(9,11,14,0.82)",
+                color: theme.text,
+                padding: "8px 12px",
+                fontFamily: "inherit",
+                fontWeight: 900,
+                fontSize: layoutCompact ? 11 : 12,
+                cursor: mapGeoStatus === "requesting" ? "wait" : "pointer",
+                backdropFilter: "blur(10px)",
+              }}
+            >
+              {mapGeoStatus === "requesting" ? "Визначаємо…" : mapGeoStatus === "success" ? "Моє місце ✓" : "📍 Моє місце"}
             </button>
-            <button onClick={() => onSelect("provider")} style={{ minHeight: 74, border: `1px solid ${theme.cardBorder}`, borderRadius: 8, background: theme.card, color: theme.text, fontFamily: "inherit", cursor: "pointer", textAlign: "left", padding: "14px 18px", fontWeight: 950, boxShadow: themeMode === "light" ? "0 12px 32px rgba(15,23,42,0.05)" : "none" }}>
-              <span style={{ display: "block", color: "#69A7FF", fontSize: 13 }}>Партнерам</span>
-              <span style={{ display: "block", marginTop: 4, fontSize: 18 }}>Вийти на лінію</span>
+          </div>
+          <p className="pomich-landing-inner" style={{ margin: layoutCompact ? "12px auto 0" : "18px auto 0", textAlign: "center", color: theme.subtle, fontSize: layoutCompact ? 12 : 13, fontWeight: 700 }}>
+            Карта лише для перегляду. Щоб викликати допомогу — зареєструйтесь як клієнт.
+            {mapGeoStatus === "error" ? " · Не вдалося визначити місце — спробуйте ще раз." : null}
+          </p>
+        </section>
+
+        <section id="contacts" className="pomich-landing-section-alt" style={{ padding: layoutCompact ? "24px 12px 32px" : "64px 24px 80px", background: `radial-gradient(circle at 50% 0%, rgba(22,163,106,0.18), transparent 34%), ${theme.sectionAlt}`, textAlign: "center" }}>
+          <LandingSectionTitle theme={theme} eyebrow="Контакти" title="Зв'яжіться з POMICH" subtitle="Telegram-бот, реєстрація клієнта або партнера — оберіть зручний спосіб." compact={layoutCompact} />
+          <div className="pomich-landing-inner" style={{ display: "grid", gap: layoutCompact ? 10 : 12 }}>
+            <a href="https://t.me/pomich_ua_bot" target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
+              <div style={{ minHeight: layoutCompact ? 56 : 64, borderRadius: layoutCompact ? 10 : 12, color: theme.text, textAlign: "left", padding: layoutCompact ? "12px 14px" : "14px 16px", fontWeight: 950, ...landingCardSurface(theme) }}>
+                <span style={{ display: "block", color: isDark ? "#69A7FF" : colors.accentBlue, fontSize: layoutCompact ? 11 : 13 }}>Telegram</span>
+                <span style={{ display: "block", marginTop: 4, fontSize: layoutCompact ? 15 : 17 }}>@pomich_ua_bot</span>
+              </div>
+            </a>
+            <button type="button" onClick={() => onSelect("customer")} style={{ minHeight: layoutCompact ? 56 : 64, borderRadius: layoutCompact ? 10 : 12, color: theme.text, fontFamily: "inherit", cursor: "pointer", textAlign: "left", padding: layoutCompact ? "12px 14px" : "14px 16px", fontWeight: 950, ...landingCardSurface(theme) }}>
+              <span style={{ display: "block", color: isDark ? "#8EF0BE" : colors.accent, fontSize: layoutCompact ? 11 : 13 }}>Водіям</span>
+              <span style={{ display: "block", marginTop: 4, fontSize: layoutCompact ? 15 : 17 }}>Потрібна допомога</span>
+            </button>
+            <button type="button" onClick={() => onSelect("provider")} style={{ minHeight: layoutCompact ? 56 : 64, borderRadius: layoutCompact ? 10 : 12, color: theme.text, fontFamily: "inherit", cursor: "pointer", textAlign: "left", padding: layoutCompact ? "12px 14px" : "14px 16px", fontWeight: 950, ...landingCardSurface(theme) }}>
+              <span style={{ display: "block", color: isDark ? "#69A7FF" : colors.accentBlue, fontSize: layoutCompact ? 11 : 13 }}>Партнерам</span>
+              <span style={{ display: "block", marginTop: 4, fontSize: layoutCompact ? 15 : 17 }}>Надаю послуги</span>
             </button>
           </div>
         </section>
       </main>
 
-      <footer style={{ borderTop: `1px solid ${theme.navBorder}`, background: theme.footer, padding: compact ? "22px 16px" : "28px 24px" }}>
-        <div style={{ maxWidth: 1070, margin: "0 auto", display: "flex", flexDirection: compact ? "column" : "row", justifyContent: "space-between", gap: 16, color: theme.navText, fontSize: 13, fontWeight: 800 }}>
+      <footer style={{ borderTop: `1px solid ${theme.navBorder}`, background: theme.footer, padding: layoutCompact ? "16px 12px" : "28px 24px" }}>
+        <div style={{ maxWidth: 1070, margin: "0 auto", display: "flex", flexDirection: layoutCompact ? "column" : "row", justifyContent: "space-between", gap: layoutCompact ? 10 : 16, color: "var(--pomich-nav-text)", fontSize: layoutCompact ? 12 : 13, fontWeight: 800 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <span style={{ width: 30, height: 30, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, #16A36A, #2F80ED)", color: "#fff", fontWeight: 950 }}>P</span>
-            <span>POMICH для України</span>
+            <span>POMICH · Ужгород</span>
           </div>
-          <div>© 2026. Roadside assistance, built around fast verified help.</div>
+          <div>© 2026 · @pomich_ua_bot</div>
         </div>
       </footer>
     </div>
@@ -1629,12 +1904,24 @@ function CustomerFlow() {
   const [status, setStatus] = useState<OrderStatus>("draft")
   const [geoState, setGeoState] = useState<GeoState>("requesting")
   const [geoMessage, setGeoMessage] = useState("Визначаємо ваше місцезнаходження…")
+  const [addressLabel, setAddressLabel] = useState("Визначаємо адресу…")
   const [pickup, setPickup] = useState<Point>(PICKUP)
   const [destinationPoint, setDestinationPoint] = useState<Point>(DEFAULT_DESTINATION)
   const [trackingProgress, setTrackingProgress] = useState(12)
   const [nearbyProviders, setNearbyProviders] = useState<ProviderAvailability[]>([])
   const [providersLoading, setProvidersLoading] = useState(true)
-  const [customerProfile, setCustomerProfile] = useState<CustomerProfile>({
+  const [customerProfile, setCustomerProfile] = useState<CustomerProfile>(() => {
+    if (typeof window !== "undefined") {
+      const raw = window.sessionStorage.getItem("pomichBootstrapProfile")
+      if (raw) {
+        try {
+          return { ...(JSON.parse(raw) as CustomerProfile), id: initialCustomerId }
+        } catch {
+          // ignore invalid bootstrap profile
+        }
+      }
+    }
+    return {
     id: customerId,
     name: telegramContext.user?.first_name ? `${telegramContext.user.first_name}${telegramContext.user.last_name ? ` ${telegramContext.user.last_name}` : ""}` : "Клієнт POMICH",
     phone: "",
@@ -1645,15 +1932,15 @@ function CustomerFlow() {
     verificationStatus: "unverified",
     trustedBadges: ["Телефон", "Профіль"],
     profileCompleteness: telegramContext.user?.username ? 62 : 45,
-  })
+  }})
   const [customerVerificationSaving, setCustomerVerificationSaving] = useState(false)
   const [customerVerificationError, setCustomerVerificationError] = useState<string | undefined>()
 
   const orderInput: CustomerOrderInput = {
     service: selectedService,
-    customerLocation: "вул. Собранецька, Ужгород",
+    customerLocation: addressLabel,
     destination,
-    distanceKm: calculateDistanceKm(pickup, destinationPoint),
+    distanceKm: resolveOrderDistanceKm(selectedService, pickup, destinationPoint),
   }
 
   const applyCustomerSession = (session: AuthSession) => {
@@ -1713,7 +2000,18 @@ function CustomerFlow() {
   }, [telegramContext.chatId, telegramContext.initData])
 
   useEffect(() => {
+    let cancelled = false
+    reverseGeocodeAddress(pickup).then((label) => {
+      if (!cancelled) setAddressLabel(label)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [pickup])
+
+  useEffect(() => {
     if (geoState === "telegram") return
+    if (geoState !== "requesting") return
     if (typeof navigator === "undefined" || !("geolocation" in navigator)) {
       setGeoState("unavailable")
       setGeoMessage("Не вдалося визначити геолокацію.")
@@ -1730,15 +2028,21 @@ function CustomerFlow() {
         setGeoState("permission-denied")
         setGeoMessage("Не вдалося визначити геолокацію. Можна вибрати точку вручну.")
       },
-      { enableHighAccuracy: true, timeout: 8000 },
+      { enableHighAccuracy: true, timeout: 12000 },
     )
   }, [geoState])
+
+  const retryGeolocation = () => {
+    if (geoState === "telegram") return
+    setGeoState("requesting")
+    setGeoMessage("Визначаємо ваше місцезнаходження…")
+  }
 
   useEffect(() => {
     let cancelled = false
     const refreshProviders = () => {
       setProvidersLoading(true)
-      getProviders()
+      getMapProviders()
         .then((items) => {
           if (!cancelled) setNearbyProviders(Array.isArray(items) ? items : [])
         })
@@ -1791,8 +2095,22 @@ function CustomerFlow() {
   }, [screen])
 
   const serviceLabel = useMemo(() => services.find((item) => item.key === selectedService)?.label ?? "Евакуатор", [selectedService])
-  const distanceKm = useMemo(() => calculateDistanceKm(pickup, destinationPoint), [pickup, destinationPoint])
-  const breakdown = useMemo(() => calculatePrice(selectedService, distanceKm), [distanceKm, selectedService])
+  const orderDistanceKm = useMemo(() => resolveOrderDistanceKm(selectedService, pickup, destinationPoint), [pickup, destinationPoint, selectedService])
+  const breakdown = useMemo(() => calculatePrice(selectedService, orderDistanceKm), [orderDistanceKm, selectedService])
+  const quoteEtaMinutes = useMemo(() => providerEtaMinutes(pickup, nearbyProviders, breakdown.etaMinutes), [pickup, nearbyProviders, breakdown.etaMinutes])
+
+  const applyPickup = (point: Point, message = "Місце подачі оновлено вручну.") => {
+    setPickup(point)
+    setGeoState("success")
+    setGeoMessage(message)
+  }
+
+  const confirmLocationAndQuote = () => {
+    const resolved = resolveServiceDestination(selectedService, pickup)
+    setDestination(resolved.destination)
+    setDestinationPoint(resolved.destinationPoint)
+    setScreen("price")
+  }
 
   const setDestinationFromMap = (point: Point) => {
     setDestinationPoint(point)
@@ -1808,7 +2126,7 @@ function CustomerFlow() {
         source: fromTelegram ? "telegram-mini-app" : "web",
         customerId: customerSession.customerId,
         service: selectedService,
-        customerLocation: geoState === "success" || geoState === "telegram" ? "Поточна геолокація клієнта" : sanitizeLocation(orderInput.customerLocation),
+        customerLocation: geoState === "success" || geoState === "telegram" ? sanitizeLocation(addressLabel) : sanitizeLocation(orderInput.customerLocation),
         customerCoordinates: pickup,
         destination: sanitizeLocation(destination),
         destinationCoordinates: destinationPoint,
@@ -1863,26 +2181,30 @@ function CustomerFlow() {
   }
 
   const verifyCustomerProfile = async () => {
+    const phoneValidation = validateUkraineMobilePhone(customerProfile.phone || "")
+    if (!phoneValidation.valid) {
+      setCustomerVerificationError(phoneValidation.error || "Введіть коректний номер телефону")
+      return
+    }
+
     setCustomerVerificationSaving(true)
     setCustomerVerificationError(undefined)
     try {
       const customerSession = await ensureCustomerSession()
       const savedProfile = await updateCustomerProfile(customerSession.customerId, {
         name: customerProfile.name,
-        phone: customerProfile.phone,
+        phone: phoneValidation.e164,
+        email: customerProfile.email,
         telegram: customerProfile.telegram,
         city: customerProfile.city,
       }, customerSession.token)
-      const submitted = await submitCustomerVerification(customerSession.customerId, {
-        phone: Boolean(savedProfile.phone),
-        telegram: Boolean(savedProfile.telegram),
-        profilePhoto: true,
-        trustedContacts: true,
-        identityDocumentRef: `pomich/${customerSession.customerId}/identity`,
-      }, customerSession.token)
-      setCustomerProfile((profile) => ({ ...profile, ...submitted }))
+      setCustomerProfile((profile) => ({ ...profile, ...savedProfile }))
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem("pomichClientName", savedProfile.name || "")
+        window.localStorage.setItem("pomichClientVerification", savedProfile.verificationStatus || "unverified")
+      }
     } catch {
-      setCustomerVerificationError("Не вдалося відправити профіль на перевірку.")
+      setCustomerVerificationError("Не вдалося зберегти профіль. Перевірте з'єднання.")
     } finally {
       setCustomerVerificationSaving(false)
     }
@@ -1905,25 +2227,98 @@ function CustomerFlow() {
     setTrackingProgress(12)
   }
 
+  const { isTelegram, haptic } = useTelegramUx()
+
+  const goBackScreen = useCallback(() => {
+    haptic("light")
+    if (screen === "location") setScreen("home")
+    else if (screen === "price") setScreen("location")
+    else setScreen("home")
+  }, [screen, haptic])
+
+  const mainButtonOnClick = useCallback(() => {
+    switch (screen) {
+      case "location":
+        haptic("medium")
+        confirmLocationAndQuote()
+        break
+      case "price":
+        haptic("medium")
+        submitOrder()
+        break
+      case "assigned":
+        haptic("light")
+        startTracking()
+        break
+      case "completed":
+      case "cancelled":
+        haptic("light")
+        restart()
+        break
+      case "error":
+        haptic("light")
+        setScreen("price")
+        break
+      default:
+        break
+    }
+  }, [screen, haptic, submitOrder, startTracking, restart])
+
+  const mainButtonText = useMemo(() => {
+    switch (screen) {
+      case "location":
+        return "Підтвердити місце"
+      case "price":
+        return "Підтвердити заявку"
+      case "assigned":
+        return "Дивитися маршрут"
+      case "completed":
+      case "cancelled":
+        return "Нова заявка"
+      case "error":
+        return "Повторити"
+      default:
+        return ""
+    }
+  }, [screen])
+
+  const mainButtonVisible = ["location", "price", "assigned", "completed", "cancelled", "error"].includes(screen)
+  const mainButtonEnabled =
+    screen === "price" ? !loading :
+    mainButtonVisible
+
+  useTelegramMainButton({
+    text: mainButtonText,
+    visible: isTelegram && mainButtonVisible,
+    enabled: mainButtonEnabled,
+    loading: screen === "price" && loading,
+    onClick: mainButtonOnClick,
+  })
+
+  useTelegramBackButton({
+    visible: isTelegram && ["location", "price"].includes(screen),
+    onClick: goBackScreen,
+  })
+
   switch (screen) {
     case "location":
-      return <LocationStep pickup={pickup} geoMessage={geoMessage} onPick={(point) => { setPickup(point); setGeoState("success"); setGeoMessage("Місце подачі оновлено вручну.") }} onBack={() => setScreen("home")} onNext={() => setScreen("destination")} />
+      return <LocationStep pickup={pickup} addressLabel={addressLabel} geoMessage={geoMessage} onPick={(point) => applyPickup(point)} onRetryGeo={retryGeolocation} onBack={() => setScreen("home")} onNext={confirmLocationAndQuote} />
     case "destination":
-      return <DestinationStep pickup={pickup} destination={destinationPoint} value={destination} onPick={setDestinationFromMap} onChange={setDestination} onBack={() => setScreen("location")} onNext={() => setScreen("details")} />
+      return <DestinationStep pickup={pickup} destination={destinationPoint} value={destination} onPick={setDestinationFromMap} onChange={setDestination} onBack={() => setScreen("location")} onNext={() => setScreen("price")} />
     case "details":
       return <DetailsStep pickup={pickup} destination={destinationPoint} value={vehicleState} onChange={setVehicleState} onBack={() => setScreen("destination")} onNext={() => setScreen("price")} />
     case "price":
-      return <PriceStep serviceLabel={serviceLabel} breakdown={breakdown} pickup={pickup} destination={destinationPoint} loading={loading} onConfirm={submitOrder} onBack={() => setScreen("details")} />
+      return <PriceStep serviceLabel={serviceLabel} breakdown={breakdown} pickup={pickup} destination={destinationPoint} etaMinutes={quoteEtaMinutes} loading={loading} onConfirm={submitOrder} onBack={() => setScreen("location")} />
     case "searching":
-      return <SearchingStep orderId={orderId} status={status} order={currentOrder} onCancel={cancelOrder} onRetryDispatch={retryOrderDispatch} />
+      return <SearchingStep orderId={orderId} status={status} order={currentOrder} pickup={pickup} destination={destinationPoint} onCancel={cancelOrder} onRetryDispatch={retryOrderDispatch} />
     case "assigned":
-      return <AssignedStep orderId={orderId} status={status} order={currentOrder} onTrack={startTracking} onCancel={cancelOrder} />
+      return <AssignedStep orderId={orderId} status={status} order={currentOrder} pickup={pickup} destination={destinationPoint} onTrack={startTracking} onCancel={cancelOrder} />
     case "tracking":
       return <TrackingStep orderId={orderId} status={status} order={currentOrder} pickup={pickup} destination={destinationPoint} progress={trackingProgress} onCancel={cancelOrder} />
     case "arrived":
-      return <ArrivedStep orderId={orderId} status={status} order={currentOrder} onComplete={completeOrder} onCancel={cancelOrder} />
+      return <ArrivedStep orderId={orderId} status={status} order={currentOrder} pickup={pickup} destination={destinationPoint} onComplete={completeOrder} onCancel={cancelOrder} />
     case "in_progress":
-      return <InProgressStep orderId={orderId} status={status} order={currentOrder} onCancel={cancelOrder} />
+      return <InProgressStep orderId={orderId} status={status} order={currentOrder} pickup={pickup} destination={destinationPoint} onCancel={cancelOrder} />
     case "completed":
       return <FinalStep orderId={orderId} status="completed" onRestart={restart} />
     case "cancelled":
@@ -1932,11 +2327,11 @@ function CustomerFlow() {
       return <ErrorStep onRetry={() => setScreen("price")} />
     case "home":
     default:
-      return <HomeStep pickup={pickup} locationLabel={geoMessage} providers={nearbyProviders} providersLoading={providersLoading} customerProfile={customerProfile} customerVerificationSaving={customerVerificationSaving} customerVerificationError={customerVerificationError} onVerifyCustomer={verifyCustomerProfile} onSelect={(service) => { setSelectedService(service); setScreen("location") }} />
+      return <HomeStep pickup={pickup} locationLabel={addressLabel || geoMessage} providers={nearbyProviders} providersLoading={providersLoading} customerProfile={customerProfile} customerVerificationSaving={customerVerificationSaving} customerVerificationError={customerVerificationError} customerToken={customerAuthToken} isTelegram={isTelegram} onProfileChange={(patch) => setCustomerProfile((profile) => ({ ...profile, ...patch }))} onVerifyCustomer={verifyCustomerProfile} onProfileVerified={(saved) => setCustomerProfile((profile) => ({ ...profile, ...saved }))} onRetryGeo={retryGeolocation} onSelect={(service) => { if (!isCustomerReadyForOrder(customerProfile)) return; setSelectedService(service); const resolved = resolveServiceDestination(service, pickup); setDestination(resolved.destination); setDestinationPoint(resolved.destinationPoint); setScreen("location") }} />
   }
 }
 
-function ProviderFlow({ providerToken }: { providerToken?: string }) {
+function ProviderFlow({ providerToken, providerRegistered = false }: { providerToken?: string; providerRegistered?: boolean }) {
   const providerId = useMemo(() => getActiveProviderId(), [])
   const providerSessionStorageKey = useMemo(() => authSessionStorageKey("provider", providerId), [providerId])
   const [providerAccessToken, setProviderAccessToken] = useState<string | undefined>(() => {
@@ -1948,15 +2343,19 @@ function ProviderFlow({ providerToken }: { providerToken?: string }) {
   const [accountLogin, setAccountLogin] = useState(providerId)
   const [accountPassword, setAccountPassword] = useState("")
   const [authSaving, setAuthSaving] = useState(false)
+  const [loginView, setLoginView] = useState<"login" | "register">(() => (providerRegistered ? "login" : "register"))
   const [step, setStep] = useState<"register" | "duty" | "offer" | "navigation" | "arrived" | "completed">(() => {
     if (typeof window === "undefined") return "register"
-    return window.localStorage.getItem(`pomichPartnerRegistered:${getActiveProviderId()}`) ? "duty" : "register"
+    if (providerRegistered || window.localStorage.getItem(`pomichPartnerRegistered:${getActiveProviderId()}`)) return "duty"
+    return "register"
   })
   const [onDuty, setOnDuty] = useState(false)
   const [presenceSaving, setPresenceSaving] = useState(false)
   const [registrationSaving, setRegistrationSaving] = useState(false)
   const [registrationError, setRegistrationError] = useState<string | undefined>()
   const [incomingOffers, setIncomingOffers] = useState<DispatchOffer[]>([])
+  const [mapProviders, setMapProviders] = useState<ProviderAvailability[]>([])
+  const [mapRequestPins, setMapRequestPins] = useState<MapRequestPin[]>([])
   const [activeOrder, setActiveOrder] = useState<OrderResponse | undefined>()
   const [offerError, setOfferError] = useState<string | undefined>()
   const [offerSaving, setOfferSaving] = useState(false)
@@ -1975,7 +2374,7 @@ function ProviderFlow({ providerToken }: { providerToken?: string }) {
     etaMinutes: provider.etaMinutes,
     location: PROVIDER_START,
     specialties: ["tow", "battery", "wheel"],
-    serviceRadiusKm: 7,
+    serviceRadiusKm: DEFAULT_SERVICE_RADIUS_KM,
   })
   const [registrationForm, setRegistrationForm] = useState<PartnerRegistrationForm>({
     name: provider.name,
@@ -1983,8 +2382,9 @@ function ProviderFlow({ providerToken }: { providerToken?: string }) {
     telegram: provider.telegram,
     vehicle: provider.vehicle,
     plate: provider.plate,
-    specialties: ["tow", "battery", "wheel"],
-    serviceRadiusKm: 7,
+    city: "Ужгород",
+    specialties: [],
+    serviceRadiusKm: DEFAULT_SERVICE_RADIUS_KM,
     identityDocumentRef: "",
     driverLicenseRef: "",
     vehicleRegistrationRef: "",
@@ -2015,11 +2415,6 @@ function ProviderFlow({ providerToken }: { providerToken?: string }) {
   useEffect(() => {
     if (providerAuthToken) return
 
-    if (!providerToken) {
-      setAuthError("РџР°СЂС‚РЅРµСЂСЃСЊРєР° СЃРµСЃС–СЏ РЅРµ РІС–РґРєСЂРёС‚Р°. РџРѕС‚СЂС–Р±РµРЅ РґРѕСЃС‚СѓРї РІС–Рґ РґРёСЃРїРµС‚С‡РµСЂР°.")
-      return
-    }
-
     if (isAuthSessionToken(providerToken)) {
       if (typeof window !== "undefined") window.sessionStorage.setItem(providerSessionStorageKey, providerToken)
       setProviderAccessToken(providerToken)
@@ -2028,7 +2423,20 @@ function ProviderFlow({ providerToken }: { providerToken?: string }) {
     }
 
     let cancelled = false
-    createProviderSession(providerId, providerToken)
+    const customerId = typeof window !== "undefined" ? window.sessionStorage.getItem("pomichCustomerId") : null
+    const customerToken = customerId ? readStoredAuthSession(authSessionStorageKey("customer", customerId), "customer", customerId) : undefined
+
+    const openSession = async () => {
+      if (providerToken) {
+        return createProviderSession(providerId, providerToken)
+      }
+      if (customerId && customerToken) {
+        return createSelfProviderSession(customerId, customerToken)
+      }
+      throw new Error("provider_auth_missing")
+    }
+
+    openSession()
       .then((session) => {
         if (cancelled) return
         storeAuthSession(providerSessionStorageKey, session)
@@ -2036,13 +2444,15 @@ function ProviderFlow({ providerToken }: { providerToken?: string }) {
         setAuthError(undefined)
       })
       .catch(() => {
-        if (!cancelled) setAuthError("РќРµ РІРґР°Р»РѕСЃСЏ РІС–РґРєСЂРёС‚Рё Р·Р°С…РёС‰РµРЅСѓ СЃРµСЃС–СЋ РїР°СЂС‚РЅРµСЂР°.")
+        if (!cancelled && providerRegistered) {
+          setAuthError("Партнерська сесія не відкрита. Увійдіть з логіном і паролем або зверніться до диспетчера.")
+        }
       })
 
     return () => {
       cancelled = true
     }
-  }, [providerAuthToken, providerId, providerSessionStorageKey, providerToken])
+  }, [providerAuthToken, providerId, providerRegistered, providerSessionStorageKey, providerToken])
 
   useEffect(() => {
     let cancelled = false
@@ -2060,6 +2470,7 @@ function ProviderFlow({ providerToken }: { providerToken?: string }) {
           telegram: currentProvider.telegram || form.telegram,
           vehicle: currentProvider.vehicle || form.vehicle,
           plate: currentProvider.plate || form.plate,
+          city: (currentProvider as { city?: string }).city || form.city || "Ужгород",
           specialties: currentSpecialties.length > 0 ? currentSpecialties : form.specialties,
           serviceRadiusKm: currentProvider.serviceRadiusKm ?? form.serviceRadiusKm,
           identityDocumentRef: form.identityDocumentRef,
@@ -2070,7 +2481,7 @@ function ProviderFlow({ providerToken }: { providerToken?: string }) {
         }))
         setOnDuty(currentProvider.status === "online" || currentProvider.status === "busy")
         if (currentProvider.location) setProviderLocation(currentProvider.location)
-        if (!currentProvider.registeredAt) setStep("register")
+        setStep(currentProvider.registeredAt ? "duty" : "register")
       })
       .catch(() => {
         // Demo mode stays usable even when the backend is temporarily unavailable.
@@ -2141,6 +2552,47 @@ function ProviderFlow({ providerToken }: { providerToken?: string }) {
     }
   }, [activeOrder, onDuty, providerAuthToken, providerId, step])
 
+  useEffect(() => {
+    if (!onDuty || (step !== "duty" && step !== "offer")) return
+    let cancelled = false
+
+    const refreshMapData = () => {
+      getMapProviders()
+        .then((items) => {
+          if (!cancelled) setMapProviders(Array.isArray(items) ? items : [])
+        })
+        .catch(() => {
+          if (!cancelled) setMapProviders([])
+        })
+
+      getNearbyMapOrders(providerLocation.lat, providerLocation.lng, providerProfile.serviceRadiusKm ?? 20)
+        .then((orders) => {
+          if (cancelled) return
+          const offerByOrder = new Map(incomingOffers.map((offer) => [offer.orderId, offer]))
+          const pins: MapRequestPin[] = (orders ?? []).map((order) => {
+            const offer = offerByOrder.get(order.id)
+            return {
+              ...order,
+              offerId: offer?.id,
+              etaMinutes: offer?.etaMinutes ?? order.etaMinutes,
+              distanceKm: offer?.distanceKm ?? order.distanceKm,
+            }
+          })
+          setMapRequestPins(pins)
+        })
+        .catch(() => {
+          if (!cancelled) setMapRequestPins([])
+        })
+    }
+
+    refreshMapData()
+    const interval = window.setInterval(refreshMapData, 5000)
+    return () => {
+      cancelled = true
+      window.clearInterval(interval)
+    }
+  }, [onDuty, providerLocation.lat, providerLocation.lng, providerProfile.serviceRadiusKm, step, incomingOffers])
+
   const activeOffer = incomingOffers[0]
   const secondsLeft = activeOffer?.expiresAt ? Math.max(0, Math.ceil((parseApiDateMs(activeOffer.expiresAt) - offerClock) / 1000)) : 0
 
@@ -2179,6 +2631,23 @@ function ProviderFlow({ providerToken }: { providerToken?: string }) {
     }
   }
 
+  const acceptFromMapPin = (pin: MapRequestPin) => {
+    const offer = incomingOffers.find((item) => item.id === pin.offerId || item.orderId === pin.id)
+    if (offer) {
+      acceptOffer(offer)
+      return
+    }
+    setOfferError("Запрошення ще не надійшло. Очікуйте dispatch або оновіть карту.")
+  }
+
+  const contactFromMapPin = (pin: MapRequestPin) => {
+    if (pin.phone) {
+      window.location.href = `tel:${pin.phone}`
+      return
+    }
+    setOfferError("Телефон клієнта буде доступний після прийняття заявки.")
+  }
+
   const advanceProviderOrder = async (nextStatus: OrderStatus) => {
     if (!activeOrder?.id) return
     try {
@@ -2212,20 +2681,55 @@ function ProviderFlow({ providerToken }: { providerToken?: string }) {
     }))
   }
 
+  const ensureProviderSession = async () => {
+    if (providerAuthToken) return providerAuthToken
+
+    let customerId = typeof window !== "undefined" ? window.sessionStorage.getItem("pomichCustomerId") : null
+    let customerToken = customerId ? readStoredAuthSession(authSessionStorageKey("customer", customerId), "customer", customerId) : undefined
+
+    if (!customerToken) {
+      const session = await createGuestCustomerSession(customerId && customerId !== "customer-web" ? customerId : undefined)
+      customerId = session.customerId ?? session.subjectId ?? customerId ?? "customer-web"
+      if (customerId && session.accessToken) {
+        storeAuthSession(authSessionStorageKey("customer", customerId), session)
+        if (typeof window !== "undefined") window.sessionStorage.setItem("pomichCustomerId", customerId)
+        customerToken = session.accessToken
+      }
+    }
+
+    if (!customerId || !customerToken) throw new Error("customer_session_missing")
+
+    const linkedId = resolveProviderIdForCustomer(customerId)
+    if (linkedId) storeLinkedProviderId(linkedId)
+
+    await setUserPreferredRole(customerId, "provider", customerToken).catch(() => undefined)
+
+    const session = providerToken
+      ? await createProviderSession(providerId, providerToken)
+      : await createSelfProviderSession(customerId, customerToken)
+
+    storeAuthSession(providerSessionStorageKey, session)
+    setProviderAccessToken(session.accessToken)
+    setAuthError(undefined)
+    return session.accessToken
+  }
+
   const saveRegistration = async () => {
-    if (!registrationForm.name.trim() || !registrationForm.phone.trim() || !registrationForm.vehicle.trim() || registrationForm.specialties.length === 0) {
-      setRegistrationError("Заповніть профіль і оберіть хоча б одну послугу.")
+    const phoneValidation = validateUkraineMobilePhone(registrationForm.phone)
+    if (!registrationForm.name.trim() || !phoneValidation.valid || !registrationForm.vehicle.trim() || !(registrationForm.city || "").trim() || registrationForm.specialties.length === 0) {
+      setRegistrationError(phoneValidation.valid ? "Заповніть профіль і оберіть хоча б одну послугу." : (phoneValidation.error || "Введіть коректний номер телефону"))
       return
     }
 
     setRegistrationSaving(true)
     setRegistrationError(undefined)
     try {
-      if (!providerAuthToken) throw new Error("provider_session_missing")
+      const token = providerAuthToken ?? await ensureProviderSession()
       const updated = await updateProviderProfile(providerId, {
         ...registrationForm,
+        phone: phoneValidation.e164,
         location: providerLocation,
-      }, providerAuthToken)
+      }, token)
       const documentsReady = Boolean(registrationForm.identityDocumentRef.trim() && registrationForm.driverLicenseRef.trim() && registrationForm.vehicleRegistrationRef.trim() && registrationForm.serviceProofRef.trim() && registrationForm.selfieRef.trim())
       const trustedProfile = documentsReady
         ? await submitProviderVerification(providerId, {
@@ -2234,13 +2738,14 @@ function ProviderFlow({ providerToken }: { providerToken?: string }) {
           vehicleRegistrationRef: registrationForm.vehicleRegistrationRef,
           serviceProofRef: registrationForm.serviceProofRef,
           selfieRef: registrationForm.selfieRef,
-        }, providerAuthToken)
+        }, token)
         : updated
       setProviderProfile((profile) => ({ ...profile, ...trustedProfile, specialties: toServiceKeys(trustedProfile.specialties) }))
       if (typeof window !== "undefined") window.localStorage.setItem(`pomichPartnerRegistered:${providerId}`, "1")
       setStep("duty")
+      setLoginView("login")
     } catch {
-      setRegistrationError("Не вдалося зберегти профіль партнера.")
+      setRegistrationError("Не вдалося зберегти профіль партнера. Перевірте підключення та спробуйте ще раз.")
     } finally {
       setRegistrationSaving(false)
     }
@@ -2275,8 +2780,8 @@ function ProviderFlow({ providerToken }: { providerToken?: string }) {
       storeAuthSession(providerSessionStorageKey, session)
       setProviderAccessToken(session.accessToken)
       setAccountPassword("")
-    } catch {
-      setAuthError("Не вдалося увійти в акаунт партнера.")
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : "Не вдалося увійти в акаунт партнера.")
     } finally {
       setAuthSaving(false)
     }
@@ -2293,6 +2798,23 @@ function ProviderFlow({ providerToken }: { providerToken?: string }) {
   }, [activeOrder, progress, step])
 
   if (!providerAuthToken && !providerToken) {
+    if (loginView === "register") {
+      return (
+        <ProviderRegistrationStep
+          form={registrationForm}
+          saving={registrationSaving}
+          error={registrationError}
+          onChange={updateRegistrationForm}
+          onToggleSpecialty={toggleRegistrationSpecialty}
+          onSubmit={saveRegistration}
+          onLogin={() => {
+            setRegistrationError(undefined)
+            setLoginView("login")
+          }}
+        />
+      )
+    }
+
     return (
       <AccountLoginStep
         title="Вхід партнера"
@@ -2304,6 +2826,10 @@ function ProviderFlow({ providerToken }: { providerToken?: string }) {
         onLoginChange={setAccountLogin}
         onPasswordChange={setAccountPassword}
         onSubmit={submitProviderAccountLogin}
+        onRegister={() => {
+          setAuthError(undefined)
+          setLoginView("register")
+        }}
       />
     )
   }
@@ -2336,11 +2862,18 @@ function ProviderFlow({ providerToken }: { providerToken?: string }) {
     }
 
     return (
-      <ScreenLayout footer={onDuty ? <div style={{ display: "grid", gap: 10 }}><PrimaryButton label="Дивитися заявки поруч" onClick={() => setStep("offer")} disabled={!providerAuthToken} /><SecondaryButton label="Піти з лінії" onClick={() => setDuty(false)} disabled={!providerAuthToken} /><SecondaryButton label="Редагувати профіль" onClick={() => setStep("register")} /></div> : <div style={{ display: "grid", gap: 10 }}><PrimaryButton label={!providerCanGoOnline ? "Очікує перевірки" : presenceSaving ? "Оновлюємо статус…" : "Вийти на лінію"} onClick={() => setDuty(true)} disabled={!providerAuthToken || !providerCanGoOnline || presenceSaving} /><SecondaryButton label="Редагувати профіль" onClick={() => setStep("register")} /></div>}>
-        <Header title="Партнер POMICH" subtitle={onDuty ? "Ви на лінії та бачите заявки поруч" : "Почніть зміну, щоб клієнти бачили вас на карті"} />
-        <div style={{ padding: "0 16px 16px", display: "grid", gap: 12 }}>
+      <RideScreen
+        pickup={providerLocation}
+        providers={[providerPresence, ...mapProviders]}
+        requestPins={mapRequestPins}
+        mapSubtitle={onDuty ? `На лінії · ${mapRequestPins.length} заявок поруч` : "Ужгород · партнер"}
+        showAllProviders
+        onAcceptRequest={acceptFromMapPin}
+        onContactRequest={contactFromMapPin}
+      >
+        <SheetHeading title="Партнер POMICH" subtitle={onDuty ? "Ви на лінії — заявки на карті" : "Вийдіть на лінію, щоб бачити заявки"} />
+        <div style={{ marginTop: 14, display: "grid", gap: 12 }}>
           {authError ? <div style={{ background: "#FFF1F2", color: "#BE123C", borderRadius: 14, padding: 12, fontWeight: 800 }}>{authError}</div> : null}
-          <RouteMap pickup={providerLocation} providers={[providerPresence]} subtitle={onDuty ? "Ваша позиція активна" : "Ваша позиція прихована для клієнтів"} />
           <div style={{ background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 18, padding: 16 }}>
             <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
               <div>
@@ -2353,56 +2886,29 @@ function ProviderFlow({ providerToken }: { providerToken?: string }) {
             </div>
             <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <div style={{ background: BG, borderRadius: 14, padding: 12 }}>
-                <div style={{ color: "#6B7280", fontSize: 12, fontWeight: 800 }}>Зона</div>
-                <div style={{ color: DARK, fontWeight: 950, marginTop: 4 }}>Ужгород · 7 км</div>
+                <div style={{ color: "#6B7280", fontSize: 12, fontWeight: 800 }}>Заявки на карті</div>
+                <div style={{ color: DARK, fontWeight: 950, marginTop: 4 }}>{mapRequestPins.length}</div>
               </div>
               <div style={{ background: BG, borderRadius: 14, padding: 12 }}>
-                <div style={{ color: "#6B7280", fontSize: 12, fontWeight: 800 }}>ETA клієнту</div>
-                <div style={{ color: DARK, fontWeight: 950, marginTop: 4 }}>~{provider.etaMinutes} хв</div>
+                <div style={{ color: "#6B7280", fontSize: 12, fontWeight: 800 }}>Сервісів Ужгорода</div>
+                <div style={{ color: DARK, fontWeight: 950, marginTop: 4 }}>{mapProviders.filter((item) => item.providerKind === "directory").length}</div>
               </div>
-            </div>
-            <div style={{ color: "#6B7280", fontWeight: 700, fontSize: 13, marginTop: 12 }}>
-              {onDuty ? "Клієнти бачать вашу картку, рейтинг, приблизний час прибуття та можуть отримати вас після створення заявки." : "Поки ви поза лінією, клієнт бачить менше доступних механіків поруч."}
             </div>
           </div>
-          <div style={{ background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 18, padding: 14 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
-              <div>
-                <div style={{ fontWeight: 950, color: DARK }}>Верифікація</div>
-                <div style={{ color: "#6B7280", fontSize: 12, fontWeight: 800, marginTop: 3 }}>Доступ до заявок тільки після перевірки</div>
-              </div>
-              <VerificationPill status={providerProfile.verificationStatus} />
-            </div>
-            <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-              {[
-                ["ID", providerProfile.verification?.identityDocument],
-                ["Права", providerProfile.verification?.driverLicense],
-                ["Авто", providerProfile.verification?.vehicleRegistration],
-                ["Сервіс", providerProfile.verification?.serviceProof],
-              ].map(([label, done]) => (
-                <div key={String(label)} style={{ borderRadius: 12, background: done ? "#E8F8F1" : BG, color: done ? BRAND : "#6B7280", padding: "9px 10px", fontSize: 12, fontWeight: 950 }}>
-                  {done ? "✓" : "•"} {label}
-                </div>
-              ))}
-            </div>
-          </div>
-          <div style={{ background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 18, padding: 14 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
-              <div>
-                <div style={{ fontWeight: 950, color: DARK }}>Профіль допомоги</div>
-                <div style={{ color: "#6B7280", fontSize: 12, fontWeight: 800, marginTop: 3 }}>{providerPresence.vehicle} · радіус {providerPresence.serviceRadiusKm ?? 7} км</div>
-              </div>
-              <button onClick={() => setStep("register")} style={{ border: `1px solid ${BORDER}`, background: BG, color: DARK, borderRadius: 999, padding: "8px 10px", fontSize: 12, fontWeight: 900, cursor: "pointer", fontFamily: "inherit" }}>Змінити</button>
-            </div>
-            <div style={{ marginTop: 12, display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {(providerPresence.specialties ?? []).map((specialty) => (
-                <span key={specialty} style={{ borderRadius: 999, padding: "7px 10px", background: "#E8F8F1", color: BRAND, fontSize: 12, fontWeight: 900 }}>{getProviderCapabilityLabel(specialty)}</span>
-              ))}
-            </div>
+          <div style={{ display: "grid", gap: 10 }}>
+            {onDuty ? (
+              <>
+                <PrimaryButton label={offerSaving ? "Приймаємо…" : activeOffer ? "Відкрити заявку" : "Оновити карту"} onClick={() => activeOffer ? setStep("offer") : undefined} disabled={offerSaving} />
+                <SecondaryButton label="Піти з лінії" onClick={() => setDuty(false)} disabled={!providerAuthToken} />
+              </>
+            ) : (
+              <PrimaryButton label={!providerCanGoOnline ? "Очікує перевірки" : presenceSaving ? "Оновлюємо статус…" : "Вийти на лінію"} onClick={() => setDuty(true)} disabled={!providerAuthToken || !providerCanGoOnline || presenceSaving} />
+            )}
+            <SecondaryButton label="Редагувати профіль" onClick={() => setStep("register")} />
           </div>
           {offerError ? <div style={{ background: "#FFF7ED", color: "#B45309", borderRadius: 14, padding: 12, fontWeight: 850 }}>{offerError}</div> : null}
         </div>
-      </ScreenLayout>
+      </RideScreen>
     )
   }
 
@@ -2458,22 +2964,35 @@ function ProviderFlow({ providerToken }: { providerToken?: string }) {
   }
 
   return (
-    <ScreenLayout footer={<div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}><PrimaryButton label="Прийняти" onClick={() => setStep("navigation")} /><SecondaryButton label="Пропустити" /></div>}>
-      <Header title="Нова заявка поруч" subtitle="4.8 км · евакуація · оплата готівкою" onBack={() => setStep("duty")} status="searching" />
-      <div style={{ padding: "8px 16px 16px", display: "grid", gap: 12 }}>
-        <RouteMap pickup={pickup} destination={destination} subtitle="Маршрут клієнта" />
-        <div style={{ background: "#fff", borderRadius: 18, padding: 16, border: `1px solid ${BORDER}` }}>
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-            <div>
-              <div style={{ fontWeight: 950, color: DARK }}>🚛 Евакуатор</div>
-              <div style={{ color: "#6B7280", fontWeight: 700, marginTop: 4 }}>Volvo V60 · авто заводиться</div>
+    <RideScreen
+      pickup={mapRequestPins[0]?.customerCoordinates ?? providerLocation}
+      providers={[providerPresence, ...mapProviders]}
+      requestPins={mapRequestPins}
+      mapSubtitle="Заявки поруч на карті"
+      showAllProviders
+      onAcceptRequest={acceptFromMapPin}
+      onContactRequest={contactFromMapPin}
+    >
+      <button onClick={() => setStep("duty")} style={{ border: "none", background: "#F3F4F6", color: DARK, borderRadius: 999, padding: "8px 11px", fontWeight: 900, cursor: "pointer", fontFamily: "inherit", marginBottom: 14 }}>← Назад до карти</button>
+      <SheetHeading title="Заявки на карті" subtitle={`${mapRequestPins.length} активних · натисніть маркер`} />
+      <div style={{ marginTop: 14, display: "grid", gap: 10 }}>
+        {mapRequestPins.length === 0 ? (
+          <div style={{ background: BG, borderRadius: 14, padding: 12, fontWeight: 800, color: "#6B7280" }}>Поки немає заявок у вашому радіусі.</div>
+        ) : (
+          mapRequestPins.map((pin) => (
+            <div key={pin.offerId ?? pin.id} style={{ background: "#fff", borderRadius: 18, padding: 14, border: `1px solid ${BORDER}` }}>
+              <div style={{ fontWeight: 950, color: DARK }}>{getServiceEmoji(pin.service)} {getProviderCapabilityLabel(pin.service)}</div>
+              <div style={{ color: "#6B7280", fontWeight: 700, marginTop: 4, fontSize: 13 }}>{pin.customerLocation ?? "Поруч"} · {pin.distanceKm?.toFixed(1) ?? "?"} км</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 12 }}>
+                {pin.offerId ? <PrimaryButton label="Прийняти заявку" onClick={() => acceptFromMapPin(pin)} disabled={offerSaving} /> : null}
+                <SecondaryButton label="Зв'язатися" onClick={() => contactFromMapPin(pin)} />
+              </div>
             </div>
-            <div style={{ textAlign: "right", fontWeight: 950, color: BRAND }}>{provider.earnings.toLocaleString("uk-UA")} ₴</div>
-          </div>
-          <div style={{ marginTop: 14, background: BG, borderRadius: 14, padding: 12, color: DARK, fontWeight: 800 }}>Після прийняття клієнт отримає вашу картку, телефон, чат і live tracking.</div>
-        </div>
+          ))
+        )}
+        {offerError ? <div style={{ background: "#FFF7ED", color: "#B45309", borderRadius: 14, padding: 12, fontWeight: 850 }}>{offerError}</div> : null}
       </div>
-    </ScreenLayout>
+    </RideScreen>
   )
 }
 
@@ -2497,312 +3016,9 @@ function screenForOrderStatus(status: OrderStatus): Screen {
   return "home"
 }
 
-function nextOrderStatuses(status: OrderStatus): OrderStatus[] {
-  const transitions: Record<OrderStatus, OrderStatus[]> = {
-    draft: ["searching", "cancelled"],
-    searching: ["assigned", "cancelled"],
-    assigned: ["en_route", "cancelled"],
-    en_route: ["arrived", "cancelled"],
-    arrived: ["in_progress", "cancelled"],
-    in_progress: ["completed", "cancelled"],
-    completed: [],
-    cancelled: [],
-  }
-  return transitions[status] ?? []
-}
-
-function AdminFlow({ adminToken }: { adminToken?: string }) {
-  const adminSessionStorageKey = useMemo(() => authSessionStorageKey("admin", "admin"), [])
-  const [adminAccessToken, setAdminAccessToken] = useState<string | undefined>(() => {
-    if (isAuthSessionToken(adminToken)) return adminToken
-    return readStoredAuthSession(authSessionStorageKey("admin", "admin"), "admin", "admin")
-  })
-  const adminAuthToken = adminAccessToken
-  const [orders, setOrders] = useState<OrderResponse[]>([])
-  const [providers, setProviders] = useState<ProviderAvailability[]>([])
-  const [selectedStatus, setSelectedStatus] = useState<OrderStatus | "all">("all")
-  const [selectedOrderId, setSelectedOrderId] = useState<string | undefined>()
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | undefined>()
-  const [authError, setAuthError] = useState<string | undefined>()
-  const [accountLogin, setAccountLogin] = useState("dispatcher")
-  const [accountPassword, setAccountPassword] = useState("")
-  const [authSaving, setAuthSaving] = useState(false)
-
-  useEffect(() => {
-    if (adminAuthToken) return
-
-    if (!adminToken) {
-      setAuthError(undefined)
-      return
-    }
-
-    if (isAuthSessionToken(adminToken)) {
-      if (typeof window !== "undefined") window.sessionStorage.setItem(adminSessionStorageKey, adminToken)
-      setAdminAccessToken(adminToken)
-      setAuthError(undefined)
-      return
-    }
-
-    let cancelled = false
-    createAdminSession(adminToken)
-      .then((session) => {
-        if (cancelled) return
-        storeAuthSession(adminSessionStorageKey, session)
-        setAdminAccessToken(session.accessToken)
-        setAuthError(undefined)
-      })
-      .catch(() => {
-        if (!cancelled) setAuthError("Не вдалося відкрити захищену адмін-сесію.")
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [adminAuthToken, adminSessionStorageKey, adminToken])
-
-  const submitAdminAccountLogin = async () => {
-    setAuthSaving(true)
-    setAuthError(undefined)
-    try {
-      const session = await createAdminAccountSession(accountLogin, accountPassword)
-      storeAuthSession(adminSessionStorageKey, session)
-      setAdminAccessToken(session.accessToken)
-      setAccountPassword("")
-    } catch {
-      setAuthError("Не вдалося увійти в адмін-акаунт.")
-    } finally {
-      setAuthSaving(false)
-    }
-  }
-
-  const refresh = () => {
-    setLoading(true)
-    if (!adminAuthToken) {
-      setOrders([])
-      setError(authError ?? "Очікуємо захищену адмін-сесію.")
-      setLoading(false)
-    } else {
-      getOrders(adminAuthToken)
-        .then((items) => {
-          setOrders(items.slice().reverse())
-          setError(undefined)
-        })
-        .catch(() => setError("Не вдалося завантажити заявки."))
-        .finally(() => setLoading(false))
-    }
-
-    getProviders()
-      .then((items) => setProviders(Array.isArray(items) ? items : []))
-      .catch(() => setProviders([]))
-  }
-
-  useEffect(() => {
-    refresh()
-    const interval = window.setInterval(refresh, 10000)
-    return () => window.clearInterval(interval)
-  }, [adminAuthToken, authError])
-
-  if (!adminAuthToken && !adminToken) {
-    return (
-      <AccountLoginStep
-        title="Вхід диспетчера"
-        subtitle="Увійдіть в адмін-акаунт, щоб керувати заявками та перевірками."
-        login={accountLogin}
-        password={accountPassword}
-        saving={authSaving}
-        error={authError}
-        onLoginChange={setAccountLogin}
-        onPasswordChange={setAccountPassword}
-        onSubmit={submitAdminAccountLogin}
-      />
-    )
-  }
-
-  const filteredOrders = orders.filter((order) => selectedStatus === "all" || normalizeOrderStatus(order.status) === selectedStatus)
-  const selectedOrder = filteredOrders.find((order) => order.id === selectedOrderId) ?? filteredOrders[0]
-  const activeCount = orders.filter((order) => !["completed", "cancelled"].includes(normalizeOrderStatus(order.status))).length
-  const searchingCount = orders.filter((order) => normalizeOrderStatus(order.status) === "searching").length
-  const enRouteCount = orders.filter((order) => normalizeOrderStatus(order.status) === "en_route").length
-  const completedCount = orders.filter((order) => normalizeOrderStatus(order.status) === "completed").length
-  const onlineProviderCount = providers.filter((item) => item.status === "online").length
-  const busyProviderCount = providers.filter((item) => item.status === "busy").length
-  const verifiedProviderCount = providers.filter((item) => isVerified(item.verificationStatus)).length
-  const pendingProviderCount = providers.filter((item) => item.verificationStatus === "pending").length
-
-  const setOrderStatus = async (order: OrderResponse, status: OrderStatus) => {
-    if (!order.id) return
-    try {
-      if (!adminAuthToken) throw new Error("admin_session_missing")
-      const updated = await updateOrderStatus(order.id, status, adminAuthToken)
-      setOrders((items) => items.map((item) => item.id === order.id ? { ...item, ...updated } : item))
-      setError(undefined)
-    } catch {
-      setError("Недопустимий перехід статусу або немає доступу адміністратора.")
-    }
-  }
-
-  const setProviderVerification = async (item: ProviderAvailability, status: "verified" | "rejected") => {
-    try {
-      if (!adminAuthToken) throw new Error("admin_session_missing")
-      const updated = await reviewProviderVerification(item.id, { status }, adminAuthToken)
-      setProviders((items) => items.map((providerItem) => providerItem.id === item.id ? { ...providerItem, ...updated } : providerItem))
-      setError(undefined)
-    } catch {
-      setError("Не вдалося оновити перевірку партнера.")
-    }
-  }
-
-  const statusFilters: Array<{ key: OrderStatus | "all"; label: string }> = [
-    { key: "all", label: "Усі" },
-    { key: "searching", label: "Пошук" },
-    { key: "assigned", label: "Назначено" },
-    { key: "en_route", label: "У дорозі" },
-    { key: "arrived", label: "На місці" },
-    { key: "in_progress", label: "Робота" },
-  ]
-  const selectedOffers = selectedOrder?.offers ?? []
-  const selectedOfferSummary = selectedOffers.length === 0
-    ? "немає"
-    : selectedOffers.map((offer) => {
-      const distance = typeof offer.distanceKm === "number" ? ` · ${offer.distanceKm.toFixed(1)} км` : ""
-      return `${offer.providerId}: ${offer.status}${distance}`
-    }).join(" / ")
-  const selectedDispatchState = selectedOrder?.dispatchState ?? (selectedOffers.length > 0 ? "OFFERS_SENT" : "—")
-
-  return (
-    <ScreenLayout>
-      <Header title="Адмін панель" subtitle="Диспетчеризація, статуси та контроль заявок" />
-      <div style={{ padding: "8px 16px 16px", display: "grid", gap: 12 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-          {[
-            ["Активні", activeCount],
-            ["Очікують", searchingCount],
-            ["У дорозі", enRouteCount],
-            ["Завершені", completedCount],
-            ["На лінії", onlineProviderCount],
-            ["У роботі", busyProviderCount],
-            ["Verified", verifiedProviderCount],
-            ["Review", pendingProviderCount],
-          ].map(([label, value]) => (
-            <div key={label} style={{ background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 16, padding: 13 }}>
-              <div style={{ color: "#6B7280", fontSize: 12, fontWeight: 800 }}>{label}</div>
-              <div style={{ color: DARK, fontSize: 24, fontWeight: 950, marginTop: 4 }}>{value}</div>
-            </div>
-          ))}
-        </div>
-
-        <div style={{ background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 18, padding: 14 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
-            <div>
-              <div style={{ fontWeight: 950, color: DARK }}>Парк партнерів</div>
-              <div style={{ color: "#6B7280", fontSize: 12, fontWeight: 800, marginTop: 3 }}>{onlineProviderCount} на лінії · {providers.length} у системі</div>
-            </div>
-            <div style={{ color: onlineProviderCount > 0 ? BRAND : "#B45309", background: onlineProviderCount > 0 ? "#E8F8F1" : "#FFF7ED", borderRadius: 999, padding: "7px 10px", fontSize: 12, fontWeight: 950 }}>
-              {onlineProviderCount > 0 ? "Покриття є" : "Немає покриття"}
-            </div>
-          </div>
-          <div style={{ marginTop: 12, display: "grid", gap: 8 }}>
-            {providers.slice(0, 4).map((item) => (
-              <div key={item.id} style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "center", background: BG, borderRadius: 14, padding: "10px 12px" }}>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontWeight: 900, color: DARK, fontSize: 13 }}>{item.name}</div>
-                  <div style={{ color: "#6B7280", fontSize: 12, fontWeight: 700, marginTop: 2 }}>{item.vehicle ?? "Автодопомога"} · ETA ~{item.etaMinutes ?? 15} хв</div>
-                  <div style={{ color: "#6B7280", fontSize: 11, fontWeight: 800, marginTop: 3 }}>{toServiceKeys(item.specialties).map(getProviderCapabilityLabel).join(" · ") || "Послуги не вказані"}</div>
-                  <div style={{ marginTop: 7 }}><VerificationPill status={item.verificationStatus} /></div>
-                </div>
-                <div style={{ display: "grid", gap: 7, justifyItems: "end" }}>
-                  <div style={{ color: item.status === "offline" ? "#6B7280" : BRAND, fontWeight: 950, fontSize: 12, whiteSpace: "nowrap" }}>{providerStatusLabel(item.status)}</div>
-                  {item.verificationStatus === "pending" ? (
-                    <div style={{ display: "flex", gap: 6 }}>
-                      <button onClick={() => setProviderVerification(item, "verified")} style={{ border: "none", background: BRAND, color: "#fff", borderRadius: 999, padding: "7px 9px", fontSize: 11, fontWeight: 950, cursor: "pointer", fontFamily: "inherit" }}>OK</button>
-                      <button onClick={() => setProviderVerification(item, "rejected")} style={{ border: `1px solid #FECDD3`, background: "#FFF1F2", color: "#BE123C", borderRadius: 999, padding: "7px 9px", fontSize: 11, fontWeight: 950, cursor: "pointer", fontFamily: "inherit" }}>Ні</button>
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 2 }}>
-          {statusFilters.map((filter) => {
-            const active = selectedStatus === filter.key
-            return (
-              <button key={filter.key} onClick={() => setSelectedStatus(filter.key)} style={{ flex: "0 0 auto", border: active ? `1.5px solid ${BRAND}` : `1px solid ${BORDER}`, background: active ? "#E8F8F1" : "#fff", color: active ? BRAND : DARK, borderRadius: 999, padding: "8px 11px", fontSize: 12, fontWeight: 900, cursor: "pointer", fontFamily: "inherit" }}>
-                {filter.label}
-              </button>
-            )
-          })}
-        </div>
-
-        {error ? <div style={{ background: "#FFF1F2", color: "#BE123C", borderRadius: 14, padding: 12, fontWeight: 800 }}>{error}</div> : null}
-
-        <div style={{ display: "grid", gap: 10 }}>
-          {loading ? <div style={{ color: "#6B7280", fontWeight: 800, padding: 12 }}>Завантажуємо заявки…</div> : null}
-          {!loading && filteredOrders.length === 0 ? <div style={{ color: "#6B7280", fontWeight: 800, padding: 12 }}>Немає заявок у цьому фільтрі.</div> : null}
-          {filteredOrders.slice(0, 8).map((order) => {
-            const status = normalizeOrderStatus(order.status)
-            const active = selectedOrder?.id === order.id
-            return (
-              <button key={order.id} onClick={() => setSelectedOrderId(order.id)} style={{ width: "100%", border: active ? `1.5px solid ${BRAND}` : `1px solid ${BORDER}`, background: "#fff", borderRadius: 16, padding: 13, textAlign: "left", cursor: "pointer", fontFamily: "inherit" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ fontWeight: 950, color: DARK }}>{order.id ?? "Без номера"}</div>
-                    <div style={{ marginTop: 4, color: "#6B7280", fontSize: 12, fontWeight: 800 }}>{getServiceEmoji(order.service)} {getServiceLabel(order.service)} · {order.source ?? "web"}</div>
-                  </div>
-                  <StatusPill status={status} />
-                </div>
-                <div style={{ marginTop: 8, color: "#374151", fontSize: 12, fontWeight: 700, lineHeight: 1.35 }}>
-                  {order.customerLocation ?? "Локація не вказана"} → {order.destination ?? "Призначення не вказано"}
-                </div>
-              </button>
-            )
-          })}
-        </div>
-
-        {selectedOrder ? (
-          <div style={{ background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 18, padding: 15, boxShadow: "0 8px 24px rgba(0,0,0,0.05)" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
-              <div>
-                <div style={{ fontWeight: 950, color: DARK }}>Картка заявки</div>
-                <div style={{ marginTop: 3, color: "#6B7280", fontSize: 12, fontWeight: 800 }}>{selectedOrder.id}</div>
-              </div>
-              <StatusPill status={normalizeOrderStatus(selectedOrder.status)} />
-            </div>
-            <div style={{ marginTop: 12, display: "grid", gap: 8, fontSize: 13 }}>
-              <div><strong>Послуга:</strong> {getServiceLabel(selectedOrder.service)}</div>
-              <div><strong>Авто:</strong> {selectedOrder.vehicleState ?? "Не вказано"}</div>
-              <div><strong>Клієнт:</strong> {selectedOrder.telegramUsername ? `@${selectedOrder.telegramUsername}` : selectedOrder.chatId ?? "web"}</div>
-              <div><strong>Маршрут:</strong> {selectedOrder.customerLocation ?? "?"} → {selectedOrder.destination ?? "?"}</div>
-              <div><strong>Створено:</strong> {selectedOrder.createdAt ?? "—"}</div>
-              <div><strong>Dispatch:</strong> {selectedDispatchState}</div>
-              <div><strong>Оффери:</strong> {selectedOfferSummary}</div>
-              {selectedOrder.assignedProvider ? <div><strong>Виконавець:</strong> {selectedOrder.assignedProvider.name ?? selectedOrder.assignedProviderId} · {selectedOrder.assignedProvider.vehicle ?? "автодопомога"}</div> : null}
-            </div>
-            <div style={{ marginTop: 13 }}>
-              <Timeline status={normalizeOrderStatus(selectedOrder.status)} />
-            </div>
-            <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
-              {nextOrderStatuses(normalizeOrderStatus(selectedOrder.status)).filter((nextStatus) => nextStatus !== "cancelled").map((nextStatus) => (
-                <SecondaryButton key={nextStatus} label={orderStatusLabels[nextStatus]} onClick={() => setOrderStatus(selectedOrder, nextStatus)} />
-              ))}
-            </div>
-            {nextOrderStatuses(normalizeOrderStatus(selectedOrder.status)).includes("cancelled") ? (
-              <div style={{ marginTop: 9 }}>
-                <SecondaryButton label="Скасувати заявку" danger onClick={() => setOrderStatus(selectedOrder, "cancelled")} />
-              </div>
-            ) : null}
-          </div>
-        ) : null}
-      </div>
-    </ScreenLayout>
-  )
-}
-
 export default function CustomerApp() {
   const telegramContext = useMemo(() => getTelegramContext(), [])
-  const isMobile = useMediaQuery("(max-width: 640px)")
+  const isMobile = useMediaQuery(mediaQueries.mobile)
   const adminToken = useMemo(() => getStoredQueryToken("adminToken", "pomichAdminToken"), [])
   const providerToken = useMemo(() => getStoredQueryToken("providerToken", "pomichProviderToken"), [])
   const initialRole = useMemo<Role | null>(() => {
@@ -2810,14 +3026,33 @@ export default function CustomerApp() {
     const queryRole = new URLSearchParams(window.location.search).get("role")
     if (queryRole === "customer" || queryRole === "provider") return queryRole
     if (queryRole === "admin") return "admin"
+    const entryRole = resolveEntryRole()
+    if (entryRole) return entryRole
     return null
   }, [])
   const [role, setRole] = useState<Role | null>(initialRole)
+  const [account, setAccount] = useState<UserAccountStatus | null>(null)
+  const [showOnboarding, setShowOnboarding] = useState(() => {
+    if (initialRole === "customer" || initialRole === "provider") return true
+    if (telegramContext.isTelegram && initialRole !== "admin" && !providerToken) return true
+    return false
+  })
+  const [pendingRole, setPendingRole] = useState<Role | null>(initialRole === "customer" || initialRole === "provider" ? initialRole : null)
+  const [startAtRoleSelect, setStartAtRoleSelect] = useState(false)
+  const [loginMode, setLoginMode] = useState(() => {
+    if (telegramContext.isTelegram && initialRole !== "admin" && !providerToken) return true
+    return false
+  })
+  const [showLanding, setShowLanding] = useState(false)
+  const [showCabinet, setShowCabinet] = useState(false)
+  const [forceRolePicker, setForceRolePicker] = useState(false)
+  const [rolePickerKey, setRolePickerKey] = useState(0)
   const compact = telegramContext.isTelegram || isMobile
+  const skipOnboarding = initialRole === "admin" || Boolean(providerToken)
 
   const handleRoleChange = (nextRole: Role | null) => {
     setRole(nextRole)
-
+    setShowCabinet(false)
     if (typeof window === "undefined") return
     const url = new URL(window.location.href)
     if (nextRole) {
@@ -2829,9 +3064,65 @@ export default function CustomerApp() {
     window.history.pushState({}, "", `${url.pathname}${url.search}${url.hash}`)
   }
 
+  const beginOnboarding = useCallback((nextRole: Role | null, openRolePicker = false, isLogin = false) => {
+    if (skipOnboarding && nextRole) {
+      handleRoleChange(nextRole)
+      return
+    }
+    setPendingRole(nextRole)
+    setStartAtRoleSelect(openRolePicker)
+    setLoginMode(isLogin)
+    setShowOnboarding(true)
+    setShowLanding(false)
+  }, [skipOnboarding])
+
+  const handleSwitchRole = () => {
+    if (typeof window !== "undefined") {
+      window.sessionStorage.removeItem("pomichProviderToken")
+      window.sessionStorage.removeItem("pomichAdminToken")
+      const url = new URL(window.location.href)
+      url.searchParams.delete("role")
+      url.searchParams.delete("providerToken")
+      url.searchParams.delete("adminToken")
+      window.history.pushState({}, "", `${url.pathname}${url.search}${url.hash}`)
+    }
+    setForceRolePicker(true)
+    setRolePickerKey((value) => value + 1)
+    setPendingRole(null)
+    setStartAtRoleSelect(true)
+    setShowOnboarding(true)
+    setShowCabinet(false)
+    setShowLanding(false)
+    setRole(null)
+  }
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    if (isHiddenAdminHash()) {
+      setRole("admin")
+      setShowLanding(false)
+      setShowOnboarding(false)
+      clearHiddenAdminHash()
+    }
+  }, [])
+
   useEffect(() => {
     if (initialRole === null) setRole(null)
   }, [initialRole])
+
+  useEffect(() => {
+    if (providerToken) {
+      setRole("provider")
+      setShowOnboarding(false)
+      setShowLanding(false)
+      return
+    }
+    if (adminToken) {
+      setRole("admin")
+      setShowOnboarding(false)
+      setShowLanding(false)
+    }
+  }, [adminToken, providerToken])
 
   useEffect(() => {
     if (typeof window === "undefined") return
@@ -2852,12 +3143,103 @@ export default function CustomerApp() {
     return () => window.removeEventListener("popstate", syncRoleFromUrl)
   }, [])
 
+  if ((!skipOnboarding || forceRolePicker) && showOnboarding) {
+    return (
+      <OnboardingGate
+        key={forceRolePicker ? `role-picker-${rolePickerKey}` : "onboarding"}
+        skip={false}
+        startAtRoleSelect={startAtRoleSelect || forceRolePicker}
+        loginMode={loginMode}
+        initialRole={pendingRole}
+        onShowLanding={() => {
+          setForceRolePicker(false)
+          setShowOnboarding(false)
+          setStartAtRoleSelect(false)
+          setLoginMode(false)
+          setPendingRole(null)
+          setShowLanding(true)
+        }}
+        onReady={({ role: readyRole, account: readyAccount }) => {
+          setAccount(readyAccount)
+          if (readyAccount.linkedProviderId) storeLinkedProviderId(readyAccount.linkedProviderId)
+          if (readyAccount.profile && typeof window !== "undefined") {
+            window.sessionStorage.setItem("pomichBootstrapProfile", JSON.stringify(readyAccount.profile))
+          }
+          setForceRolePicker(false)
+          setShowOnboarding(false)
+          setStartAtRoleSelect(false)
+          setLoginMode(false)
+          setPendingRole(null)
+          handleRoleChange(readyRole)
+        }}
+      />
+    )
+  }
+
+  if (showCabinet && account?.profile && role === "customer") {
+    const cabinetCustomerId = account.customerId
+    const cabinetCustomerToken =
+      typeof window !== "undefined"
+        ? readStoredAuthSession(authSessionStorageKey("customer", cabinetCustomerId), "customer", cabinetCustomerId)
+        : undefined
+    return (
+      <ClientCabinet
+        profile={account.profile}
+        customerId={cabinetCustomerId}
+        customerToken={cabinetCustomerToken}
+        currentRole="customer"
+        onBack={() => setShowCabinet(false)}
+        onStartOrder={() => setShowCabinet(false)}
+        onSwitchRole={handleSwitchRole}
+        onProfileUpdate={(nextProfile) => {
+          setAccount((prev) => (prev ? { ...prev, profile: nextProfile } : prev))
+          if (typeof window !== "undefined") {
+            window.sessionStorage.setItem("pomichBootstrapProfile", JSON.stringify(nextProfile))
+          }
+        }}
+      />
+    )
+  }
+
+  if (showCabinet && role === "provider") {
+    return (
+      <ProviderCabinet
+        profile={{ id: getActiveProviderId(), name: "Партнер POMICH", status: "offline" }}
+        currentRole="provider"
+        isOnline={typeof window !== "undefined" && window.localStorage.getItem("pomichProviderOnline") === "1"}
+        onBack={() => setShowCabinet(false)}
+        onGoOnline={() => {
+          if (typeof window !== "undefined") window.localStorage.setItem("pomichProviderOnline", "1")
+          setShowCabinet(false)
+          handleRoleChange("provider")
+        }}
+        onGoOffline={() => {
+          if (typeof window !== "undefined") window.localStorage.removeItem("pomichProviderOnline")
+        }}
+        onSwitchRole={handleSwitchRole}
+      />
+    )
+  }
+
+  if (role === "admin") {
+    return <AdminFlow adminToken={adminToken} />
+  }
+
   return (
-    role === null ? (
-      <LandingPage onSelect={handleRoleChange} />
+    role === null || showLanding ? (
+      <LandingPage
+        onSelect={(nextRole) => beginOnboarding(nextRole, false, false)}
+        onRegister={() => beginOnboarding(null, true, false)}
+        onLogin={() => beginOnboarding(null, false, true)}
+        onHiddenAdmin={() => {
+          setRole("admin")
+          setShowLanding(false)
+          setShowOnboarding(false)
+        }}
+      />
     ) : (
-      <AppShell compact={compact} role={role} onRoleChange={handleRoleChange}>
-        {role === "provider" ? <ProviderFlow providerToken={providerToken} /> : role === "admin" ? <AdminFlow adminToken={adminToken} /> : <CustomerFlow />}
+      <AppShell compact={compact} role={role} onRoleChange={handleRoleChange} onOpenCabinet={() => setShowCabinet(true)} onSwitchRole={handleSwitchRole}>
+        {role === "provider" ? <ProviderFlow providerToken={providerToken} providerRegistered={account?.providerRegistered ?? false} /> : <CustomerFlow />}
       </AppShell>
     )
   )

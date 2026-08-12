@@ -27,6 +27,7 @@ from bot.order_store import (
     update_provider_order_status,
     update_provider_presence,
     update_provider_profile,
+    update_customer_profile,
 )
 
 
@@ -379,3 +380,15 @@ def test_assigned_provider_drives_order_lifecycle_and_returns_online(tmp_path):
     provider = load_providers(provider_path)[0]
     assert provider["status"] == "online"
     assert "assignedOrderId" not in provider
+
+
+def test_customer_profile_does_not_auto_verify_on_save(tmp_path):
+    store_path = tmp_path / "customers.json"
+    created = update_customer_profile(
+        "customer-vitaliy",
+        {"name": "Виталий", "phone": "+380661007434"},
+        store_path=store_path,
+    )
+
+    assert created["verificationStatus"] == "unverified"
+    assert created["verification"]["phone"] is False

@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from bot.field_encryption import decrypt_customer_profile, encrypt_customer_profile
 from bot.runtime_store import (
     SqlDispatchConflict,
     load_collection,
@@ -196,12 +197,12 @@ def _truthy_flag(value: Any) -> bool:
 
 def _verification_badges(status: str, role: str) -> List[str]:
     if status == "verified":
-        return ["Перевірено POMICH", "Документи перевірено"] if role == "provider" else ["Профіль підтверджено", "Телефон перевірено"]
+        return ["Перевірено POMICH", "Документи перевірено"] if role == "provider" else ["Профіль заповнено", "Телефон збережено"]
     if status == "pending":
-        return ["На перевірці"]
+        return ["На перевірці"] if role == "provider" else ["Профіль заповнено"]
     if status == "rejected":
-        return ["Потрібне оновлення документів"]
-    return ["Потребує перевірки"]
+        return ["Потрібне оновлення документів"] if role == "provider" else ["Потрібне оновлення профілю"]
+    return ["Потребує перевірки"] if role == "provider" else ["Заповніть профіль"]
 
 
 def _default_provider_verification(status: str, timestamp: str | None = None) -> Dict[str, Any]:
@@ -253,6 +254,9 @@ def _default_customer_profile(customer_id: str, timestamp: str | None = None) ->
         "city": "Київ",
         "avatarUrl": "",
         "bio": "",
+        "preferredRole": "",
+        "linkedProviderId": "",
+        "rolesRegistered": [],
         "rating": 5.0,
         "ordersCompleted": 0,
         "verificationStatus": "unverified",
@@ -275,14 +279,12 @@ def _default_customer_profile(customer_id: str, timestamp: str | None = None) ->
 
 
 def _customer_profile_completeness(profile: Dict[str, Any]) -> int:
-    verification = profile.get("verification") if isinstance(profile.get("verification"), dict) else {}
     checks = [
         bool(str(profile.get("name") or "").strip()),
         bool(str(profile.get("phone") or "").strip()),
+        bool(str(profile.get("email") or "").strip()),
         bool(str(profile.get("city") or "").strip()),
-        bool(str(profile.get("avatarUrl") or "").strip()) or bool(verification.get("profilePhoto")),
-        bool(verification.get("phone")),
-        bool(verification.get("identityDocument")) or bool(verification.get("telegram")),
+        bool(str(profile.get("telegram") or "").strip()),
     ]
     return round(sum(1 for item in checks if item) / len(checks) * 100)
 
@@ -295,6 +297,10 @@ def _normalize_customer_profile(profile: Dict[str, Any]) -> Dict[str, Any]:
     payload["verification"] = {**_default_customer_profile(str(payload.get("id"))).get("verification", {}), **existing}
     payload["trustedBadges"] = payload.get("trustedBadges") if isinstance(payload.get("trustedBadges"), list) else _verification_badges(status, "customer")
     payload["profileCompleteness"] = _customer_profile_completeness(payload)
+    roles = payload.get("rolesRegistered")
+    payload["rolesRegistered"] = [str(item).strip() for item in roles if str(item).strip()] if isinstance(roles, list) else []
+    payload["preferredRole"] = str(payload.get("preferredRole") or "").strip()
+    payload["linkedProviderId"] = str(payload.get("linkedProviderId") or "").strip()
     return payload
 
 
@@ -384,7 +390,7 @@ def _default_providers() -> List[Dict[str, Any]]:
             "etaMinutes": 12,
             "location": {"lat": 48.632, "lng": 22.271},
             "specialties": ["tow", "battery", "wheel"],
-            "serviceRadiusKm": 7,
+            "serviceRadiusKm": 15,
             "registeredAt": now,
             "profileUpdatedAt": now,
             "lastSeenAt": now,
@@ -559,6 +565,77 @@ def get_telegram_session(chat_id: str, store_path: Optional[Path] = None) -> Opt
     return session if isinstance(session, dict) else None
 
 
+def merge_directory_providers(
+    incoming: List[Dict[str, Any]],
+    store_path: Optional[Path] = None,
+) -> Dict[str, Any]:
+    """Merge directory providers by id; keep dispatch partners unchanged."""
+    with STORE_LOCK:
+        path = store_path or _default_provider_store_path()
+        existing = load_providers(path)
+        dispatch_partners = [provider for provider in existing if str(provider.get("providerKind") or "dispatch") != "directory"]
+        by_id = {str(provider.get("id")): provider for provider in dispatch_partners if provider.get("id")}
+        added = 0
+        updated = 0
+        for raw in incoming:
+            payload = _normalize_provider_trust(dict(raw), "verified")
+            payload["providerKind"] = "directory"
+            payload.setdefault("city", "Ужгород")
+            provider_id = str(payload.get("id") or "").strip()
+            if not provider_id:
+                continue
+            if provider_id in by_id:
+                previous = by_id[provider_id]
+                payload["registeredAt"] = previous.get("registeredAt") or payload.get("registeredAt")
+                updated += 1
+            else:
+                added += 1
+            by_id[provider_id] = payload
+        merged = list(by_id.values())
+        save_providers(merged, path)
+        return {"added": added, "updated": updated, "total": len(merged), "directory": sum(1 for item in merged if item.get("providerKind") == "directory")}
+
+
+def nearby_searching_orders(
+    lat: float,
+    lng: float,
+    *,
+    radius_km: float = 20.0,
+    service: Optional[str] = None,
+    order_store_path: Optional[Path] = None,
+) -> List[Dict[str, Any]]:
+    pickup = _valid_point({"lat": lat, "lng": lng})
+    if pickup is None:
+        return []
+    normalized_service = normalize_service(service) if service else None
+    results: List[Dict[str, Any]] = []
+    for order in load_orders(order_store_path):
+        if normalize_order_status(order.get("status")) != "searching":
+            continue
+        order_service = normalize_service(order.get("service"))
+        if normalized_service and order_service != normalized_service:
+            continue
+        order_point = _valid_point(order.get("customerCoordinates"))
+        if order_point is None:
+            continue
+        distance = haversine_distance_km(pickup, order_point)
+        if distance > radius_km:
+            continue
+        payload = {
+            "id": order.get("id"),
+            "service": order_service,
+            "status": "searching",
+            "customerLocation": order.get("customerLocation"),
+            "vehicleState": order.get("vehicleState"),
+            "customerCoordinates": order_point,
+            "distanceKm": round(distance, 2),
+            "createdAt": order.get("createdAt"),
+            "etaMinutes": max(2, math.ceil(distance * 4)),
+        }
+        results.append(payload)
+    return sorted(results, key=lambda item: item.get("distanceKm") or 0)
+
+
 def load_providers(store_path: Optional[Path] = None) -> List[Dict[str, Any]]:
     if _should_use_sql_store(store_path, _default_provider_store_path):
         found, data = load_collection("providers")
@@ -696,10 +773,18 @@ def review_provider_verification(provider_id: str, data: Dict[str, Any], store_p
         return dict(updated)
 
 
+def _decrypt_customer_record(profile: Dict[str, Any]) -> Dict[str, Any]:
+    return _normalize_customer_profile(decrypt_customer_profile(profile))
+
+
+def _encrypt_customer_record(profile: Dict[str, Any]) -> Dict[str, Any]:
+    return encrypt_customer_profile(_normalize_customer_profile(profile))
+
+
 def load_customer_profiles(store_path: Optional[Path] = None) -> List[Dict[str, Any]]:
     if _should_use_sql_store(store_path, _default_customer_store_path):
         found, data = load_collection("customers")
-        return [_normalize_customer_profile(profile) for profile in data] if found and isinstance(data, list) else []
+        return [_decrypt_customer_record(profile) for profile in data] if found and isinstance(data, list) else []
 
     path = store_path or _default_customer_store_path()
     if not path.exists():
@@ -707,7 +792,7 @@ def load_customer_profiles(store_path: Optional[Path] = None) -> List[Dict[str, 
     try:
         with path.open("r", encoding="utf-8") as handle:
             data = json.load(handle)
-            return [_normalize_customer_profile(profile) for profile in data] if isinstance(data, list) else []
+            return [_decrypt_customer_record(profile) for profile in data] if isinstance(data, list) else []
     except json.JSONDecodeError:
         return []
 
@@ -715,9 +800,9 @@ def load_customer_profiles(store_path: Optional[Path] = None) -> List[Dict[str, 
 def save_customer_profiles(profiles: List[Dict[str, Any]], store_path: Optional[Path] = None) -> List[Dict[str, Any]]:
     with STORE_LOCK:
         path = store_path or _default_customer_store_path()
-        cleaned_profiles = [_normalize_customer_profile(profile) for profile in profiles]
+        cleaned_profiles = [_encrypt_customer_record(profile) for profile in profiles]
         _write_json_atomic(path, cleaned_profiles)
-        return cleaned_profiles
+        return [_decrypt_customer_record(profile) for profile in cleaned_profiles]
 
 
 def get_customer_profile(customer_id: str, store_path: Optional[Path] = None) -> Dict[str, Any]:
@@ -733,15 +818,31 @@ def update_customer_profile(customer_id: str, data: Dict[str, Any], store_path: 
         profiles = load_customer_profiles(path)
         now = _now_iso()
         updated: Optional[Dict[str, Any]] = None
+        if data.get("displayName") and not data.get("name"):
+            data = {**data, "name": data.get("displayName")}
 
-        editable_fields = ["name", "phone", "email", "telegram", "city", "avatarUrl", "bio"]
+        editable_fields = [
+            "name",
+            "phone",
+            "email",
+            "telegram",
+            "city",
+            "avatarUrl",
+            "bio",
+            "preferredRole",
+            "linkedProviderId",
+            "rolesRegistered",
+        ]
         for index, profile in enumerate(profiles):
             if str(profile.get("id")) != str(customer_id):
                 continue
             payload = _normalize_customer_profile(profile)
             for field in editable_fields:
                 if data.get(field) is not None:
-                    payload[field] = str(data.get(field) or "").strip()
+                    if field == "rolesRegistered" and isinstance(data.get(field), list):
+                        payload[field] = [str(item).strip() for item in data.get(field) if str(item).strip()]
+                    else:
+                        payload[field] = str(data.get(field) or "").strip()
             payload["updatedAt"] = now
             payload["profileCompleteness"] = _customer_profile_completeness(payload)
             profiles[index] = payload
@@ -752,7 +853,10 @@ def update_customer_profile(customer_id: str, data: Dict[str, Any], store_path: 
             payload = _default_customer_profile(customer_id, now)
             for field in editable_fields:
                 if data.get(field) is not None:
-                    payload[field] = str(data.get(field) or "").strip()
+                    if field == "rolesRegistered" and isinstance(data.get(field), list):
+                        payload[field] = [str(item).strip() for item in data.get(field) if str(item).strip()]
+                    else:
+                        payload[field] = str(data.get(field) or "").strip()
             payload["profileCompleteness"] = _customer_profile_completeness(payload)
             profiles.append(payload)
             updated = payload
@@ -762,6 +866,7 @@ def update_customer_profile(customer_id: str, data: Dict[str, Any], store_path: 
 
 
 def upsert_telegram_customer_profile(user: Dict[str, Any], store_path: Optional[Path] = None) -> Dict[str, Any]:
+    # Links Telegram user to tg-{id} customer row shared by bot and web app.
     telegram_user_id = str(user.get("id") or "").strip()
     if not telegram_user_id:
         raise ValueError("telegram user id missing")
@@ -799,9 +904,6 @@ def upsert_telegram_customer_profile(user: Dict[str, Any], store_path: Optional[
         verification["telegramUserId"] = telegram_user_id
         verification["telegramVerifiedAt"] = verification.get("telegramVerifiedAt") or now
         updated["verification"] = verification
-        if updated.get("verificationStatus") == "unverified":
-            updated["verificationStatus"] = "verified"
-            updated["trustedBadges"] = _verification_badges("verified", "customer")
         updated["customerIdentity"] = {
             "type": "telegram",
             "telegramUserId": telegram_user_id,
@@ -814,6 +916,110 @@ def upsert_telegram_customer_profile(user: Dict[str, Any], store_path: Optional[
 
         save_customer_profiles(profiles, path)
         return dict(updated)
+
+
+def _customer_display_name(profile: Dict[str, Any]) -> str:
+    name = str(profile.get("name") or "").strip()
+    if name and name != "Клієнт POMICH":
+        return name
+    return ""
+
+
+def is_customer_client_registered(profile: Dict[str, Any]) -> bool:
+    name = _customer_display_name(profile)
+    phone = str(profile.get("phone") or "").strip()
+    return bool(name and phone)
+
+
+def _is_valid_ukraine_mobile_phone(phone: str) -> bool:
+    digits = "".join(ch for ch in str(phone or "") if ch.isdigit())
+    if digits.startswith("380") and len(digits) == 12:
+        national = digits[3:]
+    elif digits.startswith("0") and len(digits) == 10:
+        national = digits[1:]
+    elif len(digits) == 9:
+        national = digits
+    else:
+        return False
+    return len(national) == 9 and national[:2] in {"39", "50", "63", "66", "67", "68", "73", "75", "91", "92", "93", "94", "95", "96", "97", "98", "99"}
+
+
+def resolve_linked_provider_id(customer_id: str, profile: Dict[str, Any] | None = None) -> str:
+    payload = profile or get_customer_profile(customer_id)
+    linked = str(payload.get("linkedProviderId") or "").strip()
+    if linked:
+        return linked
+    normalized_customer_id = str(customer_id or "").strip()
+    if normalized_customer_id and normalized_customer_id not in {"", "customer-web"}:
+        return f"provider-{normalized_customer_id}"
+    return ""
+
+
+def is_customer_provider_registered(customer_id: str, store_path: Optional[Path] = None) -> bool:
+    profile = get_customer_profile(customer_id, store_path)
+    provider_id = resolve_linked_provider_id(customer_id, profile)
+    if not provider_id:
+        return False
+    provider = get_provider_profile(provider_id, store_path)
+    if provider is None:
+        return False
+    name = str(provider.get("name") or "").strip()
+    phone = str(provider.get("phone") or "").strip()
+    vehicle = str(provider.get("vehicle") or "").strip()
+    specialties = provider.get("specialties") if isinstance(provider.get("specialties"), list) else []
+    return bool(provider.get("registeredAt") and name and phone and vehicle and specialties)
+
+
+def build_user_account_status(customer_id: str, store_path: Optional[Path] = None) -> Dict[str, Any]:
+    profile = get_customer_profile(customer_id, store_path)
+    provider_id = resolve_linked_provider_id(customer_id, profile)
+    client_registered = is_customer_client_registered(profile)
+    provider_registered = is_customer_provider_registered(customer_id, store_path)
+    roles_registered = [role for role in (profile.get("rolesRegistered") or []) if role in {"customer", "provider"}]
+    if client_registered and "customer" not in roles_registered:
+        roles_registered.append("customer")
+    if provider_registered and "provider" not in roles_registered:
+        roles_registered.append("provider")
+    preferred_role = str(profile.get("preferredRole") or "").strip()
+    if preferred_role not in {"customer", "provider"}:
+        preferred_role = "customer" if client_registered else ("provider" if provider_registered else "")
+    return {
+        "customerId": str(customer_id),
+        "preferredRole": preferred_role,
+        "linkedProviderId": provider_id,
+        "rolesRegistered": roles_registered,
+        "clientRegistered": client_registered,
+        "providerRegistered": provider_registered,
+        "needsOnboarding": not client_registered and not provider_registered,
+        "profile": profile,
+    }
+
+
+def set_user_preferred_role(customer_id: str, role: str, store_path: Optional[Path] = None) -> Dict[str, Any]:
+    normalized_role = str(role or "").strip()
+    if normalized_role not in {"customer", "provider"}:
+        raise ValueError("preferred role must be customer or provider")
+    profile = update_customer_profile(customer_id, {"preferredRole": normalized_role}, store_path)
+    if normalized_role == "provider":
+        provider_id = resolve_linked_provider_id(customer_id, profile)
+        if provider_id and not str(profile.get("linkedProviderId") or "").strip():
+            profile = update_customer_profile(customer_id, {"linkedProviderId": provider_id}, store_path)
+    return build_user_account_status(customer_id, store_path)
+
+
+def mark_user_role_registered(customer_id: str, role: str, store_path: Optional[Path] = None) -> Dict[str, Any]:
+    normalized_role = str(role or "").strip()
+    if normalized_role not in {"customer", "provider"}:
+        raise ValueError("role must be customer or provider")
+    profile = get_customer_profile(customer_id, store_path)
+    roles = [str(item).strip() for item in (profile.get("rolesRegistered") or []) if str(item).strip()]
+    if normalized_role not in roles:
+        roles.append(normalized_role)
+    patch: Dict[str, Any] = {"rolesRegistered": roles, "preferredRole": normalized_role}
+    if normalized_role == "provider":
+        patch["linkedProviderId"] = resolve_linked_provider_id(customer_id, profile)
+    update_customer_profile(customer_id, patch, store_path)
+    return build_user_account_status(customer_id, store_path)
 
 
 def submit_customer_verification(customer_id: str, data: Dict[str, Any], store_path: Optional[Path] = None) -> Dict[str, Any]:
@@ -902,10 +1108,10 @@ def update_provider_profile(provider_id: str, data: Dict[str, Any], store_path: 
         raise ValueError("provider specialties must include at least one supported service")
 
     try:
-        radius = int(data.get("serviceRadiusKm") or 7)
+        radius = int(data.get("serviceRadiusKm") or 15)
     except (TypeError, ValueError):
-        radius = 7
-    radius = max(1, min(radius, 50))
+        radius = 15
+    radius = max(1, min(radius, 100))
 
     updated: Optional[Dict[str, Any]] = None
     for index, provider in enumerate(providers):
@@ -919,6 +1125,8 @@ def update_provider_profile(provider_id: str, data: Dict[str, Any], store_path: 
         provider["telegram"] = str(data.get("telegram") or provider.get("telegram") or "pomich_help_bot").strip()
         provider["vehicle"] = str(data.get("vehicle") or provider.get("vehicle") or "Автодопомога").strip()
         provider["plate"] = str(data.get("plate") or provider.get("plate") or "").strip()
+        if data.get("city") is not None:
+            provider["city"] = str(data.get("city") or provider.get("city") or "").strip()
         provider["specialties"] = specialties
         provider["serviceRadiusKm"] = radius
         provider["registeredAt"] = provider.get("registeredAt") or now
@@ -943,6 +1151,7 @@ def update_provider_profile(provider_id: str, data: Dict[str, Any], store_path: 
             "rating": data.get("rating") or 4.8,
             "vehicle": str(data.get("vehicle") or "Автодопомога").strip(),
             "plate": str(data.get("plate") or "").strip(),
+            "city": str(data.get("city") or "Ужгород").strip(),
             "phone": str(data.get("phone") or "").strip(),
             "telegram": str(data.get("telegram") or "pomich_help_bot").strip(),
             "status": "offline",
@@ -1010,7 +1219,7 @@ def update_provider_presence(provider_id: str, data: Dict[str, Any], store_path:
             "etaMinutes": data.get("etaMinutes") or 15,
             "location": data.get("location") or {"lat": 48.6208, "lng": 22.2879},
             "specialties": data.get("specialties") or ["tow", "mechanic"],
-            "serviceRadiusKm": data.get("serviceRadiusKm") or 7,
+            "serviceRadiusKm": data.get("serviceRadiusKm") or 15,
             "lastSeenAt": now,
             "lastLocationAt": now if data.get("location") else None,
             "updatedAt": now,
@@ -1164,7 +1373,7 @@ def eligible_providers_for_order(
             continue
 
         distance = haversine_distance_km(pickup, location)
-        provider_radius = float(provider.get("serviceRadiusKm") or 7)
+        provider_radius = float(provider.get("serviceRadiusKm") or 15)
         if distance > provider_radius:
             continue
 
@@ -1477,3 +1686,150 @@ def update_provider_order_status(
         else:
             _set_provider_status(provider_id, "busy", order_id, provider_store_path=provider_store_path)
         return attach_dispatch_to_order(updated, load_offers(offer_store_path))
+
+
+def build_admin_stats(
+    order_store_path: Optional[Path] = None,
+    provider_store_path: Optional[Path] = None,
+    customer_store_path: Optional[Path] = None,
+) -> Dict[str, Any]:
+    customers = load_customer_profiles(customer_store_path)
+    providers = load_providers(provider_store_path)
+    orders = load_orders(order_store_path)
+    terminal = {"completed", "cancelled"}
+    active_orders = [order for order in orders if normalize_order_status(order.get("status")) not in terminal]
+    completed_orders = [order for order in orders if normalize_order_status(order.get("status")) == "completed"]
+    dispatch_providers = [provider for provider in providers if str(provider.get("providerKind") or "dispatch").lower() != "directory"]
+    directory_providers = [provider for provider in providers if str(provider.get("providerKind") or "").lower() == "directory"]
+    return {
+        "totals": {
+            "clients": len(customers),
+            "providers": len(providers),
+            "dispatchProviders": len(dispatch_providers),
+            "directoryProviders": len(directory_providers),
+            "orders": len(orders),
+            "activeOrders": len(active_orders),
+            "completedOrders": len(completed_orders),
+        },
+        "providers": {
+            "online": sum(1 for provider in providers if provider.get("status") == "online"),
+            "busy": sum(1 for provider in providers if provider.get("status") == "busy"),
+            "offline": sum(1 for provider in providers if provider.get("status") == "offline"),
+            "verified": sum(1 for provider in providers if normalize_verification_status(provider.get("verificationStatus"), "") == "verified"),
+            "pendingVerification": sum(1 for provider in providers if normalize_verification_status(provider.get("verificationStatus"), "") == "pending"),
+        },
+        "clients": {
+            "verified": sum(1 for customer in customers if normalize_verification_status(customer.get("verificationStatus"), "") == "verified"),
+            "registered": sum(1 for customer in customers if is_customer_client_registered(customer)),
+            "disabled": sum(1 for customer in customers if str(customer.get("accountStatus") or "active").lower() == "disabled"),
+        },
+        "orders": {
+            "searching": sum(1 for order in orders if normalize_order_status(order.get("status")) == "searching"),
+            "assigned": sum(1 for order in orders if normalize_order_status(order.get("status")) == "assigned"),
+            "enRoute": sum(1 for order in orders if normalize_order_status(order.get("status")) == "en_route"),
+            "inProgress": sum(1 for order in orders if normalize_order_status(order.get("status")) == "in_progress"),
+        },
+    }
+
+
+def build_admin_activity_feed(limit: int = 20, order_store_path: Optional[Path] = None) -> List[Dict[str, Any]]:
+    orders = load_orders(order_store_path)
+    feed: List[Dict[str, Any]] = []
+    for order in sorted(orders, key=lambda item: str(item.get("updatedAt") or item.get("createdAt") or ""), reverse=True)[:limit]:
+        feed.append(
+            {
+                "type": "order",
+                "id": order.get("id"),
+                "status": normalize_order_status(order.get("status")),
+                "service": order.get("service"),
+                "source": order.get("source"),
+                "customerLocation": order.get("customerLocation"),
+                "assignedProviderId": order.get("assignedProviderId"),
+                "at": order.get("updatedAt") or order.get("createdAt"),
+            }
+        )
+    return feed
+
+
+def admin_update_customer_profile(customer_id: str, data: Dict[str, Any], store_path: Optional[Path] = None) -> Dict[str, Any]:
+    with STORE_LOCK:
+        path = store_path or _default_customer_store_path()
+        profiles = load_customer_profiles(path)
+        now = _now_iso()
+        updated: Optional[Dict[str, Any]] = None
+        editable_fields = ["name", "phone", "email", "telegram", "city", "avatarUrl", "bio", "accountStatus"]
+        for index, profile in enumerate(profiles):
+            if str(profile.get("id")) != str(customer_id):
+                continue
+            payload = _normalize_customer_profile(profile)
+            for field in editable_fields:
+                if data.get(field) is not None:
+                    payload[field] = str(data.get(field) or "").strip()
+            if data.get("verificationStatus") is not None:
+                status = normalize_verification_status(data.get("verificationStatus"), payload.get("verificationStatus"))
+                if status in VERIFICATION_STATUSES:
+                    payload["verificationStatus"] = status
+                    payload["trustedBadges"] = _verification_badges(status, "customer")
+            payload["updatedAt"] = now
+            payload["profileCompleteness"] = _customer_profile_completeness(payload)
+            profiles[index] = payload
+            updated = payload
+            break
+        if updated is None:
+            raise ValueError("customer profile not found")
+        save_customer_profiles(profiles, path)
+        return dict(updated)
+
+
+def admin_update_provider_profile(provider_id: str, data: Dict[str, Any], store_path: Optional[Path] = None) -> Dict[str, Any]:
+    providers = load_providers(store_path)
+    now = _now_iso()
+    updated: Optional[Dict[str, Any]] = None
+    for index, provider in enumerate(providers):
+        if str(provider.get("id")) != str(provider_id):
+            continue
+        provider.pop("stale", None)
+        provider = _normalize_provider_trust(provider)
+        for field in ("name", "phone", "telegram", "vehicle", "plate", "city", "address", "website", "openingHours", "accountStatus"):
+            if data.get(field) is not None:
+                provider[field] = str(data.get(field) or "").strip()
+        if data.get("specialties") is not None:
+            specialties = _clean_provider_specialties(data.get("specialties"))
+            if specialties:
+                provider["specialties"] = specialties
+        if data.get("serviceRadiusKm") is not None:
+            try:
+                radius = int(data.get("serviceRadiusKm") or provider.get("serviceRadiusKm") or 15)
+            except (TypeError, ValueError):
+                radius = 15
+            provider["serviceRadiusKm"] = max(1, min(radius, 100))
+        if data.get("status") in PROVIDER_STATUSES:
+            provider["status"] = str(data.get("status"))
+        if data.get("verificationStatus") is not None:
+            status = normalize_verification_status(data.get("verificationStatus"), provider.get("verificationStatus"))
+            if status in VERIFICATION_STATUSES:
+                provider["verificationStatus"] = status
+                provider["trustedBadges"] = _verification_badges(status, "provider")
+        if isinstance(data.get("location"), dict):
+            provider["location"] = data["location"]
+            provider["lastLocationAt"] = now
+        provider["profileUpdatedAt"] = now
+        provider["updatedAt"] = now
+        providers[index] = provider
+        updated = provider
+        break
+    if updated is None:
+        raise ValueError("provider profile not found")
+    save_providers(providers, store_path)
+    return dict(updated)
+
+
+def admin_delete_provider(provider_id: str, store_path: Optional[Path] = None) -> Dict[str, Any]:
+    with STORE_LOCK:
+        path = store_path or _default_provider_store_path()
+        providers = load_providers(path)
+        remaining = [provider for provider in providers if str(provider.get("id")) != str(provider_id)]
+        if len(remaining) == len(providers):
+            raise ValueError("provider profile not found")
+        save_providers(remaining, path)
+        return {"deleted": True, "providerId": str(provider_id)}
