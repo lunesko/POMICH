@@ -1152,7 +1152,7 @@ export function RouteMap({
 
 
 
-  const overlayBottom = sheetSnap === "collapsed" ? "22%" : sheetSnap === "half" ? "56%" : sheetSnap === "expanded" ? "90%" : overlayMode ? 56 : 12
+  const overlayBottom = sheetSnap === "collapsed" ? "18%" : sheetSnap === "half" ? "48%" : sheetSnap === "expanded" ? "76%" : overlayMode ? 56 : 12
 
   const hideMapChrome = sheetSnap === "expanded"
 
@@ -1160,7 +1160,8 @@ export function RouteMap({
   const showMapTools = showBadges && directoryProviders.length > 0 && !hideMapChrome
 
   const locateLoading = geoLoading || localGeoLoading
-  const locateError = localGeoError || geoError
+  /* Sheet already shows parent geoError on overlay rides — avoid duplicate banners. */
+  const locateError = localGeoError || (overlayMode ? undefined : geoError)
   const showLocate = showLocateControl && mapInteractive && !hideMapChrome
 
   const handleLocateClick = () => {
@@ -1530,13 +1531,14 @@ export function RouteMap({
       ) : null}
 
       {showBadges && displaySubtitle && !hideMapChrome ? (
-
-        <div style={{ position: "absolute", zIndex: 1100, left: 12, bottom: typeof overlayBottom === "string" ? overlayBottom : overlayMode ? 56 : 12, background: "rgba(255,255,255,0.94)", borderRadius: 999, padding: "8px 12px", fontSize: 12, fontWeight: 800, color: DARK, maxWidth: "calc(100% - 24px)", pointerEvents: "none" }}>
-
+        <div
+          className="pomich-map-address-pill"
+          style={{
+            bottom: typeof overlayBottom === "string" ? overlayBottom : overlayMode ? 56 : 12,
+          }}
+        >
           {displaySubtitle}
-
         </div>
-
       ) : null}
 
       {showLocate ? (

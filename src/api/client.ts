@@ -934,7 +934,11 @@ export async function updateProviderProfile(providerId: string, payload: {
   })
 
   if (!response.ok) {
-    throw new Error(await parseApiError(response, "Не вдалося зберегти профіль партнера."))
+    const details = await parseApiErrorDetails(response, "Не вдалося зберегти профіль партнера.")
+    throw new ApiRequestError(details.message, {
+      status: response.status,
+      code: details.code,
+    })
   }
 
   return response.json() as Promise<ProviderAvailability>

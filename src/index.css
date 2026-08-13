@@ -160,11 +160,12 @@ html:not([data-pomich-theme]) {
   --pomich-app-header-height: 3.875rem;
   --pomich-card-radius: 1.125rem;
   --pomich-card-padding: 0.875rem;
-  --pomich-sheet-peek: min(18vh, 168px);
-  --pomich-sheet-half: min(52vh, calc(100% - env(safe-area-inset-top, 0px) - 56px));
-  --pomich-sheet-expanded: min(88vh, calc(100% - env(safe-area-inset-top, 0px) - 44px));
-  --pomich-sheet-min: 15vh;
-  --pomich-sheet-max: 92vh;
+  /* % of ride-screen — survives mobile browser chrome better than vh/dvh */
+  --pomich-sheet-peek: 15%;
+  --pomich-sheet-half: 44%;
+  --pomich-sheet-expanded: 72%;
+  --pomich-sheet-min: 14%;
+  --pomich-sheet-max: 78%;
   --pomich-service-row-height: 4rem;
   --pomich-service-icon: 2.75rem;
 }
@@ -185,9 +186,10 @@ html:not([data-pomich-theme]) {
     --pomich-app-header-height: clamp(2.625rem, 2.5rem + 0.5vw, 2.75rem);
     --pomich-card-radius: clamp(0.875rem, 0.82rem + 0.28vw, 1rem);
     --pomich-card-padding: clamp(0.625rem, 0.58rem + 0.22vw, 0.75rem);
-    --pomich-sheet-peek: min(13vh, 108px);
-    --pomich-sheet-half: min(44vh, calc(100% - env(safe-area-inset-top, 0px) - 46px));
-    --pomich-sheet-expanded: min(82vh, calc(100% - env(safe-area-inset-top, 0px) - 34px));
+    --pomich-sheet-peek: 14%;
+    --pomich-sheet-half: 42%;
+    --pomich-sheet-expanded: 70%;
+    --pomich-sheet-max: 76%;
     --pomich-service-row-height: clamp(3rem, 2.85rem + 0.65vw, 3.25rem);
     --pomich-service-icon: clamp(2.25rem, 2.12rem + 0.55vw, 2.5rem);
   }
@@ -209,9 +211,10 @@ html:not([data-pomich-theme]) {
     --pomich-app-header-height: 2.625rem;
     --pomich-card-radius: 0.875rem;
     --pomich-card-padding: 0.625rem;
-    --pomich-sheet-peek: min(11vh, 96px);
-    --pomich-sheet-half: min(42vh, calc(100% - env(safe-area-inset-top, 0px) - 42px));
-    --pomich-sheet-expanded: min(80vh, calc(100% - env(safe-area-inset-top, 0px) - 32px));
+    --pomich-sheet-peek: 13%;
+    --pomich-sheet-half: 40%;
+    --pomich-sheet-expanded: 68%;
+    --pomich-sheet-max: 74%;
     --pomich-service-row-height: 2.875rem;
     --pomich-service-icon: 2.125rem;
   }
@@ -372,19 +375,20 @@ html[data-pomich-theme="dark"] {
 .pomich-tg-app {
   width: 100%;
   max-width: 100vw;
-  min-height: 100dvh;
-  min-height: var(--tg-viewport-stable-height, 100dvh);
+  min-height: 0;
   height: 100%;
+  max-height: var(--tg-viewport-stable-height, 100dvh);
   overflow: hidden;
   display: flex;
   flex-direction: column;
   background: transparent;
   color: var(--pomich-text);
   padding:
-    var(--pomich-safe-top)
+    0
     var(--pomich-safe-right)
-    var(--pomich-safe-bottom)
+    0
     var(--pomich-safe-left);
+  box-sizing: border-box;
 }
 /* App chrome: denser frosted glass so labels stay readable over pale map tiles */
 .pomich-tg-header {
@@ -1081,13 +1085,18 @@ html:not([data-pomich-theme]) .pomich-map-tools-panel__close {
   right: 0;
   margin-top: 0;
   z-index: 4;
-  max-height: none !important;
+  /* Cap against parent ride-screen so content stays above browser/TG chrome */
+  max-height: min(var(--pomich-sheet-max, 78%), 100%) !important;
   height: var(--pomich-sheet-height, var(--pomich-sheet-half));
   transition: height 0.28s cubic-bezier(0.32, 0.72, 0, 1);
   will-change: height;
   border-top-left-radius: 20px;
   border-top-right-radius: 20px;
   box-shadow: 0 -10px 40px rgba(17, 19, 21, 0.14);
+  box-sizing: border-box;
+  padding-bottom: calc(
+    var(--pomich-space-3, 12px) + env(safe-area-inset-bottom, 0px) + var(--tg-content-safe-area-inset-bottom, 0px)
+  ) !important;
 }
 .pomich-ride-screen--overlay .pomich-sheet-panel--bottom[data-dragging="true"] {
   transition: none;
@@ -1161,7 +1170,32 @@ html:not([data-pomich-theme]) .pomich-map-tools-panel__close {
   touch-action: pan-y;
 }
 .pomich-sheet-panel__body {
-  padding-bottom: 4px;
+  padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px) + var(--tg-content-safe-area-inset-bottom, 0px));
+}
+.pomich-map-address-pill {
+  position: absolute;
+  z-index: 1100;
+  left: var(--pomich-map-chrome-left);
+  right: var(--pomich-map-chrome-right);
+  max-width: none;
+  width: auto;
+  box-sizing: border-box;
+  background: rgba(255, 255, 255, 0.94);
+  border-radius: 999px;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 800;
+  color: #111315;
+  pointer-events: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.12);
+}
+[data-pomich-theme="dark"] .pomich-map-address-pill {
+  background: rgba(24, 28, 36, 0.94);
+  color: #f8fafc;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
 }
 [data-sheet-peek] {
   display: none;
@@ -1232,17 +1266,21 @@ html.tg-compact,
 html.mobile-compact {
   overflow: hidden;
   width: 100%;
-  height: 100%;
-  min-height: 100dvh;
+  height: var(--tg-viewport-stable-height, 100dvh);
+  min-height: 0;
+  max-height: var(--tg-viewport-stable-height, 100dvh);
   overscroll-behavior: none;
   touch-action: manipulation;
 }
 html.tg-compact #root,
 html.mobile-compact #root {
   position: fixed;
-  inset: 0;
+  top: 0;
+  left: 0;
+  right: 0;
   width: 100%;
-  height: 100%;
+  height: var(--tg-viewport-stable-height, 100dvh);
+  max-height: var(--tg-viewport-stable-height, 100dvh);
   min-height: 0;
   overflow: hidden;
   overscroll-behavior: none;
@@ -1254,8 +1292,9 @@ html.tg-compact body,
 html.mobile-compact body {
   overflow: hidden;
   width: 100%;
-  height: 100%;
-  min-height: 100dvh;
+  height: var(--tg-viewport-stable-height, 100dvh);
+  max-height: var(--tg-viewport-stable-height, 100dvh);
+  min-height: 0;
   overscroll-behavior: none;
   touch-action: manipulation;
 }
@@ -2268,19 +2307,20 @@ html.mobile-compact .pomich-tg-app > .pomich-tg-header {
 .pomich-themed-shell:has(> .pomich-tg-header) > .pomich-app-main:has(.pomich-ride-map-bg),
 .pomich-tg-app:has(> .pomich-tg-header) > .pomich-tg-main:has(.pomich-ride-screen),
 .pomich-tg-app:has(> .pomich-tg-header) > .pomich-tg-main:has(.pomich-ride-map-bg) {
-  /* Full-bleed under glass header — definite dvh so Leaflet % height resolves */
+  /* Fill the fixed visual-viewport shell — never 100dvh (clips under browser chrome) */
   margin-top: 0;
-  height: 100dvh;
-  min-height: 100dvh;
-  max-height: 100dvh;
+  height: 100%;
+  min-height: 0;
+  max-height: 100%;
+  flex: 1 1 0;
   overflow: hidden;
 }
 /* Desktop: root shell must also lock to viewport when ride map is active */
 html:not(.tg-compact):not(.mobile-compact) .pomich-map-shell--root:has(.pomich-ride-screen),
 html:not(.tg-compact):not(.mobile-compact) .pomich-map-shell--root:has(.pomich-ride-map-bg) {
-  height: 100dvh;
-  min-height: 100dvh;
-  max-height: 100dvh;
+  height: var(--tg-viewport-stable-height, 100dvh);
+  min-height: var(--tg-viewport-stable-height, 100dvh);
+  max-height: var(--tg-viewport-stable-height, 100dvh);
   overflow: hidden;
 }
 html:not(.tg-compact):not(.mobile-compact) .pomich-map-shell--root:has(.pomich-ride-screen) > .pomich-map-shell__content,
@@ -4101,7 +4141,7 @@ html.mobile-compact .pomich-plate-input .pomich-plate__field {
   border-top-right-radius: 16px !important;
 }
 .tg-sheet-compact .pomich-sheet-panel__body {
-  padding-bottom: 2px;
+  padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px) + var(--tg-content-safe-area-inset-bottom, 0px));
 }
 .pomich-flow-stack {
   display: grid;

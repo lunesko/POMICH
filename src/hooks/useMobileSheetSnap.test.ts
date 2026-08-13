@@ -11,37 +11,37 @@ describe("useMobileSheetSnap", () => {
   it("defaults to half on mobile sheets", () => {
     const { result } = renderHook(() => useMobileSheetSnap({ enabled: true }))
     expect(result.current.snap).toBe("half")
-    expect(result.current.heightVh).toBe(52)
+    expect(result.current.heightVh).toBe(44)
   })
 
   it("starts collapsed when mapFocus is enabled", () => {
     const { result } = renderHook(() => useMobileSheetSnap({ enabled: true, mapFocus: true }))
     expect(result.current.snap).toBe("collapsed")
-    expect(result.current.heightVh).toBe(18)
+    expect(result.current.heightVh).toBe(15)
   })
 
   it("starts expanded when expandedSheet is enabled", () => {
     const { result } = renderHook(() => useMobileSheetSnap({ enabled: true, expandedSheet: true }))
     expect(result.current.snap).toBe("expanded")
-    expect(result.current.heightVh).toBe(88)
+    expect(result.current.heightVh).toBe(72)
   })
 
   it("cycles snap states on cycleSnap", () => {
     const { result } = renderHook(() => useMobileSheetSnap({ enabled: true }))
     act(() => result.current.cycleSnap())
     expect(result.current.snap).toBe("expanded")
-    expect(result.current.heightVh).toBe(88)
+    expect(result.current.heightVh).toBe(72)
     act(() => result.current.cycleSnap())
     expect(result.current.snap).toBe("collapsed")
-    expect(result.current.heightVh).toBe(18)
+    expect(result.current.heightVh).toBe(15)
     act(() => result.current.cycleSnap())
     expect(result.current.snap).toBe("half")
-    expect(result.current.heightVh).toBe(52)
+    expect(result.current.heightVh).toBe(44)
   })
 
   it("exposes sheet height style for drag resize", () => {
     const { result } = renderHook(() => useMobileSheetSnap({ enabled: true }))
-    expect(result.current.sheetStyle).toEqual({ "--pomich-sheet-height": "52vh" })
+    expect(result.current.sheetStyle).toEqual({ "--pomich-sheet-height": "44%" })
   })
 
   it("updates height while dragging via pointer events", () => {
@@ -75,7 +75,7 @@ describe("useMobileSheetSnap", () => {
     })
 
     expect(result.current.isDragging).toBe(true)
-    expect(result.current.heightVh).toBeGreaterThan(70)
+    expect(result.current.heightVh).toBeGreaterThan(60)
 
     act(() => {
       result.current.handleProps.onPointerUp({
@@ -88,23 +88,22 @@ describe("useMobileSheetSnap", () => {
 
     expect(result.current.isDragging).toBe(false)
     expect(result.current.snap).toBe("expanded")
-    expect(result.current.heightVh).toBe(88)
+    expect(result.current.heightVh).toBe(72)
     vi.unstubAllGlobals()
   })
 })
 
 describe("sheet height helpers", () => {
-  const heights = { peek: 18, half: 52, expanded: 88, min: 15, max: 92 }
+  const heights = { peek: 15, half: 44, expanded: 72, min: 14, max: 78 }
 
   it("clamps drag height between min and max", () => {
-    expect(clampSheetHeight(5, heights)).toBe(15)
-    expect(clampSheetHeight(99, heights)).toBe(92)
-    expect(clampSheetHeight(40, heights)).toBe(40)
+    expect(clampSheetHeight(5, heights)).toBe(14)
+    expect(clampSheetHeight(99, heights)).toBe(78)
   })
 
-  it("snaps to nearest preset on release", () => {
-    expect(heightToSnap(20, heights)).toBe("collapsed")
-    expect(heightToSnap(50, heights)).toBe("half")
-    expect(heightToSnap(80, heights)).toBe("expanded")
+  it("maps height to nearest snap", () => {
+    expect(heightToSnap(16, heights)).toBe("collapsed")
+    expect(heightToSnap(44, heights)).toBe("half")
+    expect(heightToSnap(70, heights)).toBe("expanded")
   })
 })

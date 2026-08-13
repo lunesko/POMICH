@@ -101,6 +101,7 @@ export default function OnboardingGate({ skip, startAtRoleSelect, loginMode = fa
   const [customerToken, setCustomerToken] = useState<string | undefined>()
   const [profile, setProfile] = useState<CustomerProfile | undefined>()
   const initialPreferredRole = initialRole === "customer" || initialRole === "provider" ? initialRole : null
+  const [pendingLoginRole, setPendingLoginRole] = useState<Extract<Role, "customer" | "provider"> | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string>()
   useEffect(() => {
@@ -129,6 +130,18 @@ export default function OnboardingGate({ skip, startAtRoleSelect, loginMode = fa
         if (token) setCustomerToken(token)
         if (status.profile) setProfile(status.profile)
         setPhase("role-select")
+        return
+      }
+
+      // Web re-login as partner: restore linked provider instead of blank registration.
+      if (loginMode && effectivePreferred === "provider") {
+        if (!token) {
+          setPhase("login-client")
+          return
+        }
+        if (status.linkedProviderId) storeLinkedProviderId(status.linkedProviderId)
+        onReadyRef.current({ role: "provider", account: status, customerToken: token })
+        setPhase("ready")
         return
       }
 
@@ -182,6 +195,15 @@ export default function OnboardingGate({ skip, startAtRoleSelect, loginMode = fa
         if (isExplicitLogout(telegramContext.chatId) && !loginMode && !startAtRoleSelect) {
           onShowLanding()
           return
+        }
+
+        // Web «Увійти» / partner re-login must not mint a fresh guest before phone OTP.
+        if (loginMode && !telegramContext.initData) {
+          const stored = readStoredCustomerAuthSession({ telegramChatId: telegramContext.chatId })
+          if (!stored?.token) {
+            setPhase("login-client")
+            return
+          }
         }
 
         const activeCustomerId = readPersistedCustomerId(telegramContext.chatId)
@@ -253,6 +275,11 @@ export default function OnboardingGate({ skip, startAtRoleSelect, loginMode = fa
         }
       }
       if (!token) {
+        if (role === "provider" && !telegramContext.initData) {
+          setPendingLoginRole("provider")
+          setPhase("login-client")
+          return
+        }
         try {
           const session = telegramContext.initData
             ? await createTelegramCustomerSession(telegramContext.initData)
@@ -405,10 +432,26 @@ export default function OnboardingGate({ skip, startAtRoleSelect, loginMode = fa
       const activeCustomerId = applySession(session) ?? session.customerId ?? session.subjectId
       const token = session.accessToken
       if (!activeCustomerId || !token) throw new Error("customer_session_missing")
-      const status = mergeAccountProfile(
+      let status = mergeAccountProfile(
         session.account ?? (await getUserAccount(activeCustomerId, token, telegramContext.initData)),
         session.profile,
       )
+      const targetRole = initialPreferredRole === "provider" || pendingLoginRole === "provider" ? "provider" : "customer"
+
+      if (targetRole === "provider") {
+        try {
+          status = await setUserPreferredRole(activeCustomerId, "provider", token)
+        } catch {
+          // Keep merged session account when role PATCH is temporarily unavailable.
+        }
+        status = resolveMergedAccountStatus(status, activeCustomerId, telegramContext, { profile: session.profile, account: status })
+        if (status.linkedProviderId) storeLinkedProviderId(status.linkedProviderId)
+        else {
+          const linkedId = resolveProviderIdForCustomer(activeCustomerId, status.linkedProviderId)
+          if (linkedId) storeLinkedProviderId(linkedId)
+        }
+      }
+
       setCustomerId(activeCustomerId)
       setCustomerToken(token)
       if (session.profile) setProfile(session.profile)
@@ -416,7 +459,8 @@ export default function OnboardingGate({ skip, startAtRoleSelect, loginMode = fa
       if (typeof window !== "undefined" && session.profile) {
         window.sessionStorage.setItem("pomichBootstrapProfile", JSON.stringify(session.profile))
       }
-      onReadyRef.current({ role: "customer", account: status, customerToken: token })
+      setPendingLoginRole(null)
+      onReadyRef.current({ role: targetRole, account: status, customerToken: token })
       setPhase("ready")
     } catch (err) {
       setError(messageFromFetchError(err, "Не вдалося увійти. Спробуйте ще раз."))

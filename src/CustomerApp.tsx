@@ -2993,7 +2993,7 @@ function CustomerFlow({ onLogout }: { onLogout?: () => void } = {}) {
   }
 }
 
-function ProviderFlow({ providerToken, providerRegistered = false, onLogout }: { providerToken?: string; providerRegistered?: boolean; onLogout?: () => void }) {
+function ProviderFlow({ providerToken, providerRegistered = false, onLogout, onRestoreAccount }: { providerToken?: string; providerRegistered?: boolean; onLogout?: () => void; onRestoreAccount?: () => void }) {
   const [providerId, setProviderId] = useState(() => getActiveProviderId())
   const providerSessionStorageKey = useMemo(() => authSessionStorageKey("provider", providerId), [providerId])
   const [providerAccessToken, setProviderAccessToken] = useState<string | undefined>(() => {
@@ -3600,7 +3600,8 @@ function ProviderFlow({ providerToken, providerRegistered = false, onLogout }: {
       setStep(isProviderPhoneVerified(updated) ? "duty" : "verify")
       setLoginView("login")
     } catch (error) {
-      setRegistrationError(error instanceof Error ? error.message : "Не вдалося зберегти профіль партнера. Перевірте підключення та спробуйте ще раз.")
+      const message = error instanceof Error ? error.message : "Не вдалося зберегти профіль партнера. Перевірте підключення та спробуйте ще раз."
+      setRegistrationError(message)
     } finally {
       setRegistrationSaving(false)
     }
@@ -3755,6 +3756,8 @@ function ProviderFlow({ providerToken, providerRegistered = false, onLogout }: {
     }
   }, [activeOrder?.id, activeOrder?.assignedProviderId, activeOrder?.partnerId, providerId, providerAuthToken])
 
+  const phoneConflict = Boolean(registrationError && /phone_already_registered|вже зареєстровано/i.test(registrationError))
+
   if (!providerAuthToken && !providerToken) {
     // Already-registered partner: wait for customer→provider self-session instead of flashing login/register.
     if (providerRegistered && customerIdForOtp && customerTokenForOtp) {
@@ -3769,7 +3772,7 @@ function ProviderFlow({ providerToken, providerRegistered = false, onLogout }: {
           onChange={updateRegistrationForm}
           onToggleSpecialty={toggleRegistrationSpecialty}
           onSubmit={saveRegistration}
-          onLogin={() => {
+          onLogin={phoneConflict && onRestoreAccount ? onRestoreAccount : () => {
             setRegistrationError(undefined)
             setLoginView("login")
           }}
@@ -3839,10 +3842,11 @@ function ProviderFlow({ providerToken, providerRegistered = false, onLogout }: {
       <ProviderRegistrationStep
         form={registrationForm}
         saving={registrationSaving}
-        error={authError ?? registrationError}
+        error={registrationError}
         onChange={updateRegistrationForm}
         onToggleSpecialty={toggleRegistrationSpecialty}
         onSubmit={saveRegistration}
+        onLogin={phoneConflict && onRestoreAccount ? onRestoreAccount : undefined}
       />
     )
   }

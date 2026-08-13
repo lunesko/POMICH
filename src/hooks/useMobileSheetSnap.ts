@@ -4,12 +4,13 @@ export type SheetSnap = "collapsed" | "half" | "expanded"
 
 const SNAP_ORDER: SheetSnap[] = ["collapsed", "half", "expanded"]
 
+/** Heights as % of the ride-screen (not raw vh — avoids browser-chrome clipping). */
 const DEFAULT_HEIGHTS = {
-  peek: 18,
-  half: 52,
-  expanded: 88,
-  min: 15,
-  max: 92,
+  peek: 15,
+  half: 44,
+  expanded: 72,
+  min: 14,
+  max: 78,
 } as const
 
 type SheetHeights = typeof DEFAULT_HEIGHTS
@@ -20,22 +21,28 @@ function resolveDefaultSnap(mapFocus?: boolean, expandedSheet?: boolean, default
   return defaultSnap
 }
 
-function snapToHeightVh(snap: SheetSnap, heights: SheetHeights): number {
+function snapToHeightPct(snap: SheetSnap, heights: SheetHeights): number {
   if (snap === "collapsed") return heights.peek
   if (snap === "expanded") return heights.expanded
   return heights.half
 }
 
-function parseCssLengthToVh(value: string, viewportHeight: number): number | null {
+function parseCssLengthToPct(value: string, viewportHeight: number): number | null {
   const trimmed = value.trim()
   if (!trimmed) return null
 
-  const minMatch = trimmed.match(/^min\(\s*([\d.]+)vh\s*,\s*([\d.]+)px\s*\)$/i)
+  const pctMatch = trimmed.match(/^([\d.]+)%$/i)
+  if (pctMatch) {
+    const pct = parseFloat(pctMatch[1])
+    return Number.isFinite(pct) ? pct : null
+  }
+
+  const minMatch = trimmed.match(/^min\(\s*([\d.]+)(?:vh|%)\s*,\s*([\d.]+)px\s*\)$/i)
   if (minMatch) {
-    const vh = parseFloat(minMatch[1])
+    const unit = parseFloat(minMatch[1])
     const px = parseFloat(minMatch[2])
-    if (!Number.isFinite(vh) || !Number.isFinite(px) || viewportHeight <= 0) return null
-    return Math.min(vh, (px / viewportHeight) * 100)
+    if (!Number.isFinite(unit) || !Number.isFinite(px) || viewportHeight <= 0) return null
+    return Math.min(unit, (px / viewportHeight) * 100)
   }
 
   const vhMatch = trimmed.match(/^([\d.]+)vh$/i)
@@ -57,28 +64,28 @@ function parseCssLengthToVh(value: string, viewportHeight: number): number | nul
 export function readSheetHeights(): SheetHeights {
   if (typeof window === "undefined" || typeof document === "undefined") return DEFAULT_HEIGHTS
 
-  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 1
+  const viewportHeight = window.visualViewport?.height || window.innerHeight || document.documentElement.clientHeight || 1
   const style = getComputedStyle(document.documentElement)
 
-  const peek = parseCssLengthToVh(style.getPropertyValue("--pomich-sheet-peek"), viewportHeight) ?? DEFAULT_HEIGHTS.peek
-  const half = parseCssLengthToVh(style.getPropertyValue("--pomich-sheet-half"), viewportHeight) ?? DEFAULT_HEIGHTS.half
+  const peek = parseCssLengthToPct(style.getPropertyValue("--pomich-sheet-peek"), viewportHeight) ?? DEFAULT_HEIGHTS.peek
+  const half = parseCssLengthToPct(style.getPropertyValue("--pomich-sheet-half"), viewportHeight) ?? DEFAULT_HEIGHTS.half
   const expanded =
-    parseCssLengthToVh(style.getPropertyValue("--pomich-sheet-expanded"), viewportHeight) ?? DEFAULT_HEIGHTS.expanded
-  const min = parseCssLengthToVh(style.getPropertyValue("--pomich-sheet-min"), viewportHeight) ?? DEFAULT_HEIGHTS.min
-  const max = parseCssLengthToVh(style.getPropertyValue("--pomich-sheet-max"), viewportHeight) ?? DEFAULT_HEIGHTS.max
+    parseCssLengthToPct(style.getPropertyValue("--pomich-sheet-expanded"), viewportHeight) ?? DEFAULT_HEIGHTS.expanded
+  const min = parseCssLengthToPct(style.getPropertyValue("--pomich-sheet-min"), viewportHeight) ?? DEFAULT_HEIGHTS.min
+  const max = parseCssLengthToPct(style.getPropertyValue("--pomich-sheet-max"), viewportHeight) ?? DEFAULT_HEIGHTS.max
 
   return { peek, half, expanded, min, max }
 }
 
-export function clampSheetHeight(heightVh: number, heights: SheetHeights = DEFAULT_HEIGHTS): number {
-  return Math.min(heights.max, Math.max(heights.min, heightVh))
+export function clampSheetHeight(heightPct: number, heights: SheetHeights = DEFAULT_HEIGHTS): number {
+  return Math.min(heights.max, Math.max(heights.min, heightPct))
 }
 
-export function heightToSnap(heightVh: number, heights: SheetHeights = DEFAULT_HEIGHTS): SheetSnap {
+export function heightToSnap(heightPct: number, heights: SheetHeights = DEFAULT_HEIGHTS): SheetSnap {
   const distances: Array<{ snap: SheetSnap; distance: number }> = [
-    { snap: "collapsed", distance: Math.abs(heightVh - heights.peek) },
-    { snap: "half", distance: Math.abs(heightVh - heights.half) },
-    { snap: "expanded", distance: Math.abs(heightVh - heights.expanded) },
+    { snap: "collapsed", distance: Math.abs(heightPct - heights.peek) },
+    { snap: "half", distance: Math.abs(heightPct - heights.half) },
+    { snap: "expanded", distance: Math.abs(heightPct - heights.expanded) },
   ]
 
   distances.sort((a, b) => a.distance - b.distance)
@@ -93,7 +100,7 @@ export function useMobileSheetSnap(options: {
 }) {
   const { enabled, mapFocus = false, expandedSheet = false, defaultSnap = "half" } = options
   const [snap, setSnap] = useState<SheetSnap>(() => resolveDefaultSnap(mapFocus, expandedSheet, defaultSnap))
-  const [heightVh, setHeightVh] = useState<number>(() => snapToHeightVh(resolveDefaultSnap(mapFocus, expandedSheet, defaultSnap), DEFAULT_HEIGHTS))
+  const [heightVh, setHeightVh] = useState<number>(() => snapToHeightPct(resolveDefaultSnap(mapFocus, expandedSheet, defaultSnap), DEFAULT_HEIGHTS))
   const [isDragging, setIsDragging] = useState(false)
 
   const heightsRef = useRef<SheetHeights>(DEFAULT_HEIGHTS)
@@ -136,7 +143,7 @@ export function useMobileSheetSnap(options: {
     refreshHeights()
     const initialSnap = resolveDefaultSnap(mapFocus, expandedSheet, defaultSnap)
     setSnap(initialSnap)
-    const nextHeight = snapToHeightVh(initialSnap, heightsRef.current)
+    const nextHeight = snapToHeightPct(initialSnap, heightsRef.current)
     heightRef.current = nextHeight
     setHeightVh(nextHeight)
   }, [enabled, mapFocus, expandedSheet, defaultSnap, refreshHeights])
@@ -145,10 +152,17 @@ export function useMobileSheetSnap(options: {
     if (!enabled) return
 
     refreshHeights()
-    const onResize = () => refreshHeights()
+    const onResize = () => {
+      refreshHeights()
+      applyHeight(heightRef.current)
+    }
     window.addEventListener("resize", onResize)
-    return () => window.removeEventListener("resize", onResize)
-  }, [enabled, refreshHeights])
+    window.visualViewport?.addEventListener("resize", onResize)
+    return () => {
+      window.removeEventListener("resize", onResize)
+      window.visualViewport?.removeEventListener("resize", onResize)
+    }
+  }, [enabled, refreshHeights, applyHeight])
 
   useEffect(
     () => () => {
@@ -166,7 +180,7 @@ export function useMobileSheetSnap(options: {
     setSnap((prev) => {
       const index = SNAP_ORDER.indexOf(prev)
       const nextSnap = SNAP_ORDER[(index + 1) % SNAP_ORDER.length]
-      const nextHeight = snapToHeightVh(nextSnap, heightsRef.current)
+      const nextHeight = snapToHeightPct(nextSnap, heightsRef.current)
       heightRef.current = nextHeight
       setHeightVh(nextHeight)
       return nextSnap
@@ -194,7 +208,7 @@ export function useMobileSheetSnap(options: {
       const drag = dragRef.current
       if (!enabled || !drag || drag.pointerId !== event.pointerId) return
 
-      const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 1
+      const viewportHeight = window.visualViewport?.height || window.innerHeight || document.documentElement.clientHeight || 1
       const deltaVh = ((drag.startY - event.clientY) / viewportHeight) * 100
       scheduleHeightUpdate(drag.startHeightVh + deltaVh)
       event.preventDefault()
@@ -214,7 +228,7 @@ export function useMobileSheetSnap(options: {
       refreshHeights()
       const releaseHeight = pendingHeightRef.current ?? heightRef.current
       pendingHeightRef.current = null
-      const snappedHeight = snapToHeightVh(heightToSnap(releaseHeight, heightsRef.current), heightsRef.current)
+      const snappedHeight = snapToHeightPct(heightToSnap(releaseHeight, heightsRef.current), heightsRef.current)
       applyHeight(snappedHeight)
     },
     [enabled, refreshHeights, applyHeight],
@@ -237,7 +251,7 @@ export function useMobileSheetSnap(options: {
         setSnap((prev) => {
           const index = SNAP_ORDER.indexOf(prev)
           const nextSnap = SNAP_ORDER[Math.min(index + 1, SNAP_ORDER.length - 1)]
-          const nextHeight = snapToHeightVh(nextSnap, heightsRef.current)
+          const nextHeight = snapToHeightPct(nextSnap, heightsRef.current)
           heightRef.current = nextHeight
           setHeightVh(nextHeight)
           return nextSnap
@@ -248,7 +262,7 @@ export function useMobileSheetSnap(options: {
         setSnap((prev) => {
           const index = SNAP_ORDER.indexOf(prev)
           const nextSnap = SNAP_ORDER[Math.max(index - 1, 0)]
-          const nextHeight = snapToHeightVh(nextSnap, heightsRef.current)
+          const nextHeight = snapToHeightPct(nextSnap, heightsRef.current)
           heightRef.current = nextHeight
           setHeightVh(nextHeight)
           return nextSnap
@@ -277,7 +291,7 @@ export function useMobileSheetSnap(options: {
     },
     sheetStyle: enabled
       ? ({
-          "--pomich-sheet-height": `${heightVh}vh`,
+          "--pomich-sheet-height": `${heightVh}%`,
         } as CSSProperties)
       : undefined,
   }

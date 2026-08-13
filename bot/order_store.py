@@ -1411,10 +1411,34 @@ def find_registered_customer_by_phone(
                     if is_customer_client_registered(normalized) or str(normalized.get("phone") or "").strip():
                         return normalized
                     break
+        # Web/guest partner: restore the customer row that owns provider-{customerId}.
+        linked_customer_id = resolve_customer_id_for_provider(str(provider.get("id") or ""), store_path)
+        if linked_customer_id and (not exclude_id or linked_customer_id != str(exclude_id)):
+            linked_profile = get_customer_profile(linked_customer_id, store_path)
+            if linked_profile is not None:
+                return _normalize_customer_profile(linked_profile)
     if not candidates:
         return None
     tg_candidates = [item for item in candidates if str(item.get("id") or "").startswith("tg-")]
     return tg_candidates[0] if tg_candidates else candidates[0]
+
+
+def resolve_customer_id_for_provider(provider_id: str, store_path: Optional[Path] = None) -> str:
+    """Map provider-{customerId} (or linkedProviderId reverse lookup) back to the owning customer."""
+    normalized = str(provider_id or "").strip()
+    if not normalized:
+        return ""
+    if normalized.startswith("provider-"):
+        suffix = normalized[len("provider-") :].strip()
+        if suffix and get_customer_profile(suffix, store_path) is not None:
+            return suffix
+    for profile in load_customer_profiles(store_path):
+        if str(profile.get("linkedProviderId") or "").strip() != normalized:
+            continue
+        customer_id = str(profile.get("id") or "").strip()
+        if customer_id:
+            return customer_id
+    return ""
 
 
 def find_registered_provider_by_phone(
@@ -1810,6 +1834,29 @@ def update_provider_profile(provider_id: str, data: Dict[str, Any], store_path: 
         providers.append(updated)
 
     save_providers(providers, store_path)
+
+    # Keep the owning customer row in sync so phone login restores this partner after logout.
+    customer_id = resolve_customer_id_for_provider(str(provider_id), store_path)
+    if not customer_id and str(provider_id).startswith("provider-"):
+        customer_id = str(provider_id)[len("provider-") :].strip()
+    if customer_id and updated is not None:
+        try:
+            patch: Dict[str, Any] = {
+                "linkedProviderId": str(provider_id),
+                "preferredRole": "provider",
+            }
+            if updated.get("name"):
+                patch["name"] = updated.get("name")
+            if updated.get("phone"):
+                patch["phone"] = updated.get("phone")
+            if updated.get("city"):
+                patch["city"] = updated.get("city")
+            update_customer_profile(customer_id, patch, store_path)
+            mark_user_role_registered(customer_id, "provider", store_path)
+        except ValueError:
+            # Never fail provider save because of a parallel customer-row phone conflict.
+            pass
+
     return dict(updated)
 
 

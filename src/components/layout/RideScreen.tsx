@@ -194,7 +194,9 @@ export function RideScreen({
         data-dragging={mobileSheet && isDragging ? "true" : undefined}
         style={{
           ...sheetStyle,
-          padding: sheetCompact ? "0 var(--pomich-space-3) calc(var(--pomich-space-3) + env(safe-area-inset-bottom, 0px))" : "0 16px calc(16px + env(safe-area-inset-bottom, 0px))",
+          paddingLeft: sheetCompact ? "var(--pomich-space-3)" : "16px",
+          paddingRight: sheetCompact ? "var(--pomich-space-3)" : "16px",
+          paddingTop: 0,
         }}
       >
         <div className="pomich-sheet-handle" {...(mobileSheet ? handleProps : {})}>

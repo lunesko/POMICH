@@ -4,7 +4,7 @@ import App from './App'
 import './index.css'
 import { initMobileCompactClasses } from './hooks/useMobileCompact'
 import { applyPomichThemeToDocument, resolveInitialPomichTheme } from './lib/theme'
-import { initTelegramApp } from './telegram'
+import { initTelegramApp, syncAppViewportHeight } from './telegram'
 
 const telegramContext = initTelegramApp()
 if (typeof document !== 'undefined') {
@@ -12,6 +12,7 @@ if (typeof document !== 'undefined') {
     document.documentElement.classList.add('tg-compact')
   }
   initMobileCompactClasses()
+  syncAppViewportHeight(telegramContext.webApp)
 }
 applyPomichThemeToDocument(resolveInitialPomichTheme({ telegramColorScheme: telegramContext.webApp?.colorScheme }))
 
