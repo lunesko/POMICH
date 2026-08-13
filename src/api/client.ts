@@ -254,6 +254,13 @@ export interface AuthSession {
   profile?: CustomerProfile
   customerIdentity?: CustomerIdentity
   account?: UserAccountStatus
+  preferredRole?: 'customer' | 'provider' | ''
+  telegramBotKind?: 'customer' | 'provider'
+  providerAccount?: {
+    linked: boolean
+    providerId?: string | null
+    verificationStatus?: VerificationStatus | string
+  }
 }
 
 export interface UserAccountStatus {
@@ -550,10 +557,17 @@ export async function createGuestCustomerSession(customerId?: string) {
   return response.json() as Promise<AuthSession>
 }
 
-export async function createTelegramCustomerSession(initData: string) {
+export async function createTelegramCustomerSession(
+  initData: string,
+  botKind?: 'customer' | 'provider' | null,
+) {
+  const headers: Record<string, string> = { 'X-Telegram-Init-Data': initData }
+  if (botKind === 'customer' || botKind === 'provider') {
+    headers['X-POMICH-Telegram-Bot'] = botKind
+  }
   const response = await fetchApi(`${getBaseUrl()}/auth/customer/telegram/session`, {
     method: 'POST',
-    headers: { 'X-Telegram-Init-Data': initData },
+    headers,
   })
 
   if (!response.ok) {
@@ -1165,9 +1179,14 @@ export async function updateOrderStatus(orderId: string, status: string, adminTo
   return response.json() as Promise<OrderResponse>
 }
 
-export async function getTelegramSession(chatId: string, initData?: string) {
+export async function getTelegramSession(
+  chatId: string,
+  initData?: string,
+  botKind?: 'customer' | 'provider' | null,
+) {
   const headers: Record<string, string> = {}
   if (initData) headers['X-Telegram-Init-Data'] = initData
+  if (botKind === 'customer' || botKind === 'provider') headers['X-POMICH-Telegram-Bot'] = botKind
 
   const response = await fetch(`${getBaseUrl()}/telegram/session/${encodeURIComponent(chatId)}`, {
     headers,

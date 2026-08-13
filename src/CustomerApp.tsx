@@ -80,12 +80,16 @@ export default function CustomerApp() {
   const initialRole = useMemo<Role | null>(() => {
     if (typeof window === "undefined") return null
     if (isAdminEntryLocation()) return "admin"
+    // Prefer Telegram bot kind (tgBot / start_param) over bare ?role= when both present.
+    if (telegramContext.botKind === "customer" || telegramContext.botKind === "provider") {
+      return telegramContext.botKind
+    }
     const queryRole = new URLSearchParams(window.location.search).get("role")
     if (queryRole === "customer" || queryRole === "provider") return queryRole
     const entryRole = resolveEntryRole()
     if (entryRole) return entryRole
     return null
-  }, [])
+  }, [telegramContext.botKind])
   const [role, setRole] = useState<Role | null>(initialRole)
   const [account, setAccount] = useState<UserAccountStatus | null>(null)
   const [showOnboarding, setShowOnboarding] = useState(() => {

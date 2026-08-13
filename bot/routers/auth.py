@@ -21,14 +21,30 @@ from bot.order_store import (
     build_user_account_status,
     find_registered_customer_by_phone,
     get_customer_profile,
+    get_provider_profile,
     resolve_linked_provider_id,
     sync_linked_provider_phone_verification_from_customer,
     update_customer_profile,
     upsert_telegram_customer_profile,
 )
 from bot.otp_verification import OtpVerificationError, confirm_customer_verification_code, send_customer_verification_code
+from bot.telegram_config import normalize_telegram_bot_kind
 
 router = APIRouter(tags=["auth"])
+
+
+def _provider_account_summary(customer_id: str, profile: dict | None = None) -> dict:
+    """Telegram identity alone does not grant provider API permissions — only reports link state."""
+    payload = profile or get_customer_profile(customer_id)
+    provider_id = resolve_linked_provider_id(customer_id, payload)
+    provider = get_provider_profile(provider_id) if provider_id else None
+    linked = bool(provider and provider.get("registeredAt"))
+    verification_status = str((provider or {}).get("verificationStatus") or "unverified")
+    return {
+        "linked": linked,
+        "providerId": provider_id if linked else (provider_id or None),
+        "verificationStatus": verification_status if linked else "unverified",
+    }
 
 
 @router.post("/auth/admin/session")
@@ -109,23 +125,41 @@ def create_guest_customer_session(payload: dict | None = None) -> dict:
 
 
 @router.post("/auth/customer/telegram/session")
-def create_telegram_customer_session(payload: dict | None = None, x_telegram_init_data: str | None = Header(default=None)) -> dict:
+def create_telegram_customer_session(
+    payload: dict | None = None,
+    x_telegram_init_data: str | None = Header(default=None),
+    x_pomich_telegram_bot: str | None = Header(default=None),
+) -> dict:
     # Unified TG + Web identity: Telegram initData -> customerId tg-{user_id} in shared DB.
+    # X-POMICH-Telegram-Bot is a routing hint only; signature still decides botKind.
     init_data = x_telegram_init_data or str((payload or {}).get("initData") or "").strip()
-    verified = verify_init_data_or_raise(init_data)
+    hint = x_pomich_telegram_bot or str((payload or {}).get("telegramBotKind") or "").strip()
+    verified = verify_init_data_or_raise(init_data, hint)
     if verified is None:
         raise HTTPException(status_code=403, detail="telegram_auth_not_configured")
     user = verified.get("user") or {}
     telegram_user_id = str(user.get("id") or "").strip()
     if not telegram_user_id:
         raise HTTPException(status_code=401, detail="telegram_user_missing")
-    profile = upsert_telegram_customer_profile(user)
+
+    bot_kind = normalize_telegram_bot_kind(verified.get("botKind")) or normalize_telegram_bot_kind(hint) or "customer"
+    profile = upsert_telegram_customer_profile(user, bot_kind=bot_kind)
     customer_id = str(profile.get("id") or f"tg-{telegram_user_id}")
+
+    if str(profile.get("preferredRole") or "") != bot_kind:
+        profile = update_customer_profile(customer_id, {"preferredRole": bot_kind}) or profile
+    preferred_role = bot_kind
+
+    # Customer bearer only — never issue provider permissions from Telegram identity alone.
     session = issue_role_session("customer", customer_id, configured_customer_secret())
     session["customerId"] = customer_id
     session["profile"] = profile
     session["customerIdentity"] = profile.get("customerIdentity")
     session["account"] = build_user_account_status(customer_id)
+    session["preferredRole"] = preferred_role
+    session["telegramBotKind"] = bot_kind
+    if bot_kind == "provider":
+        session["providerAccount"] = _provider_account_summary(customer_id, profile)
     return session
 
 

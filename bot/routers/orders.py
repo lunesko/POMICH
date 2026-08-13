@@ -34,7 +34,7 @@ from bot.order_store import (
     update_provider_order_status,
 )
 from bot.realtime import publish_order_event, publish_provider_event
-from bot.telegram_bot import notify_order_cancelled, notify_order_created
+from bot.telegram_bot import notify_dispatch_offers, notify_order_cancelled, notify_order_created
 
 router = APIRouter(tags=["orders"])
 
@@ -93,9 +93,14 @@ def create_order(payload: dict, authorization: str | None = Header(default=None)
         dispatched = dispatch_order(str(order.get("id")))
         if dispatched is not None:
             order = dispatched
-            for offer in load_offers():
-                if str(offer.get("orderId") or "") == str(order.get("id")) and str(offer.get("status") or "") == "pending":
-                    publish_provider_event(str(offer.get("providerId") or ""), "offers.changed", {"orderId": order.get("id")})
+            pending_offers = [
+                offer
+                for offer in load_offers()
+                if str(offer.get("orderId") or "") == str(order.get("id")) and str(offer.get("status") or "") == "pending"
+            ]
+            for offer in pending_offers:
+                publish_provider_event(str(offer.get("providerId") or ""), "offers.changed", {"orderId": order.get("id")})
+            notify_dispatch_offers(order, pending_offers)
 
     if payload.get("notify") and payload.get("chatId"):
         notify_order_created(str(payload.get("chatId")), order)
@@ -169,9 +174,14 @@ def retry_order_dispatch(order_id: str) -> dict:
     if order is None:
         raise HTTPException(status_code=404, detail="order not found")
     publish_order_event(order, "order.dispatched")
-    for offer in load_offers():
-        if str(offer.get("orderId") or "") == str(order.get("id")) and str(offer.get("status") or "") == "pending":
-            publish_provider_event(str(offer.get("providerId") or ""), "offers.changed", {"orderId": order.get("id")})
+    pending_offers = [
+        offer
+        for offer in load_offers()
+        if str(offer.get("orderId") or "") == str(order.get("id")) and str(offer.get("status") or "") == "pending"
+    ]
+    for offer in pending_offers:
+        publish_provider_event(str(offer.get("providerId") or ""), "offers.changed", {"orderId": order.get("id")})
+    notify_dispatch_offers(order, pending_offers)
     return order
 
 

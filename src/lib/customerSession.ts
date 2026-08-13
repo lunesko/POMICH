@@ -125,13 +125,14 @@ export interface ResolveCustomerAuthOptions {
 }
 
 function coalesceTelegramContext(
-  telegramContext?: Pick<TelegramContext, "initData" | "chatId" | "user">,
-): Pick<TelegramContext, "initData" | "chatId" | "user"> {
+  telegramContext?: Pick<TelegramContext, "initData" | "chatId" | "user" | "botKind">,
+): Pick<TelegramContext, "initData" | "chatId" | "user" | "botKind"> {
   const fresh = getTelegramContext()
   return {
     initData: telegramContext?.initData || fresh.initData,
     chatId: telegramContext?.chatId || fresh.chatId,
     user: telegramContext?.user || fresh.user,
+    botKind: telegramContext?.botKind || fresh.botKind,
   }
 }
 
@@ -191,7 +192,7 @@ export function enrichProfileWithTelegram(
  * In Telegram WebApp always re-authenticates via initData and drops stale web guest state.
  */
 export async function resolveCustomerAuthSession(
-  telegramContext: Pick<TelegramContext, "initData" | "chatId" | "user"> = {},
+  telegramContext: Pick<TelegramContext, "initData" | "chatId" | "user" | "botKind"> = {},
   options?: ResolveCustomerAuthOptions,
 ): Promise<ResolvedCustomerAuth> {
   const ctx = coalesceTelegramContext(telegramContext)
@@ -213,7 +214,7 @@ export async function resolveCustomerAuthSession(
 
   const allowTelegramSession = ctx.initData && (!isExplicitLogout(ctx.chatId) || options?.explicitSignIn)
   if (allowTelegramSession) {
-    const session = await createTelegramCustomerSession(ctx.initData!)
+    const session = await createTelegramCustomerSession(ctx.initData!, ctx.botKind)
     const customerId = applyCustomerAuthSession(session) || expectedCustomerId
     purgeStaleCustomerSessions(customerId)
     readBootstrapProfileForCustomer(customerId)

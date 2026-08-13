@@ -396,6 +396,10 @@ def _normalize_customer_profile(profile: Dict[str, Any]) -> Dict[str, Any]:
     payload["rolesRegistered"] = [str(item).strip() for item in roles if str(item).strip()] if isinstance(roles, list) else []
     payload["preferredRole"] = str(payload.get("preferredRole") or "").strip()
     payload["linkedProviderId"] = str(payload.get("linkedProviderId") or "").strip()
+    bot_kind = str(payload.get("telegramBotKind") or "").strip()
+    payload["telegramBotKind"] = bot_kind if bot_kind in {"customer", "provider"} else ""
+    channel = str(payload.get("telegramNotificationChannel") or payload.get("telegramBotKind") or "").strip()
+    payload["telegramNotificationChannel"] = channel if channel in {"customer", "provider"} else ""
     return payload
 
 
@@ -1161,13 +1165,22 @@ def update_customer_profile(customer_id: str, data: Dict[str, Any], store_path: 
         return _maybe_persist_phone_linked_verification(dict(updated), path)
 
 
-def upsert_telegram_customer_profile(user: Dict[str, Any], store_path: Optional[Path] = None) -> Dict[str, Any]:
+def upsert_telegram_customer_profile(
+    user: Dict[str, Any],
+    store_path: Optional[Path] = None,
+    *,
+    bot_kind: str | None = None,
+) -> Dict[str, Any]:
     # Links Telegram user to tg-{id} customer row shared by bot and web app.
     telegram_user_id = str(user.get("id") or "").strip()
     if not telegram_user_id:
         raise ValueError("telegram user id missing")
 
     customer_id = f"tg-{telegram_user_id}"
+    normalized_bot_kind = str(bot_kind or "").strip().lower()
+    if normalized_bot_kind not in {"customer", "provider"}:
+        normalized_bot_kind = ""
+
     with STORE_LOCK:
         path = store_path or _default_customer_store_path()
         profiles = load_customer_profiles(path)
@@ -1207,6 +1220,12 @@ def upsert_telegram_customer_profile(user: Dict[str, Any], store_path: Optional[
             "firstName": user.get("first_name"),
             "lastName": user.get("last_name"),
         }
+        if normalized_bot_kind:
+            # Same human identity; remember which bot channel was used for notifications.
+            updated["telegramBotKind"] = normalized_bot_kind
+            updated["telegramNotificationChannel"] = normalized_bot_kind
+            if not str(updated.get("preferredRole") or "").strip():
+                updated["preferredRole"] = normalized_bot_kind
         updated["updatedAt"] = now
         updated["profileCompleteness"] = _customer_profile_completeness(updated)
 

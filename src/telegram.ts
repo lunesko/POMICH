@@ -119,6 +119,7 @@ export interface TelegramContext {
   initData?: string
   user?: TelegramWebAppUser
   chatId?: string
+  botKind?: "customer" | "provider"
   webApp?: TelegramWebApp
 }
 
@@ -144,13 +145,35 @@ export function getTelegramContext(): TelegramContext {
     initData: webApp?.initData,
     user,
     chatId,
+    botKind: resolveTelegramBotKind() ?? undefined,
     webApp,
   }
 }
 
-/** Map Telegram start_param or URL ?role= to onboarding role (customer|provider). */
+/** Resolve which Telegram bot opened the Mini App (hint only; backend verifies signature). */
+export function resolveTelegramBotKind(): "customer" | "provider" | null {
+  if (typeof window === "undefined") return null
+
+  const queryBot = new URLSearchParams(window.location.search).get("tgBot")?.trim().toLowerCase()
+  if (queryBot === "customer" || queryBot === "client") return "customer"
+  if (queryBot === "provider" || queryBot === "partner") return "provider"
+
+  const startParam = window.Telegram?.WebApp?.initDataUnsafe?.start_param?.trim().toLowerCase()
+  if (startParam === "customer" || startParam === "client") return "customer"
+  if (startParam === "provider" || startParam === "partner") return "provider"
+
+  const queryRole = new URLSearchParams(window.location.search).get("role")?.trim().toLowerCase()
+  if (queryRole === "customer" || queryRole === "provider") return queryRole
+
+  return null
+}
+
+/** Map Telegram start_param or URL ?role= / ?tgBot= to onboarding role (customer|provider). */
 export function resolveEntryRole(): "customer" | "provider" | null {
   if (typeof window === "undefined") return null
+
+  const botKind = resolveTelegramBotKind()
+  if (botKind) return botKind
 
   const queryRole = new URLSearchParams(window.location.search).get("role")
   if (queryRole === "customer" || queryRole === "provider") return queryRole

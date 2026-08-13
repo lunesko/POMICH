@@ -1485,7 +1485,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
   useEffect(() => {
     if (!telegramContext.chatId || !telegramContext.initData) return
 
-    getTelegramSession(telegramContext.chatId, telegramContext.initData)
+    getTelegramSession(telegramContext.chatId, telegramContext.initData, telegramContext.botKind)
       .then((session) => {
         if (session.customerId) setCustomerId(session.customerId)
         if (session.profile) {

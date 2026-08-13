@@ -20,7 +20,7 @@ from bot.api_deps import (
     validate_runtime_config,
 )
 from bot.routers import admin, auth, customers, events, health, orders, providers, telegram, ws
-from bot.telegram_bot import notify_order_accepted, notify_order_cancelled, notify_order_created
+from bot.telegram_bot import notify_dispatch_offers, notify_order_accepted, notify_order_cancelled, notify_order_created
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DIST_DIR = PROJECT_ROOT / "dist"

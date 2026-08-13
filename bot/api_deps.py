@@ -19,8 +19,14 @@ from bot.field_encryption import encryption_enabled
 from bot.order_store import DispatchConflict
 from bot.otp_verification import OtpVerificationError
 from bot.runtime_store import sql_storage_enabled
-from bot.telegram_auth import verify_telegram_init_data
-from bot.telegram_bot import get_configured_token
+from bot.telegram_auth import verify_telegram_init_data, verify_telegram_init_data_any_bot
+from bot.telegram_config import (
+    any_telegram_bot_configured,
+    get_base_web_app_url,
+    get_configured_token,
+    get_telegram_bot_configs,
+    normalize_telegram_bot_kind,
+)
 
 _PLACEHOLDER_SECRET_FRAGMENTS = ("replace-me", "change-this", "changeme", "example", "placeholder")
 _AUTH_SESSION_PREFIX = "pomich_auth_v1"
@@ -130,12 +136,22 @@ def runtime_config_errors() -> list[str]:
         elif not sql_storage_enabled():
             errors.append("SQL/PostGIS runtime store must be enabled in production when DATABASE_URL is set")
 
-    web_app_url = (os.getenv("WEB_APP_URL") or "").strip()
-    telegram_token = (os.getenv("TELEGRAM_BOT_TOKEN") or os.getenv("VITE_TELEGRAM_BOT_TOKEN") or "").strip()
-    if telegram_token and not web_app_url:
-        errors.append("WEB_APP_URL must be set when Telegram is configured in production")
-    elif telegram_token and not is_allowed_public_origin(web_app_url):
-        errors.append("WEB_APP_URL must be a public HTTPS URL when Telegram is configured in production")
+    web_app_url = (os.getenv("WEB_APP_URL") or get_base_web_app_url() or "").strip()
+    telegram_configured = any_telegram_bot_configured()
+    if telegram_configured and not web_app_url:
+        # Dedicated per-bot Web App URLs may substitute for WEB_APP_URL.
+        missing_dedicated = any(not config.web_app_url for config in get_telegram_bot_configs())
+        if missing_dedicated:
+            errors.append("WEB_APP_URL or per-bot TELEGRAM_*_WEB_APP_URL must be set when Telegram is configured in production")
+    elif web_app_url and telegram_configured and not is_allowed_public_origin(web_app_url):
+        # Allow when every configured bot has its own public HTTPS Web App URL.
+        invalid_bots = [
+            config.kind
+            for config in get_telegram_bot_configs()
+            if not config.web_app_url or not is_allowed_public_origin(config.web_app_url)
+        ]
+        if invalid_bots and not is_allowed_public_origin(web_app_url):
+            errors.append("WEB_APP_URL must be a public HTTPS URL when Telegram is configured in production")
 
     return errors
 
@@ -146,17 +162,27 @@ def validate_runtime_config() -> None:
         raise RuntimeError(f"Invalid POMICH production configuration: {'; '.join(errors)}")
 
 
-def verify_init_data_or_raise(init_data: str | None) -> dict | None:
-    token = get_configured_token()
-    if not token:
+def verify_init_data_or_raise(
+    init_data: str | None,
+    hinted_bot_kind: str | None = None,
+) -> dict | None:
+    if not any_telegram_bot_configured() and not get_configured_token():
         return None
 
     if not init_data:
         raise HTTPException(status_code=401, detail="telegram_init_data_missing")
 
     try:
-        return verify_telegram_init_data(init_data, token)
+        return verify_telegram_init_data_any_bot(init_data, hinted_bot_kind)
     except ValueError as exc:
+        # Legacy single-token path still works via get_telegram_bot_configs fallback.
+        token = get_configured_token()
+        if token and normalize_telegram_bot_kind(hinted_bot_kind) is None:
+            try:
+                verified = verify_telegram_init_data(init_data, token)
+                return {"botKind": "customer", "user": verified.get("user"), "raw": verified.get("raw")}
+            except ValueError:
+                pass
         raise HTTPException(status_code=401, detail=str(exc)) from exc
 
 

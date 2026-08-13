@@ -10,15 +10,36 @@
 | `postgis_smoke.py` | Smoke-test PostGIS connectivity and spatial queries |
 | `check-public.ps1` | Windows helper to verify public endpoint reachability |
 
+## Import monitor GUI
+
+Desktop app to **start/stop** Ukraine-wide provider import on production and watch live progress:
+
+```powershell
+pip install -r requirements-gui.txt
+python scripts/ops/import_monitor_gui.py
+```
+
+- Buttons: «Старт парсингу» / «Стоп парсингу» (runs `scripts/ops/prod_import_worker.py`)
+- Polls `http://157.173.101.252:8000/api/map/providers?scope=all` (URL configurable)
+- SSH password is read from `POMICH_SSH_PASSWORD` or `.env.deploy` only when starting import — never embedded in the GUI
+- Resume: skips cities that already have providers (checkbox)
+
+Smoke test (no window): `python scripts/ops/import_monitor_gui.py --smoke`
+
 ## Production ops (`scripts/ops/`)
 
 Requires environment variables (see `.env.example`):
 
 - `POMICH_SSH_PASSWORD` — SSH password for production server
-- `TELEGRAM_BOT_TOKEN` — bot token for webhook/menu sync
+- `TELEGRAM_BOT_TOKEN` — legacy single-bot fallback for webhook/menu sync
+- `TELEGRAM_CUSTOMER_BOT_TOKEN` / `TELEGRAM_PROVIDER_BOT_TOKEN` — preferred two-bot tokens
+- See `docs/TELEGRAM_TWO_BOTS.md` and `scripts/ops/telegram_set_webhooks.py`
 
 | Script | Purpose |
 |--------|---------|
+| `import_monitor_gui.py` | Desktop GUI: start/stop Ukraine import + live progress |
+| `prod_import_worker.py` | Resume-friendly city-by-city prod import (used by GUI) |
+| `import_monitor_status.py` | Shared JSON status file helpers |
 | `ssh_common.py` | Shared SSH connection helpers (not run directly) |
 | `server_ops.py` | `status`, `deploy`, `tunnel` — full deploy with Docker rebuild |
 | `sync_tunnel.py` | Sync current Cloudflare tunnel URL to env, webhook, menu button |

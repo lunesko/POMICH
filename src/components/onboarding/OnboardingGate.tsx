@@ -311,7 +311,7 @@ export default function OnboardingGate({ skip, startAtRoleSelect, loginMode = fa
         }
         try {
           const session = telegramContext.initData
-            ? await createTelegramCustomerSession(telegramContext.initData)
+            ? await createTelegramCustomerSession(telegramContext.initData, telegramContext.botKind)
             : await createGuestCustomerSession(guestSessionCustomerIdForRestore(customerId))
           activeCustomerId = applySession(session) ?? customerId
           token = session.accessToken
@@ -399,7 +399,7 @@ export default function OnboardingGate({ skip, startAtRoleSelect, loginMode = fa
     }
 
     const session = telegramContext.initData
-      ? await createTelegramCustomerSession(telegramContext.initData)
+      ? await createTelegramCustomerSession(telegramContext.initData, telegramContext.botKind)
       : await createGuestCustomerSession(guestSessionCustomerIdForRestore(customerId))
     const activeCustomerId = applySession(session) ?? customerId
     const token = session.accessToken
@@ -560,7 +560,7 @@ export default function OnboardingGate({ skip, startAtRoleSelect, loginMode = fa
               try {
                 clearExplicitLogout()
                 const session = telegramContext.initData
-                  ? await createTelegramCustomerSession(telegramContext.initData)
+                  ? await createTelegramCustomerSession(telegramContext.initData, telegramContext.botKind)
                   : await createGuestCustomerSession()
                 const activeCustomerId = applySession(session) ?? session.customerId ?? session.subjectId
                 const token = session.accessToken
