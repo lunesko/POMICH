@@ -1,6 +1,8 @@
 @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Outfit:wght@600;700;800&display=swap');
 @import 'tailwindcss';
-/* POMICH theme tokens — toggled via html[data-pomich-theme] */[data-pomich-theme="light"],
+
+/* POMICH theme tokens — toggled via html[data-pomich-theme] */
+[data-pomich-theme="light"],
 html:not([data-pomich-theme]) {
   --pomich-bg: rgba(244, 249, 247, 0.65);
   --pomich-surface: rgba(255, 255, 255, 0.76);
@@ -46,7 +48,6 @@ html:not([data-pomich-theme]) {
   --pomich-accent-panel-bg: rgba(17, 19, 21, 0.88);
   --pomich-toggle-track: rgba(226, 232, 240, 0.75);
   --pomich-toggle-border: rgba(203, 213, 225, 0.85);
-}1;
   --pomich-toggle-knob: #FFFFFF;
   --pomich-toggle-icon: #94A3B8;
   --pomich-toggle-icon-active: #0F172A;
@@ -1096,9 +1097,7 @@ html:not([data-pomich-theme]) .pomich-map-tools-panel__close {
   min-height: 0;
   overflow: hidden;
 }
-.pomich-ride-screen--overlay {
-  /* sheet snap heights inherit from :root — tuned per breakpoint */
-}
+/* sheet snap heights inherit from :root — tuned per breakpoint */
 .pomich-ride-screen--overlay .pomich-ride-screen__map {
   position: absolute;
   inset: 0;
@@ -4533,6 +4532,7 @@ html.tg-compact .pomich-ride-screen__map .leaflet-top.leaflet-left {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
+  line-clamp: 3;
   overflow: hidden;
 }
 .pomich-sheet-heading__title {

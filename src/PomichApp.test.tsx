@@ -218,7 +218,7 @@ describe('POMICH role-based flows', () => {
     expect(screen.getByRole('link', { name: 'Послуги' })).toBeInTheDocument()
   })
 
-  it('opens phone login instead of registration when clicking login on web', async () => {
+  it('restores verified web session from landing login without OTP', async () => {
     const user = userEvent.setup()
     window.localStorage.setItem('pomichCustomerId', 'guest-test')
     window.sessionStorage.setItem('pomichCustomerId', 'guest-test')
@@ -235,9 +235,69 @@ describe('POMICH role-based flows', () => {
     renderApp()
     await user.click(await screen.findByRole('button', { name: /^Увійти$/i }))
 
-    expect(await screen.findByText(/Код надійде у Telegram/i)).toBeInTheDocument()
+    expect(await screen.findByText('Що сталося?')).toBeInTheDocument()
+    expect(screen.queryByText(/Код надійде у Telegram/i)).not.toBeInTheDocument()
     expect(screen.queryByText('Реєстрація клієнта')).not.toBeInTheDocument()
-    expect(screen.queryByText('Оберіть вашу роль')).not.toBeInTheDocument()
+    expect(window.sessionStorage.getItem(authSessionStorageKey('customer', 'guest-test'))).not.toBeNull()
+  })
+
+  it('preserves session when logged-in customer opens Меню then Увійти', async () => {
+    const user = userEvent.setup()
+    const romanProfile = {
+      ...verifiedTestProfile,
+      id: 'guest-roman',
+      name: 'Roman',
+      phone: '+380935718207',
+    }
+    window.localStorage.setItem('pomichCustomerId', 'guest-roman')
+    window.sessionStorage.setItem('pomichCustomerId', 'guest-roman')
+    window.sessionStorage.setItem('pomichBootstrapProfile', JSON.stringify(romanProfile))
+    storeAuthSession(authSessionStorageKey('customer', 'guest-roman'), {
+      role: 'customer',
+      subjectId: 'guest-roman',
+      customerId: 'guest-roman',
+      tokenType: 'Bearer',
+      accessToken: TEST_CUSTOMER_TOKEN,
+      expiresAt: Math.floor(Date.now() / 1000) + 3600,
+      profile: romanProfile,
+    })
+
+    vi.stubGlobal('fetch', mockRegisteredCustomerFetch((url) => {
+      if (url.includes('/users/') && url.includes('/account')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            customerId: 'guest-roman',
+            preferredRole: 'customer',
+            linkedProviderId: '',
+            rolesRegistered: ['customer'],
+            clientRegistered: true,
+            providerRegistered: false,
+            needsOnboarding: false,
+            profile: romanProfile,
+          }),
+        })
+      }
+      if (url.includes('/customers/') && url.includes('/profile')) {
+        return Promise.resolve({ ok: true, json: async () => romanProfile })
+      }
+      return undefined
+    }))
+
+    window.history.pushState({}, '', '/?role=customer')
+    renderApp()
+    expect(await screen.findByText('Що сталося?')).toBeInTheDocument()
+    expect(screen.getByText(/Ви увійшли як:.*Roman/i)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /← Меню|Меню/i }))
+    expect(await screen.findByText(/Допомога на дорозі — поруч/i)).toBeInTheDocument()
+    expect(window.localStorage.getItem('pomichCustomerId')).toBe('guest-roman')
+    expect(window.sessionStorage.getItem(authSessionStorageKey('customer', 'guest-roman'))).not.toBeNull()
+
+    await user.click(await screen.findByRole('button', { name: /^Увійти$/i }))
+    expect(await screen.findByText('Що сталося?')).toBeInTheDocument()
+    expect(screen.getByText(/Ви увійшли як:.*Roman/i)).toBeInTheDocument()
+    expect(screen.queryByText(/Код надійде у Telegram/i)).not.toBeInTheDocument()
   })
 
   it('shows phone login instead of registration when browser login has no stored session', async () => {
@@ -304,7 +364,10 @@ describe('POMICH role-based flows', () => {
       profile: verifiedTestProfile,
     })
 
-    vi.stubGlobal('fetch', mockRegisteredCustomerFetch((url, init) => {
+    vi.stubGlobal('fetch', mockRegisteredCustomerFetch((url) => {
+      if (url.includes('/users/') && url.includes('/account')) {
+        return Promise.reject(new Error('stale_session'))
+      }
       if (url.includes('/auth/customer/guest/session')) {
         return Promise.resolve({
           ok: true,

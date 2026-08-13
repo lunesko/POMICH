@@ -139,10 +139,10 @@ export function syncPomichThemeToTelegramWebApp(mode: PomichThemeMode) {
   if (typeof window === "undefined") return
   const webApp = window.Telegram?.WebApp
   // setHeaderColor / setBackgroundColor: Bot API 6.1+ (CSS theme still applies without these)
-  if (!telegramSupportsVersion(webApp, "6.1")) return
+  if (!webApp || !telegramSupportsVersion(webApp, "6.1")) return
   const colors = pomichThemeColors[mode]
-  webApp.setHeaderColor?.(mode === "dark" ? "#090B0E" : "#FFFFFF")
-  webApp.setBackgroundColor?.(colors.bg)
+  webApp?.setHeaderColor?.(mode === "dark" ? "#090B0E" : "#FFFFFF")
+  webApp?.setBackgroundColor?.(colors.bg)
 }
 
 export function applyPomichThemeToDocument(mode: PomichThemeMode) {
