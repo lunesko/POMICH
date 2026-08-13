@@ -425,8 +425,9 @@ export default function ProviderFlow({
       : undefined)
   const [customerOtpProfile, setCustomerOtpProfile] = useState<CustomerProfile | undefined>()
   const providerCanGoOnline =
-    Boolean(providerProfile.registeredAt) &&
+    Boolean(providerProfile.registeredAt || effectiveProviderRegistered) &&
     (isProviderPhoneVerified(providerProfile) || Boolean(customerOtpProfile && isCustomerVerified(customerOtpProfile)))
+  const dutyAutoAttemptedRef = useRef(false)
 
   const markProviderPhoneVerified = useCallback((currentProvider?: ProviderAvailability) => {
     setProviderProfile((profile) => {
@@ -1296,29 +1297,47 @@ export default function ProviderFlow({
   }, [presenceToast])
 
   const setDuty = async (nextDuty: boolean) => {
-    if (nextDuty && !providerCanGoOnline) {
-      if (!providerProfile.registeredAt) {
-        setStep("register")
-        return
-      }
-      const message = "Підтвердіть телефон кодом у Telegram, щоб вийти на лінію."
-      setOfferError(message)
-      setPresenceToast(message)
-      setStep("verify")
-      return
-    }
     setPresenceSaving(true)
     setOfferError(undefined)
     setPresenceToast(undefined)
     try {
       const session = await ensureProviderSession()
+      // Reload after self-session so ensure_linked_provider_profile's registeredAt is visible.
+      const fresh = await getProviderProfile(session.providerId, session.token).catch(() => undefined)
+      if (fresh?.id) {
+        applyLoadedProvider(fresh)
+      }
+      const registered = Boolean(fresh?.registeredAt || providerProfile.registeredAt || effectiveProviderRegistered)
+      const verified =
+        isProviderPhoneVerified(fresh?.id ? fresh : providerProfile) ||
+        Boolean(customerOtpProfile && isCustomerVerified(customerOtpProfile))
+
+      if (nextDuty && !registered) {
+        const message = "Спочатку заповніть профіль партнера."
+        setOfferError(message)
+        setPresenceToast(message)
+        setStep("register")
+        return
+      }
+      if (nextDuty && !verified) {
+        const message = "Підтвердіть телефон кодом у Telegram, щоб вийти на лінію."
+        setOfferError(message)
+        setPresenceToast(message)
+        setStep("verify")
+        return
+      }
+
       const updated = await updateProviderPresence(session.providerId, {
         status: nextDuty ? "online" : "offline",
         location: providerLocation,
-        etaMinutes: providerProfile.etaMinutes ?? provider.etaMinutes,
+        etaMinutes: (fresh || providerProfile).etaMinutes ?? provider.etaMinutes,
       }, session.token)
       setOnDuty(nextDuty)
       setProviderProfile((profile) => ({ ...profile, ...updated, status: updated.status ?? (nextDuty ? "online" : "offline") }))
+      if (nextDuty) {
+        setPresenceToast("Ви на лінії")
+        setStep("duty")
+      }
     } catch (error) {
       setOnDuty(false)
       const detail = (error as { detail?: string }).detail
@@ -1334,20 +1353,41 @@ export default function ProviderFlow({
 
   const handleDutyToggle = () => {
     if (presenceSaving) return
-    if (!onDuty && !providerCanGoOnline) {
-      setStep(providerProfile.registeredAt ? "verify" : "register")
-      return
-    }
     void setDuty(!onDuty)
   }
 
   const openPhoneOrProfileGate = () => {
-    if (providerProfile.registeredAt) {
+    if (providerProfile.registeredAt || effectiveProviderRegistered) {
+      if (providerCanGoOnline) {
+        void setDuty(true)
+        return
+      }
       setStep("verify")
       return
     }
     setStep("register")
   }
+
+  // Telegram «Вийти на лінію» opens screen=duty — actually go online once session+profile are ready.
+  useEffect(() => {
+    if (dutyAutoAttemptedRef.current) return
+    if (initialScreen !== "duty") return
+    if (!providerAuthToken || onDuty || presenceSaving) return
+    if (step !== "duty") return
+    if (!providerCanGoOnline && !(effectiveProviderRegistered || providerProfile.registeredAt)) return
+    dutyAutoAttemptedRef.current = true
+    void setDuty(true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    initialScreen,
+    providerAuthToken,
+    onDuty,
+    presenceSaving,
+    step,
+    providerCanGoOnline,
+    effectiveProviderRegistered,
+    providerProfile.registeredAt,
+  ])
 
   const completingPartnerProfile = effectiveProviderRegistered
 
@@ -1617,7 +1657,7 @@ export default function ProviderFlow({
             <div style={{ marginTop: 10 }}>
               <PrimaryButton
                 label={
-                  !providerProfile.registeredAt
+                  !(providerProfile.registeredAt || effectiveProviderRegistered)
                     ? "Завершити профіль"
                     : !providerCanGoOnline
                       ? "Підтвердити телефон"
@@ -1625,7 +1665,7 @@ export default function ProviderFlow({
                         ? "Оновлюємо статус…"
                         : "Вийти на лінію"
                 }
-                onClick={() => (providerCanGoOnline ? setDuty(true) : openPhoneOrProfileGate())}
+                onClick={() => void setDuty(true)}
                 disabled={presenceSaving}
               />
             </div>
@@ -1691,7 +1731,7 @@ export default function ProviderFlow({
             ) : (
               <PrimaryButton
                 label={
-                  !providerProfile.registeredAt
+                  !(providerProfile.registeredAt || effectiveProviderRegistered)
                     ? "Завершити профіль"
                     : !providerCanGoOnline
                       ? "Підтвердити телефон"
@@ -1699,7 +1739,7 @@ export default function ProviderFlow({
                         ? "Оновлюємо статус…"
                         : "Вийти на лінію"
                 }
-                onClick={() => (providerCanGoOnline ? setDuty(true) : openPhoneOrProfileGate())}
+                onClick={() => void setDuty(true)}
                 disabled={presenceSaving}
               />
             )}
@@ -1893,7 +1933,7 @@ export default function ProviderFlow({
           <div style={{ marginTop: 10 }}>
             <PrimaryButton
               label={
-                !providerProfile.registeredAt
+                !(providerProfile.registeredAt || effectiveProviderRegistered)
                   ? "Завершити профіль"
                   : !providerCanGoOnline
                     ? "Підтвердити телефон"
@@ -1901,7 +1941,7 @@ export default function ProviderFlow({
                       ? "Оновлюємо статус…"
                       : "Вийти на лінію"
               }
-              onClick={() => (providerCanGoOnline ? setDuty(true) : openPhoneOrProfileGate())}
+              onClick={() => void setDuty(true)}
               disabled={presenceSaving}
             />
           </div>
@@ -1911,7 +1951,7 @@ export default function ProviderFlow({
           <div style={{ marginTop: 14 }}>
             <PrimaryButton
               label={
-                !providerProfile.registeredAt
+                !(providerProfile.registeredAt || effectiveProviderRegistered)
                   ? "Завершити профіль"
                   : !providerCanGoOnline
                     ? "Підтвердити телефон"
@@ -1919,7 +1959,7 @@ export default function ProviderFlow({
                       ? "Оновлюємо статус…"
                       : "Вийти на лінію"
               }
-              onClick={() => (providerCanGoOnline ? setDuty(true) : openPhoneOrProfileGate())}
+              onClick={() => void setDuty(true)}
               disabled={presenceSaving}
             />
           </div>

@@ -3517,6 +3517,15 @@ html:not([data-pomich-theme]) select.pomich-form-input {
   font-weight: 800;
   font-size: 13px;
 }
+.pomich-form-success {
+  background: color-mix(in srgb, var(--pomich-brand) 14%, transparent);
+  color: var(--pomich-brand);
+  border: 1px solid color-mix(in srgb, var(--pomich-brand) 35%, transparent);
+  border-radius: 12px;
+  padding: 12px;
+  font-weight: 800;
+  font-size: 13px;
+}
 .pomich-session-mismatch {
   display: flex;
   flex-direction: column;

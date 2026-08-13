@@ -148,17 +148,21 @@ export default function ProviderCabinet({
   const [editing, setEditing] = useState(initialEditing)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string>()
+  const [saveSuccess, setSaveSuccess] = useState<string>()
   const [phoneError, setPhoneError] = useState<string>()
   const [dutySaving, setDutySaving] = useState(false)
   const [dutyError, setDutyError] = useState<string>()
-  const [form, setForm] = useState(() => ({
-    name: "",
-    phone: "",
-    city: "",
-    vehicle: "",
-    specialties: [] as ServiceKey[],
-    serviceRadiusKm: DEFAULT_SERVICE_RADIUS_KM,
-  }))
+  const [form, setForm] = useState(() => {
+    const seed = initialProfile ?? readCachedProviderProfile(providerId)
+    return seed ? profileToForm(seed) : {
+      name: "",
+      phone: "",
+      city: "",
+      vehicle: "",
+      specialties: [] as ServiceKey[],
+      serviceRadiusKm: DEFAULT_SERVICE_RADIUS_KM,
+    }
+  })
 
   const telegramContext = useMemo(() => getTelegramContext(), [])
   const customerIdForOtp =
@@ -354,9 +358,30 @@ export default function ProviderCabinet({
   }, [activeProviderId, activeProviderToken, ensureProviderSession, refreshProfile])
 
   useEffect(() => {
-    if (!profile || editing) return
+    if (!profile) return
+    // Always keep the edit form aligned with the loaded profile while entering/staying in edit.
+    // Previous logic skipped sync whenever editing=true, so initialEditing / auto-incomplete
+    // opened a blank form and «Зберегти» looked dead (validation fired on empty fields).
+    if (editing) {
+      setForm((current) => {
+        const next = profileToForm(profile)
+        const currentEmpty =
+          !current.name.trim() &&
+          !current.phone.trim() &&
+          !current.vehicle.trim() &&
+          current.specialties.length === 0
+        return currentEmpty ? next : current
+      })
+      return
+    }
     setForm(profileToForm(profile))
   }, [profile, editing])
+
+  useEffect(() => {
+    if (!saveSuccess) return
+    const timeout = window.setTimeout(() => setSaveSuccess(undefined), 4000)
+    return () => window.clearTimeout(timeout)
+  }, [saveSuccess])
 
   const profileVerified = isProviderPhoneVerified(profile)
   const isOnline = isProviderOnline(profile)
@@ -365,6 +390,7 @@ export default function ProviderCabinet({
   const openEdit = () => {
     if (profile) setForm(profileToForm(profile))
     setSaveError(undefined)
+    setSaveSuccess(undefined)
     setPhoneError(undefined)
     setEditing(true)
   }
@@ -383,28 +409,35 @@ export default function ProviderCabinet({
     const phoneValidation = validateUkraineMobilePhone(form.phone)
     const cityValidation = validateServiceCity(form.city || DEFAULT_SERVICE_CITY)
     if (!nameValidation.valid) {
+      setSaveSuccess(undefined)
       setSaveError(nameValidation.error || "Введіть ім'я")
       return
     }
     if (!phoneValidation.valid) {
+      setSaveSuccess(undefined)
       setPhoneError(phoneValidation.error)
+      setSaveError(phoneValidation.error || "Вкажіть коректний телефон")
       return
     }
     if (!cityValidation.valid) {
+      setSaveSuccess(undefined)
       setSaveError(cityValidation.error || "Оберіть місто")
       return
     }
     if (!form.vehicle.trim()) {
+      setSaveSuccess(undefined)
       setSaveError("Вкажіть авто")
       return
     }
     if (form.specialties.length === 0) {
+      setSaveSuccess(undefined)
       setSaveError("Оберіть хоча б одну послугу")
       return
     }
 
     setSaving(true)
     setSaveError(undefined)
+    setSaveSuccess(undefined)
     setPhoneError(undefined)
     try {
       const session = await ensureProviderSession()
@@ -423,17 +456,21 @@ export default function ProviderCabinet({
         },
         session.token,
       )
-      setProfile((prev) => ({ ...(prev ?? saved), ...saved, specialties: toServiceKeys(saved.specialties) }))
+      const merged = { ...(profile ?? saved), ...saved, specialties: toServiceKeys(saved.specialties) }
+      setProfile(merged)
+      writeCachedProviderProfile({ ...merged, id: session.providerId })
       if (typeof window !== "undefined") {
         window.localStorage.setItem("pomichPreferredCity", cityValidation.value)
         window.localStorage.setItem(`pomichPartnerRegistered:${session.providerId}`, "1")
       }
       setLoadError(undefined)
+      setSaveSuccess("Профіль збережено")
       setEditing(false)
     } catch (err) {
       const message = messageFromFetchError(err, "Не вдалося зберегти профіль. Спробуйте ще раз.")
       if (message.includes("номер") || message.includes("phone_already")) {
         setPhoneError(message)
+        setSaveError(message)
       } else {
         setSaveError(message)
       }
@@ -573,7 +610,7 @@ export default function ProviderCabinet({
                       value={form.serviceRadiusKm}
                       onChange={(serviceRadiusKm) => setForm((prev) => ({ ...prev, serviceRadiusKm }))}
                     />
-                    {saveError ? <div className="pomich-form-error">{saveError}</div> : null}
+                    {saveError ? <div className="pomich-form-error" role="alert">{saveError}</div> : null}
                     {!profileVerified ? (
                       <OtpVerificationPanel
                         profile={otpProfile}
@@ -599,7 +636,7 @@ export default function ProviderCabinet({
                       <button type="button" onClick={() => setEditing(false)} className="pomich-cabinet-chip-btn" disabled={saving}>
                         Скасувати
                       </button>
-                      <PrimaryButton label={saving ? "Зберігаємо…" : "Зберегти"} onClick={handleSave} disabled={saving} />
+                      <PrimaryButton label={saving ? "Зберігаємо…" : "Зберегти"} onClick={() => void handleSave()} disabled={saving} />
                     </div>
                   </div>
                 ) : (
@@ -724,20 +761,35 @@ export default function ProviderCabinet({
 
       <div className="pomich-cabinet-footer">
         <div className="pomich-cabinet-footer-inner">
-          {dutyError ? <div className="pomich-form-error" style={{ marginBottom: 10 }}>{dutyError}</div> : null}
-          <PrimaryButton
-            label={
-              dutySaving
-                ? "Оновлюємо статус…"
-                : isOnline
-                  ? "Піти з лінії"
-                  : !profileVerified
-                    ? "Підтвердити телефон"
-                    : "Вийти на лінію"
-            }
-            onClick={toggleDuty}
-            disabled={dutySaving || (profileLoading && !hasDisplayableProviderProfile(profile))}
-          />
+          {editing ? (
+            <>
+              {saveError ? <div className="pomich-form-error" role="alert" style={{ marginBottom: 10 }}>{saveError}</div> : null}
+              {saveSuccess ? <div className="pomich-form-success" role="status" style={{ marginBottom: 10 }}>{saveSuccess}</div> : null}
+              <PrimaryButton
+                label={saving ? "Зберігаємо…" : "Зберегти"}
+                onClick={() => void handleSave()}
+                disabled={saving}
+              />
+            </>
+          ) : (
+            <>
+              {dutyError ? <div className="pomich-form-error" role="alert" style={{ marginBottom: 10 }}>{dutyError}</div> : null}
+              {saveSuccess ? <div className="pomich-form-success" role="status" style={{ marginBottom: 10 }}>{saveSuccess}</div> : null}
+              <PrimaryButton
+                label={
+                  dutySaving
+                    ? "Оновлюємо статус…"
+                    : isOnline
+                      ? "Піти з лінії"
+                      : !profileVerified
+                        ? "Підтвердити телефон"
+                        : "Вийти на лінію"
+                }
+                onClick={() => void toggleDuty()}
+                disabled={dutySaving || (profileLoading && !hasDisplayableProviderProfile(profile))}
+              />
+            </>
+          )}
         </div>
       </div>
     </div>

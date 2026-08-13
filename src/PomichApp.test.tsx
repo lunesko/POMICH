@@ -1226,6 +1226,9 @@ describe('POMICH role-based flows', () => {
           }),
         })
       }
+      if (url.includes('/providers/provider-guest-test/presence')) {
+        return Promise.resolve({ ok: true, json: async () => ({ ...providerRecord, status: 'online' }) })
+      }
       if (url.includes('/providers/provider-guest-test/')) {
         return Promise.resolve({ ok: true, json: async () => providerRecord })
       }
@@ -1253,8 +1256,15 @@ describe('POMICH role-based flows', () => {
     renderApp()
 
     expect(await screen.findByText('Партнер POMICH', {}, { timeout: 8000 })).toBeInTheDocument()
-    expect(await screen.findByRole('button', { name: /Вийти на лінію/i })).toBeInTheDocument()
     expect(screen.queryByText(/Реєстрація партнера/i)).not.toBeInTheDocument()
+    // Deep link auto-attempts go-online once session is ready.
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/providers/provider-guest-test/presence'),
+        expect.objectContaining({ method: 'PATCH' }),
+      )
+    })
+    expect(await screen.findByText('На лінії')).toBeInTheDocument()
   })
 
   it('opens partner cabinet from ?screen=cabinet deep link', async () => {
@@ -2236,7 +2246,7 @@ describe('POMICH role-based flows', () => {
     const nameInput = screen.getByPlaceholderText("Ваше ім'я")
     await user.clear(nameInput)
     await user.type(nameInput, 'Михайло')
-    await user.click(screen.getByRole('button', { name: /^Зберегти$/i }))
+    await user.click(screen.getAllByRole('button', { name: /^Зберегти$/i })[0])
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
@@ -2280,6 +2290,19 @@ describe('POMICH role-based flows', () => {
       if (url.includes('/map/providers')) {
         return Promise.resolve({ ok: true, json: async () => [] })
       }
+      if (url.includes('/providers/provider-oleksandr/profile')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: 'provider-oleksandr',
+            name: 'Олександр',
+            status: 'offline',
+            registeredAt: '2026-08-09T00:00:00',
+            verificationStatus: 'verified',
+            specialties: ['tow'],
+          }),
+        })
+      }
       if (url.includes('/presence')) {
         return Promise.resolve({
           ok: false,
@@ -2295,7 +2318,7 @@ describe('POMICH role-based flows', () => {
     expect(await screen.findByText('Партнер POMICH')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /Вийти на лінію/i }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Підтвердіть телефон у Telegram')
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Підтвердіть телефон/i)
   })
 
   it('shows clear toast when go-online hits provider identity mismatch', async () => {

@@ -171,6 +171,52 @@ def test_unregistered_provider_cannot_go_online(tmp_path):
         )
 
 
+def test_presence_promotes_linked_verified_customer_shell(tmp_path, monkeypatch):
+    from bot.order_store import (
+        get_provider_profile,
+        load_customer_profiles,
+        save_customer_profiles,
+        update_provider_presence,
+    )
+
+    customer_path = tmp_path / "customers.json"
+    provider_path = tmp_path / "providers.json"
+    provider_path.write_text("[]", encoding="utf-8")
+    monkeypatch.setattr("bot.order_store._default_customer_store_path", lambda: customer_path)
+    monkeypatch.setattr("bot.order_store._default_provider_store_path", lambda: provider_path)
+    monkeypatch.setenv("POMICH_STORAGE_BACKEND", "json")
+
+    update_customer_profile(
+        "tg-55",
+        {
+            "name": "Партнер",
+            "phone": "+380509998877",
+            "city": "Ужгород",
+            "preferredRole": "provider",
+            "linkedProviderId": "provider-tg-55",
+            "rolesRegistered": ["customer", "provider"],
+        },
+        store_path=customer_path,
+    )
+    profiles = load_customer_profiles(customer_path)
+    for profile in profiles:
+        if str(profile.get("id")) == "tg-55":
+            profile["verificationStatus"] = "verified"
+            profile["verification"] = {"phone": True}
+    save_customer_profiles(profiles, customer_path)
+
+    online = update_provider_presence(
+        "provider-tg-55",
+        {"status": "online", "location": {"lat": 48.63, "lng": 22.27}},
+        store_path=provider_path,
+    )
+    assert online["status"] == "online"
+    assert online.get("registeredAt")
+    loaded = get_provider_profile("provider-tg-55", provider_path)
+    assert loaded is not None
+    assert loaded["status"] == "online"
+
+
 def test_provider_presence_ttl_expires_online_provider():
     stale_provider = {
         "id": "provider-stale",

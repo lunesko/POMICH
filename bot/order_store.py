@@ -2181,6 +2181,15 @@ def update_provider_profile(provider_id: str, data: Dict[str, Any], store_path: 
 def update_provider_presence(provider_id: str, data: Dict[str, Any], store_path: Optional[Path] = None) -> Dict[str, Any]:
     status = str(data.get("status") or "").strip()
     if status in PROVIDER_ACTIVE_STATUSES:
+        # Linked Mini App partners often hit presence before a SQL row is fully promoted.
+        customer_id = resolve_customer_id_for_provider(str(provider_id))
+        if not customer_id and str(provider_id).startswith("provider-"):
+            customer_id = str(provider_id)[len("provider-") :].strip()
+        if customer_id:
+            try:
+                ensure_linked_provider_profile(customer_id, store_path)
+            except Exception:
+                pass
         sync_linked_provider_phone_verification_from_customer(str(provider_id), store_path)
     providers = load_providers(store_path)
     now = _now_iso()

@@ -71,7 +71,7 @@ describe('ProviderCabinet', () => {
     await user.clear(nameInput)
     await user.type(nameInput, 'Михайло')
 
-    await user.click(screen.getByRole('button', { name: /^Зберегти$/i }))
+    await user.click(screen.getAllByRole('button', { name: /^Зберегти$/i })[0])
 
     await waitFor(() => {
       expect(fetch).toHaveBeenCalledWith(
@@ -85,7 +85,7 @@ describe('ProviderCabinet', () => {
     renderCabinet({ initialEditing: true })
 
     expect(await screen.findByPlaceholderText("Ваше ім'я")).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /^Зберегти$/i })).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: /^Зберегти$/i }).length).toBeGreaterThan(0)
   })
 
   it('opens setup instead of error when provider profile is missing', async () => {
@@ -150,5 +150,68 @@ describe('ProviderCabinet', () => {
     })
     // Section title + OtpVerificationPanel both render this heading when unverified.
     expect(screen.getAllByText('Підтвердження телефону').length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('prefills edit form when opened with initialEditing and saves with feedback', async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes('/providers/provider-oleksandr/profile') && init?.method === 'PATCH') {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ ...providerProfile, name: 'Михайло' }),
+        })
+      }
+      if (url.includes('/providers/provider-oleksandr/profile')) {
+        return Promise.resolve({ ok: true, json: async () => providerProfile })
+      }
+      if (url.includes('/providers/provider-oleksandr/offers')) {
+        return Promise.resolve({ ok: true, json: async () => [] })
+      }
+      return Promise.resolve({ ok: true, json: async () => ({}) })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderCabinet({ initialEditing: true, initialProfile: providerProfile })
+
+    expect(await screen.findByDisplayValue('Олександр')).toBeInTheDocument()
+    const nameInput = screen.getByPlaceholderText("Ваше ім'я")
+    await user.clear(nameInput)
+    await user.type(nameInput, 'Михайло')
+
+    await user.click(screen.getAllByRole('button', { name: /^Зберегти$/i })[0])
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/providers/provider-oleksandr/profile'),
+        expect.objectContaining({ method: 'PATCH' }),
+      )
+    })
+    expect(await screen.findByText(/Профіль збережено/i)).toBeInTheDocument()
+  })
+
+  it('shows validation feedback when save is blocked', async () => {
+    const user = userEvent.setup()
+    const incomplete = { ...providerProfile, name: '', vehicle: '', specialties: [] as string[] }
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/providers/provider-oleksandr/profile')) {
+        return Promise.resolve({ ok: true, json: async () => incomplete })
+      }
+      if (url.includes('/providers/provider-oleksandr/offers')) {
+        return Promise.resolve({ ok: true, json: async () => [] })
+      }
+      return Promise.resolve({ ok: true, json: async () => ({}) })
+    }))
+
+    renderCabinet({
+      initialEditing: true,
+      initialProfile: incomplete,
+    })
+
+    const saveButtons = await screen.findAllByRole('button', { name: /^Зберегти$/i })
+    await user.click(saveButtons[0])
+
+    expect(screen.getAllByText(/Вкажіть ім/i).length).toBeGreaterThan(0)
   })
 })
