@@ -669,9 +669,10 @@ export async function confirmOrderPrice(orderId: string, customerToken?: string)
   return response.json() as Promise<OrderResponse>
 }
 
-export async function retryDispatch(orderId: string) {
+export async function retryDispatch(orderId: string, authToken?: string) {
   const response = await fetch(`${getBaseUrl()}/orders/${encodeURIComponent(orderId)}/dispatch/retry`, {
     method: 'POST',
+    headers: authHeaders(authToken) ?? {},
   })
 
   if (!response.ok) {

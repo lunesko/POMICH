@@ -169,7 +169,17 @@ def create_order_review(
 
 
 @router.post("/orders/{order_id}/dispatch/retry")
-def retry_order_dispatch(order_id: str) -> dict:
+def retry_order_dispatch(
+    order_id: str,
+    x_pomich_admin_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+) -> dict:
+    if not extract_bearer_token(authorization):
+        raise HTTPException(status_code=401, detail="auth_session_required")
+    existing = get_order(order_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="order not found")
+    require_order_owner_or_admin(existing, authorization, x_pomich_admin_token)
     order = dispatch_order(order_id)
     if order is None:
         raise HTTPException(status_code=404, detail="order not found")

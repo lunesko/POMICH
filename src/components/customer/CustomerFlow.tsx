@@ -1017,7 +1017,7 @@ function ReviewStep({
   )
 }
 
-function SearchingStep({ orderId, status, order, pickup, destination, onCancel, onRetryDispatch }: { orderId?: string; status: OrderStatus; order?: OrderResponse; pickup: Point; destination: Point; onCancel: () => void; onRetryDispatch: () => void }) {
+function SearchingStep({ orderId, status, order, pickup, destination, cancelError, cancelling, onCancel, onRetryDispatch }: { orderId?: string; status: OrderStatus; order?: OrderResponse; pickup: Point; destination: Point; cancelError?: string; cancelling?: boolean; onCancel: () => void; onRetryDispatch: () => void }) {
   const noProviders = order?.dispatchState === "NO_PROVIDERS_AVAILABLE"
   const offersSent = order?.dispatchInfo?.offersSent ?? order?.offers?.length ?? 0
   return (
@@ -1043,8 +1043,9 @@ function SearchingStep({ orderId, status, order, pickup, destination, onCancel, 
         ))}
       </div>
       <div style={{ display: "grid", gap: 10, marginTop: 16 }}>
+        {cancelError ? <div style={{ background: "var(--pomich-error-bg)", color: "var(--pomich-error-text)", borderRadius: 14, padding: 12, fontWeight: 800 }}>{cancelError}</div> : null}
         {noProviders ? <PrimaryButton label="Спробувати ще раз" onClick={onRetryDispatch} /> : null}
-        <SecondaryButton label="Скасувати заявку" danger onClick={onCancel} />
+        <SecondaryButton label={cancelling ? "Скасовуємо…" : "Скасувати заявку"} danger disabled={cancelling} onClick={onCancel} />
       </div>
     </RideScreen>
   )
@@ -1058,6 +1059,8 @@ function AcceptedStep({
   destination,
   confirming,
   confirmError,
+  cancelError,
+  cancelling,
   onConfirmPrice,
   onContact,
   onCancel,
@@ -1069,6 +1072,8 @@ function AcceptedStep({
   destination: Point
   confirming: boolean
   confirmError?: string
+  cancelError?: string
+  cancelling?: boolean
   onConfirmPrice: () => void
   onContact: () => void
   onCancel: () => void
@@ -1120,18 +1125,19 @@ function AcceptedStep({
           {partnerName ?? "Партнер"} запропонував {typeof proposedPrice === "number" ? priceLabel : "ціну"}. Підтвердіть або зв'яжіться для обговорення.
         </div>
         {confirmError ? <div style={{ background: "var(--pomich-error-bg)", color: "var(--pomich-error-text)", borderRadius: 14, padding: 12, fontWeight: 800 }}>{confirmError}</div> : null}
+        {cancelError ? <div style={{ background: "var(--pomich-error-bg)", color: "var(--pomich-error-text)", borderRadius: 14, padding: 12, fontWeight: 800 }}>{cancelError}</div> : null}
       </div>
       <div className="pomich-price-confirm-actions">
-        <PrimaryButton label={confirming ? "Підтверджуємо…" : "Підтвердити ціну"} onClick={onConfirmPrice} loading={confirming} disabled={confirming || typeof proposedPrice !== "number"} />
-        <SecondaryButton label="Зв'язатися" onClick={onContact} />
-        <SecondaryButton label="Скасувати заявку" danger onClick={onCancel} />
+        <PrimaryButton label={confirming ? "Підтверджуємо…" : "Підтвердити ціну"} onClick={onConfirmPrice} loading={confirming} disabled={confirming || cancelling || typeof proposedPrice !== "number"} />
+        <SecondaryButton label="Зв'язатися" onClick={onContact} disabled={cancelling} />
+        <SecondaryButton label={cancelling ? "Скасовуємо…" : "Скасувати заявку"} danger disabled={cancelling} onClick={onCancel} />
       </div>
       </div>
     </RideScreen>
   )
 }
 
-function AssignedStep({ orderId, status, order, pickup, destination, isTelegram, onTrack, onCancel }: { orderId?: string; status: OrderStatus; order?: OrderResponse; pickup: Point; destination: Point; isTelegram?: boolean; onTrack: () => void; onCancel: () => void }) {
+function AssignedStep({ orderId, status, order, pickup, destination, isTelegram, cancelError, cancelling, onTrack, onCancel }: { orderId?: string; status: OrderStatus; order?: OrderResponse; pickup: Point; destination: Point; isTelegram?: boolean; cancelError?: string; cancelling?: boolean; onTrack: () => void; onCancel: () => void }) {
   const assignedProvider = order?.assignedProvider
   const eta = assignedProvider?.etaMinutes ?? provider.etaMinutes
   const confirmedPrice = order?.partnerProposedPrice
@@ -1163,14 +1169,15 @@ function AssignedStep({ orderId, status, order, pickup, destination, isTelegram,
         <div style={{ background: SELECTED, borderRadius: 18, padding: 14, color: DARK, fontWeight: 800 }}>{assignedProvider?.name ?? "Партнер"} їде до вас. ETA ~{eta} хв, узгоджена ціна {typeof confirmedPrice === "number" ? `${confirmedPrice.toLocaleString("uk-UA")} ₴` : ""}.</div>
       </div>
       <div style={{ display: "grid", gap: 10, marginTop: 16 }}>
-        {isTelegram ? null : <PrimaryButton label="Дивитися маршрут" onClick={onTrack} />}
-        <SecondaryButton label="Скасувати заявку" danger onClick={onCancel} />
+        {cancelError ? <div style={{ background: "var(--pomich-error-bg)", color: "var(--pomich-error-text)", borderRadius: 14, padding: 12, fontWeight: 800 }}>{cancelError}</div> : null}
+        {isTelegram ? null : <PrimaryButton label="Дивитися маршрут" onClick={onTrack} disabled={cancelling} />}
+        <SecondaryButton label={cancelling ? "Скасовуємо…" : "Скасувати заявку"} danger disabled={cancelling} onClick={onCancel} />
       </div>
     </RideScreen>
   )
 }
 
-function TrackingStep({ orderId, status, order, pickup, destination, onCancel }: { orderId?: string; status: OrderStatus; order?: OrderResponse; pickup: Point; destination: Point; onCancel: () => void }) {
+function TrackingStep({ orderId, status, order, pickup, destination, cancelError, cancelling, onCancel }: { orderId?: string; status: OrderStatus; order?: OrderResponse; pickup: Point; destination: Point; cancelError?: string; cancelling?: boolean; onCancel: () => void }) {
   const liveProviderLocation = order?.assignedProvider?.location
   const hasLiveLocation = Boolean(liveProviderLocation && Number.isFinite(liveProviderLocation.lat) && Number.isFinite(liveProviderLocation.lng))
   const providerPosition = hasLiveLocation
@@ -1211,14 +1218,15 @@ function TrackingStep({ orderId, status, order, pickup, destination, onCancel }:
         </div>
       </div>
       <div style={{ display: "grid", gap: 10, marginTop: 16 }}>
+        {cancelError ? <div style={{ background: "var(--pomich-error-bg)", color: "var(--pomich-error-text)", borderRadius: 14, padding: 12, fontWeight: 800 }}>{cancelError}</div> : null}
         <PrimaryButton label={eta ? `Очікувати · ${eta} хв` : "Очікуємо партнера"} disabled />
-        <SecondaryButton label="Скасувати заявку" danger onClick={onCancel} />
+        <SecondaryButton label={cancelling ? "Скасовуємо…" : "Скасувати заявку"} danger disabled={cancelling} onClick={onCancel} />
       </div>
     </RideScreen>
   )
 }
 
-function ArrivedStep({ orderId, status, order, pickup, destination, onComplete, onCancel }: { orderId?: string; status: OrderStatus; order?: OrderResponse; pickup: Point; destination: Point; onComplete: () => void; onCancel: () => void }) {
+function ArrivedStep({ orderId, status, order, pickup, destination, cancelError, cancelling, onComplete, onCancel }: { orderId?: string; status: OrderStatus; order?: OrderResponse; pickup: Point; destination: Point; cancelError?: string; cancelling?: boolean; onComplete: () => void; onCancel: () => void }) {
   return (
     <RideScreen pickup={pickup} destination={destination} providerPosition={pickup} mapSubtitle="Виконавець на місці">
       <StepBadge step={4} />
@@ -1235,14 +1243,15 @@ function ArrivedStep({ orderId, status, order, pickup, destination, onComplete, 
         </div>
       </div>
       <div style={{ display: "grid", gap: 10, marginTop: 16 }}>
+        {cancelError ? <div style={{ background: "var(--pomich-error-bg)", color: "var(--pomich-error-text)", borderRadius: 14, padding: 12, fontWeight: 800 }}>{cancelError}</div> : null}
         <PrimaryButton label="Очікуємо початок робіт" onClick={onComplete} disabled />
-        <SecondaryButton label="Скасувати" danger onClick={onCancel} />
+        <SecondaryButton label={cancelling ? "Скасовуємо…" : "Скасувати"} danger disabled={cancelling} onClick={onCancel} />
       </div>
     </RideScreen>
   )
 }
 
-function InProgressStep({ orderId, status, order, pickup, destination, onCancel }: { orderId?: string; status: OrderStatus; order?: OrderResponse; pickup: Point; destination: Point; onCancel: () => void }) {
+function InProgressStep({ orderId, status, order, pickup, destination, cancelError, cancelling, onCancel }: { orderId?: string; status: OrderStatus; order?: OrderResponse; pickup: Point; destination: Point; cancelError?: string; cancelling?: boolean; onCancel: () => void }) {
   return (
     <RideScreen pickup={pickup} destination={destination} providerPosition={pickup} mapSubtitle="Допомога триває">
       <StepBadge step={4} />
@@ -1259,8 +1268,9 @@ function InProgressStep({ orderId, status, order, pickup, destination, onCancel 
         </div>
       </div>
       <div style={{ display: "grid", gap: 10, marginTop: 16 }}>
+        {cancelError ? <div style={{ background: "var(--pomich-error-bg)", color: "var(--pomich-error-text)", borderRadius: 14, padding: 12, fontWeight: 800 }}>{cancelError}</div> : null}
         <PrimaryButton label="Очікуємо завершення робіт" disabled />
-        <SecondaryButton label="Скасувати" danger onClick={onCancel} />
+        <SecondaryButton label={cancelling ? "Скасовуємо…" : "Скасувати"} danger disabled={cancelling} onClick={onCancel} />
       </div>
     </RideScreen>
   )
@@ -1286,6 +1296,8 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
   const [loading, setLoading] = useState(false)
   const [priceConfirming, setPriceConfirming] = useState(false)
   const [priceConfirmError, setPriceConfirmError] = useState<string | undefined>()
+  const [cancelling, setCancelling] = useState(false)
+  const [cancelError, setCancelError] = useState<string | undefined>()
   const [orderId, setOrderId] = useState<string | undefined>(() => restoredActiveOrder?.orderId)
   const [currentOrder, setCurrentOrder] = useState<OrderResponse | undefined>()
   const [status, setStatus] = useState<OrderStatus>(() => {
@@ -1896,17 +1908,26 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
     }
   }
 
-  const cancelOrder = () => {
-    userInitiatedCancelRef.current = true
-    setStatus("cancelled")
-    setScreen("cancelled")
-    clearActiveOrder()
-    if (orderId) cancelOrderRequest(orderId, customerAuthToken).catch(() => undefined)
+  const cancelOrder = async () => {
+    if (!orderId || cancelling) return
+    setCancelling(true)
+    setCancelError(undefined)
+    try {
+      await cancelOrderRequest(orderId, customerAuthToken)
+      userInitiatedCancelRef.current = true
+      setStatus("cancelled")
+      setScreen("cancelled")
+      clearActiveOrder()
+    } catch {
+      setCancelError("Не вдалося скасувати заявку. Спробуйте ще раз.")
+    } finally {
+      setCancelling(false)
+    }
   }
 
   const retryOrderDispatch = () => {
     if (!orderId) return
-    retryDispatch(orderId)
+    retryDispatch(orderId, customerAuthToken)
       .then((order) => {
         setCurrentOrder(order)
         setStatus(normalizeOrderStatus(order.status))
@@ -1992,6 +2013,8 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
     setCustomerReviewSaving(false)
     setCustomerReviewError(undefined)
     setCustomerReviewSubmitted(false)
+    setCancelError(undefined)
+    setCancelling(false)
     clearActiveOrder()
   }, [])
 
@@ -2191,17 +2214,17 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
         />
       )
     case "searching":
-      return <SearchingStep orderId={orderId} status={status} order={currentOrder} pickup={pickup} destination={destinationPoint} onCancel={cancelOrder} onRetryDispatch={retryOrderDispatch} />
+      return <SearchingStep orderId={orderId} status={status} order={currentOrder} pickup={pickup} destination={destinationPoint} cancelError={cancelError} cancelling={cancelling} onCancel={cancelOrder} onRetryDispatch={retryOrderDispatch} />
     case "accepted":
-      return <AcceptedStep orderId={orderId} status={status} order={currentOrder} pickup={pickup} destination={destinationPoint} confirming={priceConfirming} confirmError={priceConfirmError} onConfirmPrice={confirmProposedPrice} onContact={contactAssignedProvider} onCancel={cancelOrder} />
+      return <AcceptedStep orderId={orderId} status={status} order={currentOrder} pickup={pickup} destination={destinationPoint} confirming={priceConfirming} confirmError={priceConfirmError} cancelError={cancelError} cancelling={cancelling} onConfirmPrice={confirmProposedPrice} onContact={contactAssignedProvider} onCancel={cancelOrder} />
     case "assigned":
-      return <AssignedStep orderId={orderId} status={status} order={currentOrder} pickup={pickup} destination={destinationPoint} isTelegram={isTelegram} onTrack={startTracking} onCancel={cancelOrder} />
+      return <AssignedStep orderId={orderId} status={status} order={currentOrder} pickup={pickup} destination={destinationPoint} isTelegram={isTelegram} cancelError={cancelError} cancelling={cancelling} onTrack={startTracking} onCancel={cancelOrder} />
     case "tracking":
-      return <TrackingStep orderId={orderId} status={status} order={currentOrder} pickup={pickup} destination={destinationPoint} onCancel={cancelOrder} />
+      return <TrackingStep orderId={orderId} status={status} order={currentOrder} pickup={pickup} destination={destinationPoint} cancelError={cancelError} cancelling={cancelling} onCancel={cancelOrder} />
     case "arrived":
-      return <ArrivedStep orderId={orderId} status={status} order={currentOrder} pickup={pickup} destination={destinationPoint} onComplete={completeOrder} onCancel={cancelOrder} />
+      return <ArrivedStep orderId={orderId} status={status} order={currentOrder} pickup={pickup} destination={destinationPoint} cancelError={cancelError} cancelling={cancelling} onComplete={completeOrder} onCancel={cancelOrder} />
     case "in_progress":
-      return <InProgressStep orderId={orderId} status={status} order={currentOrder} pickup={pickup} destination={destinationPoint} onCancel={cancelOrder} />
+      return <InProgressStep orderId={orderId} status={status} order={currentOrder} pickup={pickup} destination={destinationPoint} cancelError={cancelError} cancelling={cancelling} onCancel={cancelOrder} />
     case "completed":
       return (
         <OrderFinalStep

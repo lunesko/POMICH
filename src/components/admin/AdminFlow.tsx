@@ -555,7 +555,7 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
                 <OrderEditor order={selectedOrder} adminAuthToken={adminAuthToken} onStatusChange={setOrderStatus} onRetryDispatch={async () => {
                   if (!selectedOrder.id) return
                   try {
-                    const updated = await retryDispatch(selectedOrder.id)
+                    const updated = await retryDispatch(selectedOrder.id, adminAuthToken)
                     setOrders((items) => items.map((item) => item.id === updated.id ? { ...item, ...updated } : item))
                   } catch {
                     setError("Не вдалося повторити диспетчеризацію.")

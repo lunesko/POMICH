@@ -730,6 +730,43 @@ def test_fastapi_admin_can_cancel_order(monkeypatch, tmp_path) -> None:
     assert cancelled.json()["status"] == "cancelled"
 
 
+def test_fastapi_dispatch_retry_requires_customer_owner_or_admin(monkeypatch, tmp_path) -> None:
+    _use_temp_store(monkeypatch, tmp_path)
+    monkeypatch.setenv("POMICH_ADMIN_TOKEN", ADMIN_TOKEN)
+    order_store.save_providers([_api_provider("p1", 48.6218, 22.2879)])
+    client = TestClient(app)
+    customer_id = "guest-customer-retry"
+    customer_headers = _customer_session_headers(client, customer_id)
+    admin_headers = _admin_session_headers(client)
+
+    created_order = client.post(
+        "/api/orders",
+        headers=customer_headers,
+        json={
+            "service": "tow",
+            "status": "searching",
+            "customerCoordinates": {"lat": 48.6208, "lng": 22.2879},
+        },
+    ).json()
+
+    unauthenticated = client.post(f"/api/orders/{created_order['id']}/dispatch/retry")
+    assert unauthenticated.status_code == 401
+    assert unauthenticated.json()["detail"] == "auth_session_required"
+
+    other_headers = _customer_session_headers(client, "guest-customer-other")
+    forbidden = client.post(f"/api/orders/{created_order['id']}/dispatch/retry", headers=other_headers)
+    assert forbidden.status_code == 403
+    assert forbidden.json()["detail"] == "customer_identity_mismatch"
+
+    retried = client.post(f"/api/orders/{created_order['id']}/dispatch/retry", headers=customer_headers)
+    assert retried.status_code == 200
+    assert retried.json()["id"] == created_order["id"]
+
+    admin_retried = client.post(f"/api/orders/{created_order['id']}/dispatch/retry", headers=admin_headers)
+    assert admin_retried.status_code == 200
+    assert admin_retried.json()["id"] == created_order["id"]
+
+
 def test_fastapi_confirm_price_requires_customer_owner(monkeypatch, tmp_path) -> None:
     _use_temp_store(monkeypatch, tmp_path)
     _use_provider_auth(monkeypatch)
