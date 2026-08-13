@@ -26,27 +26,67 @@ import { mergeAccountProfile, readBootstrapProfile, type UserAccountStatus } fro
 
 const ACTIVE_ORDER_STORAGE_KEY = "pomichActiveOrder"
 
+/** In-progress ride statuses restored after Telegram WebApp reopen. */
+export const ACTIVE_ORDER_STATUSES = new Set([
+  "searching",
+  "accepted",
+  "price_confirmed",
+  "assigned",
+  "en_route",
+  "arrived",
+  "in_progress",
+])
+
+export const TERMINAL_ORDER_STATUSES = new Set(["completed", "cancelled", "expired"])
+
+export function isActiveOrderStatus(status?: string): boolean {
+  const normalized = String(status || "").trim()
+  return Boolean(normalized && ACTIVE_ORDER_STATUSES.has(normalized))
+}
+
+export function isTerminalOrderStatus(status?: string): boolean {
+  const normalized = String(status || "").trim()
+  return Boolean(normalized && TERMINAL_ORDER_STATUSES.has(normalized))
+}
+
 export interface PersistedActiveOrder {
   orderId: string
   status: string
   updatedAt: number
 }
 
+function writeActiveOrderPayload(payload: PersistedActiveOrder) {
+  const raw = JSON.stringify(payload)
+  // Dual-write: Telegram WebApp often wipes sessionStorage on close; localStorage survives.
+  window.sessionStorage.setItem(ACTIVE_ORDER_STORAGE_KEY, raw)
+  window.localStorage.setItem(ACTIVE_ORDER_STORAGE_KEY, raw)
+}
+
 export function persistActiveOrder(orderId: string, status: string) {
   if (typeof window === "undefined" || !orderId) return
-  const payload: PersistedActiveOrder = { orderId, status, updatedAt: Date.now() }
-  window.sessionStorage.setItem(ACTIVE_ORDER_STORAGE_KEY, JSON.stringify(payload))
+  if (!isActiveOrderStatus(status)) {
+    clearActiveOrder()
+    return
+  }
+  writeActiveOrderPayload({ orderId, status, updatedAt: Date.now() })
 }
 
 export function readActiveOrder(): PersistedActiveOrder | undefined {
   if (typeof window === "undefined") return undefined
   try {
-    const raw = window.sessionStorage.getItem(ACTIVE_ORDER_STORAGE_KEY)
+    const raw = window.localStorage.getItem(ACTIVE_ORDER_STORAGE_KEY) || window.sessionStorage.getItem(ACTIVE_ORDER_STORAGE_KEY)
     if (!raw) return undefined
     const parsed = JSON.parse(raw) as PersistedActiveOrder
     if (!parsed?.orderId) return undefined
+    if (!isActiveOrderStatus(parsed.status)) {
+      clearActiveOrder()
+      return undefined
+    }
+    // Re-hydrate session copy so in-tab code that only reads session still works.
+    window.sessionStorage.setItem(ACTIVE_ORDER_STORAGE_KEY, raw)
     return parsed
   } catch {
+    clearActiveOrder()
     return undefined
   }
 }
@@ -54,6 +94,21 @@ export function readActiveOrder(): PersistedActiveOrder | undefined {
 export function clearActiveOrder() {
   if (typeof window === "undefined") return
   window.sessionStorage.removeItem(ACTIVE_ORDER_STORAGE_KEY)
+  window.localStorage.removeItem(ACTIVE_ORDER_STORAGE_KEY)
+}
+
+/** Pick newest non-terminal order from server history (customer or partner). */
+export function pickLatestActiveOrder(
+  orders: Array<{ id?: string; status?: string }> | undefined,
+): PersistedActiveOrder | undefined {
+  if (!Array.isArray(orders) || orders.length === 0) return undefined
+  for (const order of orders) {
+    const orderId = String(order?.id || "").trim()
+    const status = String(order?.status || "").trim()
+    if (!orderId || !ACTIVE_ORDER_STATUSES.has(status)) continue
+    return { orderId, status, updatedAt: Date.now() }
+  }
+  return undefined
 }
 
 export interface ResolvedCustomerAuth {

@@ -183,7 +183,7 @@ def test_fastapi_updates_provider_presence(monkeypatch, tmp_path) -> None:
         "/api/providers/provider-oleksandr/profile",
         headers=provider_headers,
         json={
-            "name": "Олександр",
+            "name": "ÐÐ»ÐµÐºÑÐ°Ð½Ð´Ñ",
             "phone": "+380671112233",
             "vehicle": "Volkswagen Transporter",
             "plate": "AO 1248 CH",
@@ -212,7 +212,7 @@ def test_fastapi_registers_provider_profile(monkeypatch, tmp_path) -> None:
         "/api/providers/provider-oleksandr/profile",
         headers=provider_headers,
         json={
-            "name": "Олександр",
+            "name": "ÐÐ»ÐµÐºÑÐ°Ð½Ð´Ñ",
             "phone": "+380671112233",
             "vehicle": "Volkswagen Transporter",
             "plate": "AO 1248 CH",
@@ -285,7 +285,7 @@ def test_fastapi_provider_verification_submit_and_admin_review(monkeypatch, tmp_
     provider_headers = _provider_session_headers(client, "provider-new")
     admin_headers = _admin_session_headers(client)
     payload = {
-        "name": "Новий партнер",
+        "name": "ÐÐ¾Ð²Ð¸Ð¹ Ð¿Ð°ÑÑÐ½ÐµÑ",
         "phone": "+380501112233",
         "vehicle": "Iveco Daily",
         "plate": "AA 1122 BB",
@@ -342,7 +342,7 @@ def test_fastapi_requires_provider_token_when_configured(monkeypatch, tmp_path) 
     monkeypatch.setenv("POMICH_PROVIDER_TOKEN", PROVIDER_TOKEN)
     client = TestClient(app)
     payload = {
-        "name": "Олександр",
+        "name": "ÐÐ»ÐµÐºÑÐ°Ð½Ð´Ñ",
         "phone": "+380671112233",
         "vehicle": "Volkswagen Transporter",
         "plate": "AO 1248 CH",
@@ -415,6 +415,41 @@ def test_fastapi_provider_session_is_identity_scoped(monkeypatch, tmp_path) -> N
     assert own_profile.status_code == 200
     assert other_profile.status_code == 403
     assert other_profile.json()["detail"] == "provider_identity_mismatch"
+
+
+def test_fastapi_provider_profile_get_returns_empty_shell_when_missing(monkeypatch, tmp_path) -> None:
+    _use_temp_store(monkeypatch, tmp_path)
+    _use_provider_auth(monkeypatch)
+    client = TestClient(app)
+    provider_headers = _provider_session_headers(client, "provider-guest-new")
+
+    response = client.get("/api/providers/provider-guest-new/profile", headers=provider_headers)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["id"] == "provider-guest-new"
+    assert body["status"] == "offline"
+    assert body["verificationStatus"] == "unverified"
+    assert body["specialties"] == []
+
+
+def test_fastapi_provider_profile_shell_prefills_linked_customer(monkeypatch, tmp_path) -> None:
+    _use_temp_store(monkeypatch, tmp_path)
+    _use_provider_auth(monkeypatch)
+    order_store.update_customer_profile(
+        "guest-powergear",
+        {"name": "PowerGear", "phone": "+380635236801", "city": "Ужгород", "linkedProviderId": "provider-guest-powergear"},
+    )
+    client = TestClient(app)
+    provider_headers = _provider_session_headers(client, "provider-guest-powergear")
+
+    response = client.get("/api/providers/provider-guest-powergear/profile", headers=provider_headers)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["name"] == "PowerGear"
+    assert body["phone"] == "+380635236801"
+    assert body["city"] == "Ужгород"
 
 
 def test_fastapi_admin_session_can_access_admin_routes(monkeypatch) -> None:
@@ -549,13 +584,13 @@ def test_fastapi_create_order_persists_customer_comment(monkeypatch, tmp_path) -
         json={
             "service": "tow",
             "status": "searching",
-            "customerComment": "Ключі в бардачку",
+            "customerComment": "ÐÐ»ÑÑÑ Ð² Ð±Ð°ÑÐ´Ð°ÑÐºÑ",
         },
     )
 
     assert created.status_code == 201
     payload = created.json()
-    assert payload["customerComment"] == "Ключі в бардачку"
+    assert payload["customerComment"] == "ÐÐ»ÑÑÑ Ð² Ð±Ð°ÑÐ´Ð°ÑÐºÑ"
 
 
 def test_fastapi_rejects_invalid_order_transition(monkeypatch) -> None:
@@ -680,7 +715,7 @@ def test_fastapi_assigned_provider_can_drive_lifecycle(monkeypatch, tmp_path) ->
     client.post(
         f"/api/providers/p1/offers/{offer['id']}/accept",
         headers=provider_headers,
-        json={"proposedPrice": 1500, "priceNote": "Евакуатор + подача"},
+        json={"proposedPrice": 1500, "priceNote": "ÐÐ²Ð°ÐºÑÐ°ÑÐ¾Ñ + Ð¿Ð¾Ð´Ð°ÑÐ°"},
     )
     client.post(f"/api/orders/{created_order['id']}/confirm-price")
 
@@ -701,7 +736,7 @@ def test_admin_endpoints_require_session_and_expose_ops_data(monkeypatch, tmp_pa
     monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", CUSTOMER_SESSION_SECRET)
     _use_temp_store(monkeypatch, tmp_path)
     order_store.save_providers([_api_provider("p1", 48.6218, 22.2879)])
-    order_store.update_customer_profile("guest-1", {"name": "Test Client", "phone": "+380501234567", "city": "Ужгород"})
+    order_store.update_customer_profile("guest-1", {"name": "Test Client", "phone": "+380501234567", "city": "Ð£Ð¶Ð³Ð¾ÑÐ¾Ð´"})
     order_store.save_order({"service": "tow", "status": "searching", "customerLocation": "Test", "destination": "Garage"})
     client = TestClient(app)
     admin_headers = _admin_session_headers(client)
@@ -718,10 +753,10 @@ def test_admin_endpoints_require_session_and_expose_ops_data(monkeypatch, tmp_pa
     providers = client.get("/api/admin/providers", headers=admin_headers).json()
     assert any(item["id"] == "p1" for item in providers)
 
-    updated = client.patch("/api/admin/clients/guest-1", headers=admin_headers, json={"city": "Київ"}).json()
-    assert updated["city"] == "Київ"
+    updated = client.patch("/api/admin/clients/guest-1", headers=admin_headers, json={"city": "ÐÐ¸ÑÐ²"}).json()
+    assert updated["city"] == "ÐÐ¸ÑÐ²"
 
-    provider_updated = client.patch("/api/admin/providers/p1", headers=admin_headers, json={"status": "offline", "city": "Ужгород"}).json()
+    provider_updated = client.patch("/api/admin/providers/p1", headers=admin_headers, json={"status": "offline", "city": "Ð£Ð¶Ð³Ð¾ÑÐ¾Ð´"}).json()
     assert provider_updated["status"] == "offline"
 
     settings = client.get("/api/admin/settings", headers=admin_headers).json()
@@ -744,9 +779,9 @@ def test_admin_clients_decrypt_filter_and_purge_guests(monkeypatch, tmp_path) ->
     monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", CUSTOMER_SESSION_SECRET)
     _use_temp_store(monkeypatch, tmp_path)
 
-    order_store.update_customer_profile("tg-99", {"name": "Олексій", "phone": "+380679998877", "telegram": "alex"})
-    order_store.update_customer_profile("guest-empty", {"name": "Клієнт POMICH"})
-    order_store.update_customer_profile("guest-real", {"name": "Марія", "phone": "+380501112233"})
+    order_store.update_customer_profile("tg-99", {"name": "ÐÐ»ÐµÐºÑÑÐ¹", "phone": "+380679998877", "telegram": "alex"})
+    order_store.update_customer_profile("guest-empty", {"name": "ÐÐ»ÑÑÐ½Ñ POMICH"})
+    order_store.update_customer_profile("guest-real", {"name": "ÐÐ°ÑÑÑ", "phone": "+380501112233"})
 
     profiles = order_store.load_customer_profiles()
     for profile in profiles:
@@ -765,8 +800,8 @@ def test_admin_clients_decrypt_filter_and_purge_guests(monkeypatch, tmp_path) ->
     assert "guest-empty" not in default_ids
 
     telegram_client = next(item for item in default_clients if item["id"] == "tg-99")
-    assert telegram_client["name"] == "Олексій"
-    assert telegram_client["displayName"] == "Олексій"
+    assert telegram_client["name"] == "ÐÐ»ÐµÐºÑÑÐ¹"
+    assert telegram_client["displayName"] == "ÐÐ»ÐµÐºÑÑÐ¹"
     assert not str(telegram_client["name"]).startswith("enc:v1:")
 
     all_clients = client.get("/api/admin/clients?includeGuests=true", headers=admin_headers).json()
@@ -911,6 +946,104 @@ def test_fastapi_rejects_duplicate_customer_phone(monkeypatch, tmp_path) -> None
     assert response.json()["detail"] == "phone_already_registered"
 
 
+def test_fastapi_update_own_phone_unchanged_succeeds(monkeypatch, tmp_path) -> None:
+    _use_temp_store(monkeypatch, tmp_path)
+    otp_path = tmp_path / "otp_codes.json"
+    monkeypatch.setattr("bot.otp_verification._default_otp_store_path", lambda: otp_path)
+    monkeypatch.setattr("bot.otp_verification._generate_otp_code", lambda: "445566")
+    monkeypatch.setattr("bot.otp_verification._send_telegram_otp", lambda chat_id, code: 321)
+    monkeypatch.setenv("POMICH_OTP_SECRET", "test-otp-secret")
+    monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", CUSTOMER_SESSION_SECRET)
+    customer_path = tmp_path / "customers.json"
+    order_store.update_customer_profile(
+        "tg-powergear",
+        {"name": "PowerGear", "phone": "+380635236801", "city": "Ужгород"},
+        customer_path,
+    )
+    profiles = order_store.load_customer_profiles(customer_path)
+    profiles.append(
+        {
+            "id": "guest-old",
+            "name": "PowerGear",
+            "phone": "+380635236801",
+            "city": "Ужгород",
+            "verificationStatus": "verified",
+        }
+    )
+    order_store.save_customer_profiles(profiles, customer_path)
+
+    client = TestClient(app)
+    send_response = client.post("/api/auth/customer/phone/login/send", json={"phone": "+380635236801"})
+    assert send_response.status_code == 200
+    confirm_response = client.post(
+        "/api/auth/customer/phone/login/confirm",
+        json={"phone": "+380635236801", "code": "445566"},
+    )
+    assert confirm_response.status_code == 200
+    headers = {"Authorization": f"Bearer {confirm_response.json()['accessToken']}"}
+    response = client.patch(
+        "/api/customers/tg-powergear/profile",
+        headers=headers,
+        json={
+            "name": "PowerGear",
+            "phone": "+380635236801",
+            "city": "Ужгород",
+            "email": "power@example.com",
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["phone"] == "+380635236801"
+    assert body["email"] == "power@example.com"
+
+
+def test_verify_send_allows_own_provider_phone_with_tg_duplicate(monkeypatch, tmp_path) -> None:
+    """Partner OTP must not 409 when provider-{guest} already holds the phone."""
+    _use_temp_store(monkeypatch, tmp_path)
+    otp_path = tmp_path / "otp_codes.json"
+    monkeypatch.setattr("bot.otp_verification._default_otp_store_path", lambda: otp_path)
+    monkeypatch.setattr("bot.otp_verification._generate_otp_code", lambda: "778899")
+    monkeypatch.setattr("bot.otp_verification._send_telegram_otp", lambda chat_id, code: 829741830)
+    monkeypatch.setenv("POMICH_OTP_SECRET", "test-otp-secret")
+    monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", CUSTOMER_SESSION_SECRET)
+    customer_path = tmp_path / "customers.json"
+    provider_path = tmp_path / "providers.json"
+    order_store.update_customer_profile(
+        "tg-829741830",
+        {"name": "PowerGear", "phone": "+380635236801", "city": "Ужгород"},
+        customer_path,
+    )
+    order_store.update_customer_profile(
+        "guest-browser",
+        {"name": "PowerGear", "city": "Ужгород"},
+        customer_path,
+    )
+    order_store.update_provider_profile(
+        "provider-guest-browser",
+        {
+            "name": "PowerGear",
+            "phone": "+380635236801",
+            "city": "Ужгород",
+            "vehicle": "Volkswagen Crafter",
+            "plate": "BX5874HX",
+            "specialties": ["tow"],
+            "serviceRadiusKm": 15,
+            "registeredAt": "2026-08-12T12:00:00Z",
+        },
+        provider_path,
+    )
+
+    client = TestClient(app)
+    headers = _customer_session_headers(client, "guest-browser")
+    send_response = client.post(
+        "/api/auth/customer/verify/send",
+        headers=headers,
+        json={"channel": "telegram", "phone": "+380635236801"},
+    )
+    assert send_response.status_code == 200
+    assert send_response.json()["channel"] == "telegram"
+
+
 def test_sse_order_events_not_found(monkeypatch, tmp_path) -> None:
     _use_temp_store(monkeypatch, tmp_path)
     client = TestClient(app)
@@ -924,3 +1057,125 @@ def test_sse_provider_events_require_auth(monkeypatch, tmp_path) -> None:
     client = TestClient(app)
     denied = client.get("/api/events/providers/provider-oleksandr")
     assert denied.status_code == 401
+
+
+def test_ws_order_events_handshake_and_broadcast(monkeypatch, tmp_path) -> None:
+    _use_temp_store(monkeypatch, tmp_path)
+    from bot import realtime
+
+    realtime.reset_realtime_for_tests()
+    client = TestClient(app)
+    created = client.post(
+        "/api/orders",
+        json={
+            "service": "tow",
+            "status": "searching",
+            "customerCoordinates": {"lat": 48.6208, "lng": 22.2879},
+        },
+    )
+    order = created.json()
+    try:
+        with client.websocket_connect(f"/api/ws/orders/{order['id']}") as websocket:
+            connected = websocket.receive_json()
+            assert connected["type"] == "connected"
+            assert connected["channel"] == realtime.channel_for_order(order["id"])
+
+            realtime.publish_order_event({"id": order["id"], "status": "accepted"}, "order.accepted")
+            message = websocket.receive_json()
+            assert message["type"] == "order.accepted"
+            assert message["payload"]["status"] == "accepted"
+    finally:
+        realtime.reset_realtime_for_tests()
+
+
+def test_ws_order_events_not_found(monkeypatch, tmp_path) -> None:
+    _use_temp_store(monkeypatch, tmp_path)
+    client = TestClient(app)
+    try:
+        with client.websocket_connect("/api/ws/orders/missing-order") as websocket:
+            websocket.receive_json()
+        assert False, "expected websocket handshake to fail"
+    except Exception:
+        pass
+
+
+def test_ws_provider_events_require_auth(monkeypatch, tmp_path) -> None:
+    _use_temp_store(monkeypatch, tmp_path)
+    _use_provider_auth(monkeypatch)
+    client = TestClient(app)
+    try:
+        with client.websocket_connect("/api/ws/providers/provider-oleksandr") as websocket:
+            websocket.receive_json()
+        assert False, "expected websocket auth failure"
+    except Exception:
+        pass
+
+def test_fastapi_provider_public_card_no_auth(monkeypatch, tmp_path) -> None:
+    order_path, provider_path, _offer_path = _use_temp_store(monkeypatch, tmp_path)
+    order_store.save_providers([_api_provider("p-public", 48.62, 22.28)])
+    order_store.save_order(
+        {
+            "id": "ord-pub-1",
+            "service": "tow",
+            "status": "completed",
+            "assignedProviderId": "p-public",
+            "customerReview": {"rating": 5, "comment": "Good job", "at": "2026-08-01T12:00:00"},
+        },
+        store_path=order_path,
+    )
+    client = TestClient(app)
+    missing = client.get("/api/providers/missing/public")
+    assert missing.status_code == 404
+    response = client.get("/api/providers/p-public/public")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["id"] == "p-public"
+    assert body["name"] == "p-public"
+    assert len(body["reviews"]) == 1
+    assert body["reviews"][0]["comment"] == "Good job"
+
+
+def test_geo_static_files_served_before_spa_fallback(tmp_path, monkeypatch):
+    geo_dir = tmp_path / "dist" / "geo"
+    geo_dir.mkdir(parents=True)
+    border = geo_dir / "ukraine-border.geojson"
+    border.write_text('{"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[30,50],[31,50],[31,51],[30,51],[30,50]]]}}', encoding="utf-8")
+
+    monkeypatch.setattr(fastapi_app, "DIST_DIR", tmp_path / "dist")
+    monkeypatch.setattr(fastapi_app, "ASSETS_DIR", tmp_path / "dist" / "assets")
+    monkeypatch.setattr(fastapi_app, "GEO_DIR", geo_dir)
+
+    from importlib import reload
+
+    reload(fastapi_app)
+    client = TestClient(fastapi_app.app)
+
+    response = client.get("/geo/ukraine-border.geojson")
+    assert response.status_code == 200
+    assert response.json()["type"] == "Feature"
+
+
+def test_dist_root_static_files_served_before_spa_fallback(tmp_path, monkeypatch):
+    dist_dir = tmp_path / "dist"
+    dist_dir.mkdir(parents=True)
+    (dist_dir / "index.html").write_text("<!doctype html><html><body>POMICH</body></html>", encoding="utf-8")
+    (dist_dir / "pomich-sw.js").write_text('const TILE_CACHE = "pomich-map-tiles-v1"\n', encoding="utf-8")
+
+    monkeypatch.setattr(fastapi_app, "DIST_DIR", dist_dir)
+    monkeypatch.setattr(fastapi_app, "ASSETS_DIR", dist_dir / "assets")
+    monkeypatch.setattr(fastapi_app, "GEO_DIR", dist_dir / "geo")
+
+    from importlib import reload
+
+    reload(fastapi_app)
+    client = TestClient(fastapi_app.app)
+
+    sw = client.get("/pomich-sw.js")
+    assert sw.status_code == 200
+    assert "TILE_CACHE" in sw.text
+    assert "text/html" not in (sw.headers.get("content-type") or "")
+
+    index = client.get("/")
+    assert index.status_code == 200
+    assert "POMICH" in index.text
+    assert index.headers.get("cache-control") == "no-cache, no-store, must-revalidate"

@@ -17,11 +17,15 @@ from bot.order_store import (
     enrich_order_for_client,
     get_order,
     get_provider_offers,
+    get_provider_public_card,
     get_telegram_session,
+    list_provider_public_reviews,
     load_offers,
     load_orders,
     load_providers,
+    merge_directory_providers,
     partner_telegram_user_ids_for_order,
+    redispatch_searching_orders_for_provider,
     resolve_provider_telegram_user_id,
     review_provider_verification,
     save_order,
@@ -442,6 +446,15 @@ def test_provider_can_decline_offer_and_cannot_accept_it_later(tmp_path):
         accept_offer(offer["id"], "p1", order_path, provider_path, offer_path, proposed_price=1200)
     assert exc_info.value.code == "OFFER_DECLINED"
 
+    # Presence heartbeat / redispatch must not recreate the same offer for this partner.
+    redispatched = dispatch_order(order["id"], order_path, provider_path, offer_path)
+    assert redispatched is not None
+    assert get_provider_offers("p1", order_path, offer_path) == []
+    assert all(
+        not (item.get("providerId") == "p1" and item.get("status") == "pending")
+        for item in load_offers(offer_path)
+    )
+
 
 def test_expired_offer_disappears_from_provider_queue(tmp_path):
     order_path = tmp_path / "orders.json"
@@ -523,6 +536,29 @@ def test_assigned_provider_drives_order_lifecycle_and_returns_online(tmp_path):
     assert "assignedOrderId" not in provider
 
 
+def test_completed_order_does_not_reappear_in_provider_offers(tmp_path):
+    order_path = tmp_path / "orders.json"
+    provider_path = tmp_path / "providers.json"
+    offer_path = tmp_path / "offers.json"
+
+    save_providers([_provider("p1", 48.6218, 22.2879)], provider_path)
+    order = save_order({"service": "tow", "customerCoordinates": {"lat": 48.6208, "lng": 22.2879}}, store_path=order_path)
+    dispatch_order(order["id"], order_path, provider_path, offer_path)
+    offer = load_offers(offer_path)[0]
+    accept_offer(offer["id"], "p1", order_path, provider_path, offer_path, proposed_price=1200)
+    confirm_order_price(order["id"], order_path, offer_path)
+
+    update_provider_order_status("p1", order["id"], "en_route", order_path, provider_path, offer_path)
+    update_provider_order_status("p1", order["id"], "arrived", order_path, provider_path, offer_path)
+    update_provider_order_status("p1", order["id"], "in_progress", order_path, provider_path, offer_path)
+    update_provider_order_status("p1", order["id"], "completed", order_path, provider_path, offer_path)
+
+    assert get_provider_offers("p1", order_path, offer_path) == []
+    redispatch_searching_orders_for_provider("p1", order_path, provider_path, offer_path)
+    assert get_provider_offers("p1", order_path, offer_path) == []
+    assert all(item.get("status") != "pending" for item in load_offers(offer_path) if item.get("orderId") == order["id"])
+
+
 def test_phone_login_finds_guest_partner_via_provider_phone(tmp_path):
     """After partner registration, phone login must resolve guest-{id} via provider-{id}."""
     from bot.order_store import (
@@ -599,6 +635,185 @@ def test_duplicate_phone_registration_rejected(tmp_path):
             {"name": "Інший", "phone": "+380661007434", "city": "Київ"},
             store_path=store_path,
         )
+
+
+def test_update_own_phone_unchanged_succeeds_with_legacy_guest_duplicate(tmp_path):
+    from bot.order_store import load_customer_profiles, save_customer_profiles
+
+    store_path = tmp_path / "customers.json"
+    update_customer_profile(
+        "tg-829741830",
+        {"name": "PowerGear", "phone": "+380635236801", "city": "Ужгород"},
+        store_path=store_path,
+    )
+    profiles = load_customer_profiles(store_path)
+    profiles.append(
+        {
+            "id": "guest-old",
+            "name": "PowerGear",
+            "phone": "+380635236801",
+            "city": "Ужгород",
+            "verificationStatus": "verified",
+        }
+    )
+    save_customer_profiles(profiles, store_path)
+
+    updated = update_customer_profile(
+        "tg-829741830",
+        {
+            "name": "PowerGear",
+            "phone": "+380635236801",
+            "city": "Ужгород",
+            "email": "power@example.com",
+        },
+        store_path=store_path,
+    )
+
+    assert updated["phone"] == "+380635236801"
+    assert updated["email"] == "power@example.com"
+
+
+def test_update_own_phone_allowed_when_on_linked_provider_with_tg_duplicate(tmp_path, monkeypatch):
+    from bot.order_store import update_provider_profile
+
+    customer_path = tmp_path / "customers.json"
+    provider_path = tmp_path / "providers.json"
+    monkeypatch.setattr("bot.order_store._default_provider_store_path", lambda: provider_path)
+
+    update_customer_profile(
+        "tg-829741830",
+        {"name": "PowerGear", "phone": "+380635236801", "city": "Ужгород"},
+        store_path=customer_path,
+    )
+    update_customer_profile(
+        "guest-browser",
+        {"name": "PowerGear", "city": "Ужгород"},
+        store_path=customer_path,
+    )
+    update_provider_profile(
+        "provider-guest-browser",
+        {
+            "name": "PowerGear",
+            "phone": "+380635236801",
+            "city": "Ужгород",
+            "vehicle": "Volkswagen Crafter",
+            "plate": "BX5874HX",
+            "specialties": ["tow"],
+            "serviceRadiusKm": 15,
+            "registeredAt": "2026-08-12T12:00:00Z",
+        },
+        store_path=provider_path,
+    )
+
+    updated = update_customer_profile(
+        "guest-browser",
+        {"phone": "+380635236801"},
+        store_path=customer_path,
+    )
+    assert updated["phone"] == "+380635236801"
+
+
+def test_otp_verify_send_allows_own_provider_phone_with_tg_duplicate(tmp_path, monkeypatch):
+    from bot import otp_verification
+    from bot.order_store import update_provider_profile
+
+    customer_path = tmp_path / "customers.json"
+    provider_path = tmp_path / "providers.json"
+    otp_path = tmp_path / "otp_codes.json"
+    monkeypatch.setattr("bot.order_store._default_provider_store_path", lambda: provider_path)
+    monkeypatch.setattr(otp_verification, "_default_otp_store_path", lambda: otp_path)
+    monkeypatch.setattr(otp_verification, "_generate_otp_code", lambda: "112233")
+    monkeypatch.setattr(otp_verification, "_send_telegram_otp", lambda chat_id, code: 829741830)
+    monkeypatch.setenv("POMICH_OTP_SECRET", "test-otp-secret")
+
+    update_customer_profile(
+        "tg-829741830",
+        {"name": "PowerGear", "phone": "+380635236801", "city": "Ужгород"},
+        store_path=customer_path,
+    )
+    update_customer_profile(
+        "guest-browser",
+        {"name": "PowerGear", "city": "Ужгород"},
+        store_path=customer_path,
+    )
+    update_provider_profile(
+        "provider-guest-browser",
+        {
+            "name": "PowerGear",
+            "phone": "+380635236801",
+            "city": "Ужгород",
+            "vehicle": "Volkswagen Crafter",
+            "plate": "BX5874HX",
+            "specialties": ["tow"],
+            "serviceRadiusKm": 15,
+            "registeredAt": "2026-08-12T12:00:00Z",
+        },
+        store_path=provider_path,
+    )
+
+    sent = otp_verification.send_customer_verification_code(
+        "guest-browser",
+        "telegram",
+        phone="+380635236801",
+        customer_store_path=customer_path,
+    )
+    assert sent["channel"] == "telegram"
+
+
+def test_sync_provider_verification_from_verified_client(tmp_path, monkeypatch):
+    from bot.order_store import (
+        is_provider_verified,
+        load_customer_profiles,
+        save_customer_profiles,
+        sync_linked_provider_phone_verification_from_customer,
+        update_provider_profile,
+    )
+
+    customer_path = tmp_path / "customers.json"
+    provider_path = tmp_path / "providers.json"
+    monkeypatch.setattr("bot.order_store._default_provider_store_path", lambda: provider_path)
+
+    update_customer_profile(
+        "tg-829741830",
+        {
+            "name": "PowerGear",
+            "phone": "+380635236801",
+            "city": "Ужгород",
+            "linkedProviderId": "provider-tg-829741830",
+        },
+        store_path=customer_path,
+    )
+    profiles = load_customer_profiles(customer_path)
+    for profile in profiles:
+        if str(profile.get("id") or "") != "tg-829741830":
+            continue
+        profile["verificationStatus"] = "verified"
+        verification = profile.get("verification") if isinstance(profile.get("verification"), dict) else {}
+        verification["phone"] = True
+        profile["verification"] = verification
+    save_customer_profiles(profiles, customer_path)
+    update_provider_profile(
+        "provider-tg-829741830",
+        {
+            "name": "PowerGear",
+            "phone": "+380635236801",
+            "city": "Ужгород",
+            "vehicle": "Volkswagen Crafter",
+            "plate": "BX5874HX",
+            "specialties": ["tow"],
+            "serviceRadiusKm": 15,
+            "registeredAt": "2026-08-12T12:00:00Z",
+        },
+        store_path=provider_path,
+    )
+
+    synced = sync_linked_provider_phone_verification_from_customer(
+        "provider-tg-829741830",
+        store_path=provider_path,
+        customer_store_path=customer_path,
+    )
+    assert synced is not None
+    assert is_provider_verified(synced)
 
 
 def test_duplicate_provider_phone_registration_rejected(tmp_path):
@@ -716,6 +931,21 @@ def test_default_customer_profile_has_empty_city(tmp_path):
 
     profile = get_customer_profile("guest-new-user", store_path=tmp_path / "customers.json")
     assert profile["city"] == ""
+
+
+def test_customer_profile_persists_vehicle(tmp_path):
+    store_path = tmp_path / "customers.json"
+    updated = update_customer_profile(
+        "tg-vehicle-test",
+        {"name": "Driver", "phone": "+380671234567", "vehicle": "Toyota Corolla"},
+        store_path=store_path,
+    )
+    assert updated["vehicle"] == "Toyota Corolla"
+
+    from bot.order_store import get_customer_profile
+
+    loaded = get_customer_profile("tg-vehicle-test", store_path=store_path)
+    assert loaded["vehicle"] == "Toyota Corolla"
 
 
 def test_resolve_provider_telegram_user_id_from_linked_customer(tmp_path):
@@ -883,3 +1113,173 @@ def test_provider_offer_includes_customer_comment(tmp_path):
 
     assert len(offers) == 1
     assert offers[0]["customerComment"] == "Паркінг -1, біля ліфта"
+
+
+def test_list_orders_for_customer_matches_id_and_telegram_chat(tmp_path, monkeypatch):
+    from bot import order_store
+    from bot.order_store import list_orders_for_customer
+
+    order_path = tmp_path / "orders.json"
+    customer_path = tmp_path / "customers.json"
+    monkeypatch.setattr(order_store, "_default_customer_store_path", lambda: customer_path)
+    monkeypatch.setattr(order_store, "_default_store_path", lambda: order_path)
+
+    update_customer_profile(
+        "tg-829741830",
+        {"name": "Віталій", "phone": "+380661007434", "city": "Ужгород"},
+        store_path=customer_path,
+    )
+    # Legacy guest row with same phone (pre-uniqueness era / imported data).
+    profiles = order_store.load_customer_profiles(customer_path)
+    profiles.append(
+        {
+            "id": "guest-old",
+            "name": "Віталій",
+            "phone": "+380661007434",
+            "city": "Ужгород",
+            "verificationStatus": "verified",
+        }
+    )
+    order_store.save_customer_profiles(profiles, customer_path)
+
+    save_order(
+        {"service": "tow", "status": "completed", "customerId": "guest-old"},
+        store_path=order_path,
+    )
+    save_order(
+        {
+            "service": "mechanic",
+            "status": "cancelled",
+            "customerId": "tg-829741830",
+            "chatId": "829741830",
+        },
+        store_path=order_path,
+    )
+    save_order(
+        {"service": "fuel", "status": "searching", "customerId": "someone-else"},
+        store_path=order_path,
+    )
+
+    history = list_orders_for_customer(
+        "tg-829741830",
+        store_path=order_path,
+        customer_store_path=customer_path,
+        limit=20,
+    )
+    ids = {item["id"] for item in history}
+    assert len(history) == 2
+    assert len(ids) == 2
+
+
+def test_customer_orders_endpoint_returns_history(monkeypatch, tmp_path):
+    from bot import order_store
+    from bot.fastapi_app import app
+    from fastapi.testclient import TestClient
+
+    order_path = tmp_path / "orders.json"
+    customer_path = tmp_path / "customers.json"
+    monkeypatch.setenv("POMICH_RUNTIME", "dev")
+    monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", "test-customer-secret-for-cabinet-history")
+    monkeypatch.setattr(order_store, "_default_customer_store_path", lambda: customer_path)
+    monkeypatch.setattr(order_store, "_default_store_path", lambda: order_path)
+
+    client = TestClient(app)
+    session = client.post("/api/auth/customer/guest/session", json={"customerId": "guest-cabinet-1"})
+    assert session.status_code == 200
+    token = session.json()["accessToken"]
+    customer_id = session.json()["customerId"]
+
+    save_order(
+        {"service": "tow", "status": "completed", "customerId": customer_id},
+        store_path=order_path,
+    )
+
+    response = client.get(
+        f"/api/customers/{customer_id}/orders?limit=10",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert isinstance(body, list)
+    assert len(body) == 1
+    assert body[0]["customerId"] == customer_id
+    assert body[0]["service"] == "tow"
+
+def test_provider_public_reviews_from_completed_orders(tmp_path):
+    order_path = tmp_path / "orders.json"
+    provider_path = tmp_path / "providers.json"
+    save_providers(
+        [
+            {
+                "id": "p-public",
+                "name": "Public partner",
+                "rating": 4.5,
+                "ratingCount": 2,
+                "status": "online",
+                "specialties": ["tow"],
+            }
+        ],
+        provider_path,
+    )
+    save_order(
+        {
+            "id": "o1",
+            "service": "tow",
+            "status": "completed",
+            "assignedProviderId": "p-public",
+            "customerReview": {"rating": 5, "comment": "Great", "at": "2026-08-01T10:00:00"},
+        },
+        store_path=order_path,
+    )
+    save_order(
+        {
+            "id": "o2",
+            "service": "fuel",
+            "status": "completed",
+            "assignedProviderId": "p-public",
+            "customerReview": {"rating": 4, "comment": "", "at": "2026-07-01T10:00:00"},
+        },
+        store_path=order_path,
+    )
+    save_order(
+        {
+            "id": "o3",
+            "service": "tow",
+            "status": "searching",
+            "assignedProviderId": "p-public",
+            "customerReview": {"rating": 1, "comment": "should ignore"},
+        },
+        store_path=order_path,
+    )
+
+    reviews = list_provider_public_reviews("p-public", store_path=order_path)
+    assert len(reviews) == 2
+    assert reviews[0]["rating"] == 5
+    assert reviews[0]["comment"] == "Great"
+
+    card = get_provider_public_card("p-public", store_path=order_path, provider_store_path=provider_path)
+    assert card is not None
+    assert card["name"] == "Public partner"
+    assert len(card["reviews"]) == 2
+
+
+def test_merge_directory_providers_preserves_other_cities(tmp_path):
+    store_path = tmp_path / "providers.json"
+    save_providers(
+        [
+            {"id": "dispatch-1", "name": "Partner", "providerKind": "dispatch", "city": "Ужгород"},
+            {"id": "uzh-a", "name": "STO A", "providerKind": "directory", "city": "Ужгород", "location": {"lat": 48.62, "lng": 22.28}},
+        ],
+        store_path,
+    )
+
+    result = merge_directory_providers(
+        [{"id": "lviv-a", "name": "STO Lviv", "city": "Львів", "location": {"lat": 49.84, "lng": 24.03}}],
+        store_path,
+    )
+
+    providers = {item["id"]: item for item in load_providers(store_path)}
+    assert result["added"] == 1
+    assert "uzh-a" in providers
+    assert "lviv-a" in providers
+    assert providers["dispatch-1"]["providerKind"] == "dispatch"

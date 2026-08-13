@@ -55,6 +55,10 @@ export function mergeCustomerProfiles(current: CustomerProfile, incoming: Custom
     merged.email = current.email
   }
 
+  if (!(incoming.vehicle || "").trim() && (current.vehicle || "").trim()) {
+    merged.vehicle = current.vehicle
+  }
+
   const currentCity = (current.city || "").trim()
   const incomingCity = (incoming.city || "").trim()
   if (currentCity && STALE_DEFAULT_CITIES.has(incomingCity) && !STALE_DEFAULT_CITIES.has(currentCity)) {

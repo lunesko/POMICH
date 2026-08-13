@@ -1,7 +1,8 @@
 import { useEffect, useRef } from "react"
 
 import type { MapRequestPin } from "../../api/client"
-import { BRAND, DARK, getProviderCapabilityLabel, getServiceEmoji } from "../../lib/constants"
+import { getProviderCapabilityLabel, getServiceEmoji } from "../../lib/constants"
+import { parseOfferPrice } from "../../lib/dispatchOffer"
 import { PrimaryButton } from "../ui/PrimaryButton"
 import { SecondaryButton } from "../ui/SecondaryButton"
 
@@ -13,6 +14,7 @@ export function OrderRequestSheet({
   secondsLeft,
   onProposedPriceChange,
   onAccept,
+  onDecline,
   onClose,
   onAcceptBlocked,
 }: {
@@ -22,20 +24,20 @@ export function OrderRequestSheet({
   error?: string
   secondsLeft?: number
   onProposedPriceChange: (value: string) => void
-  onAccept: () => void
+  onAccept: (price: string) => void | Promise<void>
+  onDecline?: () => void | Promise<void>
   onClose: () => void
   onAcceptBlocked?: (reason: "expired" | "price") => void
 }) {
   const priceInputRef = useRef<HTMLInputElement>(null)
   const actionsRef = useRef<HTMLDivElement>(null)
-  const parsedPrice = Number(proposedPrice.replace(",", "."))
-  const priceValid = Number.isFinite(parsedPrice) && parsedPrice > 0
+  const parsedPrice = parseOfferPrice(proposedPrice)
+  const priceValid = typeof parsedPrice === "number"
   const offerExpired = typeof secondsLeft === "number" && secondsLeft <= 0
   const eta = pin.etaMinutes ?? (typeof pin.distanceKm === "number" ? Math.ceil(pin.distanceKm * 4) : undefined)
   const distanceLabel = typeof pin.distanceKm === "number" ? `${pin.distanceKm.toFixed(1)} км` : "—"
 
   useEffect(() => {
-    /* Avoid auto-focus on coarse pointers — mobile keyboard clips the confirm button. */
     const coarse = typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches
     if (coarse) return
     const timer = window.setTimeout(() => {
@@ -47,13 +49,14 @@ export function OrderRequestSheet({
   useEffect(() => {
     if (!offerExpired) return
     onAcceptBlocked?.("expired")
-    // Intentionally omit onAcceptBlocked — parent handlers are often inline.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [offerExpired, pin.id, pin.offerId])
 
   const ensureActionsVisible = () => {
     window.setTimeout(() => {
-      actionsRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" })
+      if (typeof actionsRef.current?.scrollIntoView === "function") {
+        actionsRef.current.scrollIntoView({ block: "nearest", behavior: "smooth" })
+      }
     }, 120)
   }
 
@@ -69,7 +72,7 @@ export function OrderRequestSheet({
       ensureActionsVisible()
       return
     }
-    onAccept()
+    void onAccept(proposedPrice)
   }
 
   return (
@@ -103,8 +106,14 @@ export function OrderRequestSheet({
             ) : null}
           </div>
 
+          {error ? (
+            <div className="pomich-offer-inline-error" role="alert">
+              {error}
+            </div>
+          ) : null}
+
           <label className="pomich-order-request-sheet__price-label">
-            <span>Ваша ціна клієнту, грн</span>
+            <span>Ваша ціна, грн</span>
             <input
               ref={priceInputRef}
               value={proposedPrice}
@@ -114,22 +123,25 @@ export function OrderRequestSheet({
               inputMode="decimal"
               enterKeyHint="done"
               autoComplete="off"
-              placeholder="Наприклад: 1200"
+              placeholder="1200"
               aria-label="Вартість послуги в гривнях"
-              className="pomich-form-input pomich-offer-price-input"
-              style={{ color: DARK, minHeight: 52, fontSize: 18, fontWeight: 900, border: `2px solid ${error && !priceValid ? "var(--pomich-error-text)" : BRAND}` }}
+              className="pomich-form-input pomich-offer-price-input pomich-offer-price-input--compact"
+              style={{ border: `2px solid ${error && !priceValid ? "var(--pomich-error-text)" : "var(--pomich-brand)"}` }}
             />
           </label>
-
-          {error ? (
-            <div style={{ background: "var(--pomich-error-bg)", color: "var(--pomich-error-text)", borderRadius: 14, padding: 12, fontWeight: 800, fontSize: "var(--pomich-text-sm)" }}>
-              {error}
-            </div>
-          ) : null}
         </div>
 
         <div ref={actionsRef} className="pomich-order-request-sheet__actions">
-          <PrimaryButton label={saving ? "Приймаємо…" : offerExpired ? "Час вийшов" : "ПРИЙНЯТИ З ЦІНОЮ"} onClick={handleAcceptClick} disabled={saving} />
+          <PrimaryButton
+            label={offerExpired ? "Час вийшов" : "ПРИЙНЯТИ З ЦІНОЮ"}
+            loadingLabel="Приймаємо…"
+            loading={saving}
+            onClick={handleAcceptClick}
+            disabled={saving || offerExpired}
+          />
+          {onDecline ? (
+            <SecondaryButton label="Пропустити" onClick={() => void onDecline()} disabled={saving || offerExpired} />
+          ) : null}
           <SecondaryButton label="Закрити" onClick={onClose} disabled={saving} />
         </div>
       </div>

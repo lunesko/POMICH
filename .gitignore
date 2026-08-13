@@ -30,3 +30,11 @@ cloudflared*.json
 .cloudflared/
 *_tmp_*.py
 _tmp_*.py
+
+# Local prod API dumps / scratch diagnostics (may contain private data)
+/prod_api.json
+/prod_api2.json
+/prod_providers.json
+/providers_api.json
+/_diag_*.py
+/_run_deploy.py

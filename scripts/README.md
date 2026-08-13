@@ -5,6 +5,7 @@
 | Script | Purpose |
 |--------|---------|
 | `import_uzhgorod_providers.py` | Import provider seed data for Uzhgorod region |
+| `import_ukraine_providers.py` | Batch import directory POIs for all settlements in `data/settlements.json` |
 | `migrate_customer_encryption.py` | Migrate customer PII to Fernet encryption at rest |
 | `postgis_smoke.py` | Smoke-test PostGIS connectivity and spatial queries |
 | `check-public.ps1` | Windows helper to verify public endpoint reachability |

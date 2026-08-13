@@ -5,6 +5,7 @@ import { MAP_RECENTER_THRESHOLD_M } from "../../lib/mapGeo"
 
 const flyTo = vi.fn()
 const panBy = vi.fn()
+const fitBounds = vi.fn()
 const getCenter = vi.fn(() => ({ lat: 48.62, lng: 22.28 }))
 const getZoom = vi.fn(() => 13)
 const project = vi.fn((coords: [number, number]) => ({ x: coords[0] * 1000, y: coords[1] * 1000 }))
@@ -30,12 +31,19 @@ vi.mock("react-leaflet", () => ({
     },
     invalidateSize: vi.fn(),
     getContainer: () => document.createElement("div"),
+    getPane: vi.fn(() => undefined),
+    createPane: vi.fn(),
+    setMinZoom: vi.fn(),
+    setMaxBounds: vi.fn(),
+    fitBounds,
     scrollWheelZoom: { enable: vi.fn(), disable: vi.fn() },
-    dragging: {},
-    touchZoom: {},
-    doubleClickZoom: {},
-    boxZoom: {},
-    keyboard: {},
+    dragging: { enable: vi.fn(), disable: vi.fn() },
+    touchZoom: { enable: vi.fn(), disable: vi.fn() },
+    doubleClickZoom: { enable: vi.fn(), disable: vi.fn() },
+    boxZoom: { enable: vi.fn(), disable: vi.fn() },
+    keyboard: { enable: vi.fn(), disable: vi.fn() },
+    addLayer: vi.fn(),
+    removeLayer: vi.fn(),
   }),
 }))
 
@@ -43,9 +51,19 @@ vi.mock("leaflet", () => ({
   default: {
     divIcon: () => ({}),
     latLngBounds: () => ({}),
+    tileLayer: vi.fn(() => ({
+      addTo: vi.fn(),
+      setUrl: vi.fn(),
+      redraw: vi.fn(),
+    })),
   },
   divIcon: () => ({}),
   latLngBounds: () => ({}),
+  tileLayer: vi.fn(() => ({
+    addTo: vi.fn(),
+    setUrl: vi.fn(),
+    redraw: vi.fn(),
+  })),
 }))
 
 vi.mock("../../lib/osrmRoute", () => ({
@@ -62,6 +80,7 @@ describe("RouteMap recenter behavior", () => {
     vi.useFakeTimers()
     flyTo.mockClear()
     panBy.mockClear()
+    fitBounds.mockClear()
     vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
       cb(0)
       return 1
@@ -104,6 +123,11 @@ describe("RouteMap recenter behavior", () => {
 
   it("renders my-location control beside zoom and requests geolocation", async () => {
     vi.useRealTimers()
+    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
+      cb(0)
+      return 1
+    })
+    vi.stubGlobal("cancelAnimationFrame", () => undefined)
     const getCurrentPosition = vi.fn((success: PositionCallback) => {
       success({
         coords: {
@@ -232,5 +256,150 @@ describe("RouteMap recenter behavior", () => {
     expect(flyTo).not.toHaveBeenCalled()
     expect(panBy).not.toHaveBeenCalled()
     expect(MAP_RECENTER_THRESHOLD_M).toBeGreaterThan(10)
+  })
+
+  it("fits Ukraine bounds when directory scope recenter trigger fires for all-ukraine", () => {
+    const providers = [
+      {
+        id: "p1",
+        name: "СТО",
+        status: "online" as const,
+        providerKind: "directory" as const,
+        vehicle: "Van",
+        rating: 4.9,
+        etaMinutes: 10,
+        location: { lat: 48.621, lng: 22.29 },
+        specialties: ["tow"],
+      },
+    ]
+    const onDirectoryScopeChange = vi.fn()
+    const { rerender } = render(
+      <RouteMap
+        pickup={{ lat: 48.6208, lng: 22.2879 }}
+        providers={providers}
+        directoryOnly
+        showUkraineMask
+        directoryScope="all-ukraine"
+        onDirectoryScopeChange={onDirectoryScopeChange}
+        directoryScopeRecenterTrigger={0}
+      />,
+    )
+
+    rerender(
+      <RouteMap
+        pickup={{ lat: 48.6208, lng: 22.2879 }}
+        providers={providers}
+        directoryOnly
+        showUkraineMask
+        directoryScope="all-ukraine"
+        onDirectoryScopeChange={onDirectoryScopeChange}
+        directoryScopeRecenterTrigger={1}
+      />,
+    )
+    vi.runAllTimers()
+
+    expect(fitBounds).toHaveBeenCalled()
+  })
+
+  it("renders region scope toggles inside the filter panel", () => {
+    const providers = [
+      {
+        id: "p1",
+        name: "СТО",
+        status: "online" as const,
+        providerKind: "directory" as const,
+        vehicle: "Van",
+        rating: 4.9,
+        etaMinutes: 10,
+        location: { lat: 48.621, lng: 22.29 },
+        specialties: ["tow"],
+      },
+    ]
+    const onDirectoryScopeChange = vi.fn()
+    const { getByRole } = render(
+      <RouteMap
+        pickup={{ lat: 48.6208, lng: 22.2879 }}
+        providers={providers}
+        directoryOnly
+        showUkraineMask
+        directoryScope="my-city"
+        onDirectoryScopeChange={onDirectoryScopeChange}
+      />,
+    )
+
+    fireEvent.click(getByRole("button", { name: /Допомога поруч/i }))
+    fireEvent.click(getByRole("button", { name: /Вся Україна/i }))
+    expect(onDirectoryScopeChange).toHaveBeenCalledWith("all-ukraine")
+  })
+
+  it("toggles directory marker visibility from the categories panel", () => {
+    const providers = [
+      {
+        id: "p1",
+        name: "СТО",
+        status: "online" as const,
+        providerKind: "directory" as const,
+        vehicle: "Van",
+        rating: 4.9,
+        etaMinutes: 10,
+        location: { lat: 48.621, lng: 22.29 },
+        specialties: ["tow"],
+      },
+    ]
+    const { getByRole } = render(
+      <RouteMap
+        pickup={{ lat: 48.6208, lng: 22.2879 }}
+        providers={providers}
+        directoryOnly
+        showUkraineMask
+      />,
+    )
+
+    fireEvent.click(getByRole("button", { name: /Допомога поруч/i }))
+    fireEvent.click(getByRole("button", { name: /Сховати все/i }))
+    expect(getByRole("button", { name: /Показати всі/i })).toBeTruthy()
+
+    fireEvent.click(getByRole("button", { name: /Показати всі/i }))
+    expect(getByRole("button", { name: /Сховати все/i })).toBeTruthy()
+  })
+
+  it("shows region scope toggles even when directory providers list is empty", () => {
+    const onDirectoryScopeChange = vi.fn()
+    const { getByRole, queryByText } = render(
+      <RouteMap
+        pickup={{ lat: 48.6208, lng: 22.2879 }}
+        providers={[]}
+        directoryOnly
+        showUkraineMask
+        directoryScope="all-ukraine"
+        onDirectoryScopeChange={onDirectoryScopeChange}
+      />,
+    )
+
+    expect(queryByText(/^Легенда$/i)).toBeNull()
+    fireEvent.click(getByRole("button", { name: /Допомога поруч/i }))
+    fireEvent.click(getByRole("button", { name: /Моє місто/i }))
+    expect(onDirectoryScopeChange).toHaveBeenCalledWith("my-city")
+  })
+
+  it("includes legacy directory rows without providerKind on the map", () => {
+    const providers = [
+      {
+        id: "legacy",
+        name: "Legacy STO",
+        status: "offline" as const,
+        vehicle: "Van",
+        rating: 4.5,
+        location: { lat: 50.45, lng: 30.52 },
+        address: "вул. Хрещатик",
+        specialties: ["tow"],
+      },
+    ]
+    const { getByRole } = render(
+      <RouteMap pickup={{ lat: 48.6208, lng: 22.2879 }} providers={providers} directoryOnly showUkraineMask />,
+    )
+
+    fireEvent.click(getByRole("button", { name: /Допомога поруч/i }))
+    expect(getByRole("button", { name: /Усі сервіси \(1\)/i })).toBeTruthy()
   })
 })

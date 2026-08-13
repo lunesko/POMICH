@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest"
 import { CitySelect } from "./CitySelect"
 
 describe("CitySelect", () => {
-  it("renders Оберіть місто dropdown with Ужгород first", async () => {
+  it("renders Оберіть місто dropdown with Kyiv first", async () => {
     const user = userEvent.setup()
     let value = ""
     const { rerender } = render(
@@ -21,7 +21,7 @@ describe("CitySelect", () => {
     const select = screen.getByLabelText(/Оберіть місто/i)
     expect(select).toBeInTheDocument()
     const options = screen.getAllByRole("option")
-    expect(options[1]?.textContent).toMatch(/Ужгород/)
+    expect(options[1]?.textContent).toMatch(/Київ/)
     await user.selectOptions(select, "Львів")
     expect(value).toBe("Львів")
   })

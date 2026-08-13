@@ -5,13 +5,15 @@ import {
   isUkraineServiceCity,
   ukraineCityOptions,
   validateServiceCity,
+  serviceCityCenter,
 } from "./ukraineCities"
 
 describe("ukraineCities", () => {
-  it("puts Ужгород first in options", () => {
+  it("puts Kyiv first in options", () => {
     const options = ukraineCityOptions()
     expect(options[0]).toBe(DEFAULT_SERVICE_CITY)
-    expect(options).toContain("Київ")
+    expect(options[0]).toBe("Київ")
+    expect(options).toContain("Ужгород")
     expect(options).toContain("Львів")
     expect(options.length).toBeGreaterThanOrEqual(15)
   })
@@ -22,5 +24,12 @@ describe("ukraineCities", () => {
     expect(validateServiceCity("Gotham").valid).toBe(false)
     expect(validateServiceCity("Ужгород")).toEqual({ valid: true, value: "Ужгород" })
     expect(isUkraineServiceCity("Одеса")).toBe(true)
+  })
+
+  it("returns map center for known service cities", () => {
+    const kyiv = serviceCityCenter("Київ")
+    expect(kyiv.lat).toBeGreaterThan(49)
+    expect(kyiv.lng).toBeGreaterThan(29)
+    expect(serviceCityCenter("unknown")).toEqual(serviceCityCenter(DEFAULT_SERVICE_CITY))
   })
 })

@@ -1,18 +1,31 @@
-"""Import roadside-assistance directory providers for Uzhgorod (Ужгород)."""
+"""Import roadside-assistance directory providers from OSM for Ukraine settlements."""
 
 from __future__ import annotations
 
 import json
 import re
+import time
 import urllib.error
 import urllib.request
 import uuid
 from datetime import datetime, timezone
 from typing import Any
 
+from bot.occupied_territories import filter_non_occupied_providers, is_occupied_coordinates
+from bot.settlements import (
+    load_settlements,
+    settlement_bbox,
+    settlement_by_id,
+    settlement_by_name,
+    settlement_center,
+)
+
 UZHGOROD_CENTER = {"lat": 48.6208, "lng": 22.2879}
 UZHGOROD_BBOX = (48.58, 22.22, 48.66, 22.35)  # south, west, north, east
-OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+OVERPASS_URLS = (
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+)
 
 FAKE_PHONE_PATTERNS = (
     r"^\+?380?0{6,}",
@@ -28,7 +41,7 @@ PHONE_TAG_KEYS = (
     "mobile",
     "telephone",
     "contact:telephone",
-    "contact:fax",  # last resort, sometimes shops only list fax
+    "contact:fax",
 )
 
 OSM_TAG_TO_SPECIALTIES: dict[str, list[str]] = {
@@ -50,7 +63,6 @@ SERVICE_KEYWORDS: list[tuple[str, list[str]]] = [
     (r"відкритт|lockout|ключ", ["lockout"]),
 ]
 
-# Known real contacts for Uzhgorod businesses (OSM often lacks phone tags).
 KNOWN_CONTACTS: dict[str, dict[str, str]] = {
     "wog": {"phone": "+380800300001", "website": "https://wog.ua/"},
     "okko": {"phone": "+380800300370", "website": "https://okko.ua/"},
@@ -81,11 +93,9 @@ def _is_fake_phone(phone: str) -> bool:
 
 
 def _normalize_phone(raw: str) -> str:
-    """Normalize Ukrainian phone to +380XXXXXXXXX or return empty if invalid/fake."""
     value = str(raw or "").strip()
     if not value:
         return ""
-    # Split multiple numbers — take the first valid one
     for part in re.split(r"[;,/|]", value):
         candidate = part.strip()
         if not candidate:
@@ -143,7 +153,6 @@ def _phone_from_tags(tags: dict[str, Any]) -> str:
 
 
 def _enrich_from_known(name: str, tags: dict[str, Any]) -> dict[str, str]:
-    """Match brand/operator/name against known Uzhgorod chain contacts."""
     haystack = f"{name} {tags.get('brand', '')} {tags.get('operator', '')} {tags.get('website', '')}".lower()
     for key, contact in KNOWN_CONTACTS.items():
         if key in haystack:
@@ -151,21 +160,20 @@ def _enrich_from_known(name: str, tags: dict[str, Any]) -> dict[str, str]:
     return {}
 
 
-def _address_from_tags(tags: dict[str, Any]) -> str:
+def _address_from_tags(tags: dict[str, Any], *, city: str) -> str:
     street = str(tags.get("addr:street") or "").strip()
     housenumber = str(tags.get("addr:housenumber") or "").strip()
-    city = str(tags.get("addr:city") or "Ужгород").strip()
+    addr_city = str(tags.get("addr:city") or city).strip()
     street_line = " ".join(part for part in (street, housenumber) if part).strip()
     if street_line:
-        return f"{street_line}, {city}"
+        return f"{street_line}, {addr_city}"
     addr_full = str(tags.get("addr:full") or "").strip()
     if addr_full:
         return addr_full
-    # Fallback: use name as location hint within Uzhgorod
     name = str(tags.get("name") or "").strip()
     if name:
-        return f"{name}, Ужгород"
-    return "Ужгород, Україна"
+        return f"{name}, {city}"
+    return f"{city}, Україна"
 
 
 def _primary_specialty(specialties: list[str]) -> str:
@@ -186,6 +194,9 @@ def _normalize_provider_record(
     lng: float,
     specialties: list[str],
     source: str,
+    city: str,
+    oblast: str = "",
+    settlement_id: str = "",
     vehicle: str = "Автодопомога",
     website: str = "",
     opening_hours: str = "",
@@ -209,7 +220,7 @@ def _normalize_provider_record(
         "serviceRadiusKm": 10,
         "providerKind": "directory",
         "source": source,
-        "city": "Ужгород",
+        "city": city,
         "contactStatus": contact_status,
         "verificationStatus": "verified",
         "registeredAt": now,
@@ -218,6 +229,10 @@ def _normalize_provider_record(
         "lastLocationAt": now,
         "updatedAt": now,
     }
+    if oblast:
+        record["oblast"] = oblast
+    if settlement_id:
+        record["settlementId"] = settlement_id
     if normalized_phone:
         record["phone"] = normalized_phone
     if website:
@@ -228,7 +243,6 @@ def _normalize_provider_record(
 
 
 def seed_uzhgorod_providers() -> list[dict[str, Any]]:
-    """Demo directory providers — only used with --seed-only flag."""
     seeds = [
         ("Евакуатор Ужгород 24/7", "+380671234501", "вул. Минайська, 15", 48.6284, 22.2812, ["tow"], "Евакуатор Mercedes"),
         ("Автоевакуатор Закарпаття", "+380671234502", "вул. Капушанська, 42", 48.6156, 22.2945, ["tow", "mechanic"], "Евакуатор MAN"),
@@ -246,14 +260,17 @@ def seed_uzhgorod_providers() -> list[dict[str, Any]]:
                 lng=lng,
                 specialties=specialties,
                 source="seed",
+                city="Ужгород",
+                oblast="Закарпатська",
+                settlement_id="uzhhorod",
                 vehicle=vehicle,
             )
         )
     return records
 
 
-def _overpass_query() -> str:
-    south, west, north, east = UZHGOROD_BBOX
+def _overpass_query(bbox: tuple[float, float, float, float]) -> str:
+    south, west, north, east = bbox
     return f"""
 [out:json][timeout:90];
 (
@@ -281,21 +298,39 @@ out center tags;
 """
 
 
-def fetch_overpass_providers() -> list[dict[str, Any]]:
-    request = urllib.request.Request(
-        OVERPASS_URL,
-        data=_overpass_query().encode("utf-8"),
-        headers={
-            "Content-Type": "application/x-www-form-urlencoded",
-            "User-Agent": "POMICH/1.0 (uzhgorod-provider-import)",
-        },
-        method="POST",
-    )
-    with urllib.request.urlopen(request, timeout=120) as response:
-        payload = json.loads(response.read().decode("utf-8"))
+def _fetch_overpass_payload(bbox: tuple[float, float, float, float], *, user_agent_suffix: str) -> dict[str, Any]:
+    body = _overpass_query(bbox).encode("utf-8")
+    headers = {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "User-Agent": f"POMICH/1.0 ({user_agent_suffix})",
+    }
+    last_error: Exception | None = None
+    for overpass_url in OVERPASS_URLS:
+        request = urllib.request.Request(overpass_url, data=body, headers=headers, method="POST")
+        try:
+            with urllib.request.urlopen(request, timeout=120) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, json.JSONDecodeError, ValueError) as exc:
+            last_error = exc
+            continue
+    if last_error:
+        raise last_error
+    raise urllib.error.URLError("no Overpass endpoints configured")
+
+
+def fetch_overpass_providers(
+    bbox: tuple[float, float, float, float],
+    *,
+    city: str,
+    settlement_id: str,
+    oblast: str = "",
+    user_agent_suffix: str = "provider-import",
+) -> list[dict[str, Any]]:
+    payload = _fetch_overpass_payload(bbox, user_agent_suffix=user_agent_suffix)
 
     records: list[dict[str, Any]] = []
     seen: set[str] = set()
+    id_prefix = settlement_id or _slug(city)
     for element in payload.get("elements", []):
         tags = element.get("tags") or {}
         name = str(tags.get("name") or tags.get("operator") or tags.get("brand") or "").strip()
@@ -305,7 +340,11 @@ def fetch_overpass_providers() -> list[dict[str, Any]]:
         lng = element.get("lon") or (element.get("center") or {}).get("lon")
         if lat is None or lng is None:
             continue
-        dedupe_key = f"{name.lower()}:{round(float(lat), 4)}:{round(float(lng), 4)}"
+        lat_f = float(lat)
+        lng_f = float(lng)
+        if is_occupied_coordinates(lat_f, lng_f):
+            continue
+        dedupe_key = f"{name.lower()}:{round(lat_f, 4)}:{round(lng_f, 4)}"
         if dedupe_key in seen:
             continue
         seen.add(dedupe_key)
@@ -313,7 +352,6 @@ def fetch_overpass_providers() -> list[dict[str, Any]]:
         phone = _phone_from_tags(tags)
         website = str(tags.get("website") or tags.get("contact:website") or "").strip()
         opening_hours = str(tags.get("opening_hours") or "").strip()
-
         known = _enrich_from_known(name, tags)
         if not phone and known.get("phone"):
             phone = known["phone"]
@@ -321,17 +359,20 @@ def fetch_overpass_providers() -> list[dict[str, Any]]:
             website = known["website"]
 
         specialties = _infer_specialties(name, tags)
-        provider_id = f"uzh-osm-{element.get('type', 'node')}-{element.get('id', uuid.uuid4().hex[:8])}"
+        provider_id = f"{id_prefix}-osm-{element.get('type', 'node')}-{element.get('id', uuid.uuid4().hex[:8])}"
         records.append(
             _normalize_provider_record(
                 provider_id=provider_id,
                 name=name,
                 phone=phone,
-                address=_address_from_tags(tags),
-                lat=float(lat),
-                lng=float(lng),
+                address=_address_from_tags(tags, city=city),
+                lat=lat_f,
+                lng=lng_f,
                 specialties=specialties,
                 source="osm",
+                city=city,
+                oblast=oblast,
+                settlement_id=settlement_id,
                 website=website,
                 opening_hours=opening_hours,
             )
@@ -339,18 +380,32 @@ def fetch_overpass_providers() -> list[dict[str, Any]]:
     return records
 
 
-def import_uzhgorod_providers(*, prefer_osm: bool = True, use_seed: bool = False) -> dict[str, Any]:
-    """Fetch OSM data; optionally merge seed demo records (--seed-only)."""
-    source = "seed" if use_seed and not prefer_osm else "osm"
+def import_settlement_providers(
+    settlement: dict[str, Any],
+    *,
+    prefer_osm: bool = True,
+    use_seed: bool = False,
+) -> dict[str, Any]:
+    settlement_id = str(settlement.get("id") or "")
+    city = str(settlement.get("name") or "")
+    oblast = str(settlement.get("oblast") or "")
+    bbox = settlement_bbox(settlement) or UZHGOROD_BBOX
+    center = settlement_center(settlement) or UZHGOROD_CENTER
+
     imported: list[dict[str, Any]] = []
     osm_count = 0
     seed_count = 0
-    with_phone = 0
-    directory_only = 0
+    source = "seed" if use_seed and not prefer_osm else "osm"
 
     if prefer_osm:
         try:
-            osm_records = fetch_overpass_providers()
+            osm_records = fetch_overpass_providers(
+                bbox,
+                city=city,
+                settlement_id=settlement_id,
+                oblast=oblast,
+                user_agent_suffix=f"{settlement_id}-import",
+            )
             imported.extend(osm_records)
             osm_count = len(osm_records)
             if osm_records:
@@ -358,7 +413,8 @@ def import_uzhgorod_providers(*, prefer_osm: bool = True, use_seed: bool = False
         except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, json.JSONDecodeError, ValueError):
             osm_count = 0
 
-    if use_seed:
+    seed_fallback = use_seed or (settlement_id == "uzhhorod" and prefer_osm and osm_count == 0)
+    if seed_fallback and settlement_id == "uzhhorod":
         seeds = seed_uzhgorod_providers()
         existing_keys = {f"{item['name'].lower()}:{item['location']['lat']:.4f}" for item in imported}
         for seed in seeds:
@@ -370,15 +426,15 @@ def import_uzhgorod_providers(*, prefer_osm: bool = True, use_seed: bool = False
         if seed_count:
             source = "osm+seed" if osm_count else "seed"
 
-    for item in imported:
-        if item.get("phone"):
-            with_phone += 1
-        else:
-            directory_only += 1
+    with_phone = sum(1 for item in imported if item.get("phone"))
+    directory_only = len(imported) - with_phone
 
     return {
+        "settlementId": settlement_id,
+        "city": city,
+        "oblast": oblast,
         "source": source,
-        "providers": imported,
+        "providers": filter_non_occupied_providers(imported),
         "counts": {
             "osm": osm_count,
             "seed": seed_count,
@@ -386,5 +442,71 @@ def import_uzhgorod_providers(*, prefer_osm: bool = True, use_seed: bool = False
             "withPhone": with_phone,
             "directoryOnly": directory_only,
         },
+        "center": center,
+        "bbox": list(bbox),
+    }
+
+
+def import_uzhgorod_providers(*, prefer_osm: bool = True, use_seed: bool = False) -> dict[str, Any]:
+    """Backward-compatible Uzhgorod import."""
+    settlement = settlement_by_id("uzhhorod") or settlement_by_name("Ужгород") or {
+        "id": "uzhhorod",
+        "name": "Ужгород",
+        "oblast": "Закарпатська",
         "center": UZHGOROD_CENTER,
+        "bbox": list(UZHGOROD_BBOX),
+    }
+    result = import_settlement_providers(settlement, prefer_osm=prefer_osm, use_seed=use_seed)
+    return {
+        "source": result["source"],
+        "providers": result["providers"],
+        "counts": result["counts"],
+        "center": result["center"],
+    }
+
+
+def import_ukraine_providers(
+    *,
+    settlement_ids: list[str] | None = None,
+    oblast: str | None = None,
+    prefer_osm: bool = True,
+    use_seed: bool = False,
+    delay_seconds: float = 2.0,
+) -> dict[str, Any]:
+    """Batch import directory providers for one or more settlements."""
+    all_settlements = load_settlements()
+    if settlement_ids:
+        selected = [item for item in all_settlements if str(item.get("id") or "") in settlement_ids]
+    elif oblast:
+        needle = str(oblast).strip().casefold()
+        selected = [item for item in all_settlements if str(item.get("oblast") or "").strip().casefold() == needle]
+    else:
+        selected = list(all_settlements)
+
+    combined: list[dict[str, Any]] = []
+    per_settlement: list[dict[str, Any]] = []
+    for index, settlement in enumerate(selected):
+        if index > 0 and delay_seconds > 0:
+            time.sleep(delay_seconds)
+        result = import_settlement_providers(settlement, prefer_osm=prefer_osm, use_seed=use_seed and str(settlement.get("id")) == "uzhhorod")
+        combined.extend(result["providers"])
+        per_settlement.append(
+            {
+                "settlementId": result["settlementId"],
+                "city": result["city"],
+                "counts": result["counts"],
+                "source": result["source"],
+            }
+        )
+
+    with_phone = sum(1 for item in combined if item.get("phone"))
+    return {
+        "settlements": len(selected),
+        "providers": filter_non_occupied_providers(combined),
+        "perSettlement": per_settlement,
+        "counts": {
+            "total": len(combined),
+            "withPhone": with_phone,
+            "directoryOnly": len(combined) - with_phone,
+        },
     }

@@ -32,11 +32,9 @@ export function useTelegramUx() {
     sync()
     window.addEventListener("resize", sync)
     window.visualViewport?.addEventListener("resize", sync)
-    window.visualViewport?.addEventListener("scroll", sync)
     return () => {
       window.removeEventListener("resize", sync)
       window.visualViewport?.removeEventListener("resize", sync)
-      window.visualViewport?.removeEventListener("scroll", sync)
     }
   }, [ctx.webApp])
 

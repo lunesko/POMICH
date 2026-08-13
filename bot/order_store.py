@@ -346,6 +346,7 @@ def _default_customer_profile(customer_id: str, timestamp: str | None = None) ->
         "email": "",
         "telegram": "",
         "city": "",
+        "vehicle": "",
         "avatarUrl": "",
         "bio": "",
         "preferredRole": "",
@@ -772,13 +773,15 @@ def update_order_status(
             invalidate_order_offers(order_id, "cancelled", offer_store_path)
             if updated_order.get("assignedProviderId"):
                 _set_provider_status(str(updated_order.get("assignedProviderId")), "online", provider_store_path=provider_store_path)
-        elif next_status == "completed" and updated_order.get("assignedProviderId"):
-            provider_id = str(updated_order.get("assignedProviderId"))
-            _set_provider_status(provider_id, "online", provider_store_path=provider_store_path)
-            _increment_provider_orders_completed(provider_id, provider_store_path=provider_store_path)
-            customer_id = str(updated_order.get("customerId") or "").strip()
-            if customer_id:
-                _increment_customer_orders_completed(customer_id)
+        elif next_status == "completed":
+            invalidate_order_offers(order_id, "lost", offer_store_path)
+            if updated_order.get("assignedProviderId"):
+                provider_id = str(updated_order.get("assignedProviderId"))
+                _set_provider_status(provider_id, "online", provider_store_path=provider_store_path)
+                _increment_provider_orders_completed(provider_id, provider_store_path=provider_store_path)
+                customer_id = str(updated_order.get("customerId") or "").strip()
+                if customer_id:
+                    _increment_customer_orders_completed(customer_id)
         if updated_order is not None:
             updated_order = enrich_order_for_client(updated_order, provider_store_path)
         return updated_order
@@ -825,8 +828,7 @@ def merge_directory_providers(
     with STORE_LOCK:
         path = store_path or _default_provider_store_path()
         existing = load_providers(path)
-        dispatch_partners = [provider for provider in existing if str(provider.get("providerKind") or "dispatch") != "directory"]
-        by_id = {str(provider.get("id")): provider for provider in dispatch_partners if provider.get("id")}
+        by_id = {str(provider.get("id")): provider for provider in existing if provider.get("id")}
         added = 0
         updated = 0
         for raw in incoming:
@@ -863,6 +865,8 @@ def nearby_searching_orders(
     results: List[Dict[str, Any]] = []
     for order in load_orders(order_store_path):
         if normalize_order_status(order.get("status")) != "searching":
+            continue
+        if order.get("assignedProviderId"):
             continue
         order_service = normalize_service(order.get("service"))
         if normalized_service and order_service != normalized_service:
@@ -928,6 +932,37 @@ def get_provider_profile(provider_id: str, store_path: Optional[Path] = None) ->
             payload.pop("stale", None)
             return payload
     return None
+
+
+def build_empty_provider_profile_shell(provider_id: str, store_path: Optional[Path] = None) -> Dict[str, Any]:
+    """Minimal provider row for linked partners who have not saved a profile yet."""
+    customer_store_path = store_path if store_path and store_path.name.lower() == "customers.json" else None
+    customer_id = resolve_customer_id_for_provider(provider_id, customer_store_path)
+    if not customer_id and str(provider_id).startswith("provider-"):
+        customer_id = str(provider_id)[len("provider-") :].strip()
+    customer = get_customer_profile(customer_id, customer_store_path) if customer_id else None
+    name = str(customer.get("name") or "").strip() if customer else ""
+    phone = str(customer.get("phone") or "").strip() if customer else ""
+    city = str(customer.get("city") or "").strip() if customer else ""
+    verification_status = (
+        normalize_verification_status(customer.get("verificationStatus"), "unverified") if customer else "unverified"
+    )
+    return _normalize_provider_trust({
+        "id": str(provider_id),
+        "name": name,
+        "phone": phone,
+        "vehicle": "",
+        "plate": "",
+        "city": city,
+        "telegram": "pomich_help_bot",
+        "status": "offline",
+        "verificationStatus": verification_status,
+        "etaMinutes": 15,
+        "location": {"lat": 48.6208, "lng": 22.2879},
+        "specialties": [],
+        "serviceRadiusKm": 15,
+        "providerKind": "dispatch",
+    })
 
 
 def submit_provider_verification(provider_id: str, data: Dict[str, Any], store_path: Optional[Path] = None) -> Dict[str, Any]:
@@ -1080,6 +1115,7 @@ def update_customer_profile(customer_id: str, data: Dict[str, Any], store_path: 
             "email",
             "telegram",
             "city",
+            "vehicle",
             "avatarUrl",
             "bio",
             "preferredRole",
@@ -1090,6 +1126,7 @@ def update_customer_profile(customer_id: str, data: Dict[str, Any], store_path: 
             if str(profile.get("id")) != str(customer_id):
                 continue
             payload = _normalize_customer_profile(profile)
+            previous_phone_digits = _customer_profile_phone_digits(payload)
             for field in editable_fields:
                 if data.get(field) is not None:
                     if field == "rolesRegistered" and isinstance(data.get(field), list):
@@ -1097,7 +1134,9 @@ def update_customer_profile(customer_id: str, data: Dict[str, Any], store_path: 
                     else:
                         payload[field] = str(data.get(field) or "").strip()
             if data.get("phone") is not None:
-                _ensure_customer_phone_available(customer_id, str(payload.get("phone") or ""), profiles)
+                next_phone_digits = _customer_profile_phone_digits(payload)
+                if next_phone_digits != previous_phone_digits:
+                    _ensure_customer_phone_available(customer_id, str(payload.get("phone") or ""), profiles, path)
             payload["updatedAt"] = now
             payload["profileCompleteness"] = _customer_profile_completeness(payload)
             profiles[index] = payload
@@ -1113,7 +1152,7 @@ def update_customer_profile(customer_id: str, data: Dict[str, Any], store_path: 
                     else:
                         payload[field] = str(data.get(field) or "").strip()
             if data.get("phone") is not None:
-                _ensure_customer_phone_available(customer_id, str(payload.get("phone") or ""), profiles)
+                _ensure_customer_phone_available(customer_id, str(payload.get("phone") or ""), profiles, path)
             payload["profileCompleteness"] = _customer_profile_completeness(payload)
             profiles.append(payload)
             updated = payload
@@ -1377,10 +1416,32 @@ PHONE_ALREADY_REGISTERED = "phone_already_registered"
 PHONE_ALREADY_REGISTERED_UA = "Цей номер уже зареєстровано"
 
 
+def _customer_phone_alias_ids(customer_id: str, profiles: List[Dict[str, Any]]) -> set[str]:
+    """All customer rows that share the same phone as this profile (guest/tg duplicates)."""
+    needle = str(customer_id or "").strip()
+    ids: set[str] = {needle} if needle else set()
+    if not needle:
+        return ids
+    profile = next((item for item in profiles if str(item.get("id") or "") == needle), None)
+    if profile is None:
+        return ids
+    phone_digits = _customer_profile_phone_digits(profile)
+    if not phone_digits or len(phone_digits) != 12:
+        return ids
+    for other in profiles:
+        other_id = str(other.get("id") or "").strip()
+        if not other_id or other_id in ids:
+            continue
+        if _customer_profile_phone_digits(other) == phone_digits:
+            ids.add(other_id)
+    return ids
+
+
 def find_registered_customer_by_phone(
     phone: str,
     *,
     exclude_id: str | None = None,
+    exclude_ids: set[str] | None = None,
     store_path: Optional[Path] = None,
     profiles: Optional[List[Dict[str, Any]]] = None,
 ) -> Optional[Dict[str, Any]]:
@@ -1388,11 +1449,14 @@ def find_registered_customer_by_phone(
     target = _normalize_ukraine_phone_digits(phone)
     if not target or len(target) != 12:
         return None
+    excluded = set(exclude_ids or [])
+    if exclude_id:
+        excluded.add(str(exclude_id))
     candidates: List[Dict[str, Any]] = []
     source = profiles if profiles is not None else load_customer_profiles(store_path)
     for profile in source:
         customer_id = str(profile.get("id") or "")
-        if exclude_id and customer_id == exclude_id:
+        if customer_id in excluded:
             continue
         if _customer_profile_phone_digits(profile) != target:
             continue
@@ -1410,7 +1474,7 @@ def find_registered_customer_by_phone(
         )
         if telegram_user_id:
             preferred_id = f"tg-{telegram_user_id}"
-            if not exclude_id or preferred_id != str(exclude_id):
+            if preferred_id not in excluded:
                 for profile in source:
                     if str(profile.get("id") or "") != preferred_id:
                         continue
@@ -1420,7 +1484,7 @@ def find_registered_customer_by_phone(
                     break
         # Web/guest partner: restore the customer row that owns provider-{customerId}.
         linked_customer_id = resolve_customer_id_for_provider(str(provider.get("id") or ""), store_path)
-        if linked_customer_id and (not exclude_id or linked_customer_id != str(exclude_id)):
+        if linked_customer_id and linked_customer_id not in excluded:
             linked_profile = get_customer_profile(linked_customer_id, store_path)
             if linked_profile is not None:
                 return _normalize_customer_profile(linked_profile)
@@ -1476,20 +1540,95 @@ def find_registered_provider_by_phone(
     return None
 
 
+def _profiles_share_account(
+    customer_id_a: str,
+    customer_id_b: str,
+    profiles: List[Dict[str, Any]],
+) -> bool:
+    """True when two customer rows represent the same user (guest/tg/provider link)."""
+    left = str(customer_id_a or "").strip()
+    right = str(customer_id_b or "").strip()
+    if not left or not right:
+        return False
+    if left == right:
+        return True
+    if right in _customer_phone_alias_ids(left, profiles):
+        return True
+    if left in _customer_phone_alias_ids(right, profiles):
+        return True
+    left_profile = next((item for item in profiles if str(item.get("id") or "") == left), None)
+    right_profile = next((item for item in profiles if str(item.get("id") or "") == right), None)
+    left_provider = resolve_linked_provider_id(left, left_profile)
+    right_provider = resolve_linked_provider_id(right, right_profile)
+    if left_provider and right_provider and left_provider == right_provider:
+        return True
+    if left_provider and right == resolve_customer_id_for_provider(left_provider):
+        return True
+    if right_provider and left == resolve_customer_id_for_provider(right_provider):
+        return True
+    return False
+
+
+def _customer_phone_exclude_ids(
+    customer_id: str,
+    phone: str,
+    profiles: List[Dict[str, Any]],
+) -> set[str]:
+    """Customer rows that may reuse this phone for the same authenticated account."""
+    excluded = _customer_phone_alias_ids(customer_id, profiles)
+    target = _normalize_ukraine_phone_digits(phone)
+    if not target or len(target) != 12:
+        return excluded
+    for profile in profiles:
+        profile_id = str(profile.get("id") or "").strip()
+        if not profile_id or profile_id in excluded:
+            continue
+        if _customer_profile_phone_digits(profile) != target:
+            continue
+        if _profiles_share_account(profile_id, customer_id, profiles):
+            excluded.add(profile_id)
+    return excluded
+
+
+def _companion_provider_store_path(customer_store_path: Optional[Path]) -> Optional[Path]:
+    if customer_store_path is None:
+        return None
+    name = customer_store_path.name.lower()
+    if name == "customers.json":
+        return customer_store_path.with_name("providers.json")
+    return customer_store_path
+
+
 def _ensure_customer_phone_available(
     customer_id: str,
     phone: str,
     profiles: List[Dict[str, Any]],
+    store_path: Optional[Path] = None,
 ) -> None:
     phone_value = str(phone or "").strip()
     if not phone_value:
         return
+    target = _normalize_ukraine_phone_digits(phone_value)
+    profile = next((item for item in profiles if str(item.get("id") or "") == str(customer_id)), None)
+    linked_provider_id = resolve_linked_provider_id(str(customer_id), profile)
+    if not linked_provider_id and str(customer_id).startswith("tg-"):
+        linked_provider_id = f"provider-{customer_id}"
+    provider_store_path = _companion_provider_store_path(store_path)
+    own_provider = get_provider_profile(linked_provider_id, provider_store_path) if linked_provider_id else None
+    if own_provider is not None and own_provider.get("registeredAt"):
+        own_provider_phone = _normalize_ukraine_phone_digits(str(own_provider.get("phone") or ""))
+        if own_provider_phone == target:
+            return
     existing = find_registered_customer_by_phone(
         phone_value,
-        exclude_id=str(customer_id),
+        exclude_ids=_customer_phone_exclude_ids(customer_id, phone_value, profiles),
         profiles=profiles,
+        store_path=store_path,
     )
     if existing is not None:
+        existing_id = str(existing.get("id") or "")
+        if _profiles_share_account(existing_id, customer_id, profiles):
+            return
         raise ValueError(PHONE_ALREADY_REGISTERED)
 
 
@@ -1497,17 +1636,64 @@ def _ensure_provider_phone_available(
     provider_id: str,
     phone: str,
     providers: List[Dict[str, Any]],
+    *,
+    customer_store_path: Optional[Path] = None,
 ) -> None:
     phone_value = str(phone or "").strip()
     if not phone_value:
         return
+    target = _normalize_ukraine_phone_digits(phone_value)
+    customer_id = resolve_customer_id_for_provider(str(provider_id))
+    if not customer_id and str(provider_id).startswith("provider-"):
+        customer_id = str(provider_id)[len("provider-") :].strip()
+    if customer_id:
+        customer_profiles = load_customer_profiles(customer_store_path)
+        customer_profile = next(
+            (item for item in customer_profiles if str(item.get("id") or "") == customer_id),
+            None,
+        )
+        if customer_profile is not None:
+            customer_phone = _customer_profile_phone_digits(customer_profile)
+            if customer_phone == target:
+                return
     existing = find_registered_provider_by_phone(
         phone_value,
         exclude_id=str(provider_id),
         providers=providers,
     )
     if existing is not None:
+        existing_customer_id = resolve_customer_id_for_provider(str(existing.get("id") or ""))
+        if customer_id and existing_customer_id and _profiles_share_account(
+            customer_id,
+            existing_customer_id,
+            load_customer_profiles(customer_store_path),
+        ):
+            return
         raise ValueError(PHONE_ALREADY_REGISTERED)
+
+
+def sync_linked_provider_phone_verification_from_customer(
+    provider_id: str,
+    store_path: Optional[Path] = None,
+    customer_store_path: Optional[Path] = None,
+) -> Optional[Dict[str, Any]]:
+    """Mirror verified client phone onto the linked partner cabinet without re-OTP."""
+    provider = get_provider_profile(provider_id, store_path)
+    if provider is None or is_provider_verified(provider):
+        return provider
+    customer_id = resolve_customer_id_for_provider(str(provider_id))
+    if not customer_id and str(provider_id).startswith("provider-"):
+        customer_id = str(provider_id)[len("provider-") :].strip()
+    if not customer_id:
+        return provider
+    profile = get_customer_profile(customer_id, customer_store_path)
+    if normalize_verification_status(profile.get("verificationStatus"), "unverified") != "verified":
+        return provider
+    provider_phone = _normalize_ukraine_phone_digits(str(provider.get("phone") or ""))
+    customer_phone = _customer_profile_phone_digits(profile)
+    if provider_phone and customer_phone and provider_phone != customer_phone:
+        return provider
+    return verify_provider_phone_otp(provider_id, store_path)
 
 
 def _mark_profile_phone_verified(
@@ -1867,7 +2053,8 @@ def update_provider_profile(provider_id: str, data: Dict[str, Any], store_path: 
             # Never fail provider save because of a parallel customer-row phone conflict.
             pass
 
-    return dict(updated)
+    synced = sync_linked_provider_phone_verification_from_customer(str(provider_id), store_path)
+    return dict(synced or updated)
 
 
 def update_provider_presence(provider_id: str, data: Dict[str, Any], store_path: Optional[Path] = None) -> Dict[str, Any]:
@@ -1949,47 +2136,126 @@ def update_provider_presence(provider_id: str, data: Dict[str, Any], store_path:
     return updated
 
 
+def _pending_offer_count_for_order(offers: List[Dict[str, Any]], order_id: str) -> int:
+    return sum(
+        1
+        for offer in offers
+        if str(offer.get("orderId")) == str(order_id) and offer.get("status") == "pending"
+    )
+
+
+def _try_offer_order_to_provider(
+    order: Dict[str, Any],
+    provider: Dict[str, Any],
+    offers: List[Dict[str, Any]],
+    now: Optional[datetime] = None,
+) -> bool:
+    """Create a pending offer for one eligible provider. Returns True when a new offer is added."""
+    order_id = str(order.get("id"))
+    provider_id = str(provider.get("id"))
+    if normalize_order_status(order.get("status")) != "searching":
+        return False
+    if order.get("assignedProviderId"):
+        return False
+    if _provider_should_skip_order(offers, provider_id, order_id):
+        return False
+    if _pending_offer_count_for_order(offers, order_id) >= MAX_PROVIDER_OFFERS:
+        return False
+
+    service = normalize_service(order.get("service"))
+    specialties = _clean_provider_specialties(provider.get("specialties"))
+    if service not in specialties:
+        return False
+
+    pickup = _valid_point(order.get("customerCoordinates"))
+    location = _valid_point(provider.get("location"))
+    if pickup is None or location is None:
+        return False
+
+    checked_at = now or datetime.now(timezone.utc).replace(tzinfo=None)
+    if provider.get("status") != "online":
+        return False
+    if not is_provider_verified(provider):
+        return False
+    if provider.get("assignedOrderId"):
+        return False
+    if provider.get("stale") or not _provider_is_recent(provider, checked_at):
+        return False
+
+    distance = haversine_distance_km(pickup, location)
+    radius_km = float(provider.get("serviceRadiusKm") or 15)
+    if distance > radius_km:
+        return False
+
+    now_iso = f"{checked_at.isoformat(timespec='seconds')}Z"
+    expires_at = f"{(checked_at + timedelta(seconds=OFFER_TIMEOUT_SECONDS)).isoformat(timespec='seconds')}Z"
+    offer = {
+        "id": f"OF-{uuid.uuid4().hex[:12].upper()}",
+        "orderId": order_id,
+        "providerId": provider_id,
+        "status": "pending",
+        "distanceKm": round(distance, 2),
+        "createdAt": now_iso,
+        "expiresAt": expires_at,
+    }
+    offers.append(offer)
+    _append_order_event(
+        order,
+        "OFFER_CREATED",
+        now_iso,
+        {"offerId": offer["id"], "providerId": provider_id, "distanceKm": offer["distanceKm"], "source": "redispatch"},
+    )
+
+    dispatch_info = order.get("dispatchInfo") if isinstance(order.get("dispatchInfo"), dict) else {}
+    order["dispatchState"] = "OFFERS_SENT"
+    order["dispatchInfo"] = {
+        **dispatch_info,
+        "eligibleProviders": max(int(dispatch_info.get("eligibleProviders") or 0), 1),
+        "offersSent": _pending_offer_count_for_order(offers, order_id),
+        "searchRadiusStepsKm": DISPATCH_SEARCH_RADIUS_STEPS_KM,
+        "maxProviderOffers": MAX_PROVIDER_OFFERS,
+        "offerTimeoutSeconds": OFFER_TIMEOUT_SECONDS,
+        "lastDispatchAt": now_iso,
+    }
+    order["updatedAt"] = now_iso
+    return True
+
+
 def redispatch_searching_orders_for_provider(
     provider_id: str,
     order_store_path: Optional[Path] = None,
     provider_store_path: Optional[Path] = None,
     offer_store_path: Optional[Path] = None,
-) -> int:
-    """Offer nearby searching orders to a provider who just went online."""
+) -> List[str]:
+    """Offer nearby searching orders directly to a provider who is online. Returns order IDs with new offers."""
     provider = get_provider_profile(provider_id, provider_store_path)
     if provider is None or provider.get("status") != "online":
-        return 0
+        return []
     if not is_provider_verified(provider):
-        return 0
+        return []
+    if not _valid_point(provider.get("location")):
+        return []
 
-    location = _valid_point(provider.get("location"))
-    if location is None:
-        return 0
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    with STORE_LOCK:
+        order_path = order_store_path or _default_store_path()
+        offer_path = offer_store_path or _default_offer_store_path()
+        orders = load_orders(order_path)
+        offers = load_offers(offer_path)
+        _expire_offers_in_memory(offers, orders, now)
 
-    specialties = _clean_provider_specialties(provider.get("specialties"))
-    radius_km = float(provider.get("serviceRadiusKm") or 15)
-    redispatched = 0
+        created_order_ids: List[str] = []
+        for order in orders:
+            if normalize_order_status(order.get("status")) != "searching":
+                continue
+            if _try_offer_order_to_provider(order, provider, offers, now):
+                created_order_ids.append(str(order.get("id")))
 
-    for order in load_orders(order_store_path):
-        if normalize_order_status(order.get("status")) != "searching":
-            continue
-        service = normalize_service(order.get("service"))
-        if service not in specialties:
-            continue
-        pickup = _valid_point(order.get("customerCoordinates"))
-        if pickup is None:
-            continue
-        if haversine_distance_km(location, pickup) > radius_km:
-            continue
-        dispatch_order(
-            str(order.get("id")),
-            order_store_path,
-            provider_store_path,
-            offer_store_path,
-        )
-        redispatched += 1
+        if created_order_ids:
+            _write_json_atomic(order_path, orders)
+            save_offers(offers, offer_path)
 
-    return redispatched
+        return created_order_ids
 
 
 def _offer_error_for_status(status: str) -> DispatchConflict:
@@ -1998,6 +2264,30 @@ def _offer_error_for_status(status: str) -> DispatchConflict:
     if status == "declined":
         return DispatchConflict("OFFER_DECLINED", "Offer has already been declined.")
     return DispatchConflict("ORDER_ALREADY_ACCEPTED", "Order has already been accepted by another provider.")
+
+
+# Providers blocked from receiving another offer for the same order (expired may be re-offered).
+DISPATCH_BLOCK_REOFFER_STATUSES = {"pending", "declined", "lost", "accepted", "cancelled"}
+
+
+def _providers_blocked_for_order(offers: List[Dict[str, Any]], order_id: str) -> set[str]:
+    return {
+        str(offer.get("providerId"))
+        for offer in offers
+        if str(offer.get("orderId")) == str(order_id) and offer.get("status") in DISPATCH_BLOCK_REOFFER_STATUSES
+    }
+
+
+def _provider_should_skip_order(offers: List[Dict[str, Any]], provider_id: str, order_id: str) -> bool:
+    for offer in offers:
+        if str(offer.get("orderId")) != str(order_id):
+            continue
+        if str(offer.get("providerId")) != str(provider_id):
+            continue
+        status = offer.get("status")
+        if status in {"pending", "declined", "lost", "accepted", "cancelled"}:
+            return True
+    return False
 
 
 def _expire_offers_in_memory(offers: List[Dict[str, Any]], orders: List[Dict[str, Any]], now: Optional[datetime] = None) -> bool:
@@ -2148,6 +2438,7 @@ def _public_offer_payload(offer: Dict[str, Any], order: Dict[str, Any]) -> Dict[
         customer_coordinates = None
     return {
         **offer,
+        "orderStatus": normalize_order_status(order.get("status")),
         "service": normalize_service(order.get("service")),
         "vehicleState": order.get("vehicleState"),
         "approximateLocation": order.get("customerLocation"),
@@ -2180,11 +2471,7 @@ def dispatch_order(
 
         now = datetime.now(timezone.utc).replace(tzinfo=None)
         now_iso = f"{now.isoformat(timespec='seconds')}Z"
-        offered_ids = {
-            str(offer.get("providerId"))
-            for offer in offers
-            if str(offer.get("orderId")) == str(order_id) and offer.get("status") == "pending"
-        }
+        offered_ids = _providers_blocked_for_order(offers, order_id)
         if _should_use_sql_runtime(order_store_path, provider_store_path, offer_store_path):
             candidates = sql_candidate_providers_for_order(
                 order_id=str(order_id),
@@ -2288,7 +2575,11 @@ def get_provider_offers(
             if str(offer.get("providerId")) != str(provider_id) or offer.get("status") != "pending":
                 continue
             order = order_by_id.get(str(offer.get("orderId")))
-            if not order or normalize_order_status(order.get("status")) != "searching":
+            if not order:
+                continue
+            if normalize_order_status(order.get("status")) != "searching":
+                continue
+            if order.get("assignedProviderId"):
                 continue
             provider_offers.append(_public_offer_payload(offer, order))
 
@@ -2649,18 +2940,18 @@ def _order_belongs_to_provider(order: Dict[str, Any], provider_id: str) -> bool:
 
 def _customer_ids_for_order_history(
     customer_id: str,
-    store_path: Optional[Path] = None,
+    customer_store_path: Optional[Path] = None,
 ) -> set[str]:
     """Include phone-linked guest/tg aliases so cabinet history is not empty after re-login."""
     needle = str(customer_id or "").strip()
     ids: set[str] = {needle} if needle else set()
     if not needle:
         return ids
-    profile = get_customer_profile(needle, store_path) or {}
+    profile = get_customer_profile(needle, customer_store_path) or {}
     phone_digits = _customer_profile_phone_digits(profile)
     if not phone_digits or len(phone_digits) != 12:
         return ids
-    for other in load_customer_profiles(store_path):
+    for other in load_customer_profiles(customer_store_path):
         other_id = str(other.get("id") or "").strip()
         if not other_id or other_id in ids:
             continue
@@ -2673,9 +2964,10 @@ def list_orders_for_customer(
     customer_id: str,
     store_path: Optional[Path] = None,
     provider_store_path: Optional[Path] = None,
+    customer_store_path: Optional[Path] = None,
     limit: int = 50,
 ) -> List[Dict[str, Any]]:
-    needles = _customer_ids_for_order_history(customer_id, store_path)
+    needles = _customer_ids_for_order_history(customer_id, customer_store_path)
     seen: set[str] = set()
     orders: List[Dict[str, Any]] = []
     for order in load_orders(store_path):
@@ -2704,6 +2996,77 @@ def list_orders_for_provider(
     ]
     orders.sort(key=lambda item: str(item.get("updatedAt") or item.get("createdAt") or ""), reverse=True)
     return orders[: max(1, min(int(limit or 50), 200))]
+
+
+def list_provider_public_reviews(
+    provider_id: str,
+    store_path: Optional[Path] = None,
+    limit: int = 20,
+) -> List[Dict[str, Any]]:
+    """Customer reviews left for a provider after completed orders (public, sanitized)."""
+    needle = str(provider_id or "").strip()
+    if not needle:
+        return []
+    reviews: List[Dict[str, Any]] = []
+    for order in load_orders(store_path):
+        if not _order_belongs_to_provider(order, needle):
+            continue
+        if normalize_order_status(order.get("status")) != "completed":
+            continue
+        review = order.get("customerReview")
+        if not isinstance(review, dict) or review.get("rating") is None:
+            continue
+        try:
+            stars = int(review.get("rating"))
+        except (TypeError, ValueError):
+            continue
+        if stars < 1 or stars > 5:
+            continue
+        reviews.append(
+            {
+                "rating": stars,
+                "comment": str(review.get("comment") or "").strip()[:500],
+                "at": review.get("at") or order.get("updatedAt") or order.get("createdAt"),
+                "service": order.get("service"),
+            }
+        )
+    reviews.sort(key=lambda item: str(item.get("at") or ""), reverse=True)
+    return reviews[: max(1, min(int(limit or 20), 50))]
+
+
+def get_provider_public_card(
+    provider_id: str,
+    *,
+    store_path: Optional[Path] = None,
+    provider_store_path: Optional[Path] = None,
+    limit: int = 20,
+) -> Optional[Dict[str, Any]]:
+    """Public partner card for map clients: profile summary + reviews (no auth)."""
+    provider = get_provider_profile(provider_id, provider_store_path)
+    if provider is None:
+        return None
+    reviews = list_provider_public_reviews(provider_id, store_path=store_path, limit=limit)
+    return {
+        "id": provider.get("id"),
+        "name": provider.get("name") or "Партнер POMICH",
+        "rating": provider.get("rating"),
+        "ratingCount": provider.get("ratingCount"),
+        "vehicle": provider.get("vehicle"),
+        "specialties": provider.get("specialties") or [],
+        "status": provider.get("status"),
+        "etaMinutes": provider.get("etaMinutes"),
+        "providerKind": provider.get("providerKind") or "dispatch",
+        "city": provider.get("city"),
+        "address": provider.get("address"),
+        "phone": provider.get("phone"),
+        "telegram": provider.get("telegram"),
+        "verificationStatus": provider.get("verificationStatus"),
+        "openingHours": provider.get("openingHours"),
+        "website": provider.get("website"),
+        "ordersCompleted": provider.get("ordersCompleted"),
+        "location": provider.get("location"),
+        "reviews": reviews,
+    }
 
 
 def _increment_provider_orders_completed(provider_id: str, provider_store_path: Optional[Path] = None) -> None:

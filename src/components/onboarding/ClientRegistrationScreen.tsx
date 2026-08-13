@@ -3,6 +3,7 @@ import { useEffect, useState } from "react"
 import { validatePersonName } from "../../lib/personName"
 import { DEFAULT_SERVICE_CITY, validateServiceCity } from "../../lib/ukraineCities"
 import { validateUkraineMobilePhone } from "../../lib/ukrainePhone"
+import { requestTelegramContact, type TelegramWebApp } from "../../telegram"
 import { OnboardingFormShell } from "../layout/OnboardingFormShell"
 import { CitySelect } from "../ui/CitySelect"
 import { FieldError } from "../ui/FieldError"
@@ -15,6 +16,8 @@ interface ClientRegistrationScreenProps {
   initialPhone?: string
   initialCity?: string
   loggedInAs?: string
+  isTelegram?: boolean
+  webApp?: TelegramWebApp
   saving?: boolean
   error?: string
   onSubmit: (payload: { name: string; phone: string; city: string }) => void
@@ -44,6 +47,8 @@ export default function ClientRegistrationScreen({
   initialPhone = "",
   initialCity = DEFAULT_SERVICE_CITY,
   loggedInAs,
+  isTelegram = false,
+  webApp,
   saving,
   error,
   onSubmit,
@@ -59,6 +64,7 @@ export default function ClientRegistrationScreen({
   const [phoneHint, setPhoneHint] = useState<string>()
   const [cityError, setCityError] = useState<string>()
   const [cityHint, setCityHint] = useState<string>()
+  const [requestingContact, setRequestingContact] = useState(false)
 
   useEffect(() => {
     setName(initialName)
@@ -84,6 +90,31 @@ export default function ClientRegistrationScreen({
   const nameValidation = validatePersonName(name)
   const cityValidation = validateServiceCity(city)
   const canSubmit = nameValidation.valid && phoneValidation.valid && cityValidation.valid
+  const canRequestContact = isTelegram && Boolean(webApp?.requestContact) && !phoneValidation.valid
+
+  const handleRequestContact = async () => {
+    if (!webApp || requestingContact) return
+    setRequestingContact(true)
+    setPhoneError(undefined)
+    setPhoneHint(undefined)
+    try {
+      const contact = await requestTelegramContact(webApp)
+      const rawPhone = contact?.phone_number?.trim()
+      if (!rawPhone) return
+      const validation = validateUkraineMobilePhone(rawPhone)
+      if (!validation.valid) {
+        setPhoneError(validation.error)
+        return
+      }
+      setPhone(validation.e164)
+      if (!nameValidation.valid && contact?.first_name) {
+        const contactName = `${contact.first_name}${contact.last_name ? ` ${contact.last_name}` : ""}`.trim()
+        if (contactName) setName(contactName)
+      }
+    } finally {
+      setRequestingContact(false)
+    }
+  }
 
   const handleSubmit = () => {
     const nextName = validatePersonName(name)
@@ -142,6 +173,16 @@ export default function ClientRegistrationScreen({
       />
       <label style={{ display: "grid", gap: 6 }}>
         <span className="pomich-form-label">Телефон *</span>
+        {canRequestContact ? (
+          <button
+            type="button"
+            className="pomich-cabinet-chip-btn"
+            disabled={requestingContact || saving}
+            onClick={() => void handleRequestContact()}
+          >
+            {requestingContact ? "Запитуємо…" : "Поділитися контактом з Telegram"}
+          </button>
+        ) : null}
         <PhoneInput
           value={phone}
           onChange={(next) => {

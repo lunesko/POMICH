@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import CustomerApp from './CustomerApp'
 import { PomichThemeProvider } from './context/PomichThemeProvider'
@@ -19,22 +19,70 @@ vi.mock('react-leaflet', () => ({
   MapContainer: ({ children }: { children: React.ReactNode }) => <div data-testid="map">{children}</div>,
   TileLayer: () => <div />,
   Polyline: () => <div />,
+  GeoJSON: () => <div />,
   Marker: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   Popup: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  useMap: () => ({
-    invalidateSize: () => undefined,
-    getContainer: () => document.createElement('div'),
-    getZoom: () => 13,
-    flyTo: () => undefined,
-    fitBounds: () => undefined,
-  }),
+  useMap: () => {
+    const noop = () => undefined
+    const handler = { enable: noop, disable: noop }
+    return {
+      invalidateSize: noop,
+      removeLayer: noop,
+      getPane: () => document.createElement('div'),
+      createPane: noop,
+      setMinZoom: noop,
+      setMaxBounds: noop,
+      getContainer: () => document.createElement('div'),
+      getSize: () => ({ x: 390, y: 700 }),
+      getZoom: () => 13,
+      getCenter: () => ({ lat: 48.62, lng: 22.28 }),
+      flyTo: noop,
+      fitBounds: noop,
+      project: (coords: [number, number]) => ({ x: coords[0] * 1000, y: coords[1] * 1000 }),
+      unproject: (coords: { x: number; y: number } | [number, number]) => {
+        const x = Array.isArray(coords) ? coords[0] : coords.x
+        const y = Array.isArray(coords) ? coords[1] : coords.y
+        return { lat: y / 1000, lng: x / 1000 }
+      },
+      scrollWheelZoom: handler,
+      dragging: handler,
+      touchZoom: handler,
+      doubleClickZoom: handler,
+      boxZoom: handler,
+      keyboard: handler,
+    }
+  },
   useMapEvents: () => null,
 }))
 
 vi.mock('leaflet', () => ({
-  default: { divIcon: () => ({}) },
+  default: {
+    divIcon: () => ({}),
+    latLngBounds: () => ({ pad: () => ({}) }),
+    tileLayer: () => ({
+      addTo: () => ({}),
+      setUrl: () => undefined,
+    }),
+  },
   divIcon: () => ({}),
+  latLngBounds: () => ({ pad: () => ({}) }),
+  tileLayer: () => ({
+    addTo: () => ({}),
+    setUrl: () => undefined,
+  }),
 }))
+
+beforeAll(async () => {
+  await Promise.all([
+    import('./components/customer/CustomerFlow'),
+    import('./components/provider/ProviderFlow'),
+    import('./components/onboarding/OnboardingGate'),
+    import('./components/cabinet/ClientCabinet'),
+    import('./components/cabinet/ProviderCabinet'),
+    import('./components/admin/AdminFlow'),
+    import('./components/map/RouteMap'),
+  ])
+})
 
 const TEST_CUSTOMER_TOKEN = 'pomich_auth_v1.test-customer-session'
 
@@ -95,11 +143,11 @@ function mockRegisteredCustomerFetch(extra?: (url: string, init?: RequestInit) =
         json: async () => ({
           customerId: 'guest-test',
           preferredRole: role,
-          linkedProviderId: role === 'provider' ? 'provider-guest-test' : '',
-          rolesRegistered: [role],
-          clientRegistered: role === 'customer',
+          linkedProviderId: "",
+          rolesRegistered: role === "customer" ? ["customer"] : [],
+          clientRegistered: role === "customer",
           providerRegistered: false,
-          needsOnboarding: false,
+          needsOnboarding: true,
           profile: verifiedTestProfile,
         }),
       })
@@ -417,6 +465,61 @@ describe('POMICH role-based flows', () => {
 
     expect(await screen.findByText('Що сталося?')).toBeInTheDocument()
     expect(screen.queryByText('Реєстрація клієнта')).not.toBeInTheDocument()
+  })
+
+  it('shows client registration for new Telegram user instead of phone login', async () => {
+    window.history.pushState({}, '', '/?role=customer')
+    window.Telegram = {
+      WebApp: {
+        initData: 'telegram-init-data-stub',
+        initDataUnsafe: { user: { id: 829741830, first_name: 'Vitaliy', last_name: 'Test' } },
+        isVersionAtLeast: (version: string) => Number(version.split('.')[0]) <= 8,
+        requestContact: vi.fn(),
+      },
+    }
+
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/auth/customer/telegram/session')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            role: 'customer',
+            subjectId: 'tg-829741830',
+            customerId: 'tg-829741830',
+            accessToken: TEST_CUSTOMER_TOKEN,
+            expiresAt: Math.floor(Date.now() / 1000) + 3600,
+            profile: {
+              id: 'tg-829741830',
+              name: 'Vitaliy Test',
+              phone: '',
+              verificationStatus: 'unverified',
+            },
+            account: {
+              customerId: 'tg-829741830',
+              preferredRole: '',
+              linkedProviderId: '',
+              rolesRegistered: [],
+              clientRegistered: false,
+              providerRegistered: false,
+              needsOnboarding: true,
+            },
+          }),
+        })
+      }
+      if (url.includes('/map/providers') || url.endsWith('/providers')) {
+        return Promise.resolve({ ok: true, json: async () => [] })
+      }
+      return Promise.resolve({ ok: true, json: async () => ({}) })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderApp()
+
+    expect(await screen.findByText('Реєстрація клієнта')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('Vitaliy Test')).toBeInTheDocument()
+    expect(screen.queryByText(/Код надійде у Telegram/i)).not.toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/auth/customer/telegram/session'), expect.any(Object))
   })
 
   it('prefers telegram session over stale web guest token in Telegram WebApp', async () => {
@@ -871,6 +974,102 @@ describe('POMICH role-based flows', () => {
     expect(screen.queryByText(/Реєстрація партнера/i)).not.toBeInTheDocument()
   })
 
+  it('keeps registered partner after role switch when account API briefly omits providerRegistered', async () => {
+    const user = userEvent.setup()
+    const providerRecord = {
+      id: 'provider-guest-test',
+      name: 'Партнер Тест',
+      phone: '+380671112233',
+      city: 'Ужгород',
+      vehicle: 'Volkswagen Crafter',
+      plate: 'BX5874HX',
+      registeredAt: '2026-08-09T00:00:00',
+      verificationStatus: 'verified',
+      verification: { phone: true },
+      specialties: ['tow', 'fuel'],
+      serviceRadiusKm: 15,
+      status: 'offline',
+    }
+
+    vi.stubGlobal('fetch', mockRegisteredCustomerFetch((url, init) => {
+      if (url.includes('/users/') && url.includes('/account/role')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            customerId: 'guest-test',
+            preferredRole: 'provider',
+            linkedProviderId: '',
+            rolesRegistered: ['customer'],
+            clientRegistered: true,
+            providerRegistered: false,
+            needsOnboarding: true,
+            profile: verifiedTestProfile,
+          }),
+        })
+      }
+      if (url.includes('/users/') && url.includes('/account')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            customerId: 'guest-test',
+            preferredRole: 'customer',
+            linkedProviderId: 'provider-guest-test',
+            rolesRegistered: ['customer', 'provider'],
+            clientRegistered: true,
+            providerRegistered: true,
+            needsOnboarding: false,
+            profile: verifiedTestProfile,
+          }),
+        })
+      }
+      if (url.includes('/auth/provider/self/session')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            role: 'provider',
+            subjectId: 'provider-guest-test',
+            providerId: 'provider-guest-test',
+            tokenType: 'Bearer',
+            accessToken: 'pomich_auth_v1.provider-self',
+            expiresAt: Math.floor(Date.now() / 1000) + 3600,
+          }),
+        })
+      }
+      if (url.includes('/providers/provider-guest-test/')) {
+        return Promise.resolve({ ok: true, json: async () => providerRecord })
+      }
+      if (url.endsWith('/providers') || url.includes('/map/providers')) {
+        return Promise.resolve({ ok: true, json: async () => [providerRecord] })
+      }
+      return undefined
+    }))
+
+    window.localStorage.setItem('pomichCustomerId', 'guest-test')
+    window.sessionStorage.setItem('pomichCustomerId', 'guest-test')
+    window.sessionStorage.setItem('pomichLinkedProviderId', 'provider-guest-test')
+    window.localStorage.setItem('pomichPartnerRegistered:provider-guest-test', '1')
+    storeAuthSession(authSessionStorageKey('customer', 'guest-test'), {
+      role: 'customer',
+      subjectId: 'guest-test',
+      customerId: 'guest-test',
+      tokenType: 'Bearer',
+      accessToken: TEST_CUSTOMER_TOKEN,
+      expiresAt: Math.floor(Date.now() / 1000) + 3600,
+      profile: verifiedTestProfile,
+    })
+
+    await openCustomerHome(user)
+    expect(await screen.findByText('Що сталося?')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /Змінити роль/i }))
+    expect(await screen.findByText(/Оберіть вашу роль/i)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /Надаю послуги/i }))
+
+    expect(await screen.findByText('Партнер POMICH', {}, { timeout: 8000 })).toBeInTheDocument()
+    expect(screen.queryByText(/Реєстрація партнера/i)).not.toBeInTheDocument()
+  })
+
   it('after logout, choosing partner opens phone login and restores registered partner', async () => {
     const user = userEvent.setup()
     const partnerProfile = {
@@ -1036,6 +1235,20 @@ describe('POMICH role-based flows', () => {
           ok: false,
           status: 409,
           json: async () => ({ detail: 'phone_already_registered' }),
+        })
+      }
+      if (url.includes('/users/') && url.includes('/account')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            customerId: 'guest-test',
+            preferredRole: 'provider',
+            linkedProviderId: '',
+            rolesRegistered: [],
+            clientRegistered: false,
+            providerRegistered: false,
+            needsOnboarding: true,
+          }),
         })
       }
       if (url.endsWith('/providers') || url.includes('/map/providers')) {
@@ -1228,7 +1441,7 @@ describe('POMICH role-based flows', () => {
 
     renderApp()
 
-    expect(await screen.findByText('Код діє 10 хвилин')).toBeInTheDocument()
+    expect((await screen.findAllByText('Підтвердження телефону')).length).toBeGreaterThan(0)
     expect(screen.queryByText('Що сталося?')).not.toBeInTheDocument()
     expect(screen.queryByText('Реєстрація клієнта')).not.toBeInTheDocument()
   })
@@ -1328,7 +1541,9 @@ describe('POMICH role-based flows', () => {
     await user.type(screen.getByPlaceholderText(/66 123 45 67/i), '635236801')
     await user.click(screen.getByRole('button', { name: /Продовжити/i }))
 
-    expect(await screen.findByText('Код діє 10 хвилин')).toBeInTheDocument()
+    expect((await screen.findAllByText('Підтвердження телефону')).length).toBeGreaterThan(0)
+    await user.click(screen.getByRole('button', { name: /Надіслати код у Telegram/i }))
+    expect(await screen.findByPlaceholderText(/6 цифр/i)).toBeInTheDocument()
     expect(screen.queryByText('Що сталося?')).not.toBeInTheDocument()
     await waitFor(() => {
       const calls = (global.fetch as ReturnType<typeof vi.fn>).mock.calls
@@ -1362,7 +1577,7 @@ describe('POMICH role-based flows', () => {
   it('shows nearby providers before a customer creates an order', async () => {
     const user = userEvent.setup()
     vi.stubGlobal('fetch', mockRegisteredCustomerFetch((url) => {
-      if (url.endsWith('/providers')) {
+      if (url.includes('/providers')) {
         return Promise.resolve({
           ok: true,
           json: async () => [
@@ -1373,7 +1588,7 @@ describe('POMICH role-based flows', () => {
               verificationStatus: 'verified',
               vehicle: 'Volkswagen Transporter',
               etaMinutes: 12,
-              location: { lat: 48.622, lng: 22.289 },
+              location: { lat: 50.452, lng: 30.525 },
             },
             {
               id: 'provider-mykhailo',
@@ -1382,7 +1597,7 @@ describe('POMICH role-based flows', () => {
               verificationStatus: 'verified',
               vehicle: 'Renault Master',
               etaMinutes: 18,
-              location: { lat: 48.612, lng: 22.303 },
+              location: { lat: 50.448, lng: 30.521 },
             },
           ],
         })
@@ -1393,7 +1608,7 @@ describe('POMICH role-based flows', () => {
     await openCustomerHome(user)
 
     expect(await screen.findByText('2 на лінії поруч')).toBeInTheDocument()
-    expect(screen.getByText(/Найближчий: Олександр/i)).toBeInTheDocument()
+    expect(await screen.findByText(/Найближчий: Олександр/i)).toBeInTheDocument()
   })
 
   it('lets a provider go on duty before seeing offers', async () => {
@@ -1517,6 +1732,20 @@ describe('POMICH role-based flows', () => {
           }),
         })
       }
+      if (url.includes('/users/') && url.includes('/account')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            customerId: 'provider-oleksandr',
+            preferredRole: 'provider',
+            linkedProviderId: 'provider-oleksandr',
+            rolesRegistered: ['provider'],
+            clientRegistered: false,
+            providerRegistered: true,
+            needsOnboarding: false,
+          }),
+        })
+      }
       if (url.includes('/providers/provider-oleksandr/presence') && init?.method === 'PATCH') {
         return Promise.resolve({
           ok: true,
@@ -1558,7 +1787,7 @@ describe('POMICH role-based flows', () => {
           }],
         })
       }
-      if (url.endsWith('/providers')) {
+      if (url.includes('/providers')) {
         return Promise.resolve({
           ok: true,
           json: async () => [{
@@ -1582,14 +1811,16 @@ describe('POMICH role-based flows', () => {
 
     renderApp()
 
-    expect(await screen.findByText('Партнер POMICH')).toBeInTheDocument()
-    expect(await screen.findByText('На лінії')).toBeInTheDocument()
+    const openBtn = await screen.findByRole('button', { name: /Відкрити заявку/i })
+    await user.click(openBtn)
 
     await waitFor(() => {
-      expect(screen.getByText('Нове замовлення')).toBeInTheDocument()
+      expect(screen.getByRole('dialog', { name: /Деталі заявки/i })).toBeInTheDocument()
     }, { timeout: 5000 })
-    await user.type(screen.getByPlaceholderText('Наприклад: 1200'), '1200')
-    await user.click(screen.getByRole('button', { name: /ПРИЙНЯТИ З ЦІНОЮ/i }))
+    const inputs = screen.getAllByPlaceholderText('1200')
+    await user.type(inputs[0], '1200')
+    const acceptBtns = screen.getAllByRole('button', { name: /ПРИЙНЯТИ З ЦІНОЮ/i })
+    await user.click(acceptBtns[0])
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(

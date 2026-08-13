@@ -5,6 +5,7 @@ import {
   clampSheetHeight,
   heightToSnap,
   useMobileSheetSnap,
+  type SheetHeights,
 } from "./useMobileSheetSnap"
 
 describe("useMobileSheetSnap", () => {
@@ -94,7 +95,7 @@ describe("useMobileSheetSnap", () => {
 })
 
 describe("sheet height helpers", () => {
-  const heights = { peek: 15, half: 44, expanded: 72, min: 14, max: 78 }
+  const heights: SheetHeights = { peek: 15, half: 44, expanded: 72, min: 14, max: 78 }
 
   it("clamps drag height between min and max", () => {
     expect(clampSheetHeight(5, heights)).toBe(14)

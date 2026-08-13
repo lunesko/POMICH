@@ -2,10 +2,17 @@ interface PrimaryButtonProps {
   label: string
   onClick?: () => void
   loading?: boolean
+  loadingLabel?: string
   disabled?: boolean
 }
 
-export function PrimaryButton({ label, onClick, loading = false, disabled = false }: PrimaryButtonProps) {
+export function PrimaryButton({
+  label,
+  onClick,
+  loading = false,
+  loadingLabel = "Зачекайте…",
+  disabled = false,
+}: PrimaryButtonProps) {
   const isDisabled = disabled || loading
 
   return (
@@ -15,7 +22,7 @@ export function PrimaryButton({ label, onClick, loading = false, disabled = fals
       disabled={isDisabled}
       className={`pomich-primary-btn${isDisabled ? " is-disabled" : ""}`}
     >
-      {loading ? "Створюємо заявку…" : label}
+      {loading ? loadingLabel : label}
     </button>
   )
 }

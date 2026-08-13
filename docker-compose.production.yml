@@ -25,6 +25,14 @@ services:
       - ${POMICH_ENV_FILE:-.env.production}
     ports:
       - "8000:8000"
+    volumes:
+      - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3).read()"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 25s
     restart: unless-stopped
 
 volumes:

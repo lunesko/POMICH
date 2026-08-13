@@ -1,7 +1,20 @@
 import { describe, expect, it } from "vitest"
 
 import type { DispatchOffer } from "../api/client"
-import { filterActiveOffers, isOfferActive, offerSecondsLeft, pinFromOffer, pinsFromActiveOffers } from "./dispatchOffer"
+import {
+  filterActiveOffers,
+  filterVisibleOffers,
+  isOfferActive,
+  isPresentableOffer,
+  mergeRequestPins,
+  offerActionErrorMessage,
+  offerSecondsLeft,
+  parseOfferPrice,
+  pinFromOffer,
+  pinsFromActiveOffers,
+  readPersistedOfferDismissals,
+  writePersistedOfferDismissals,
+} from "./dispatchOffer"
 
 const baseOffer: DispatchOffer = {
   id: "OF-TEST",
@@ -37,6 +50,16 @@ describe("dispatchOffer helpers", () => {
     })
   })
 
+  it("filters non-pending offers from partner queue", () => {
+    const offers = [
+      baseOffer,
+      { ...baseOffer, id: "OF-ACCEPTED", status: "accepted" as const },
+      { ...baseOffer, id: "OF-LOST", status: "lost" as const },
+    ]
+    expect(filterActiveOffers(offers)).toHaveLength(1)
+    expect(filterActiveOffers(offers)[0]?.id).toBe("OF-TEST")
+  })
+
   it("filters expired offers out of polling results", () => {
     const offers = [
       baseOffer,
@@ -44,6 +67,18 @@ describe("dispatchOffer helpers", () => {
     ]
     expect(filterActiveOffers(offers)).toHaveLength(1)
     expect(filterActiveOffers(offers)[0]?.id).toBe("OF-TEST")
+    expect(isPresentableOffer({ ...baseOffer, status: "declined" })).toBe(false)
+  })
+
+  it("hides offers for completed or cancelled parent orders", () => {
+    expect(isPresentableOffer({ ...baseOffer, orderStatus: "completed" })).toBe(false)
+    expect(isPresentableOffer({ ...baseOffer, orderStatus: "cancelled" })).toBe(false)
+    expect(isPresentableOffer({ ...baseOffer, orderStatus: "searching" })).toBe(true)
+    const offers = [
+      baseOffer,
+      { ...baseOffer, id: "OF-DONE", orderStatus: "completed" },
+    ]
+    expect(filterActiveOffers(offers)).toHaveLength(1)
   })
 
   it("builds map pins only from active offers", () => {
@@ -55,5 +90,33 @@ describe("dispatchOffer helpers", () => {
     expect(pins).toHaveLength(1)
     expect(pins[0]?.offerId).toBe("OF-TEST")
     expect(pins[0]?.id).toBe("ORD-1")
+  })
+
+  it("merges nearby searching orders with dispatched offers", () => {
+    const nearby = [
+      { id: "ORD-1", service: "tow", customerCoordinates: { lat: 48.62, lng: 22.28 }, distanceKm: 1.1 },
+      { id: "ORD-NEAR", service: "battery", customerCoordinates: { lat: 48.63, lng: 22.27 }, distanceKm: 2.4 },
+    ]
+    const merged = mergeRequestPins([baseOffer], nearby)
+    expect(merged).toHaveLength(2)
+    expect(merged.find((pin) => pin.id === "ORD-1")?.offerId).toBe("OF-TEST")
+    expect(merged.find((pin) => pin.id === "ORD-NEAR")?.offerId).toBeUndefined()
+  })
+
+  it("hides dismissed offers and parses price", () => {
+    expect(parseOfferPrice("15000")).toBe(15000)
+    expect(parseOfferPrice("")).toBeUndefined()
+    const visible = filterVisibleOffers(
+      [baseOffer, { ...baseOffer, id: "OF-SKIP", orderId: "ORD-SKIP" }],
+      { dismissedOfferIds: new Set(["OF-SKIP"]), dismissedOrderIds: new Set(["ORD-SKIP"]) },
+    )
+    expect(visible).toHaveLength(1)
+    expect(visible[0]?.id).toBe("OF-TEST")
+    expect(offerActionErrorMessage({ detail: { code: "OFFER_EXPIRED" } })).toMatch(/завершилась/i)
+  })
+
+  it("persists dismissed offer ids per provider", () => {
+    writePersistedOfferDismissals("provider-1", ["OF-A"], ["ORD-A"])
+    expect(readPersistedOfferDismissals("provider-1")).toEqual({ offerIds: ["OF-A"], orderIds: ["ORD-A"] })
   })
 })

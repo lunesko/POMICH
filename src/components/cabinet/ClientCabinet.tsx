@@ -8,7 +8,8 @@ import {
   type CustomerProfile,
   type OrderResponse,
 } from "../../api/client"
-import { getProfileChecklist, isCustomerVerified, profileChecklistItemStatus, profileChecklistSummary } from "../../lib/customerProfile"
+import { readAuthSessionSubject } from "../../lib/auth"
+import { getProfileChecklist, isCustomerVerified, profileChecklistSummary } from "../../lib/customerProfile"
 import { getServiceLabel } from "../../lib/constants"
 import { roleLabel, type UserRole } from "../../lib/userAccount"
 import { validateUkraineMobilePhone } from "../../lib/ukrainePhone"
@@ -41,6 +42,13 @@ interface ClientCabinetProps {
   onProfileUpdate?: (profile: CustomerProfile) => void
 }
 
+/** Prefer the auth token subject — session identity, not a stale guest prop. */
+export function resolveCabinetHistoryCustomerId(customerId: string, customerToken?: string): string {
+  return readAuthSessionSubject(customerToken) || String(customerId || "").trim()
+}
+
+export const resolveCabinetSessionCustomerId = resolveCabinetHistoryCustomerId
+
 export default function ClientCabinet({
   profile,
   customerId,
@@ -71,8 +79,11 @@ export default function ClientCabinet({
     phone: profile.phone || "",
     email: profile.email || "",
     city: profile.city || "",
+    vehicle: profile.vehicle || "",
     telegram: profile.telegram || "",
   })
+
+  const sessionCustomerId = resolveCabinetHistoryCustomerId(customerId, customerToken)
 
   useEffect(() => {
     if (editing) return
@@ -81,26 +92,33 @@ export default function ClientCabinet({
       phone: profile.phone || "",
       email: profile.email || "",
       city: profile.city || "",
+      vehicle: profile.vehicle || "",
       telegram: profile.telegram || "",
     })
-  }, [profile.id, profile.name, profile.phone, profile.email, profile.city, profile.telegram, editing])
+  }, [profile.id, profile.name, profile.phone, profile.email, profile.city, profile.vehicle, profile.telegram, editing])
 
   useEffect(() => {
-    setOrderHistory(orders)
+    if (Array.isArray(orders) && orders.length > 0) {
+      setOrderHistory(orders)
+    }
   }, [orders])
 
   useEffect(() => {
     let cancelled = false
-    if (!customerId) return
+    if (!sessionCustomerId) return
 
     const load = async () => {
+      if (!customerToken) {
+        setOrdersLoading(false)
+        setOrdersError("Увійдіть знову, щоб побачити історію заявок.")
+        return
+      }
       setOrdersLoading(true)
       setOrdersError(undefined)
       try {
-        const next = await getCustomerOrders(customerId, customerToken)
+        const next = await getCustomerOrders(sessionCustomerId, customerToken)
         if (!cancelled) {
           const list = Array.isArray(next) ? next : []
-          // Keep completed/cancelled visible; sort newest first (API already does, but be safe).
           list.sort((a, b) => String(b.updatedAt || b.createdAt || "").localeCompare(String(a.updatedAt || a.createdAt || "")))
           setOrderHistory(list)
         }
@@ -117,7 +135,7 @@ export default function ClientCabinet({
     return () => {
       cancelled = true
     }
-  }, [customerId, customerToken])
+  }, [sessionCustomerId, customerToken])
 
   const name = profile.name?.trim() || "Клієнт POMICH"
   const checklist = getProfileChecklist(profile)
@@ -128,6 +146,7 @@ export default function ClientCabinet({
   const steps = verificationSteps(profile)
   const telegramContext = getTelegramContext()
   const profileVerified = isCustomerVerified(profile)
+  const showChecklist = progressPct < 100
 
   const openEdit = () => {
     setForm({
@@ -135,6 +154,7 @@ export default function ClientCabinet({
       phone: profile.phone || "",
       email: profile.email || "",
       city: profile.city || "",
+      vehicle: profile.vehicle || "",
       telegram: profile.telegram || "",
     })
     setSaveError(undefined)
@@ -173,18 +193,19 @@ export default function ClientCabinet({
     setCityHint(undefined)
     try {
       const saved = await updateCustomerProfile(
-        customerId,
+        sessionCustomerId,
         {
           name: nameValidation.value,
           phone: phoneValidation.e164,
           email: form.email.trim(),
           city: cityValidation.value,
+          vehicle: form.vehicle.trim(),
           telegram: form.telegram.trim().replace(/^@/, ""),
         },
         customerToken,
       )
 
-      if (saved.id && saved.id !== customerId) {
+      if (saved.id && saved.id !== sessionCustomerId) {
         if (typeof window !== "undefined") window.location.reload()
         return
       }
@@ -194,7 +215,7 @@ export default function ClientCabinet({
       }
 
       if (customerToken) {
-        const status = await getUserAccount(customerId, customerToken)
+        const status = await getUserAccount(sessionCustomerId, customerToken)
         onProfileUpdate?.(status.profile ?? saved)
       } else {
         onProfileUpdate?.(saved)
@@ -210,6 +231,22 @@ export default function ClientCabinet({
     } finally {
       setSaving(false)
     }
+  }
+
+  const reloadHistory = () => {
+    if (!sessionCustomerId || !customerToken) return
+    setOrdersLoading(true)
+    setOrdersError(undefined)
+    void getCustomerOrders(sessionCustomerId, customerToken)
+      .then((next) => {
+        const list = Array.isArray(next) ? next : []
+        list.sort((a, b) => String(b.updatedAt || b.createdAt || "").localeCompare(String(a.updatedAt || a.createdAt || "")))
+        setOrderHistory(list)
+      })
+      .catch((err) => {
+        setOrdersError(messageFromFetchError(err, "Не вдалося завантажити історію заявок."))
+      })
+      .finally(() => setOrdersLoading(false))
   }
 
   return (
@@ -238,7 +275,7 @@ export default function ClientCabinet({
       <div className="pomich-cabinet-body">
         <div className="pomich-cabinet-inner">
           {sessionMismatchWarning && !mismatchDismissed ? (
-            <div className="pomich-form-error pomich-session-mismatch" style={{ marginBottom: 12 }}>
+            <div className="pomich-form-error pomich-session-mismatch pomich-cabinet-alert">
               <div>{sessionMismatchWarning}</div>
               {onDismissSessionMismatch ? (
                 <button
@@ -254,7 +291,8 @@ export default function ClientCabinet({
               ) : null}
             </div>
           ) : null}
-          <div className="pomich-cabinet-card">
+
+          <div className="pomich-cabinet-card pomich-cabinet-card--profile">
             {editing ? (
               <div className="pomich-cabinet-edit-form">
                 <div className="pomich-cabinet-section-title">Редагування профілю</div>
@@ -306,6 +344,15 @@ export default function ClientCabinet({
                   error={cityHint ? (saveError && saveError.includes("місто") ? saveError : undefined) : undefined}
                 />
                 <label className="pomich-cabinet-field">
+                  <span className="pomich-form-label">Авто</span>
+                  <input
+                    value={form.vehicle}
+                    onChange={(e) => setForm((prev) => ({ ...prev, vehicle: e.target.value }))}
+                    placeholder="Toyota Corolla"
+                    className="pomich-form-input"
+                  />
+                </label>
+                <label className="pomich-cabinet-field">
                   <span className="pomich-form-label">Telegram</span>
                   <input
                     value={form.telegram}
@@ -343,6 +390,7 @@ export default function ClientCabinet({
                   <div className="pomich-cabinet-profile-phone">{profile.phone || "Телефон не вказано"}</div>
                   {profile.email ? <div className="pomich-cabinet-profile-extra">{profile.email}</div> : null}
                   {profile.city ? <div className="pomich-cabinet-profile-extra">{profile.city}</div> : null}
+                  {profile.vehicle ? <div className="pomich-cabinet-profile-extra">{profile.vehicle}</div> : null}
                   {profile.telegram ? <div className="pomich-cabinet-profile-extra">@{profile.telegram.replace(/^@/, "")}</div> : null}
                   <div className="pomich-cabinet-profile-badges">
                     <VerificationPill profile={profile} />
@@ -375,64 +423,78 @@ export default function ClientCabinet({
             </div>
           ) : null}
 
-          <div className="pomich-cabinet-grid">
-            <div className="pomich-cabinet-card">
-              <div className="pomich-cabinet-section-title">Заповнення профілю</div>
-              <div className="pomich-cabinet-section-sub">{profileChecklistSummary(profile)}</div>
-              <div className="pomich-cabinet-progress" role="progressbar" aria-valuenow={progressPct} aria-valuemin={0} aria-valuemax={100}>
-                <div className="pomich-cabinet-progress-fill" style={{ width: `${progressPct}%` }} />
+          <div className={`pomich-cabinet-grid${showChecklist ? "" : " pomich-cabinet-grid--history-only"}`}>
+            {showChecklist ? (
+              <div className="pomich-cabinet-card">
+                <div className="pomich-cabinet-section-title">Заповнення профілю</div>
+                <div className="pomich-cabinet-section-sub">{profileChecklistSummary(profile)}</div>
+                <div className="pomich-cabinet-progress" role="progressbar" aria-valuenow={progressPct} aria-valuemin={0} aria-valuemax={100}>
+                  <div className="pomich-cabinet-progress-fill" style={{ width: `${progressPct}%` }} />
+                </div>
+                <div className="pomich-cabinet-checklist">
+                  {checklist.map((item) => (
+                    <div key={item.key} className={`pomich-cabinet-checklist-item${item.filled ? " is-done" : ""}`}>
+                      <span className="pomich-cabinet-checklist-label">
+                        {item.label}
+                        {item.required ? " *" : ""}
+                      </span>
+                      <span className="pomich-cabinet-checklist-mark" aria-hidden="true">
+                        {item.filled ? "✓" : item.required ? "—" : "○"}
+                      </span>
+                    </div>
+                  ))}
+                </div>
               </div>
-              <div className="pomich-cabinet-checklist">
-                {checklist.map((item) => (
-                  <div key={item.key} className={`pomich-cabinet-checklist-item${item.filled ? " is-done" : ""}`}>
-                    <span className="pomich-cabinet-checklist-label">
-                      {item.label}
-                      {item.required ? " *" : ""}
-                    </span>
-                    <span className="pomich-cabinet-checklist-mark" aria-hidden="true">
-                      {item.filled ? "✓" : item.required ? "—" : "○"}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
+            ) : null}
 
-            <div className="pomich-cabinet-card">
-              <div className="pomich-cabinet-section-title">Історія заявок</div>
+            <div className="pomich-cabinet-card pomich-cabinet-card--history">
+              <div className="pomich-cabinet-section-head">
+                <div className="pomich-cabinet-section-title">Історія заявок</div>
+                {orderHistory.length > 0 ? (
+                  <div className="pomich-cabinet-section-count">{orderHistory.length}</div>
+                ) : null}
+              </div>
               {ordersLoading ? (
                 <div className="pomich-cabinet-empty">Завантажуємо історію…</div>
               ) : ordersError ? (
-                <div className="pomich-form-error">{ordersError}</div>
+                <div className="pomich-cabinet-history-error">
+                  <div className="pomich-form-error">{ordersError}</div>
+                  <button type="button" className="pomich-cabinet-chip-btn" onClick={reloadHistory}>
+                    Спробувати знову
+                  </button>
+                </div>
               ) : orderHistory.length === 0 ? (
                 <div className="pomich-cabinet-empty">
                   Ще немає заявок. Натисніть «Викликати допомогу», коли потрібна допомога на дорозі.
                 </div>
               ) : (
-                orderHistory.map((order) => {
-                  const ownReview = formatCabinetReviewStars(order.customerReview?.rating)
-                  const partnerReview = formatCabinetReviewStars(order.partnerReview?.rating)
-                  const partnerName = order.providerName || order.assignedProvider?.name
-                  return (
-                    <div key={order.id || `${order.createdAt}-${order.status}`} className="pomich-cabinet-order-item">
-                      <div className="pomich-cabinet-order-title">
-                        {getServiceLabel(order.service)} · #{order.id || "—"}
+                <div className="pomich-cabinet-order-list">
+                  {orderHistory.map((order) => {
+                    const ownReview = formatCabinetReviewStars(order.customerReview?.rating)
+                    const partnerReview = formatCabinetReviewStars(order.partnerReview?.rating)
+                    const partnerName = order.providerName || order.assignedProvider?.name
+                    return (
+                      <div key={order.id || `${order.createdAt}-${order.status}`} className="pomich-cabinet-order-item">
+                        <div className="pomich-cabinet-order-title">
+                          {getServiceLabel(order.service)} · #{order.id || "—"}
+                        </div>
+                        <div className="pomich-cabinet-order-status">{formatCabinetOrderStatus(order.status)}</div>
+                        {typeof order.partnerProposedPrice === "number" ? (
+                          <div className="pomich-cabinet-order-meta">{order.partnerProposedPrice.toLocaleString("uk-UA")} ₴</div>
+                        ) : null}
+                        {partnerName ? (
+                          <div className="pomich-cabinet-order-meta">Партнер: {partnerName}</div>
+                        ) : null}
+                        {ownReview ? (
+                          <div className="pomich-cabinet-order-meta">Ваша оцінка партнера: {ownReview}</div>
+                        ) : null}
+                        {partnerReview ? (
+                          <div className="pomich-cabinet-order-meta">Оцінка від партнера: {partnerReview}</div>
+                        ) : null}
                       </div>
-                      <div className="pomich-cabinet-order-status">{formatCabinetOrderStatus(order.status)}</div>
-                      {typeof order.partnerProposedPrice === "number" ? (
-                        <div className="pomich-cabinet-order-meta">{order.partnerProposedPrice.toLocaleString("uk-UA")} ₴</div>
-                      ) : null}
-                      {partnerName ? (
-                        <div className="pomich-cabinet-order-meta">Партнер: {partnerName}</div>
-                      ) : null}
-                      {ownReview ? (
-                        <div className="pomich-cabinet-order-meta">Ваша оцінка партнера: {ownReview}</div>
-                      ) : null}
-                      {partnerReview ? (
-                        <div className="pomich-cabinet-order-meta">Оцінка від партнера: {partnerReview}</div>
-                      ) : null}
-                    </div>
-                  )
-                })
+                    )
+                  })}
+                </div>
               )}
             </div>
           </div>

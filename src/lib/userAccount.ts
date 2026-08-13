@@ -34,6 +34,55 @@ export function isReturningClient(status: UserAccountStatus): boolean {
   return Boolean(status.profile && isCustomerProfileComplete(status.profile))
 }
 
+export function isPartnerLocallyRegistered(providerId: string): boolean {
+  if (!providerId || typeof window === "undefined") return false
+  return Boolean(window.localStorage.getItem(`pomichPartnerRegistered:${providerId}`))
+}
+
+/** Registered partner on server, in rolesRegistered, linked id, or local completion flag. */
+export function isReturningPartner(status: UserAccountStatus): boolean {
+  if (status.providerRegistered) return true
+  if (status.rolesRegistered.includes("provider")) return true
+  const linkedId = (status.linkedProviderId || "").trim() || resolveProviderIdForCustomer(status.customerId, status.linkedProviderId)
+  if (linkedId && isPartnerLocallyRegistered(linkedId)) return true
+  return Boolean((status.linkedProviderId || "").trim())
+}
+
+/** Restore partner flags dropped by a stale /account response during role switch. */
+export function enrichPartnerAccountStatus(status: UserAccountStatus): UserAccountStatus {
+  if (!isReturningPartner(status)) return status
+  const linkedId = (status.linkedProviderId || "").trim() || resolveProviderIdForCustomer(status.customerId, status.linkedProviderId)
+  const rolesRegistered = status.rolesRegistered.includes("provider")
+    ? status.rolesRegistered
+    : ([...status.rolesRegistered, "provider"] as UserRole[])
+  return {
+    ...status,
+    linkedProviderId: linkedId || status.linkedProviderId,
+    providerRegistered: true,
+    rolesRegistered,
+    needsOnboarding: status.needsOnboarding && !isReturningClient(status) ? status.needsOnboarding : false,
+  }
+}
+
+/** Merge in-memory account from CustomerApp when reopening the role picker. */
+export function mergePreservedAccountStatus(current: UserAccountStatus, preserved?: UserAccountStatus | null): UserAccountStatus {
+  if (!preserved) return enrichPartnerAccountStatus(current)
+  const merged: UserAccountStatus = {
+    ...current,
+    clientRegistered: current.clientRegistered || preserved.clientRegistered,
+    providerRegistered: current.providerRegistered || preserved.providerRegistered,
+    linkedProviderId: current.linkedProviderId || preserved.linkedProviderId,
+    rolesRegistered: [...new Set([...current.rolesRegistered, ...preserved.rolesRegistered])] as UserRole[],
+    profile: current.profile || preserved.profile,
+    needsOnboarding: current.needsOnboarding || preserved.needsOnboarding,
+  }
+  const enriched = enrichPartnerAccountStatus(merged)
+  if (isReturningClient(enriched) || isReturningPartner(enriched)) {
+    return { ...enriched, needsOnboarding: false }
+  }
+  return enriched
+}
+
 /** Merge session/bootstrap profile into account status when API omits or underfills it. */
 export function mergeAccountProfile(status: UserAccountStatus, profile?: CustomerProfile): UserAccountStatus {
   if (!profile) return status

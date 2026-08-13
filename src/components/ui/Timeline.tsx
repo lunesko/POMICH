@@ -7,7 +7,8 @@ interface TimelineProps {
 export function Timeline({ status }: TimelineProps) {
   const steps: Array<{ status: OrderStatus; label: string }> = [
     { status: "searching", label: "Пошук" },
-    { status: "assigned", label: "Назначено" },
+    { status: "accepted", label: "Ціна" },
+    { status: "price_confirmed", label: "Підтверджено" },
     { status: "en_route", label: "У дорозі" },
     { status: "arrived", label: "На місці" },
     { status: "in_progress", label: "Робота" },
@@ -22,10 +23,12 @@ export function Timeline({ status }: TimelineProps) {
         return (
           <div key={step.status} style={{ minWidth: 0 }}>
             <div style={{ height: 5, borderRadius: 999, background: active ? BRAND : BORDER }} />
-            <div style={{ marginTop: 5, fontSize: 10, color: active ? DARK : "#9CA3AF", fontWeight: 800, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{step.label}</div>
+            <div style={{ marginTop: 5, fontSize: 10, color: active ? DARK : "var(--pomich-subtle)", fontWeight: 800, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{step.label}</div>
           </div>
         )
       })}
     </div>
   )
 }
+
+export default Timeline

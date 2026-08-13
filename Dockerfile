@@ -24,6 +24,8 @@ RUN python3 -m pip install --break-system-packages --no-cache-dir -r requirement
 
 COPY --from=frontend-build /app/dist ./dist
 COPY . ./
+COPY data/settlements.json ./data/settlements.json
+COPY data/geo ./data/geo
 RUN mkdir -p /app/data
 RUN sed -i 's/\r$//' ./start.sh && chmod +x ./start.sh
 

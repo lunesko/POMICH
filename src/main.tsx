@@ -1,6 +1,7 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
+import PomichErrorBoundary from './components/ui/PomichErrorBoundary'
 import './index.css'
 import { initMobileCompactClasses } from './hooks/useMobileCompact'
 import { applyPomichThemeToDocument, resolveInitialPomichTheme } from './lib/theme'
@@ -18,7 +19,9 @@ applyPomichThemeToDocument(resolveInitialPomichTheme({ telegramColorScheme: tele
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <App />
+    <PomichErrorBoundary>
+      <App />
+    </PomichErrorBoundary>
   </React.StrictMode>,
 )
 

@@ -1,420 +1,303 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
-import {
-  BG,
-  BORDER,
-  BRAND,
-  DARK,
-  DEFAULT_DESTINATION,
-  DEFAULT_SERVICE_RADIUS_KM,
-  PICKUP,
-  PROVIDER_START,
-  composePartnerVehicle,
-  emptyPartnerRegistrationForm,
-  getActiveProviderId,
-  getProviderCapabilityLabel,
-  getServiceEmoji,
-  hydratePartnerVehicleFromProfile,
-  isProviderPhoneVerified,
-  partnerVehicleSelectionIsComplete,
-  provider,
-  resolvePartnerVehicleMake,
-  services,
-  toServiceKeys,
-  type OrderStatus,
-  type PartnerRegistrationForm,
-  type Point,
-} from "../../lib/constants"
-import { PartnerVehicleFields } from "./PartnerVehicleFields"
 import {
   acceptProviderOffer,
   createProviderAccountSession,
   createProviderSession,
+  createSelfProviderSession,
   declineProviderOffer,
+  getCustomerProfile,
   getOrder,
   getProviderOffers,
+  getProviderOrders,
   getProviders,
+  getNearbyMapOrders,
   messageFromFetchError,
+  retryDispatch,
+  setUserPreferredRole,
   submitOrderReview,
   updateProviderOrderStatus,
   updateProviderPresence,
   updateProviderProfile,
+  ApiRequestError,
+  type AuthSession,
+  type CustomerProfile,
   type DispatchOffer,
+  type MapRequestPin,
   type OrderResponse,
   type ProviderAvailability,
+  type VerificationStatus,
 } from "../../api/client"
-import { PrimaryButton } from "../ui/PrimaryButton"
-import { DutyStatusToggle, PresenceToast, presenceErrorMessage } from "../ui/DutyStatusToggle"
-import { SecondaryButton } from "../ui/SecondaryButton"
-import { Timeline } from "../ui/Timeline"
-import { ProviderCard } from "../ui/ProviderCard"
-import { OtpVerificationPanel } from "../ui/OtpVerificationPanel"
-import { CitySelect } from "../ui/CitySelect"
-import { OrderFinalStep } from "../customer/OrderTerminalStep"
-import { FieldError } from "../ui/FieldError"
-import { PhoneInput } from "../ui/PhoneInput"
-import { UkrainePlateInput } from "../ui/UkrainePlateInput"
-import type { CustomerProfile } from "../../api/client"
+import LazyRouteMap from "../map/LazyRouteMap"
+import { RideScreen } from "../layout/RideScreen"
+import {
+  DEFAULT_SERVICE_RADIUS_KM,
+  PICKUP,
+  DEFAULT_DESTINATION,
+  PROVIDER_START,
+  services,
+  provider,
+  partnerRegistrationServices,
+  getActiveProviderId,
+  getServiceEmoji,
+  getProviderCapabilityLabel,
+  toServiceKeys,
+  composePartnerVehicle,
+  emptyPartnerRegistrationForm,
+  hydratePartnerVehicleFromProfile,
+  isProviderPhoneVerified,
+  partnerVehicleSelectionIsComplete,
+  providerPoint,
+  resolvePartnerVehicleMake,
+  orderStatusLabels,
+  verificationLabel,
+  verificationTone,
+  type PartnerRegistrationForm,
+  type Point,
+  type OrderStatus,
+} from "../../lib/constants"
+import { resolveProviderIdForCustomer, storeLinkedProviderId } from "../../lib/userAccount"
+import { writeCachedProviderProfile } from "../../lib/providerProfileCache"
+import { clearActiveOrder, persistActiveOrder, pickLatestActiveOrder, readActiveOrder } from "../../lib/customerSession"
+import { requestCurrentPosition } from "../../lib/mapGeo"
+import { validateUkraineMobilePhone } from "../../lib/ukrainePhone"
+import { isValidUkrainePlate, validateUkrainePlate } from "../../lib/ukrainePlate"
 import { validatePersonName } from "../../lib/personName"
 import { DEFAULT_SERVICE_CITY, validateServiceCity } from "../../lib/ukraineCities"
-import { validateUkraineMobilePhone } from "../../lib/ukrainePhone"
+import { PhoneInput } from "../ui/PhoneInput"
+import { UkrainePlateInput } from "../ui/UkrainePlateInput"
+import { OtpVerificationPanel } from "../ui/OtpVerificationPanel"
+import { CitySelect } from "../ui/CitySelect"
+import { FieldError } from "../ui/FieldError"
+import {
+  authSessionStorageKey,
+  isAuthSessionToken,
+  readAuthSessionSubject,
+  readPersistedCustomerId,
+  readStoredAuthSession,
+  readStoredCustomerAuthSession,
+  storeAuthSession,
+} from "../../lib/auth"
+import { isCustomerVerified } from "../../lib/customerProfile"
+import { OrderFinalStep } from "../customer/OrderTerminalStep"
+import { DutyStatusToggle, PresenceToast, presenceErrorMessage } from "../ui/DutyStatusToggle"
+import { OrderRequestSheet } from "./OrderRequestSheet"
+import { IncomingOfferStep } from "./IncomingOfferStep"
+import { filterActiveOffers, filterVisibleOffers, isOfferActive, isPresentableOffer, mergeRequestPins, offerActionErrorMessage, offerSecondsLeft, parseOfferPrice, pinFromOffer, readPersistedOfferDismissals, writePersistedOfferDismissals } from "../../lib/dispatchOffer"
 import { subscribeOrderEvents, subscribeProviderEvents } from "../../lib/realtime"
-import { isValidUkrainePlate, validateUkrainePlate } from "../../lib/ukrainePlate"
 import { getTelegramContext } from "../../telegram"
-import ScreenLayout from "../layout/ScreenLayout"
-import FormContainer, { FormHeader } from "../layout/FormContainer"
-import Header from "../layout/Header"
+import FormContainer, { FormFooterBar, FormHeader } from "../layout/FormContainer"
+import { AccountLoginStep } from "../views/AccountLoginStep"
+import { ProviderRegistrationStep } from "../views/ProviderRegistrationStep"
 import { ServiceRadiusField } from "../ui/ServiceRadiusField"
-import RouteMap from "../map/RouteMap"
-import { authSessionStorageKey, isAuthSessionToken, readAuthSessionSubject, readStoredAuthSession, storeAuthSession } from "../../lib/auth"
-import { filterActiveOffers, isOfferActive, offerSecondsLeft } from "../../lib/dispatchOffer"
+import { PartnerVehicleFields } from "./PartnerVehicleFields"
+import { normalizeOrderStatus } from "../../lib/orderStatus"
 import type { ServiceKey } from "../../lib/pomichDomain"
+import { ThemeToggle } from "../ui/ThemeToggle"
+import type { MapTileTheme } from "../../lib/theme"
 
-function AccountLoginStep({
-  title,
-  subtitle,
-  login,
-  password,
-  saving,
-  error,
-  onLoginChange,
-  onPasswordChange,
-  onSubmit,
-}: {
-  title: string
-  subtitle: string
-  login: string
-  password: string
-  saving: boolean
-  error?: string
-  onLoginChange: (value: string) => void
-  onPasswordChange: (value: string) => void
-  onSubmit: () => void
-}) {
+function VerificationPill({ status }: { status?: VerificationStatus }) {
+  const tone = verificationTone(status)
   return (
-    <ScreenLayout footer={<PrimaryButton label={saving ? "Входимо…" : "Увійти"} onClick={onSubmit} disabled={!login.trim() || !password.trim() || saving} />}>
-      <Header title={title} subtitle={subtitle} />
-      <FormContainer>
-        <div className="pomich-form-card">
-          <label style={{ display: "grid", gap: 6 }}>
-            <span style={{ color: "#6B7280", fontSize: 12, fontWeight: 850 }}>Логін</span>
-            <input value={login} onChange={(event) => onLoginChange(event.target.value)} autoComplete="username" className="pomich-form-input" style={{ color: DARK }} />
-          </label>
-          <label style={{ display: "grid", gap: 6 }}>
-            <span style={{ color: "#6B7280", fontSize: 12, fontWeight: 850 }}>Пароль</span>
-            <input value={password} onChange={(event) => onPasswordChange(event.target.value)} type="password" autoComplete="current-password" className="pomich-form-input" style={{ color: DARK }} />
-          </label>
-        </div>
-        {error ? <div style={{ background: "#FFF1F2", color: "#BE123C", borderRadius: 14, padding: 12, fontWeight: 800 }}>{error}</div> : null}
-      </FormContainer>
-    </ScreenLayout>
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, borderRadius: 999, padding: "5px 9px", background: tone.background, color: tone.color, border: `1px solid ${tone.border}`, fontSize: 11, fontWeight: 900 }}>
+      <span style={{ width: 6, height: 6, borderRadius: 999, background: "currentColor" }} />
+      {verificationLabel(status)}
+    </span>
   )
 }
 
-function ProviderRegistrationStep({
-  form,
-  saving,
-  error,
-  onChange,
-  onToggleSpecialty,
-  onSubmit,
-}: {
-  form: PartnerRegistrationForm
-  saving: boolean
-  error?: string
-  onChange: (patch: Partial<PartnerRegistrationForm>) => void
-  onToggleSpecialty: (specialty: ServiceKey) => void
-  onSubmit: () => void
-}) {
-  const [nameError, setNameError] = useState<string>()
-  const [nameHint, setNameHint] = useState<string>()
-  const [phoneError, setPhoneError] = useState<string>()
-  const [phoneHint, setPhoneHint] = useState<string>()
-  const [cityError, setCityError] = useState<string>()
-  const [cityHint, setCityHint] = useState<string>()
-  const composedVehicle = composePartnerVehicle(form.vehicleMake, form.vehicleModel, form.vehicleMakeOther)
-  const nameValidation = validatePersonName(form.name)
-  const phoneValidation = validateUkraineMobilePhone(form.phone)
-  const cityValidation = validateServiceCity(form.city || DEFAULT_SERVICE_CITY)
-  const canSubmit = Boolean(
-    nameValidation.valid
-    && phoneValidation.valid
-    && cityValidation.valid
-    && partnerVehicleSelectionIsComplete(form.vehicleMake, form.vehicleMakeOther, form.vehicleModel)
-    && composedVehicle.trim()
-    && isValidUkrainePlate(form.plate)
-    && form.specialties.length > 0,
-  )
-
-  useEffect(() => {
-    if (!error) return
-    if (error.includes("номер") || error.includes("phone_already")) {
-      setPhoneError(error)
-      setPhoneHint("Увійдіть з цим номером або вкажіть інший")
-    }
-  }, [error])
-
-  const handleSubmit = () => {
-    const nextName = validatePersonName(form.name)
-    const nextPhone = validateUkraineMobilePhone(form.phone)
-    const nextCity = validateServiceCity(form.city || DEFAULT_SERVICE_CITY)
-    setNameError(nextName.error)
-    setNameHint(nextName.hint)
-    setPhoneError(nextPhone.valid ? undefined : nextPhone.error)
-    setPhoneHint(nextPhone.valid ? undefined : "Мобільний номер України: 9 цифр після +380")
-    setCityError(nextCity.error)
-    setCityHint(nextCity.hint)
-    if (!nextName.valid || !nextPhone.valid || !nextCity.valid) return
-    onSubmit()
-  }
-
+function SheetHeading({ title, subtitle }: { title: string; subtitle?: string }) {
   return (
-    <ScreenLayout footer={<PrimaryButton label={saving ? "Зберігаємо профіль…" : "Зареєструватись"} onClick={handleSubmit} disabled={!canSubmit || saving} />}>
-      <Header title="Реєстрація партнера" subtitle="Вкажіть, яку допомогу ви реально можете виконувати" />
-      <div style={{ padding: "8px 16px 16px", display: "grid", gap: 12 }}>
-        <div style={{ background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 18, padding: 14, display: "grid", gap: 10 }}>
-          <label style={{ display: "grid", gap: 6 }}>
-            <span style={{ color: "#6B7280", fontSize: 12, fontWeight: 850 }}>Ім'я партнера</span>
-            <input
-              value={form.name}
-              onChange={(event) => {
-                onChange({ name: event.target.value })
-                if (nameError) setNameError(undefined)
-                if (nameHint) setNameHint(undefined)
-              }}
-              placeholder="Ваше ім'я"
-              className={`pomich-form-input${nameError ? " is-error" : ""}`}
-              style={{ height: 44, borderRadius: 12, border: `1px solid ${BORDER}`, padding: "0 12px", font: "inherit", fontWeight: 750, color: DARK }}
-            />
-            <FieldError error={nameError} hint={nameHint} />
-          </label>
-          <label style={{ display: "grid", gap: 6 }}>
-            <span style={{ color: "#6B7280", fontSize: 12, fontWeight: 850 }}>Телефон</span>
-            <PhoneInput
-              value={form.phone}
-              onChange={(phone) => {
-                onChange({ phone })
-                if (phoneError) setPhoneError(undefined)
-                if (phoneHint) setPhoneHint(undefined)
-              }}
-              error={phoneError}
-            />
-            <FieldError hint={phoneHint} />
-          </label>
-          <CitySelect
-            value={form.city || DEFAULT_SERVICE_CITY}
-            onChange={(city) => {
-              onChange({ city })
-              if (cityError) setCityError(undefined)
-              if (cityHint) setCityHint(undefined)
-            }}
-            error={cityError}
-            hint={cityHint}
-          />
-        </div>
-
-        <div style={{ background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 18, padding: 14, display: "grid", gap: 10 }}>
-          <PartnerVehicleFields form={form} onChange={onChange} />
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-            <label style={{ display: "grid", gap: 6 }}>
-              <span style={{ color: "#6B7280", fontSize: 12, fontWeight: 850 }}>Номер</span>
-              <UkrainePlateInput
-                value={form.plate}
-                onChange={(plate) => onChange({ plate })}
-              />
-            </label>
-            <label style={{ display: "grid", gap: 6 }}>
-              <span style={{ color: "#6B7280", fontSize: 12, fontWeight: 850 }}>Радіус, км</span>
-              <input value={form.serviceRadiusKm} onChange={(event) => onChange({ serviceRadiusKm: Number(event.target.value) || 1 })} min={1} max={50} type="number" inputMode="numeric" style={{ height: 44, borderRadius: 12, border: `1px solid ${BORDER}`, padding: "0 12px", font: "inherit", fontWeight: 750, color: DARK }} />
-            </label>
-          </div>
-        </div>
-
-        <div style={{ background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 18, padding: 14 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
-            <div>
-              <div style={{ fontWeight: 950, color: DARK }}>Ваші послуги</div>
-              <div style={{ color: "#6B7280", fontSize: 12, fontWeight: 800, marginTop: 3 }}>{form.specialties.length} обрано</div>
-            </div>
-            <div style={{ background: form.specialties.length > 0 ? "#E8F8F1" : "#FFF7ED", color: form.specialties.length > 0 ? BRAND : "#B45309", borderRadius: 999, padding: "7px 10px", fontSize: 12, fontWeight: 950 }}>
-              {form.specialties.length > 0 ? "Готово" : "Оберіть"}
-            </div>
-          </div>
-          <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-            {services.map((service) => {
-              const selected = form.specialties.includes(service.key)
-              return (
-                <button
-                  key={service.key}
-                  type="button"
-                  onClick={() => onToggleSpecialty(service.key)}
-                  className={`pomich-service-card${selected ? " is-selected" : " pomich-service-card--pastel"}`}
-                  data-pastel={selected ? undefined : "true"}
-                  style={{
-                    border: selected ? `1.5px solid ${BRAND}` : `1px solid ${BORDER}`,
-                    background: selected ? "var(--pomich-selected-bg)" : service.tone,
-                    color: selected ? "var(--pomich-text)" : "var(--pomich-service-pastel-ink)",
-                    textAlign: "left",
-                    cursor: "pointer",
-                    fontFamily: "inherit",
-                  }}
-                >
-                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                    <span style={{ fontSize: "clamp(1rem, 0.92rem + 0.35vw, 1.25rem)" }}>{service.emoji}</span>
-                    <span style={{ fontWeight: 900, fontSize: "var(--pomich-text-sm)", lineHeight: 1.2 }}>{getProviderCapabilityLabel(service.key)}</span>
-                  </div>
-                </button>
-              )
-            })}
-          </div>
-        </div>
-
-        {error && error !== phoneError ? <div style={{ background: "#FFF1F2", color: "#BE123C", borderRadius: 14, padding: 12, fontWeight: 800 }}>{error}</div> : null}
-      </div>
-    </ScreenLayout>
+    <div>
+      <div style={{ fontSize: 22, fontWeight: 950, color: DARK, letterSpacing: "-0.03em" }}>{title}</div>
+      {subtitle ? <div style={{ marginTop: 6, color: MUTED, fontWeight: 700, fontSize: 13, lineHeight: 1.35 }}>{subtitle}</div> : null}
+    </div>
   )
 }
 
-function IncomingOfferStep({
-  offer,
-  providerLocation,
-  secondsLeft,
-  saving,
-  error,
-  proposedPrice,
-  priceNote,
-  onProposedPriceChange,
-  onPriceNoteChange,
-  onAccept,
-  onDecline,
-  onAcceptBlocked,
-}: {
-  offer: DispatchOffer
-  providerLocation: Point
-  secondsLeft: number
-  saving: boolean
-  error?: string
-  proposedPrice: string
-  priceNote: string
-  onProposedPriceChange: (value: string) => void
-  onPriceNoteChange: (value: string) => void
-  onAccept: () => void
-  onDecline: () => void
-  onAcceptBlocked?: (reason: "expired" | "price") => void
-}) {
-  const priceInputRef = useRef<HTMLInputElement>(null)
-  const parsedPrice = Number(proposedPrice.replace(",", "."))
-  const priceValid = Number.isFinite(parsedPrice) && parsedPrice > 0
-  const customerPickup = offer.customerCoordinates ?? PICKUP
-  const eta = offer.etaMinutes ?? Math.ceil((offer.distanceKm ?? 1) * 4)
-  const distanceLabel = typeof offer.distanceKm === "number" ? `${offer.distanceKm.toFixed(1)} км до клієнта` : "Відстань уточнюється"
+const BRAND = "var(--pomich-brand)"
+const DARK = "var(--pomich-text)"
+const BG = "var(--pomich-bg)"
+const BORDER = "var(--pomich-border)"
+const MUTED = "var(--pomich-muted)"
+const SUBTLE = "var(--pomich-subtle)"
+const CARD = "var(--pomich-card-bg)"
+const SURFACE_TONE = "var(--pomich-service-tone-default)"
+const SELECTED = "var(--pomich-selected-bg)"
+const GHOST = "var(--pomich-ghost-bg)"
 
-  useEffect(() => {
-    const coarse = typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches
-    if (coarse) return
-    const timer = window.setTimeout(() => priceInputRef.current?.focus(), 80)
-    return () => window.clearTimeout(timer)
-  }, [offer.id])
+function resolveSessionProviderId(session: { providerId?: string; subjectId?: string }, fallback: string) {
+  return String(session.providerId || session.subjectId || fallback).trim() || fallback
+}
 
-  const handleAcceptClick = () => {
-    if (saving) return
-    if (secondsLeft <= 0) {
-      onAcceptBlocked?.("expired")
-      return
-    }
-    if (!priceValid) {
-      onAcceptBlocked?.("price")
-      priceInputRef.current?.focus()
-      return
-    }
-    onAccept()
-  }
-
+function PrimaryButton({ label, onClick, loading = false, disabled = false }: { label: string; onClick?: () => void; loading?: boolean; disabled?: boolean }) {
   return (
-    <ScreenLayout
-      footer={(
-        <div className="pomich-offer-accept-footer" style={{ display: "grid", gap: 10 }}>
-          {error ? <div style={{ background: "#FFF1F2", color: "#BE123C", borderRadius: 14, padding: 12, fontWeight: 800 }}>{error}</div> : null}
-          <PrimaryButton label={saving ? "Приймаємо…" : secondsLeft <= 0 ? "Час вийшов" : "ПРИЙНЯТИ З ЦІНОЮ"} onClick={handleAcceptClick} disabled={saving} />
-          <SecondaryButton label="ПРОПУСТИТИ" onClick={onDecline} />
-        </div>
-      )}
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled || loading}
+      className={`pomich-primary-btn${disabled || loading ? " is-disabled" : ""}`}
     >
-      <Header title="Нове замовлення" subtitle={secondsLeft > 0 ? `${secondsLeft} сек на відповідь` : "Час вийшов"} status="searching" />
-      <div style={{ padding: "8px 16px 16px", display: "grid", gap: 12 }}>
-        <RouteMap
-          pickup={customerPickup}
-          providers={[{ id: offer.providerId, name: "Ви", status: "online", location: providerLocation, etaMinutes: eta }]}
-          subtitle={`${distanceLabel} · ~${eta} хв`}
-        />
-        <div style={{ background: "var(--pomich-accent-panel-bg)", color: "#fff", borderRadius: 18, padding: 16, textAlign: "center" }}>
-          <div style={{ color: "#A7F3D0", fontWeight: 800, fontSize: 12 }}>Відстань до клієнта</div>
-          <div style={{ fontSize: 32, fontWeight: 950, marginTop: 6 }}>{typeof offer.distanceKm === "number" ? `${offer.distanceKm.toFixed(1)} км` : "—"}</div>
-          <div style={{ color: "#D1FAE5", fontWeight: 800, marginTop: 4 }}>~{eta} хв до місця подачі</div>
-        </div>
-        <div style={{ background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 18, padding: 16 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
-            <div>
-              <div style={{ fontWeight: 950, fontSize: 20, color: DARK }}>{getServiceEmoji(offer.service)} {getProviderCapabilityLabel(offer.service)}</div>
-              <div style={{ color: "#6B7280", fontWeight: 750, marginTop: 5 }}>{distanceLabel}</div>
-            </div>
-            <div style={{ background: "#E8F8F1", color: BRAND, borderRadius: 999, padding: "8px 10px", fontWeight: 950 }}>~{eta} хв</div>
-          </div>
-          <div style={{ marginTop: 14, display: "grid", gap: 8, color: DARK, fontSize: 13 }}>
-            <div><strong>Авто:</strong> {offer.vehicleState ?? "Не вказано"}</div>
-            <div><strong>Район:</strong> {offer.approximateLocation ?? "Поруч із вами"}</div>
-            {offer.customerComment ? (
-              <div style={{ background: "#EFF6FF", color: "#1D4ED8", borderRadius: 12, padding: "10px 12px", lineHeight: 1.4 }}>
-                <strong>Коментар клієнта:</strong> {offer.customerComment}
-              </div>
-            ) : null}
-          </div>
-        </div>
-        <label style={{ display: "grid", gap: 6 }}>
-          <span style={{ fontWeight: 950, color: DARK, fontSize: 13 }}>Ваша ціна клієнту, грн</span>
-          <input
-            ref={priceInputRef}
-            value={proposedPrice}
-            onChange={(event) => onProposedPriceChange(event.target.value.replace(/[^\d.,]/g, ""))}
-            type="text"
-            inputMode="decimal"
-            enterKeyHint="done"
-            autoComplete="off"
-            placeholder="Наприклад: 1200"
-            aria-label="Вартість послуги в гривнях"
-            className="pomich-offer-price-input"
-            style={{
-              width: "100%",
-              minHeight: 52,
-              padding: "0 14px",
-              borderRadius: 14,
-              border: `2px solid ${error && !priceValid ? "#BE123C" : BRAND}`,
-              fontSize: 22,
-              fontWeight: 950,
-              fontFamily: "inherit",
-              background: "#fff",
-              color: DARK,
-              boxSizing: "border-box",
-            }}
-          />
-        </label>
-        <input value={priceNote} onChange={(event) => onPriceNoteChange(event.target.value)} placeholder="Примітка до ціни (необов'язково)" style={{ width: "100%", minHeight: 46, padding: "0 14px", borderRadius: 16, border: `1px solid ${BORDER}`, fontSize: 14, fontWeight: 700, fontFamily: "inherit" }} />
-      </div>
-    </ScreenLayout>
+      {loading ? "Створюємо заявку…" : label}
+    </button>
   )
 }
 
-function normalizeOrderStatus(status?: string): OrderStatus {
-  if (status === "searching" || status === "accepted" || status === "price_confirmed" || status === "assigned" || status === "en_route" || status === "arrived" || status === "in_progress" || status === "completed" || status === "cancelled" || status === "draft") {
-    return status
-  }
-  if (status === "created" || status === "matching") return "searching"
-  if (status === "tracking") return "en_route"
-  return "draft"
+function SecondaryButton({ label, onClick, danger = false, disabled = false }: { label: string; onClick?: () => void; danger?: boolean; disabled?: boolean }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={`pomich-flow-secondary-btn${danger ? " is-danger" : ""}`}
+    >
+      {label}
+    </button>
+  )
 }
 
-export default function ProviderFlow({ providerToken }: { providerToken?: string }) {
-  const providerId = useMemo(() => getActiveProviderId(), [])
+function StatusPill({ status }: { status: OrderStatus }) {
+  const cancelled = status === "cancelled"
+  return (
+    <div className={`pomich-status-pill ${cancelled ? "pomich-status-pill--cancelled" : "pomich-status-pill--active"}`}>
+      <span className="pomich-status-pill__dot" />
+      {orderStatusLabels[status]}
+    </div>
+  )
+}
+
+function Timeline({ status }: { status: OrderStatus }) {
+  const steps: Array<{ status: OrderStatus; label: string }> = [
+    { status: "searching", label: "Пошук" },
+    { status: "accepted", label: "Ціна" },
+    { status: "price_confirmed", label: "Підтверджено" },
+    { status: "en_route", label: "У дорозі" },
+    { status: "arrived", label: "На місці" },
+    { status: "in_progress", label: "Робота" },
+    { status: "completed", label: "Готово" },
+  ]
+  const currentIndex = status === "cancelled" ? -1 : Math.max(0, steps.findIndex((step) => step.status === status))
+
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: `repeat(${steps.length}, 1fr)`, gap: 6 }}>
+      {steps.map((step, index) => {
+        const active = index <= currentIndex
+        return (
+          <div key={step.status} style={{ minWidth: 0 }}>
+            <div style={{ height: 5, borderRadius: 999, background: active ? BRAND : BORDER }} />
+            <div style={{ marginTop: 5, fontSize: 10, color: active ? DARK : SUBTLE, fontWeight: 800, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{step.label}</div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function ProviderCard({
+  orderId,
+  eta,
+  assignedProvider,
+  fallbackName,
+  allowDemoFallback = true,
+}: {
+  orderId?: string
+  eta?: number
+  assignedProvider?: OrderResponse["assignedProvider"] | ProviderAvailability
+  fallbackName?: string
+  allowDemoFallback?: boolean
+}) {
+  const cardProvider = assignedProvider ?? (allowDemoFallback ? provider : undefined)
+  if (!cardProvider) {
+    return (
+      <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 18, padding: 14 }}>
+        <div style={{ fontWeight: 900, color: DARK }}>{fallbackName ?? "Партнер прийняв заявку"}</div>
+        <div style={{ color: MUTED, fontWeight: 700, marginTop: 6, fontSize: 13 }}>Завантажуємо дані виконавця…</div>
+      </div>
+    )
+  }
+  const phone = cardProvider.phone ?? (allowDemoFallback ? provider.phone : undefined)
+  const telegram = cardProvider.telegram ?? (allowDemoFallback ? provider.telegram : undefined)
+  const rating = cardProvider.rating ?? (allowDemoFallback ? provider.rating : undefined)
+  const distanceKm = "distanceKm" in cardProvider && typeof cardProvider.distanceKm === "number" ? cardProvider.distanceKm : undefined
+  const verificationStatus = "verificationStatus" in cardProvider ? cardProvider.verificationStatus : "verified"
+  const distanceLabel =
+    typeof distanceKm === "number"
+      ? distanceKm < 0.15
+        ? "Поруч із вами"
+        : `${distanceKm.toFixed(1)} км від вас`
+      : null
+  return (
+    <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 18, padding: 14, boxShadow: "0 8px 22px rgba(0,0,0,0.05)" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+          <div style={{ width: 48, height: 48, borderRadius: 14, background: SELECTED, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24 }}>🚛</div>
+          <div>
+            <div style={{ fontWeight: 900, color: DARK }}>{cardProvider.name ?? fallbackName ?? "Партнер"}</div>
+            <div style={{ fontSize: 12, color: MUTED, marginTop: 2 }}>{[cardProvider.vehicle, cardProvider.plate].filter(Boolean).join(" · ") || "Дані авто уточнюються"}</div>
+            <div style={{ marginTop: 6 }}><VerificationPill status={verificationStatus} /></div>
+          </div>
+        </div>
+        {typeof rating === "number" ? <div style={{ textAlign: "right", fontWeight: 900, color: BRAND }}>★ {rating}</div> : null}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: phone && telegram ? "1fr 1fr" : "1fr", gap: 10, marginTop: 12 }}>
+        {phone ? <a href={`tel:${phone}`} style={{ textDecoration: "none" }}><SecondaryButton label="📞 Подзвонити" /></a> : null}
+        {telegram ? <a href={`https://t.me/${telegram}${orderId ? `?start=order_${orderId}` : ""}`} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}><SecondaryButton label="💬 Чат" /></a> : null}
+      </div>
+      {eta ? <div style={{ marginTop: 10, color: MUTED, fontSize: 13, fontWeight: 700 }}>Прибуття приблизно за {eta} хв</div> : null}
+      {distanceLabel ? <div style={{ marginTop: 6, color: MUTED, fontSize: 13, fontWeight: 700 }}>{distanceLabel}</div> : null}
+    </div>
+  )
+}
+
+function ScreenLayout({ children, footer }: { children: React.ReactNode; footer?: React.ReactNode }) {
+  return (
+    <div className="pomich-themed-shell pomich-screen-layout" style={{ width: "100%", maxWidth: "100%", minWidth: 0, height: "100%", minHeight: "100%", display: "flex", flexDirection: "column", overflowX: "hidden" }}>
+      <div className="pomich-screen-layout__content" style={{ flex: 1, minWidth: 0, overflow: "auto", overflowX: "hidden" }}>{children}</div>
+      {footer ? <FormFooterBar>{footer}</FormFooterBar> : null}
+    </div>
+  )
+}
+
+function Header({ title, subtitle, onBack, status }: { title: string; subtitle?: string; onBack?: () => void; status?: OrderStatus }) {
+  return (
+    <FormHeader>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+          {onBack ? <button type="button" aria-label="Назад" onClick={onBack} className="pomich-back-btn">←</button> : null}
+          <div style={{ minWidth: 0 }}>
+            <div className="pomich-header-title">{title}</div>
+            {subtitle ? <div className="pomich-header-subtitle">{subtitle}</div> : null}
+          </div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+          <ThemeToggle compact />
+          {status ? <StatusPill status={status} /> : null}
+        </div>
+      </div>
+    </FormHeader>
+  )
+}
+
+
+export default function ProviderFlow({
+  providerToken,
+  providerRegistered = false,
+  onLogout,
+  onRestoreAccount,
+}: {
+  providerToken?: string
+  providerRegistered?: boolean
+  onLogout?: () => void
+  onRestoreAccount?: () => void
+}) {
+  const mapTileTheme: MapTileTheme = "light"
+  const [providerId, setProviderId] = useState(() => getActiveProviderId())
+  const partnerRegisteredFromStorage =
+    typeof window !== "undefined" &&
+    Boolean(window.localStorage.getItem(`pomichPartnerRegistered:${providerId}`))
+  const linkedPartnerId =
+    typeof window !== "undefined" ? window.sessionStorage.getItem("pomichLinkedProviderId") : ""
+  const effectiveProviderRegistered = providerRegistered || partnerRegisteredFromStorage
   const providerSessionStorageKey = useMemo(() => authSessionStorageKey("provider", providerId), [providerId])
   const [providerAccessToken, setProviderAccessToken] = useState<string | undefined>(() => {
     if (isAuthSessionToken(providerToken)) return providerToken
@@ -422,12 +305,26 @@ export default function ProviderFlow({ providerToken }: { providerToken?: string
   })
   const providerAuthToken = providerAccessToken
   const [authError, setAuthError] = useState<string | undefined>()
+
+  const applyProviderSession = (session: AuthSession) => {
+    const resolvedId = resolveSessionProviderId(session, providerId)
+    if (resolvedId) storeLinkedProviderId(resolvedId)
+    if (resolvedId && resolvedId !== providerId) {
+      setProviderId(resolvedId)
+    }
+    storeAuthSession(authSessionStorageKey("provider", resolvedId || providerId), session)
+    setProviderAccessToken(session.accessToken)
+    setAuthError(undefined)
+    return resolvedId || providerId
+  }
   const [accountLogin, setAccountLogin] = useState(providerId)
   const [accountPassword, setAccountPassword] = useState("")
   const [authSaving, setAuthSaving] = useState(false)
+  const [loginView, setLoginView] = useState<"login" | "register">(() => (effectiveProviderRegistered ? "login" : "register"))
   const [step, setStep] = useState<"register" | "verify" | "duty" | "offer" | "awaiting_price" | "navigation" | "arrived" | "completed">(() => {
     if (typeof window === "undefined") return "register"
-    return window.localStorage.getItem(`pomichPartnerRegistered:${getActiveProviderId()}`) ? "duty" : "register"
+    if (effectiveProviderRegistered || window.localStorage.getItem(`pomichPartnerRegistered:${getActiveProviderId()}`)) return "duty"
+    return "register"
   })
   const [onDuty, setOnDuty] = useState(false)
   const [presenceSaving, setPresenceSaving] = useState(false)
@@ -435,6 +332,10 @@ export default function ProviderFlow({ providerToken }: { providerToken?: string
   const [registrationSaving, setRegistrationSaving] = useState(false)
   const [registrationError, setRegistrationError] = useState<string | undefined>()
   const [incomingOffers, setIncomingOffers] = useState<DispatchOffer[]>([])
+  const [nearbyRequestPins, setNearbyRequestPins] = useState<MapRequestPin[]>([])
+  const [mapRequestPins, setMapRequestPins] = useState<MapRequestPin[]>([])
+  const [selectedRequestPin, setSelectedRequestPin] = useState<MapRequestPin | undefined>()
+  const [sheetProposedPrice, setSheetProposedPrice] = useState("")
   const [activeOrder, setActiveOrder] = useState<OrderResponse | undefined>()
   const [offerError, setOfferError] = useState<string | undefined>()
   const [offerSaving, setOfferSaving] = useState(false)
@@ -445,6 +346,9 @@ export default function ProviderFlow({ providerToken }: { providerToken?: string
   const [partnerReviewSaving, setPartnerReviewSaving] = useState(false)
   const [partnerReviewError, setPartnerReviewError] = useState<string | undefined>()
   const [partnerReviewSubmitted, setPartnerReviewSubmitted] = useState(false)
+  const [providerGeoLoading, setProviderGeoLoading] = useState(false)
+  const [providerGeoError, setProviderGeoError] = useState<string | undefined>()
+  const [providerRecenterTrigger, setProviderRecenterTrigger] = useState(0)
   const [providerProfile, setProviderProfile] = useState<ProviderAvailability>({
     id: providerId,
     name: "",
@@ -452,7 +356,7 @@ export default function ProviderFlow({ providerToken }: { providerToken?: string
     vehicle: "",
     plate: "",
     phone: "",
-    telegram: provider.telegram,
+    telegram: "",
     status: "offline",
     etaMinutes: provider.etaMinutes,
     location: PROVIDER_START,
@@ -460,6 +364,21 @@ export default function ProviderFlow({ providerToken }: { providerToken?: string
     serviceRadiusKm: DEFAULT_SERVICE_RADIUS_KM,
   })
   const [registrationForm, setRegistrationForm] = useState<PartnerRegistrationForm>(() => emptyPartnerRegistrationForm())
+  const dismissedOfferIdRef = useRef<string | undefined>(undefined)
+  const dismissedOfferIdsRef = useRef<Set<string>>(new Set())
+  const dismissedOrderIdsRef = useRef<Set<string>>(new Set())
+
+  const rememberDismissedOffer = useCallback((offerId?: string, orderId?: string) => {
+    if (offerId) dismissedOfferIdsRef.current.add(offerId)
+    if (orderId) dismissedOrderIdsRef.current.add(orderId)
+    writePersistedOfferDismissals(providerId, dismissedOfferIdsRef.current, dismissedOrderIdsRef.current)
+  }, [providerId])
+
+  useEffect(() => {
+    const persisted = readPersistedOfferDismissals(providerId)
+    dismissedOfferIdsRef.current = new Set(persisted.offerIds)
+    dismissedOrderIdsRef.current = new Set(persisted.orderIds)
+  }, [providerId])
   const pickup = PICKUP
   const destination = DEFAULT_DESTINATION
   const providerSpecialties = toServiceKeys(providerProfile.specialties)
@@ -483,42 +402,102 @@ export default function ProviderFlow({ providerToken }: { providerToken?: string
   }
   const providerCanGoOnline = isProviderPhoneVerified(providerProfile)
   const telegramContext = useMemo(() => getTelegramContext(), [])
-  const customerIdForOtp = typeof window !== "undefined" ? window.sessionStorage.getItem("pomichCustomerId") : null
-  const customerTokenForOtp = customerIdForOtp
-    ? readStoredAuthSession(authSessionStorageKey("customer", customerIdForOtp), "customer", customerIdForOtp)
-    : undefined
+  const customerAuthSession = useMemo(
+    () => (typeof window !== "undefined" ? readStoredCustomerAuthSession({ telegramChatId: telegramContext.chatId }) : undefined),
+    [telegramContext.chatId],
+  )
+  const customerIdForOtp =
+    customerAuthSession?.customerId ??
+    (typeof window !== "undefined" ? readPersistedCustomerId(telegramContext.chatId) : null)
+  const customerTokenForOtp =
+    customerAuthSession?.token ??
+    (customerIdForOtp
+      ? readStoredAuthSession(authSessionStorageKey("customer", customerIdForOtp), "customer", customerIdForOtp)
+      : undefined)
+  const [customerOtpProfile, setCustomerOtpProfile] = useState<CustomerProfile | undefined>()
 
   useEffect(() => {
     if (providerAuthToken) return
 
-    if (!providerToken) {
-      setAuthError("Партнерська сесія не відкрита. Увійдіть з логіном і паролем або зверніться до диспетчера.")
-      return
-    }
-
     if (isAuthSessionToken(providerToken)) {
-      if (typeof window !== "undefined") window.sessionStorage.setItem(providerSessionStorageKey, providerToken)
+      const subject = readAuthSessionSubject(providerToken) || providerId
+      if (subject) storeLinkedProviderId(subject)
+      if (subject && subject !== providerId) setProviderId(subject)
+      storeAuthSession(authSessionStorageKey("provider", subject), {
+        role: "provider",
+        subjectId: subject,
+        providerId: subject,
+        tokenType: "Bearer",
+        accessToken: providerToken!,
+        expiresAt: Math.floor(Date.now() / 1000) + 3600,
+      })
       setProviderAccessToken(providerToken)
       setAuthError(undefined)
       return
     }
 
     let cancelled = false
-    createProviderSession(providerId, providerToken)
+    const customerId = customerIdForOtp
+    const customerToken = customerTokenForOtp
+
+    const openSession = async () => {
+      // Prefer customer→provider self-session so a stale demo providerToken cannot bind the UI to provider-oleksandr.
+      if (customerId && customerToken) {
+        return createSelfProviderSession(customerId, customerToken)
+      }
+      if (providerToken) {
+        return createProviderSession(providerId, providerToken)
+      }
+      throw new Error("provider_auth_missing")
+    }
+
+    openSession()
       .then((session) => {
         if (cancelled) return
-        storeAuthSession(providerSessionStorageKey, session)
-        setProviderAccessToken(session.accessToken)
-        setAuthError(undefined)
+        applyProviderSession(session)
       })
       .catch(() => {
-        if (!cancelled) setAuthError("Не вдалося відкрити захищену сесію партнера.")
+        if (!cancelled && effectiveProviderRegistered) {
+          setAuthError("Партнерська сесія не відкрита. Увійдіть з логіном і паролем або зверніться до диспетчера.")
+        }
       })
 
     return () => {
       cancelled = true
     }
-  }, [providerAuthToken, providerId, providerSessionStorageKey, providerToken])
+  }, [customerIdForOtp, customerTokenForOtp, providerAuthToken, providerId, effectiveProviderRegistered, providerToken])
+
+  useEffect(() => {
+    if (step !== "verify" || !customerIdForOtp || !customerTokenForOtp) return
+    let cancelled = false
+
+    const loadCustomerForOtp = async () => {
+      try {
+        const profile = await getCustomerProfile(customerIdForOtp, customerTokenForOtp)
+        if (cancelled) return
+        setCustomerOtpProfile(profile)
+        if (!isCustomerVerified(profile)) return
+        const providers = await getProviders()
+        if (cancelled) return
+        const currentProvider = Array.isArray(providers) ? providers.find((item) => item.id === providerId) : undefined
+        if (currentProvider && isProviderPhoneVerified(currentProvider)) {
+          setProviderProfile((prev) => ({
+            ...prev,
+            ...currentProvider,
+            specialties: toServiceKeys(currentProvider.specialties),
+          }))
+          setStep("duty")
+        }
+      } catch {
+        // OTP panel still usable if profile fetch fails.
+      }
+    }
+
+    void loadCustomerForOtp()
+    return () => {
+      cancelled = true
+    }
+  }, [step, customerIdForOtp, customerTokenForOtp, providerId])
 
   useEffect(() => {
     let cancelled = false
@@ -529,7 +508,11 @@ export default function ProviderFlow({ providerToken }: { providerToken?: string
         const currentProvider = providers.find((item) => item.id === providerId)
         if (!currentProvider) return
         const currentSpecialties = toServiceKeys(currentProvider.specialties)
-        setProviderProfile((profile) => ({ ...profile, ...currentProvider, specialties: currentSpecialties.length > 0 ? currentSpecialties : profile.specialties }))
+        setProviderProfile((profile) => {
+          const merged = { ...profile, ...currentProvider, specialties: currentSpecialties.length > 0 ? currentSpecialties : profile.specialties }
+          writeCachedProviderProfile({ ...merged, id: providerId })
+          return merged
+        })
         if (currentProvider.registeredAt) {
           const vehicleFields = hydratePartnerVehicleFromProfile(currentProvider as { vehicle?: string; vehicleMake?: string; vehicleModel?: string })
           setRegistrationForm((form) => ({
@@ -548,7 +531,7 @@ export default function ProviderFlow({ providerToken }: { providerToken?: string
             selfieRef: form.selfieRef,
           }))
           setStep(isProviderPhoneVerified(currentProvider) ? "duty" : "verify")
-        } else {
+        } else if (!effectiveProviderRegistered) {
           setStep("register")
         }
         setOnDuty(currentProvider.status === "online" || currentProvider.status === "busy")
@@ -564,6 +547,25 @@ export default function ProviderFlow({ providerToken }: { providerToken?: string
   }, [providerId])
 
   useEffect(() => {
+    if (!providerId || !providerProfile.name?.trim()) return
+    writeCachedProviderProfile({
+      ...providerProfile,
+      id: providerId,
+    })
+  }, [
+    providerId,
+    providerProfile.name,
+    providerProfile.phone,
+    providerProfile.city,
+    providerProfile.vehicle,
+    providerProfile.plate,
+    providerProfile.status,
+    providerProfile.verificationStatus,
+    providerProfile.specialties,
+    providerProfile.serviceRadiusKm,
+  ])
+
+  useEffect(() => {
     if (!onDuty || typeof navigator === "undefined" || !("geolocation" in navigator)) return
 
     const watchId = navigator.geolocation.watchPosition(
@@ -576,6 +578,22 @@ export default function ProviderFlow({ providerToken }: { providerToken?: string
 
     return () => navigator.geolocation.clearWatch(watchId)
   }, [onDuty])
+
+  const retryProviderGeolocation = () => {
+    setProviderGeoLoading(true)
+    setProviderGeoError(undefined)
+    requestCurrentPosition(
+      (point) => {
+        setProviderLocation(point)
+        setProviderGeoLoading(false)
+        setProviderRecenterTrigger((value) => value + 1)
+      },
+      (message) => {
+        setProviderGeoLoading(false)
+        setProviderGeoError(message)
+      },
+    )
+  }
 
   useEffect(() => {
     if (!onDuty || !providerAuthToken) return
@@ -600,35 +618,45 @@ export default function ProviderFlow({ providerToken }: { providerToken?: string
   }, [])
 
   useEffect(() => {
-    if (!onDuty || !providerAuthToken || activeOrder || step !== "duty") return
+    if (!onDuty || !providerAuthToken || activeOrder || (step !== "duty" && step !== "offer")) return
     let cancelled = false
+    const subjectId = readAuthSessionSubject(providerAuthToken) || providerId
 
     const refreshOffers = () => {
-      getProviderOffers(providerId, providerAuthToken)
+      getProviderOffers(subjectId, providerAuthToken)
         .then((offers) => {
           if (!cancelled) {
-            const activeOffers = filterActiveOffers(Array.isArray(offers) ? offers : [], offerClock)
-            setIncomingOffers(activeOffers)
+            const activeOffers = filterVisibleOffers(Array.isArray(offers) ? offers : [], {
+              dismissedOfferIds: dismissedOfferIdsRef.current,
+              dismissedOrderIds: dismissedOrderIdsRef.current,
+            })
+            setIncomingOffers((prev) => {
+              if (
+                prev.length === activeOffers.length &&
+                prev.every((item, i) => item.id === activeOffers[i]?.id && item.status === activeOffers[i]?.status)
+              ) {
+                return prev
+              }
+              return activeOffers
+            })
             if (activeOffers.length > 0) setOfferError(undefined)
           }
         })
         .catch(() => {
-          if (!cancelled) setIncomingOffers([])
+          if (!cancelled) setIncomingOffers((prev) => (prev.length === 0 ? prev : []))
         })
     }
 
     refreshOffers()
     let pollMs = 4000
     let interval = window.setInterval(refreshOffers, pollMs)
-
     const setPollInterval = (ms: number) => {
       pollMs = ms
       window.clearInterval(interval)
       interval = window.setInterval(refreshOffers, pollMs)
     }
-
-    const stopSse = subscribeProviderEvents(
-      providerId,
+    const stopRealtime = subscribeProviderEvents(
+      subjectId,
       providerAuthToken,
       () => {
         if (!cancelled) refreshOffers()
@@ -642,130 +670,142 @@ export default function ProviderFlow({ providerToken }: { providerToken?: string
         },
       },
     )
-
     return () => {
       cancelled = true
       window.clearInterval(interval)
-      stopSse()
+      stopRealtime()
     }
-  }, [activeOrder, onDuty, providerAuthToken, providerId, step, offerClock])
+  }, [activeOrder, onDuty, providerAuthToken, providerId, step])
 
   useEffect(() => {
-    if (!activeOrder?.id) return
+    if (!onDuty || !providerAuthToken || activeOrder || (step !== "duty" && step !== "offer")) {
+      setNearbyRequestPins((pins) => (pins.length === 0 ? pins : []))
+      return
+    }
     let cancelled = false
+    const radiusKm = providerProfile.serviceRadiusKm ?? registrationForm.serviceRadiusKm ?? DEFAULT_SERVICE_RADIUS_KM
 
-    const refreshActiveOrder = () => {
-      getOrder(activeOrder.id!)
-        .then((order) => {
+    const refreshNearby = () => {
+      getNearbyMapOrders(providerLocation.lat, providerLocation.lng, radiusKm)
+        .then((orders) => {
           if (cancelled) return
-          const normalizedStatus = normalizeOrderStatus(order.status)
-          if (normalizedStatus === "cancelled") {
-            setActiveOrder(undefined)
-            setIncomingOffers([])
-            setProviderProfile((profile) => ({ ...profile, status: "online", assignedOrderId: undefined } as ProviderAvailability))
-            setStep("duty")
-            setOfferError("Заявку скасовано клієнтом.")
-            return
-          }
-          setActiveOrder(order)
-          if (normalizedStatus === "price_confirmed" || normalizedStatus === "en_route" || normalizedStatus === "assigned") {
-            setStep((current) => (current === "awaiting_price" || current === "offer" ? "navigation" : current))
-          } else if (normalizedStatus === "completed") {
-            setStep((current) => (current === "duty" ? current : "completed"))
-          }
+          const visible = (Array.isArray(orders) ? orders : []).filter((pin) => {
+            if (!pin.customerCoordinates) return false
+            if (dismissedOrderIdsRef.current.has(pin.id)) return false
+            if (pin.service && providerSpecialties.length > 0 && !providerSpecialties.includes(pin.service as ServiceKey)) {
+              return false
+            }
+            return true
+          })
+          setNearbyRequestPins((prev) => {
+            if (prev.length === visible.length && prev.every((item, i) => item.id === visible[i]?.id)) {
+              return prev
+            }
+            return visible
+          })
         })
-        .catch(() => undefined)
+        .catch(() => {
+          if (!cancelled) setNearbyRequestPins([])
+        })
     }
 
-    refreshActiveOrder()
-    let pollMs = 2500
-    let interval = window.setInterval(refreshActiveOrder, pollMs)
-
-    const setPollInterval = (ms: number) => {
-      pollMs = ms
-      window.clearInterval(interval)
-      interval = window.setInterval(refreshActiveOrder, pollMs)
-    }
-
-    const stopSse = subscribeOrderEvents(
-      activeOrder.id,
-      () => {
-        if (!cancelled) refreshActiveOrder()
-      },
-      {
-        onConnected: () => {
-          if (!cancelled) setPollInterval(20000)
-        },
-        onDisconnected: () => {
-          if (!cancelled) setPollInterval(2500)
-        },
-      },
-    )
-
+    refreshNearby()
+    const interval = window.setInterval(refreshNearby, 8000)
     return () => {
       cancelled = true
       window.clearInterval(interval)
-      stopSse()
     }
-  }, [activeOrder?.id])
+  }, [
+    activeOrder,
+    onDuty,
+    providerAuthToken,
+    providerLocation.lat,
+    providerLocation.lng,
+    providerProfile.serviceRadiusKm,
+    providerSpecialties,
+    registrationForm.serviceRadiusKm,
+    step,
+  ])
 
-  const returnToDuty = () => {
-    setActiveOrder(undefined)
-    setPartnerReviewSaving(false)
-    setPartnerReviewError(undefined)
-    setPartnerReviewSubmitted(false)
-    setOfferError(undefined)
-    setProviderProfile((profile) => ({
-      ...profile,
-      status: onDuty ? "online" : profile.status,
-      assignedOrderId: undefined,
-    } as ProviderAvailability))
-    setStep("duty")
-  }
-
-  const submitPartnerOrderReview = async ({ rating, comment }: { rating: number; comment: string }) => {
-    if (!activeOrder?.id) return
-    setPartnerReviewSaving(true)
-    setPartnerReviewError(undefined)
-    try {
-      const updated = await submitOrderReview(
-        activeOrder.id,
+  /* Duty map: pins = active offers + nearby searching orders. Expired/closed never stay on the map. */
+  useEffect(() => {
+    if (!onDuty || (step !== "duty" && step !== "offer")) {
+      setMapRequestPins((pins) => (pins.length === 0 ? pins : []))
+      return
+    }
+    const active = filterActiveOffers(incomingOffers, offerClock)
+    if (active.length !== incomingOffers.length) {
+      setIncomingOffers(active)
+      return
+    }
+    setMapRequestPins((prev) => {
+      const next = mergeRequestPins(
+        incomingOffers,
+        nearbyRequestPins,
         {
-          role: "partner",
-          rating,
-          comment,
-          authorId: providerId,
-          providerId,
+          dismissedOfferIds: dismissedOfferIdsRef.current,
+          dismissedOrderIds: dismissedOrderIdsRef.current,
         },
-        providerAuthToken,
+        offerClock,
       )
-      setActiveOrder(updated)
-      setPartnerReviewSubmitted(true)
-    } catch (err) {
-      setPartnerReviewError(messageFromFetchError(err, "Не вдалося зберегти оцінку. Спробуйте ще раз."))
-    } finally {
-      setPartnerReviewSaving(false)
-    }
-  }
+      if (prev.length === next.length && prev.every((p, i) => p.id === next[i]?.id && p.offerId === next[i]?.offerId)) {
+        return prev
+      }
+      return next
+    })
+  }, [incomingOffers, nearbyRequestPins, offerClock, onDuty, step])
 
-  const activeOffer = incomingOffers.find((offer) => isOfferActive(offer, offerClock))
-  const secondsLeft = offerSecondsLeft(activeOffer, offerClock)
+  useEffect(() => {
+    if (!selectedRequestPin) return
+    const stillOpen = mapRequestPins.some(
+      (pin) => pin.id === selectedRequestPin.id || (pin.offerId && pin.offerId === selectedRequestPin.offerId),
+    )
+    if (stillOpen) return
+    setSelectedRequestPin(undefined)
+    setSheetProposedPrice("")
+    if (step === "offer") setStep("duty")
+  }, [mapRequestPins, selectedRequestPin, step])
+
+  const activeOffer = incomingOffers.find((offer) => isPresentableOffer(offer, offerClock))
+  const selectedOffer = selectedRequestPin
+    ? incomingOffers.find((item) => item.id === selectedRequestPin.offerId || item.orderId === selectedRequestPin.id)
+    : undefined
+  const secondsLeft = offerSecondsLeft(selectedOffer ?? activeOffer, offerClock)
+
+  useEffect(() => {
+    if (!activeOffer) {
+      dismissedOfferIdRef.current = undefined
+    }
+  }, [activeOffer?.id])
 
   useEffect(() => {
     if (step !== "offer" || !activeOffer || secondsLeft > 0) return
+    // Keep the offer visible briefly with an error; do not wipe price-required state onto the empty duty map.
     setOfferError("Пропозиція вже завершилась. Очікуйте нову заявку.")
     setIncomingOffers((offers) => offers.filter((item) => item.id !== activeOffer.id))
+    setSelectedRequestPin(undefined)
     setStep("duty")
-  }, [activeOffer, secondsLeft, step])
+  }, [activeOffer?.id, secondsLeft, step])
 
   useEffect(() => {
     if (step !== "duty") return
-    if (activeOffer) return
+    if (activeOffer || selectedRequestPin) return
     if (!offerError) return
-    if (offerError === "Вкажіть вартість послуги в гривнях." || offerError.includes("Вкажіть вартість")) {
+    if (
+      offerError === "Вкажіть вартість послуги в гривнях."
+      || offerError.includes("Вкажіть вартість")
+    ) {
       setOfferError(undefined)
     }
-  }, [step, activeOffer, offerError])
+  }, [step, activeOffer?.id, selectedRequestPin?.id, offerError])
+
+  const openOfferDetail = (offer: DispatchOffer) => {
+    const pin = mapRequestPins.find((item) => item.id === offer.orderId || item.offerId === offer.id) ?? pinFromOffer(offer)
+    setSelectedRequestPin(pin)
+    setSheetProposedPrice(proposedPrice)
+    setOfferError(undefined)
+    setStep("offer")
+  }
 
   const handleOfferAcceptBlocked = (reason: "expired" | "price") => {
     if (reason === "expired") {
@@ -773,15 +813,24 @@ export default function ProviderFlow({ providerToken }: { providerToken?: string
       if (activeOffer) {
         setIncomingOffers((offers) => offers.filter((item) => item.id !== activeOffer.id))
       }
+      setSelectedRequestPin(undefined)
       setStep("duty")
       return
     }
     setOfferError("Вкажіть вартість послуги в гривнях.")
   }
 
-  const acceptOffer = async (offer: DispatchOffer) => {
-    const parsedPrice = Number(proposedPrice.replace(",", "."))
-    if (!Number.isFinite(parsedPrice) || parsedPrice <= 0) {
+  const syncProposedPrice = (value: string) => {
+    const cleaned = value.replace(/[^\d.,]/g, "")
+    setProposedPrice(cleaned)
+    setSheetProposedPrice(cleaned)
+    if (offerError === "Вкажіть вартість послуги в гривнях.") setOfferError(undefined)
+  }
+
+  const acceptOffer = async (offer: DispatchOffer, priceOverride?: string) => {
+    const priceSource = priceOverride ?? proposedPrice
+    const parsedPrice = parseOfferPrice(priceSource)
+    if (typeof parsedPrice !== "number") {
       setOfferError("Вкажіть вартість послуги в гривнях.")
       return
     }
@@ -789,26 +838,34 @@ export default function ProviderFlow({ providerToken }: { providerToken?: string
     setOfferSaving(true)
     setOfferError(undefined)
     try {
-      if (!providerAuthToken) throw new Error("provider_session_missing")
-      const result = await acceptProviderOffer(providerId, offer.id, providerAuthToken, {
+      const session = await ensureProviderSession()
+      const result = await acceptProviderOffer(session.providerId, offer.id, session.token, {
         proposedPrice: parsedPrice,
         priceNote: priceNote.trim() || undefined,
       })
+      if (result.order?.id) {
+        persistActiveOrder(result.order.id, normalizeOrderStatus(result.order.status))
+        rememberDismissedOffer(offer.id, offer.orderId)
+      }
       setActiveOrder(result.order)
       setProviderProfile((profile) => ({ ...profile, status: "busy", assignedOrderId: result.order.id } as ProviderAvailability))
       setIncomingOffers([])
+      setSelectedRequestPin(undefined)
+      setSheetProposedPrice("")
       setOnDuty(true)
       setProposedPrice("")
       setPriceNote("")
       setStep("awaiting_price")
     } catch (error) {
-      const detail = (error as { detail?: { code?: string; message?: string } }).detail
-      if (detail?.code === "PRICE_REQUIRED") {
-        setOfferError("Вкажіть вартість послуги в гривнях.")
-        return
+      const message = offerActionErrorMessage(error, "Не вдалося прийняти заявку. Спробуйте ще раз.")
+      setOfferError(message)
+      const code = (error as { detail?: { code?: string } }).detail?.code
+      if (code === "OFFER_EXPIRED" || code === "ORDER_ALREADY_ACCEPTED" || code === "OFFER_NOT_FOUND") {
+        rememberDismissedOffer(offer.id, offer.orderId)
+        setIncomingOffers((offers) => offers.filter((item) => item.id !== offer.id))
+        setSelectedRequestPin(undefined)
+        setStep("duty")
       }
-      setOfferError(detail?.code === "OFFER_EXPIRED" ? "Пропозиція вже завершилась." : "Замовлення вже прийняв інший виконавець.")
-      setIncomingOffers((offers) => offers.filter((item) => item.id !== offer.id))
     } finally {
       setOfferSaving(false)
     }
@@ -817,15 +874,94 @@ export default function ProviderFlow({ providerToken }: { providerToken?: string
   const declineOffer = async (offer: DispatchOffer) => {
     setOfferSaving(true)
     setOfferError(undefined)
+    dismissedOfferIdRef.current = offer.id
+    rememberDismissedOffer(offer.id, offer.orderId)
+    setIncomingOffers((offers) => offers.filter((item) => item.id !== offer.id && item.orderId !== offer.orderId))
+    setSelectedRequestPin(undefined)
+    setStep("duty")
     try {
-      if (!providerAuthToken) throw new Error("provider_session_missing")
-      await declineProviderOffer(providerId, offer.id, providerAuthToken)
-      setIncomingOffers((offers) => offers.filter((item) => item.id !== offer.id))
-    } catch {
-      setOfferError("Не вдалося пропустити заявку.")
+      const session = await ensureProviderSession()
+      await declineProviderOffer(session.providerId, offer.id, session.token)
+    } catch (error) {
+      const code = (error as { detail?: { code?: string } }).detail?.code
+      // Already declined / missing — keep it dismissed locally.
+      if (code !== "OFFER_DECLINED" && code !== "OFFER_NOT_FOUND" && code !== "OFFER_EXPIRED") {
+        setOfferError(offerActionErrorMessage(error, "Не вдалося пропустити заявку."))
+      }
     } finally {
       setOfferSaving(false)
     }
+  }
+
+  const openRequestPin = (pin: MapRequestPin) => {
+    const matchedOffer = incomingOffers.find((item) => item.id === pin.offerId || item.orderId === pin.id)
+    if (matchedOffer && !isPresentableOffer(matchedOffer, offerClock)) {
+      setOfferError("Пропозиція вже завершилась. Очікуйте нову заявку.")
+      setSelectedRequestPin(undefined)
+      setMapRequestPins((pins) => pins.filter((item) => item.id !== pin.id && item.offerId !== pin.offerId))
+      return
+    }
+    setSelectedRequestPin(pin)
+    setSheetProposedPrice(proposedPrice)
+    setOfferError(undefined)
+  }
+
+  const declineFromSheet = async () => {
+    if (!selectedRequestPin) return
+    const offer = incomingOffers.find((item) => item.id === selectedRequestPin.offerId || item.orderId === selectedRequestPin.id)
+    if (offer) {
+      await declineOffer(offer)
+      return
+    }
+    rememberDismissedOffer(undefined, selectedRequestPin.id)
+    setNearbyRequestPins((pins) => pins.filter((item) => item.id !== selectedRequestPin.id))
+    setSelectedRequestPin(undefined)
+    setSheetProposedPrice("")
+    setOfferError(undefined)
+  }
+
+  const acceptFromMapPin = (pin: MapRequestPin) => {
+    openRequestPin(pin)
+  }
+
+  const acceptFromSheet = async (priceOverride?: string) => {
+    if (!selectedRequestPin) return
+    const priceSource = priceOverride ?? sheetProposedPrice
+    if (priceSource.trim()) {
+      setProposedPrice(priceSource)
+      setSheetProposedPrice(priceSource)
+    }
+    let offer = incomingOffers.find((item) => item.id === selectedRequestPin.offerId || item.orderId === selectedRequestPin.id)
+    if (!offer) {
+      setOfferSaving(true)
+      setOfferError(undefined)
+      try {
+        const session = await ensureProviderSession()
+        await retryDispatch(selectedRequestPin.id)
+        const offers = await getProviderOffers(session.providerId, session.token)
+        setIncomingOffers(Array.isArray(offers) ? offers : [])
+        offer = offers.find((item) => item.orderId === selectedRequestPin.id)
+      } catch {
+        setOfferError("Не вдалося отримати заявку. Спробуйте ще раз.")
+        setOfferSaving(false)
+        return
+      } finally {
+        setOfferSaving(false)
+      }
+    }
+    if (!offer) {
+      setOfferError("Заявку надіслано. Очікуйте пропозицію протягом кількох секунд.")
+      return
+    }
+    await acceptOffer(offer, priceSource)
+  }
+
+  const contactFromMapPin = (pin: MapRequestPin) => {
+    if (pin.phone) {
+      window.location.href = `tel:${pin.phone}`
+      return
+    }
+    setOfferError("Телефон клієнта буде доступний після прийняття заявки.")
   }
 
   const advanceProviderOrder = async (nextStatus: OrderStatus) => {
@@ -836,6 +972,9 @@ export default function ProviderFlow({ providerToken }: { providerToken?: string
       const normalizedStatus = normalizeOrderStatus(order.status)
       setActiveOrder(order)
       if (normalizedStatus === "completed" || normalizedStatus === "cancelled") {
+        rememberDismissedOffer(undefined, order.id)
+        setIncomingOffers([])
+        clearActiveOrder()
         setProviderProfile((profile) => ({ ...profile, status: "online", assignedOrderId: undefined } as ProviderAvailability))
         setPartnerReviewSubmitted(Boolean(order.partnerReview?.rating))
         setPartnerReviewError(undefined)
@@ -863,6 +1002,80 @@ export default function ProviderFlow({ providerToken }: { providerToken?: string
     }))
   }
 
+  const ensureProviderSession = async (): Promise<{ token: string; providerId: string }> => {
+    if (providerAuthToken) {
+      const subject =
+        readAuthSessionSubject(providerAuthToken) ||
+        (typeof window !== "undefined" ? window.sessionStorage.getItem("pomichLinkedProviderId") : null) ||
+        providerId
+      if (subject && subject !== providerId) {
+        setProviderId(subject)
+        storeLinkedProviderId(subject)
+      } else if (subject) {
+        storeLinkedProviderId(subject)
+      }
+      return { token: providerAuthToken, providerId: subject }
+    }
+
+    const customerId =
+      customerIdForOtp ||
+      (typeof window !== "undefined"
+        ? window.sessionStorage.getItem("pomichCustomerId") || window.localStorage.getItem("pomichCustomerId")
+        : null)
+    const customerToken = customerId
+      ? readStoredAuthSession(authSessionStorageKey("customer", customerId), "customer", customerId)
+      : undefined
+
+    if (customerId && customerToken) {
+      const linkedId = resolveProviderIdForCustomer(customerId)
+      if (linkedId) storeLinkedProviderId(linkedId)
+      await setUserPreferredRole(customerId, "provider", customerToken).catch(() => undefined)
+      const session = await createSelfProviderSession(customerId, customerToken)
+      const resolvedId = applyProviderSession(session)
+      return { token: session.accessToken, providerId: resolvedId }
+    }
+
+    if (providerToken) {
+      const session = await createProviderSession(providerId, providerToken)
+      const resolvedId = applyProviderSession(session)
+      return { token: session.accessToken, providerId: resolvedId }
+    }
+
+    throw Object.assign(new Error("provider_session_missing"), { detail: "provider_session_missing" })
+  }
+
+  useEffect(() => {
+    if (!providerAuthToken || activeOrder) return
+    let cancelled = false
+    const restoreAssignedOrder = async () => {
+      try {
+        const session = await ensureProviderSession()
+        if (cancelled) return
+        const orders = await getProviderOrders(session.providerId, session.token, 20)
+        if (cancelled) return
+        const active = pickLatestActiveOrder(orders)
+        if (!active?.orderId) return
+        const full = orders.find((item) => item.id === active.orderId) ?? (await getOrder(active.orderId))
+        if (cancelled || !full?.id) return
+        const nextStatus = normalizeOrderStatus(full.status)
+        setActiveOrder(full)
+        persistActiveOrder(full.id, nextStatus)
+        setProviderProfile((profile) => ({ ...profile, status: "busy", assignedOrderId: full.id } as ProviderAvailability))
+        if (nextStatus === "accepted") setStep("awaiting_price")
+        else if (nextStatus === "arrived" || nextStatus === "in_progress") setStep("arrived")
+        else if (nextStatus === "completed") setStep("completed")
+        else setStep("navigation")
+      } catch {
+        // Keep duty map if restore fails.
+      }
+    }
+    void restoreAssignedOrder()
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [providerAuthToken, providerId])
+
   const saveRegistration = async () => {
     const nameValidation = validatePersonName(registrationForm.name)
     const phoneValidation = validateUkraineMobilePhone(registrationForm.phone)
@@ -888,8 +1101,8 @@ export default function ProviderFlow({ providerToken }: { providerToken?: string
     setRegistrationSaving(true)
     setRegistrationError(undefined)
     try {
-      if (!providerAuthToken) throw new Error("provider_session_missing")
-      const updated = await updateProviderProfile(providerId, {
+      const session = await ensureProviderSession()
+      const updated = await updateProviderProfile(session.providerId, {
         name: nameValidation.value,
         phone: phoneValidation.e164,
         telegram: registrationForm.telegram,
@@ -901,15 +1114,24 @@ export default function ProviderFlow({ providerToken }: { providerToken?: string
         specialties: registrationForm.specialties,
         serviceRadiusKm: registrationForm.serviceRadiusKm,
         location: providerLocation,
-      }, providerAuthToken)
+      }, session.token)
       setProviderProfile((profile) => ({ ...profile, ...updated, specialties: toServiceKeys(updated.specialties) }))
       if (typeof window !== "undefined") {
-        window.localStorage.setItem(`pomichPartnerRegistered:${providerId}`, "1")
+        window.localStorage.setItem(`pomichPartnerRegistered:${session.providerId}`, "1")
         window.localStorage.setItem("pomichPreferredCity", cityValidation.value)
       }
       setStep(isProviderPhoneVerified(updated) ? "duty" : "verify")
+      setLoginView("login")
     } catch (error) {
-      setRegistrationError(error instanceof Error ? error.message : "Не вдалося зберегти профіль партнера.")
+      const code = error instanceof ApiRequestError ? error.code : undefined
+      const message =
+        error instanceof Error ? error.message : "Не вдалося зберегти профіль партнера. Перевірте підключення та спробуйте ще раз."
+      setRegistrationError(
+        code === "phone_already_registered" || /phone_already_registered/i.test(message)
+          ? "Цей номер уже зареєстровано. Увійдіть за номером або використайте інший."
+          : message,
+      )
+      // phone_already_registered: keep form + «Увійти за цим номером» CTA (onRestoreAccount).
     } finally {
       setRegistrationSaving(false)
     }
@@ -933,13 +1155,12 @@ export default function ProviderFlow({ providerToken }: { providerToken?: string
     setOfferError(undefined)
     setPresenceToast(undefined)
     try {
-      if (!providerAuthToken) throw Object.assign(new Error("provider_session_missing"), { detail: "provider_session_missing" })
-      const presenceId = readAuthSessionSubject(providerAuthToken) || providerId
-      const updated = await updateProviderPresence(presenceId, {
+      const session = await ensureProviderSession()
+      const updated = await updateProviderPresence(session.providerId, {
         status: nextDuty ? "online" : "offline",
         location: providerLocation,
         etaMinutes: providerProfile.etaMinutes ?? provider.etaMinutes,
-      }, providerAuthToken)
+      }, session.token)
       setOnDuty(nextDuty)
       setProviderProfile((profile) => ({ ...profile, ...updated, status: updated.status ?? (nextDuty ? "online" : "offline") }))
     } catch (error) {
@@ -969,17 +1190,142 @@ export default function ProviderFlow({ providerToken }: { providerToken?: string
     setAuthError(undefined)
     try {
       const session = await createProviderAccountSession(providerId, accountLogin, accountPassword)
-      storeAuthSession(providerSessionStorageKey, session)
-      setProviderAccessToken(session.accessToken)
+      applyProviderSession(session)
       setAccountPassword("")
-    } catch {
-      setAuthError("Не вдалося увійти в акаунт партнера.")
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : "Не вдалося увійти в акаунт партнера.")
     } finally {
       setAuthSaving(false)
     }
   }
 
+  useEffect(() => {
+    if (!activeOrder?.id) return
+    let cancelled = false
+
+    const refreshActiveOrder = () => {
+      getOrder(activeOrder.id!)
+        .then((order) => {
+          if (cancelled) return
+          const normalizedStatus = normalizeOrderStatus(order.status)
+          if (normalizedStatus === "cancelled") {
+            rememberDismissedOffer(undefined, activeOrder.id)
+            setActiveOrder(undefined)
+            clearActiveOrder()
+            setIncomingOffers([])
+            setProviderProfile((profile) => ({ ...profile, status: "online", assignedOrderId: undefined } as ProviderAvailability))
+            setStep("duty")
+            return
+          }
+          setActiveOrder(order)
+          if (step === "awaiting_price" && (normalizedStatus === "price_confirmed" || normalizedStatus === "en_route")) {
+            setStep("navigation")
+          } else if (normalizedStatus === "completed" && step !== "duty") {
+            rememberDismissedOffer(undefined, order.id)
+            setIncomingOffers([])
+            clearActiveOrder()
+            setProviderProfile((profile) => ({ ...profile, status: "online", assignedOrderId: undefined } as ProviderAvailability))
+            setStep("completed")
+          }
+        })
+        .catch(() => undefined)
+    }
+
+    refreshActiveOrder()
+    const interval = window.setInterval(refreshActiveOrder, 4000)
+    return () => {
+      cancelled = true
+      window.clearInterval(interval)
+    }
+  }, [activeOrder?.id, step])
+
+  const returnToDuty = useCallback(() => {
+    if (activeOrder?.id) {
+      rememberDismissedOffer(undefined, activeOrder.id)
+    }
+    setActiveOrder(undefined)
+    clearActiveOrder()
+    setIncomingOffers([])
+    setPartnerReviewSaving(false)
+    setPartnerReviewError(undefined)
+    setPartnerReviewSubmitted(false)
+    setOfferError(undefined)
+    setSelectedRequestPin(undefined)
+    setProviderProfile((profile) => ({
+      ...profile,
+      status: onDuty ? "online" : profile.status,
+      assignedOrderId: undefined,
+    } as ProviderAvailability))
+    setStep("duty")
+  }, [activeOrder?.id, onDuty, rememberDismissedOffer])
+
+  const submitPartnerOrderReview = useCallback(async ({ rating, comment }: { rating: number; comment: string }) => {
+    if (!activeOrder?.id) return
+    setPartnerReviewSaving(true)
+    setPartnerReviewError(undefined)
+    try {
+      const authorProviderId =
+        activeOrder.assignedProviderId || activeOrder.partnerId || providerId
+      const updated = await submitOrderReview(
+        activeOrder.id,
+        {
+          role: "partner",
+          rating,
+          comment,
+          authorId: authorProviderId,
+          providerId: authorProviderId,
+        },
+        providerAuthToken,
+      )
+      setActiveOrder(updated)
+      setPartnerReviewSubmitted(true)
+    } catch (err) {
+      const message = messageFromFetchError(err, "Не вдалося зберегти оцінку. Спробуйте ще раз.")
+      if (message.includes("already") || message.includes("вже") || /REVIEW_ALREADY/i.test(String(err))) {
+        setPartnerReviewSubmitted(true)
+        try {
+          const refreshed = await getOrder(activeOrder.id)
+          setActiveOrder(refreshed)
+        } catch {
+          /* ignore */
+        }
+      } else {
+        setPartnerReviewError(message)
+      }
+    } finally {
+      setPartnerReviewSaving(false)
+    }
+  }, [activeOrder?.id, activeOrder?.assignedProviderId, activeOrder?.partnerId, providerId, providerAuthToken])
+
+  const openPartnerRestoreOrLogin = () => {
+    // Prefer phone OTP restore (linked provider) over password login dead-end.
+    if (onRestoreAccount) {
+      onRestoreAccount()
+      return
+    }
+    setRegistrationError(undefined)
+    setLoginView("login")
+  }
+
   if (!providerAuthToken && !providerToken) {
+    // Already-registered partner: wait for customer→provider self-session instead of flashing login/register.
+    if (effectiveProviderRegistered && customerIdForOtp && customerTokenForOtp) {
+      return <div className="pomich-boot-screen">Завантажуємо кабінет партнера…</div>
+    }
+    if (loginView === "register") {
+      return (
+        <ProviderRegistrationStep
+          form={registrationForm}
+          saving={registrationSaving}
+          error={registrationError}
+          onChange={updateRegistrationForm}
+          onToggleSpecialty={toggleRegistrationSpecialty}
+          onSubmit={saveRegistration}
+          onLogin={openPartnerRestoreOrLogin}
+        />
+      )
+    }
+
     return (
       <AccountLoginStep
         title="Вхід партнера"
@@ -991,12 +1337,16 @@ export default function ProviderFlow({ providerToken }: { providerToken?: string
         onLoginChange={setAccountLogin}
         onPasswordChange={setAccountPassword}
         onSubmit={submitProviderAccountLogin}
+        onRegister={() => {
+          setAuthError(undefined)
+          setLoginView("register")
+        }}
       />
     )
   }
 
   if (step === "verify") {
-    const otpProfile: CustomerProfile = {
+    const otpProfile: CustomerProfile = customerOtpProfile ?? {
       id: customerIdForOtp || providerId,
       name: providerProfile.name || registrationForm.name,
       phone: providerProfile.phone || registrationForm.phone,
@@ -1005,8 +1355,8 @@ export default function ProviderFlow({ providerToken }: { providerToken?: string
     return (
       <ScreenLayout>
         <Header title="Підтвердження телефону" subtitle="Спочатку телефон, потім код з Telegram" />
-        <div style={{ padding: "8px 16px 16px" }}>
-          <div style={{ background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 18, padding: 14 }}>
+        <FormContainer>
+          <div className="pomich-form-card">
             <OtpVerificationPanel
               profile={otpProfile}
               customerToken={customerTokenForOtp}
@@ -1028,7 +1378,7 @@ export default function ProviderFlow({ providerToken }: { providerToken?: string
               }}
             />
           </div>
-        </div>
+        </FormContainer>
       </ScreenLayout>
     )
   }
@@ -1038,103 +1388,153 @@ export default function ProviderFlow({ providerToken }: { providerToken?: string
       <ProviderRegistrationStep
         form={registrationForm}
         saving={registrationSaving}
-        error={authError ?? registrationError}
+        error={registrationError}
         onChange={updateRegistrationForm}
         onToggleSpecialty={toggleRegistrationSpecialty}
         onSubmit={saveRegistration}
+        onLogin={onRestoreAccount ? openPartnerRestoreOrLogin : undefined}
       />
     )
   }
 
-  if (step === "awaiting_price") {
-    const proposed = activeOrder?.partnerProposedPrice
-    return (
-      <ScreenLayout footer={<SecondaryButton label="Повернутись до карти" onClick={() => setStep("duty")} />}>
-        <Header title="Очікуємо клієнта" subtitle={activeOrder?.id ? `Замовлення #${activeOrder.id}` : undefined} status="accepted" />
-        <div style={{ padding: "8px 16px 16px", display: "grid", gap: 12 }}>
-          <div style={{ background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 18, padding: 16 }}>
-            <div style={{ fontWeight: 950, fontSize: 20, color: DARK }}>Ціну надіслано клієнту</div>
-            <div style={{ color: "#6B7280", fontWeight: 750, marginTop: 8, lineHeight: 1.45 }}>
-              Ви запропонували {typeof proposed === "number" ? `${proposed.toLocaleString("uk-UA")} ₴` : "ціну"}. Клієнт підтвердить або зв'яжеться для обговорення.
-            </div>
-          </div>
-          {offerError ? <div style={{ background: "#FFF1F2", color: "#BE123C", borderRadius: 14, padding: 12, fontWeight: 800 }}>{offerError}</div> : null}
-        </div>
-      </ScreenLayout>
-    )
-  }
-
   if (step === "duty") {
-    if (activeOffer) {
-      return (
-        <IncomingOfferStep
-          offer={activeOffer}
-          providerLocation={providerLocation}
-          secondsLeft={secondsLeft}
-          saving={offerSaving}
-          error={offerError}
-          proposedPrice={proposedPrice}
-          priceNote={priceNote}
-          onProposedPriceChange={setProposedPrice}
-          onPriceNoteChange={setPriceNote}
-          onAccept={() => acceptOffer(activeOffer)}
-          onDecline={() => declineOffer(activeOffer)}
-          onAcceptBlocked={handleOfferAcceptBlocked}
-        />
-      )
-    }
-
     return (
-      <ScreenLayout footer={onDuty ? <div style={{ display: "grid", gap: 10 }}><PrimaryButton label="Дивитися заявки поруч" onClick={() => setStep("offer")} disabled={!providerAuthToken} /><SecondaryButton label="Піти з лінії" onClick={() => setDuty(false)} disabled={presenceSaving} /><SecondaryButton label="Редагувати профіль" onClick={() => setStep("register")} /></div> : <div style={{ display: "grid", gap: 10 }}><PrimaryButton label={!providerCanGoOnline ? "Підтвердити телефон" : presenceSaving ? "Оновлюємо статус…" : "Вийти на лінію"} onClick={() => (providerCanGoOnline ? setDuty(true) : setStep("verify"))} disabled={presenceSaving} /><SecondaryButton label="Редагувати профіль" onClick={() => setStep("register")} /></div>}>
-        <Header title="Партнер POMICH" subtitle={onDuty ? "Ви на лінії та бачите заявки поруч" : "Почніть зміну, щоб клієнти бачили вас на карті"} />
-        <div className="pomich-flow-panel">
-          {authError ? <div style={{ background: "#FFF1F2", color: "#BE123C", borderRadius: 14, padding: 12, fontWeight: 800, fontSize: "var(--pomich-text-sm)" }}>{authError}</div> : null}
-          <RouteMap
-            pickup={providerLocation}
-            providers={onDuty ? [providerPresence] : []}
-            subtitle={onDuty ? "Ваша позиція активна" : "Ваша позиція прихована для клієнтів"}
-            onUserLocationChange={setProviderLocation}
-          />
-          <div className="pomich-duty-panel">
-            <div className="pomich-duty-panel__head">
-              <div>
-                <div className="pomich-duty-panel__label">Статус зміни</div>
-                <div className="pomich-duty-panel__status">{onDuty ? "На лінії" : "Поза лінією"}</div>
-              </div>
-              <DutyStatusToggle onDuty={onDuty} saving={presenceSaving} disabled={!providerAuthToken} onToggle={handleDutyToggle} />
+      <>
+      <RideScreen
+        pickup={providerLocation}
+        providers={onDuty ? [providerPresence] : []}
+        requestPins={mapRequestPins}
+        mapSubtitle={onDuty ? `На лінії · ${mapRequestPins.length} заявок поруч` : "Україна · партнер"}
+        showAllProviders={false}
+        showDirectoryProviders={false}
+        expandedSheet={onDuty}
+        defaultSnap="half"
+        onAcceptRequest={acceptFromMapPin}
+        onContactRequest={contactFromMapPin}
+        onRequestPinSelect={openRequestPin}
+        onRetryGeo={retryProviderGeolocation}
+        geoLoading={providerGeoLoading}
+        geoError={providerGeoError}
+        recenterTrigger={providerRecenterTrigger}
+      >
+        <div data-sheet-peek>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+            <div>
+              <div style={{ color: MUTED, fontWeight: 800, fontSize: 12 }}>Партнер POMICH</div>
+              <div style={{ color: DARK, fontWeight: 950, fontSize: 18, marginTop: 2 }}>{onDuty ? "На лінії" : "Поза лінією"}</div>
             </div>
-            <div className="pomich-duty-stat-grid">
-              <div className="pomich-duty-stat">
-                <div className="pomich-duty-stat__label">Зона</div>
-                <div className="pomich-duty-stat__value">Ужгород · 7 км</div>
-              </div>
-              <div className="pomich-duty-stat">
-                <div className="pomich-duty-stat__label">ETA клієнту</div>
-                <div className="pomich-duty-stat__value">~{provider.etaMinutes} хв</div>
-              </div>
-            </div>
-            <div className="pomich-duty-panel__note">
-              {onDuty ? "Клієнти бачать вашу картку, рейтинг, приблизний час прибуття та можуть отримати вас після створення заявки." : "Поки ви поза лінією, клієнт бачить менше доступних механіків поруч."}
-            </div>
+            <DutyStatusToggle onDuty={onDuty} saving={presenceSaving} disabled={presenceSaving} onToggle={handleDutyToggle} />
           </div>
-          <div className="pomich-inline-card">
+          {activeOffer ? (
+            <div style={{ marginTop: 10, background: "var(--pomich-warn-bg)", color: "var(--pomich-warn-text)", borderRadius: 14, padding: 10, fontWeight: 850, fontSize: "var(--pomich-text-sm)" }}>
+              Нова заявка · {secondsLeft > 0 ? `${secondsLeft} сек` : "час вийшов"}
+            </div>
+          ) : null}
+          {onDuty ? (
+            <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
+              <SecondaryButton label="Піти з лінії" onClick={() => setDuty(false)} disabled={!providerAuthToken} />
+              {activeOffer ? (
+                <PrimaryButton
+                  label={offerSaving ? "Приймаємо…" : "Відкрити заявку"}
+                  onClick={() => openOfferDetail(activeOffer)}
+                  disabled={offerSaving}
+                />
+              ) : null}
+            </div>
+          ) : (
+            <div style={{ marginTop: 10 }}>
+              <PrimaryButton
+                label={!providerCanGoOnline ? "Підтвердити телефон" : presenceSaving ? "Оновлюємо статус…" : "Вийти на лінію"}
+                onClick={() => (providerCanGoOnline ? setDuty(true) : setStep("verify"))}
+                disabled={presenceSaving}
+              />
+            </div>
+          )}
+        </div>
+        <div data-sheet-full>
+        <SheetHeading title="Партнер POMICH" subtitle={onDuty ? "Ви на лінії — заявки на карті" : "Вийдіть на лінію, щоб бачити заявки"} />
+        <div style={{ marginTop: 14, display: "grid", gap: 12 }}>
+          {authError ? <div style={{ background: "var(--pomich-error-bg)", color: "var(--pomich-error-text)", borderRadius: 14, padding: 12, fontWeight: 800 }}>{authError}</div> : null}
+          {activeOffer ? (
+            <div style={{ background: "var(--pomich-warn-bg)", color: "var(--pomich-warn-text)", borderRadius: 14, padding: 12, fontWeight: 850, fontSize: "var(--pomich-text-sm)" }}>
+              Нова заявка · {secondsLeft > 0 ? `${secondsLeft} сек` : "час вийшов"} — відкрийте деталі нижче
+            </div>
+          ) : null}
+          <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 18, padding: 16 }}>
             <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
               <div>
-                <div style={{ fontWeight: 950, color: DARK, fontSize: "var(--pomich-text-base)" }}>Профіль допомоги</div>
-                <div style={{ color: "#6B7280", fontSize: "var(--pomich-text-xs)", fontWeight: 800, marginTop: 3 }}>{providerPresence.vehicle || "Авто не вказано"} · радіус {providerPresence.serviceRadiusKm ?? DEFAULT_SERVICE_RADIUS_KM} км</div>
+                <div style={{ color: MUTED, fontWeight: 800, fontSize: 12 }}>Статус зміни</div>
+                <div style={{ color: DARK, fontWeight: 950, fontSize: 22, marginTop: 4 }}>{onDuty ? "На лінії" : "Поза лінією"}</div>
               </div>
-              <button type="button" onClick={() => setStep("register")} style={{ border: `1px solid ${BORDER}`, background: BG, color: DARK, borderRadius: 999, padding: "6px 9px", fontSize: "var(--pomich-text-xs)", fontWeight: 900, cursor: "pointer", fontFamily: "inherit" }}>Змінити</button>
+              <DutyStatusToggle onDuty={onDuty} saving={presenceSaving} disabled={presenceSaving} onToggle={handleDutyToggle} />
             </div>
-            <div style={{ marginTop: 10, display: "flex", gap: 6, flexWrap: "wrap" }}>
-              {(providerPresence.specialties ?? []).map((specialty) => (
-                <span key={specialty} style={{ borderRadius: 999, padding: "5px 9px", background: "#E8F8F1", color: BRAND, fontSize: "var(--pomich-text-xs)", fontWeight: 900 }}>{getProviderCapabilityLabel(specialty)}</span>
-              ))}
+            <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <div style={{ background: BG, borderRadius: 14, padding: 12 }}>
+                <div style={{ color: MUTED, fontSize: 12, fontWeight: 800 }}>Заявки на карті</div>
+                <div style={{ color: DARK, fontWeight: 950, marginTop: 4 }}>{mapRequestPins.length}</div>
+              </div>
+              <div style={{ background: BG, borderRadius: 14, padding: 12 }}>
+                <div style={{ color: MUTED, fontSize: 12, fontWeight: 800 }}>Активних пропозицій</div>
+                <div style={{ color: DARK, fontWeight: 950, marginTop: 4 }}>{incomingOffers.filter((offer) => isPresentableOffer(offer, offerClock)).length}</div>
+              </div>
             </div>
           </div>
-          {offerError && offerError !== "Вкажіть вартість послуги в гривнях." ? <div style={{ background: "#FFF7ED", color: "#B45309", borderRadius: 14, padding: 10, fontWeight: 850, fontSize: "var(--pomich-text-sm)" }}>{offerError}</div> : null}
+          <div style={{ display: "grid", gap: 10 }}>
+            {onDuty ? (
+              <>
+                <PrimaryButton
+                  label={offerSaving ? "Приймаємо…" : activeOffer ? "Відкрити заявку" : "Оновити карту"}
+                  onClick={() => {
+                    if (activeOffer) {
+                      openOfferDetail(activeOffer)
+                      return
+                    }
+                    const subjectId = readAuthSessionSubject(providerAuthToken || "") || providerId
+                    if (!providerAuthToken) return
+                    getProviderOffers(subjectId, providerAuthToken)
+                      .then((offers) => {
+                        setIncomingOffers(filterVisibleOffers(Array.isArray(offers) ? offers : [], {
+                          dismissedOfferIds: dismissedOfferIdsRef.current,
+                          dismissedOrderIds: dismissedOrderIdsRef.current,
+                        }))
+                      })
+                      .catch(() => undefined)
+                    const radiusKm = providerProfile.serviceRadiusKm ?? registrationForm.serviceRadiusKm ?? DEFAULT_SERVICE_RADIUS_KM
+                    getNearbyMapOrders(providerLocation.lat, providerLocation.lng, radiusKm)
+                      .then((orders) => setNearbyRequestPins(Array.isArray(orders) ? orders : []))
+                      .catch(() => undefined)
+                  }}
+                  disabled={offerSaving}
+                />
+                <SecondaryButton label="Піти з лінії" onClick={() => setDuty(false)} disabled={!providerAuthToken} />
+              </>
+            ) : (
+              <PrimaryButton label={!providerCanGoOnline ? "Підтвердити телефон" : presenceSaving ? "Оновлюємо статус…" : "Вийти на лінію"} onClick={() => (providerCanGoOnline ? setDuty(true) : setStep("verify"))} disabled={presenceSaving} />
+            )}
+          </div>
+          {offerError && offerError !== "Вкажіть вартість послуги в гривнях." ? <div style={{ background: "var(--pomich-warn-bg)", color: "var(--pomich-warn-text)", borderRadius: 14, padding: 12, fontWeight: 850 }}>{offerError}</div> : null}
+        </div>
         </div>
         {presenceToast ? <PresenceToast message={presenceToast} /> : null}
-      </ScreenLayout>
+      </RideScreen>
+      {selectedRequestPin ? (
+        <OrderRequestSheet
+          pin={selectedRequestPin}
+          proposedPrice={sheetProposedPrice}
+          saving={offerSaving}
+          error={offerError}
+          secondsLeft={secondsLeft}
+          onProposedPriceChange={syncProposedPrice}
+          onAccept={(price) => void acceptFromSheet(price)}
+          onDecline={() => void declineFromSheet()}
+          onClose={() => {
+            setSelectedRequestPin(undefined)
+            setOfferError(undefined)
+          }}
+          onAcceptBlocked={handleOfferAcceptBlocked}
+        />
+      ) : null}
+      </>
     )
   }
 
@@ -1150,6 +1550,7 @@ export default function ProviderFlow({ providerToken }: { providerToken?: string
         pickup={completedPickup}
         destination={completedDestination}
         onRestart={returnToDuty}
+        onLogout={onLogout}
         showAction
         reviewMode="partner"
         reviewSaving={partnerReviewSaving}
@@ -1157,6 +1558,27 @@ export default function ProviderFlow({ providerToken }: { providerToken?: string
         reviewSubmitted={partnerReviewDone}
         onSubmitReview={submitPartnerOrderReview}
       />
+    )
+  }
+
+  if (step === "awaiting_price") {
+    const proposed = activeOrder?.partnerProposedPrice
+    return (
+      <ScreenLayout footer={<SecondaryButton label="Повернутись до карти" onClick={returnToDuty} />}>
+        <Header title="Очікуємо клієнта" subtitle={activeOrder?.id ? `Замовлення #${activeOrder.id}` : undefined} status="accepted" />
+        <div style={{ padding: "8px 16px 16px", display: "grid", gap: 12 }}>
+          <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 18, padding: 16 }}>
+            <div style={{ fontWeight: 950, fontSize: 20, color: DARK }}>Ціну надіслано клієнту</div>
+            <div style={{ color: MUTED, fontWeight: 750, marginTop: 8, lineHeight: 1.45 }}>
+              Ви запропонували {typeof proposed === "number" ? `${proposed.toLocaleString("uk-UA")} ₴` : "ціну"}. Клієнт підтвердить або зв'яжеться для обговорення.
+            </div>
+            <div style={{ marginTop: 14 }}>
+              <Timeline status="accepted" />
+            </div>
+          </div>
+          {offerError ? <div style={{ background: "var(--pomich-error-bg)", color: "var(--pomich-error-text)", borderRadius: 14, padding: 12, fontWeight: 800 }}>{offerError}</div> : null}
+        </div>
+      </ScreenLayout>
     )
   }
 
@@ -1168,10 +1590,10 @@ export default function ProviderFlow({ providerToken }: { providerToken?: string
         <Header title={activeStatus === "in_progress" ? "Допомога триває" : "Ви на місці"} subtitle="Клієнт бачить ваш статус у POMICH" status={activeStatus === "in_progress" ? "in_progress" : "arrived"} />
         <div style={{ padding: "8px 16px 16px", display: "grid", gap: 12 }}>
           <ProviderCard orderId={activeOrder?.id} assignedProvider={activeOrder?.assignedProvider ?? providerPresence} />
-          <div style={{ background: "#fff", borderRadius: 18, border: `1px solid ${BORDER}`, padding: 14 }}>
+          <div style={{ background: CARD, borderRadius: 18, border: `1px solid ${BORDER}`, padding: 14 }}>
             <Timeline status={activeStatus === "in_progress" ? "in_progress" : "arrived"} />
             <div style={{ fontWeight: 900, color: DARK, marginTop: 16 }}>Поточна дія</div>
-            <div style={{ color: "#6B7280", fontWeight: 700, marginTop: 6 }}>Підтвердіть завершення, коли допомогу надано.</div>
+            <div style={{ color: MUTED, fontWeight: 700, marginTop: 6 }}>Підтвердіть завершення, коли допомогу надано.</div>
           </div>
         </div>
       </ScreenLayout>
@@ -1189,14 +1611,14 @@ export default function ProviderFlow({ providerToken }: { providerToken?: string
       <ScreenLayout footer={<PrimaryButton label={activeStatus === "en_route" ? "Я НА МІСЦІ" : "ЇДУ ДО КЛІЄНТА"} onClick={() => activeOrder ? advanceProviderOrder(nextStatus) : setStep("arrived")} disabled={activeStatus === "accepted"} />}>
         <Header title="Маршрут до клієнта" subtitle={activeOrder?.id ? `Активне замовлення #${activeOrder.id}` : "Активне замовлення"} status={activeStatus === "en_route" ? "en_route" : "price_confirmed"} />
         <div style={{ padding: "0 16px 16px", display: "grid", gap: 12 }}>
-          <RouteMap
+          <LazyRouteMap
             pickup={routePickup}
             destination={routeDestination}
             providerPosition={hasLiveGps ? providerLocation : undefined}
             subtitle={hasLiveGps ? "Ваша GPS-позиція" : "Очікуємо геолокацію"}
-            onUserLocationChange={setProviderLocation}
+            mapTileTheme={mapTileTheme}
           />
-          <div style={{ background: "#111827", color: "#fff", borderRadius: 18, padding: 16 }}>
+          <div style={{ background: "var(--pomich-accent-panel-bg)", color: "#fff", borderRadius: 18, padding: 16 }}>
             <div style={{ fontWeight: 950, fontSize: 20 }}>{hasLiveGps ? "Навігація за GPS" : "Немає GPS"}</div>
             <div style={{ color: "#CBD5E1", marginTop: 6, fontWeight: 700 }}>Клієнт: {customerLabel}</div>
             <div style={{ color: "#CBD5E1", marginTop: 8, fontWeight: 700, lineHeight: 1.4 }}>
@@ -1210,22 +1632,95 @@ export default function ProviderFlow({ providerToken }: { providerToken?: string
     )
   }
 
+  if (step === "offer" && activeOffer) {
+    return (
+      <>
+      <IncomingOfferStep
+        offer={activeOffer}
+        providerLocation={providerLocation}
+        secondsLeft={secondsLeft}
+        saving={offerSaving}
+        error={offerError}
+        proposedPrice={proposedPrice}
+        priceNote={priceNote}
+        onProposedPriceChange={syncProposedPrice}
+        onPriceNoteChange={setPriceNote}
+        onAccept={(price) => void acceptOffer(activeOffer, price)}
+        onDecline={() => void declineOffer(activeOffer)}
+        onAcceptBlocked={handleOfferAcceptBlocked}
+      />
+      {selectedRequestPin ? (
+        <OrderRequestSheet
+          pin={selectedRequestPin}
+          proposedPrice={sheetProposedPrice}
+          saving={offerSaving}
+          error={offerError}
+          secondsLeft={secondsLeft}
+          onProposedPriceChange={syncProposedPrice}
+          onAccept={(price) => void acceptFromSheet(price)}
+          onDecline={() => void declineFromSheet()}
+          onClose={() => {
+            setSelectedRequestPin(undefined)
+            setOfferError(undefined)
+          }}
+          onAcceptBlocked={handleOfferAcceptBlocked}
+        />
+      ) : null}
+      </>
+    )
+  }
+
   return (
-    <ScreenLayout footer={<div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}><PrimaryButton label="Прийняти" onClick={() => setStep("navigation")} /><SecondaryButton label="Пропустити" /></div>}>
-      <Header title="Нова заявка поруч" subtitle="4.8 км · евакуація · оплата готівкою" onBack={() => setStep("duty")} status="searching" />
-      <div style={{ padding: "8px 16px 16px", display: "grid", gap: 12 }}>
-        <RouteMap pickup={pickup} destination={destination} subtitle="Маршрут клієнта" />
-        <div style={{ background: "#fff", borderRadius: 18, padding: 16, border: `1px solid ${BORDER}` }}>
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-            <div>
-              <div style={{ fontWeight: 950, color: DARK }}>🚛 Евакуатор</div>
-              <div style={{ color: "#6B7280", fontWeight: 700, marginTop: 4 }}>Volvo V60 · авто заводиться</div>
+    <>
+    <RideScreen
+      pickup={mapRequestPins[0]?.customerCoordinates ?? providerLocation}
+      providers={[providerPresence]}
+      requestPins={mapRequestPins}
+      mapSubtitle="Заявки поруч на карті"
+      showAllProviders={false}
+      showDirectoryProviders={false}
+      onAcceptRequest={acceptFromMapPin}
+      onContactRequest={contactFromMapPin}
+      onRequestPinSelect={openRequestPin}
+    >
+      <button onClick={() => setStep("duty")} style={{ border: "none", background: GHOST, color: DARK, borderRadius: 999, padding: "8px 11px", fontWeight: 900, cursor: "pointer", fontFamily: "inherit", marginBottom: 14 }}>← Назад до карти</button>
+      <SheetHeading title="Заявки на карті" subtitle={`${mapRequestPins.length} активних · натисніть маркер`} />
+      <div style={{ marginTop: 14, display: "grid", gap: 10 }}>
+        {mapRequestPins.length === 0 ? (
+          <div style={{ background: BG, borderRadius: 14, padding: 12, fontWeight: 800, color: MUTED }}>Поки немає заявок у вашому радіусі.</div>
+        ) : (
+          mapRequestPins.map((pin) => (
+            <div key={pin.offerId ?? pin.id} style={{ background: CARD, borderRadius: 18, padding: 14, border: `1px solid ${BORDER}` }}>
+              <div style={{ fontWeight: 950, color: DARK }}>{getServiceEmoji(pin.service)} {getProviderCapabilityLabel(pin.service)}</div>
+              <div style={{ color: MUTED, fontWeight: 700, marginTop: 4, fontSize: 13 }}>{pin.customerLocation ?? "Поруч"} · {pin.distanceKm?.toFixed(1) ?? "?"} км</div>
+              {pin.customerComment ? <div style={{ color: MUTED, fontWeight: 700, marginTop: 6, fontSize: 12, lineHeight: 1.35 }}>{pin.customerComment}</div> : null}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 12 }}>
+                <PrimaryButton label="Деталі" onClick={() => openRequestPin(pin)} disabled={offerSaving} />
+                <SecondaryButton label="Зв'язатися" onClick={() => contactFromMapPin(pin)} />
+              </div>
             </div>
-            <div style={{ textAlign: "right", fontWeight: 950, color: BRAND }}>{provider.earnings.toLocaleString("uk-UA")} ₴</div>
-          </div>
-          <div style={{ marginTop: 14, background: BG, borderRadius: 14, padding: 12, color: DARK, fontWeight: 800 }}>Після прийняття клієнт отримає вашу картку, телефон, чат і live tracking.</div>
-        </div>
+          ))
+        )}
+        {offerError && offerError !== "Вкажіть вартість послуги в гривнях." ? <div style={{ background: "var(--pomich-warn-bg)", color: "var(--pomich-warn-text)", borderRadius: 14, padding: 12, fontWeight: 850 }}>{offerError}</div> : null}
       </div>
-    </ScreenLayout>
+    </RideScreen>
+    {selectedRequestPin ? (
+      <OrderRequestSheet
+        pin={selectedRequestPin}
+        proposedPrice={sheetProposedPrice}
+        saving={offerSaving}
+        error={offerError}
+        secondsLeft={secondsLeft}
+        onProposedPriceChange={syncProposedPrice}
+        onAccept={(price) => void acceptFromSheet(price)}
+        onDecline={() => void declineFromSheet()}
+        onClose={() => {
+          setSelectedRequestPin(undefined)
+          setOfferError(undefined)
+        }}
+        onAcceptBlocked={handleOfferAcceptBlocked}
+      />
+    ) : null}
+    </>
   )
 }

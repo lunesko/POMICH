@@ -47,6 +47,11 @@ export function OrderReviewPanel({ title, subtitle, saving = false, error, onSub
         disabled={saving}
         placeholder="Коротко опишіть враження"
         onChange={(event) => setComment(event.target.value)}
+        onFocus={(event) => {
+          if (typeof event.target?.scrollIntoView === "function") {
+            setTimeout(() => event.target.scrollIntoView({ behavior: "smooth", block: "center" }), 150)
+          }
+        }}
       />
       {error ? <div className="pomich-form-error" style={{ marginTop: 10 }}>{error}</div> : null}
       <div className="pomich-review-panel__actions">

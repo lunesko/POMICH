@@ -1,4 +1,4 @@
-"""In-process realtime fan-out for order/partner updates (SSE).
+"""In-process realtime fan-out for order/partner updates (SSE + WebSocket).
 
 JSON file store remains the local/dev fallback; production uses PostGIS via runtime_store.
 This bus is intentionally process-local — sufficient for single-app deploy; multi-worker
@@ -12,7 +12,7 @@ import json
 import threading
 import time
 from collections import defaultdict
-from typing import Any, AsyncIterator
+from typing import Any, AsyncIterator, Protocol
 
 _LOCK = threading.Lock()
 _SEQ = 0
@@ -108,6 +108,34 @@ def unsubscribe(channel: str, queue: asyncio.Queue) -> None:
             listeners.remove(queue)
         if not listeners and channel in _CHANNELS:
             del _CHANNELS[channel]
+
+
+class JsonWebSocket(Protocol):
+    async def send_json(self, data: dict[str, Any]) -> None: ...
+
+
+async def pump_websocket(
+    websocket: JsonWebSocket,
+    channel: str,
+    *,
+    heartbeat_seconds: float = 15.0,
+) -> None:
+    """Stream channel events to a WebSocket until disconnect."""
+    from starlette.websockets import WebSocketDisconnect
+
+    queue = subscribe(channel)
+    try:
+        await websocket.send_json({"type": "connected", "channel": channel, "ts": int(time.time())})
+        while True:
+            try:
+                message = await asyncio.wait_for(queue.get(), timeout=heartbeat_seconds)
+                await websocket.send_json(message)
+            except asyncio.TimeoutError:
+                await websocket.send_json({"type": "heartbeat", "ts": int(time.time())})
+    except WebSocketDisconnect:
+        pass
+    finally:
+        unsubscribe(channel, queue)
 
 
 async def event_stream(channel: str, *, heartbeat_seconds: float = 15.0) -> AsyncIterator[str]:

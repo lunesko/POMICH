@@ -15,7 +15,9 @@ from typing import Any, Dict, Optional
 
 from bot.order_store import (
     STORE_LOCK,
+    _customer_profile_phone_digits,
     _is_valid_ukraine_mobile_phone,
+    _normalize_ukraine_phone_digits,
     _now_iso,
     _parse_iso,
     _verification_badges,
@@ -331,6 +333,12 @@ def send_customer_verification_code(
     if profile is None:
         raise OtpVerificationError("customer_not_found", "customer profile not found")
 
+    from bot.order_store import normalize_verification_status
+
+    if normalize_verification_status(profile.get("verificationStatus"), "unverified") == "verified":
+        _verify_linked_provider_after_otp(customer_id, customer_store_path)
+        profile = get_customer_profile(customer_id, customer_store_path)
+
     patch: Dict[str, Any] = {}
     if phone is not None:
         phone_value = str(phone).strip()
@@ -338,8 +346,9 @@ def send_customer_verification_code(
             raise OtpVerificationError("invalid_phone", "invalid ukraine mobile phone")
         # Do not re-patch an unchanged phone: legacy guest+tg duplicates would raise
         # phone_already_registered and block OTP delivery.
-        existing_phone = str(profile.get("phone") or "").strip()
-        if phone_value and phone_value != existing_phone:
+        existing_digits = _customer_profile_phone_digits(profile)
+        next_digits = _normalize_ukraine_phone_digits(phone_value)
+        if phone_value and next_digits != existing_digits:
             patch["phone"] = phone_value
     if email is not None:
         email_value = str(email).strip()

@@ -62,6 +62,13 @@ export interface TelegramSafeAreaInset {
   right?: number
 }
 
+export interface TelegramContact {
+  phone_number?: string
+  first_name?: string
+  last_name?: string
+  user_id?: number
+}
+
 export interface TelegramWebApp {
   initData?: string
   initDataUnsafe?: {
@@ -96,6 +103,10 @@ export interface TelegramWebApp {
   isVerticalSwipesEnabled?: boolean
   enableVerticalSwipes?: () => void
   disableVerticalSwipes?: () => void
+  /** Bot API 6.9+ — native share-phone popup. */
+  requestContact?: (callback: (shared: boolean) => void) => void
+  onEvent?: (eventType: string, eventHandler: (...args: unknown[]) => void) => void
+  offEvent?: (eventType: string, eventHandler: (...args: unknown[]) => void) => void
 }
 
 /** True when WebApp reports Bot API >= required (no-op / false if helper missing). */
@@ -198,17 +209,39 @@ export function syncAppViewportHeight(webApp?: TelegramWebApp) {
   if (typeof document === "undefined" || typeof window === "undefined") return
 
   const root = document.documentElement
-  const tgHeight = webApp?.viewportStableHeight ?? webApp?.viewportHeight
+  const tgStableHeight = webApp?.viewportStableHeight
   const visualHeight = window.visualViewport?.height
   const innerHeight = window.innerHeight
-  const candidates = [tgHeight, visualHeight, innerHeight].filter(
-    (value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0,
-  )
-  if (candidates.length === 0) return
 
-  /* Prefer the smallest positive height — that matches what the user can see. */
-  const height = Math.round(Math.min(...candidates))
-  root.style.setProperty("--tg-viewport-stable-height", `${height}px`)
+  /* Check if virtual keyboard is likely open (visual viewport shrunk or focused input) */
+  const activeElement = document.activeElement
+  const isInputFocused =
+    Boolean(activeElement) &&
+    (activeElement?.tagName === "INPUT" ||
+      activeElement?.tagName === "TEXTAREA" ||
+      (activeElement as HTMLElement)?.isContentEditable)
+  const isKeyboardOpen =
+    isInputFocused || (typeof visualHeight === "number" && visualHeight > 0 && visualHeight < innerHeight * 0.82)
+
+  let stableHeight: number
+  if (typeof tgStableHeight === "number" && Number.isFinite(tgStableHeight) && tgStableHeight > 0) {
+    stableHeight = tgStableHeight
+  } else if (isKeyboardOpen) {
+    /* Keep existing stable height or fallback to innerHeight when typing */
+    const existing = parseFloat(root.style.getPropertyValue("--tg-viewport-stable-height"))
+    stableHeight = Number.isFinite(existing) && existing > 0 ? existing : innerHeight
+  } else {
+    const candidates = [visualHeight, innerHeight].filter(
+      (value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0,
+    )
+    stableHeight = candidates.length > 0 ? Math.round(Math.min(...candidates)) : innerHeight
+  }
+
+  root.style.setProperty("--tg-viewport-stable-height", `${stableHeight}px`)
+
+  if (typeof visualHeight === "number" && Number.isFinite(visualHeight) && visualHeight > 0) {
+    root.style.setProperty("--tg-viewport-visible-height", `${Math.round(visualHeight)}px`)
+  }
 
   const safe = webApp?.safeAreaInset
   setInsetCssVar(root, "--tg-safe-area-inset-top", safe?.top)
@@ -292,4 +325,41 @@ export function telegramHaptic(
     return
   }
   haptic.impactOccurred?.(kind)
+}
+
+interface TelegramContactRequestedEvent {
+  responseUnsafe?: {
+    contact?: TelegramContact
+  }
+  contact?: TelegramContact
+}
+
+/** One-tap phone share via Telegram native dialog (Bot API 6.9+). */
+export function requestTelegramContact(webApp?: TelegramWebApp): Promise<TelegramContact | null> {
+  if (typeof window === "undefined" || !webApp?.requestContact || !telegramSupportsVersion(webApp, "6.9")) {
+    return Promise.resolve(null)
+  }
+
+  return new Promise((resolve) => {
+    let settled = false
+    const finish = (contact: TelegramContact | null) => {
+      if (settled) return
+      settled = true
+      webApp.offEvent?.("contactRequested", onContactRequested)
+      resolve(contact)
+    }
+
+    const onContactRequested = (payload: unknown) => {
+      const event = payload as TelegramContactRequestedEvent
+      const contact = event?.responseUnsafe?.contact ?? event?.contact
+      finish(contact?.phone_number ? contact : null)
+    }
+
+    webApp.onEvent?.("contactRequested", onContactRequested)
+    webApp.requestContact?.((shared) => {
+      if (!shared) finish(null)
+    })
+
+    window.setTimeout(() => finish(null), 120_000)
+  })
 }

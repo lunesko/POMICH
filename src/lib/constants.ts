@@ -13,6 +13,7 @@ export { PARTNER_VEHICLE_MAKE_OTHER, partnerVehicleMakes } from "./partnerVehicl
 export type Role = "customer" | "provider" | "admin"
 
 export type Screen =
+  | "profile"
   | "home"
   | "location"
   | "destination"
@@ -181,7 +182,7 @@ export const DARK = "#111315"
 export const BG = "#F6F7F8"
 export const BORDER = "#E5E7EB"
 
-/** Default provider service radius (km) — reasonable for Uzhgorod city + suburbs. */
+/** Default provider service radius (km) — typical city + suburbs coverage. */
 export const DEFAULT_SERVICE_RADIUS_KM = 15
 
 export const PICKUP: Point = { lat: 48.6208, lng: 22.2879 }
@@ -209,6 +210,16 @@ export const providerCapabilityLabels: Record<ServiceKey, string> = {
   fuel: "Пальне",
   lockout: "Відкрити авто",
   mechanic: "СТО",
+}
+
+/** Short customer-facing hint: what help they get for each service type. */
+export const serviceDescriptions: Record<ServiceKey, string> = {
+  tow: "Буксирування авто на СТО",
+  battery: "Прикурити або замінити АКБ",
+  wheel: "Прокол, заміна колеса",
+  fuel: "Доставка пального",
+  lockout: "Відкрити авто або ключі",
+  mechanic: "Інша допомога на дорозі",
 }
 
 export const partnerRegistrationServices = services.filter((service) =>
@@ -250,6 +261,10 @@ export const provider: Provider = {
 
 export function getServiceLabel(service?: string): string {
   return services.find((item) => item.key === service)?.label ?? service ?? "Послуга"
+}
+
+export function getServiceDescription(service?: string): string {
+  return serviceDescriptions[service as ServiceKey] ?? "Допомога на дорозі"
 }
 
 export function getProviderCapabilityLabel(service?: string): string {
@@ -349,6 +364,13 @@ export function isProviderPhoneVerified(profile?: Pick<ProviderAvailability, "ve
 export function providerPoint(item: ProviderAvailability): Point | undefined {
   if (!item.location) return undefined
   return { lat: item.location.lat, lng: item.location.lng }
+}
+
+/** Directory pins on the public map (OSM imports + legacy rows without providerKind). */
+export function isDirectoryMapProvider(item: ProviderAvailability): boolean {
+  if (item.providerKind === "directory") return true
+  if (item.providerKind === "dispatch") return false
+  return item.contactStatus === "directory_only" || Boolean(item.address || item.openingHours)
 }
 
 export function isProviderAvailable(item: ProviderAvailability): boolean {

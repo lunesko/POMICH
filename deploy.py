@@ -32,9 +32,9 @@ def ssh_connect():
     return client
 
 
-def run(ssh, cmd, check=True):
+def run(ssh, cmd, check=True, timeout=300):
     print(f"  $ {cmd}")
-    stdin, stdout, stderr = ssh.exec_command(cmd, timeout=300)
+    stdin, stdout, stderr = ssh.exec_command(cmd, timeout=timeout)
     out = stdout.read().decode(errors="replace").strip()
     err = stderr.read().decode(errors="replace").strip()
     rc = stdout.channel.recv_exit_status()
@@ -165,20 +165,66 @@ def main():
     print("\n5) Making start.sh executable...")
     run(ssh, f"chmod +x {REMOTE_DIR}/start.sh")
 
-    print("\n6) Building and starting containers...")
-    run(ssh, f"cd {REMOTE_DIR} && docker compose -f docker-compose.production.yml --env-file .env.production down 2>/dev/null || true", check=False)
-    run(ssh, f"cd {REMOTE_DIR} && docker compose -f docker-compose.production.yml --env-file .env.production up --build -d")
+    print("\n6) Building and starting containers (keep postgres up to avoid downtime)...")
+    run(
+        ssh,
+        f"cd {REMOTE_DIR} && docker compose -f docker-compose.production.yml --env-file .env.production up -d postgres",
+        check=False,
+    )
+    run(ssh, f"cd {REMOTE_DIR} && docker compose -f docker-compose.production.yml --env-file .env.production build pomich-app")
+    run(
+        ssh,
+        f"cd {REMOTE_DIR} && docker compose -f docker-compose.production.yml --env-file .env.production up -d --no-deps --wait pomich-app",
+        check=False,
+    )
 
-    print("\n7) Waiting for app to start (30s)...")
-    time.sleep(30)
+    print("\n7) Waiting for app health...")
+    healthy = False
+    for attempt in range(12):
+        out, _, rc = run(ssh, "curl -sf http://127.0.0.1:8000/api/health", check=False)
+        if rc == 0 and out:
+            healthy = True
+            break
+        time.sleep(5)
+    if not healthy:
+        print("  [WARN] health check did not pass within 60s")
 
     print("\n8) Checking container status...")
     run(ssh, "docker ps --filter name=pomich --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'")
 
     print("\n9) Checking app health...")
-    out, _, rc = run(ssh, "curl -sf http://127.0.0.1:8000/api/health || echo 'HEALTH_CHECK_FAILED'", check=False)
+    run(ssh, "curl -sf http://127.0.0.1:8000/api/health || echo 'HEALTH_CHECK_FAILED'", check=False)
 
-    print("\n10) Skipping Nginx/SSL (use WEB_APP_BASE IP:port + polling bot)")
+    print("\n10) Importing Ukraine directory providers (inside container -> PostgreSQL)...")
+    if os.environ.get("POMICH_SKIP_IMPORT") == "1":
+        print("  Skipped (POMICH_SKIP_IMPORT=1)")
+    else:
+        run(
+            ssh,
+            f"cd {REMOTE_DIR} && docker compose -f docker-compose.production.yml --env-file .env.production "
+            f"exec -T pomich-app python3 scripts/import_ukraine_providers.py --all --merge --delay 1.5",
+            check=False,
+            timeout=7200,
+        )
+
+    print("\n11) Post-deploy verification...")
+    run(ssh, "curl -sf http://127.0.0.1:8000/api/health || echo 'HEALTH_CHECK_FAILED'", check=False)
+    run(
+        ssh,
+        "curl -sf http://127.0.0.1:8000/geo/ukraine-border.geojson | python3 -c "
+        "\"import sys,json; d=json.load(sys.stdin); print(d.get('type','?'))\"",
+        check=False,
+    )
+    run(
+        ssh,
+        "curl -sf 'http://127.0.0.1:8000/api/map/providers?scope=all' | python3 -c "
+        "\"import sys,json; p=json.load(sys.stdin); "
+        "lats=sorted(set(round(x.get('location',{}).get('lat',0),1) for x in p)); "
+        "print(f'providers={len(p)} cities={len(lats)}')\"",
+        check=False,
+    )
+
+    print("\n12) Skipping Nginx/SSL (use WEB_APP_BASE IP:port + polling bot)")
 
     ssh.close()
 

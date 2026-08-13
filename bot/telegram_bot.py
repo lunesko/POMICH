@@ -356,9 +356,22 @@ def notify_order_created(chat_id: str | None, order: dict[str, Any]) -> dict[str
         return {"ok": False, "error": str(exc)}
 
 
+def _resolve_customer_telegram_chat_id(order: dict[str, Any]) -> str:
+    """Prefer explicit chatId; fall back to telegramUserId or tg-<id> customer id."""
+    for key in ("chatId", "telegramUserId", "telegram_user_id"):
+        value = str(order.get(key) or "").strip()
+        if value:
+            return value
+    customer_id = str(order.get("customerId") or order.get("customer_id") or "").strip()
+    if customer_id.startswith("tg-") and len(customer_id) > 3:
+        return customer_id[3:]
+    return ""
+
+
 def notify_order_accepted(order: dict[str, Any]) -> dict[str, Any] | None:
-    chat_id = str(order.get("chatId") or "").strip()
+    chat_id = _resolve_customer_telegram_chat_id(order)
     if not chat_id:
+        print(f"Skip accept notify: no telegram chat for order {order.get('id')}", flush=True)
         return None
 
     order_id = str(order.get("id") or "").strip() or "—"

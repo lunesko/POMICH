@@ -364,6 +364,20 @@ def require_customer_auth(customer_id: str, authorization: str | None = None) ->
     return principal
 
 
+def require_customer_auth_linked(customer_id: str, authorization: str | None = None) -> AuthPrincipal:
+    """Allow URL customer_id that phone-links to the authenticated session (cabinet/history)."""
+    principal = require_customer_auth_from_bearer(authorization)
+    requested = str(customer_id or "").strip()
+    if principal.subject_id == requested:
+        return principal
+    from bot.order_store import _customer_ids_for_order_history
+
+    aliases = _customer_ids_for_order_history(principal.subject_id)
+    if requested not in aliases:
+        raise HTTPException(status_code=403, detail="customer_identity_mismatch")
+    return principal
+
+
 def optional_customer_auth(authorization: str | None = None) -> AuthPrincipal | None:
     bearer_token = extract_bearer_token(authorization)
     if not bearer_token:

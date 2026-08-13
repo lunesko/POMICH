@@ -7,49 +7,40 @@ interface AppShellProps {
   children: ReactNode
   compact: boolean
   role: Role | null
+  loggedInName?: string
   onRoleChange: (role: Role | null) => void
   onOpenCabinet?: () => void
   onSwitchRole?: () => void
   onLogout?: () => void
 }
 
-const roleLabels: Record<Exclude<Role, null>, string> = {
-  customer: "Клієнт",
-  provider: "Партнер",
-  admin: "Адмін",
-}
-
-export function AppShell({ children, compact, role, onRoleChange, onOpenCabinet, onSwitchRole, onLogout }: AppShellProps) {
+export function AppShell({ children, compact, role, loggedInName, onRoleChange, onOpenCabinet, onSwitchRole, onLogout }: { children: React.ReactNode; compact: boolean; role: Role | null; loggedInName?: string; onRoleChange: (role: Role | null) => void; onOpenCabinet?: () => void; onSwitchRole?: () => void; onLogout?: () => void }) {
   if (compact) {
     return (
       <div className="pomich-tg-app flex flex-col">
         {role ? (
-          <header className="pomich-tg-header flex h-11 shrink-0 items-center justify-between px-3 gap-2 w-full">
-            <button type="button" onClick={() => onRoleChange(null)} className="pomich-app-header-menu-btn">
-              ← Меню
-            </button>
-            <div className="pomich-app-header-role-label">{roleLabels[role]}</div>
+          <header className="pomich-tg-header flex shrink-0 items-center justify-between px-3 gap-2 w-full overflow-visible">
+            <button type="button" onClick={() => onRoleChange(null)} className="pomich-app-header-menu-btn">← Меню</button>
+            {loggedInName ? (
+              <div className="pomich-app-header-session min-w-0 flex-1 text-center">{loggedInName}</div>
+            ) : (
+              <div className="flex-1" aria-hidden="true" />
+            )}
             <div className="flex items-center gap-1.5 shrink-0">
               <ThemeToggle compact />
               {onOpenCabinet ? (
-                <button type="button" onClick={onOpenCabinet} className="pomich-app-header-chip pomich-app-header-chip--compact">
-                  Кабінет
-                </button>
+                <button type="button" onClick={onOpenCabinet} className="pomich-app-header-chip pomich-app-header-chip--compact">Кабінет</button>
               ) : null}
               {onSwitchRole ? (
-                <button type="button" onClick={onSwitchRole} className="pomich-app-header-chip pomich-app-header-chip--compact">
-                  Роль
-                </button>
+                <button type="button" onClick={onSwitchRole} className="pomich-app-header-chip pomich-app-header-chip--compact">Роль</button>
               ) : null}
               {onLogout ? (
-                <button type="button" onClick={onLogout} className="pomich-app-header-chip pomich-app-header-chip--compact pomich-app-header-chip--muted">
-                  Вийти
-                </button>
+                <button type="button" onClick={onLogout} className="pomich-app-header-chip pomich-app-header-chip--compact pomich-app-header-chip--muted">Вийти</button>
               ) : null}
             </div>
           </header>
         ) : null}
-        <div className="pomich-tg-main min-h-0 min-w-0 flex-1">{children}</div>
+        <div className="pomich-tg-main pomich-app-main min-h-0 min-w-0 flex-1">{children}</div>
       </div>
     )
   }
@@ -57,48 +48,31 @@ export function AppShell({ children, compact, role, onRoleChange, onOpenCabinet,
   return (
     <div className="pomich-themed-shell min-h-dvh">
       {role ? (
-        <header className="pomich-tg-header flex h-[62px] shrink-0 items-center justify-center px-6 w-full">
-          <div className="flex w-full max-w-7xl items-center justify-between gap-4">
-            <button type="button" onClick={() => onRoleChange(null)} className="pomich-app-header-brand text-xl">
-              POMICH
-            </button>
-            <div className="flex items-center gap-2 overflow-x-auto">
-              {[
-                { key: "customer" as const, label: "Клієнт" },
-                { key: "provider" as const, label: "Партнер" },
-              ].map((item) => (
-                <button
-                  key={item.key}
-                  type="button"
-                  onClick={() => onRoleChange(item.key)}
-                  className={`pomich-app-header-chip pomich-app-header-chip--regular${role === item.key ? " is-active" : ""}`}
-                >
-                  {item.label}
-                </button>
-              ))}
+        <header className="pomich-tg-header flex shrink-0 items-center justify-center px-6 w-full overflow-visible">
+          <div className="flex w-full max-w-7xl items-center justify-between gap-4 min-h-[var(--pomich-app-header-height)]">
+            <button type="button" onClick={() => onRoleChange(null)} className="pomich-app-header-brand text-xl">POMICH</button>
+            {loggedInName ? (
+              <span className="pomich-app-header-session hidden md:inline">Ви увійшли як: {loggedInName}</span>
+            ) : null}
+            <div className="pomich-app-header-actions flex items-center gap-2 overflow-x-auto py-1">
               <ThemeToggle />
               {onOpenCabinet ? (
-                <button type="button" onClick={onOpenCabinet} className="pomich-app-header-chip pomich-app-header-chip--regular">
-                  Кабінет
-                </button>
+                <button type="button" onClick={onOpenCabinet} className="pomich-app-header-chip pomich-app-header-chip--regular">Кабінет</button>
               ) : null}
               {onSwitchRole ? (
-                <button type="button" onClick={onSwitchRole} className="pomich-app-header-chip pomich-app-header-chip--regular">
-                  Змінити роль
-                </button>
+                <button type="button" onClick={onSwitchRole} className="pomich-app-header-chip pomich-app-header-chip--regular">Змінити роль</button>
               ) : null}
               {onLogout ? (
-                <button type="button" onClick={onLogout} className="pomich-app-header-chip pomich-app-header-chip--regular pomich-app-header-chip--muted">
-                  Вийти
-                </button>
+                <button type="button" onClick={onLogout} className="pomich-app-header-chip pomich-app-header-chip--regular pomich-app-header-chip--muted">Вийти</button>
               ) : null}
             </div>
           </div>
         </header>
       ) : null}
-      <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
+      <div className="pomich-app-main min-h-0 flex-1">{children}</div>
     </div>
   )
 }
+
 
 export default AppShell

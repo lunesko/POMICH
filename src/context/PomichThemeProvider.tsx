@@ -84,4 +84,8 @@ export function usePomichTheme() {
   return ctx
 }
 
+export function usePomichThemeOptional() {
+  return useContext(PomichThemeContext)
+}
+
 export default PomichThemeProvider

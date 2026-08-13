@@ -19,7 +19,7 @@ from bot.order_store import (
     merge_directory_providers,
     purge_stale_guest_customers,
 )
-from bot.provider_importer import import_uzhgorod_providers
+from bot.provider_importer import import_uzhgorod_providers, import_ukraine_providers
 
 router = APIRouter(tags=["admin"])
 
@@ -169,4 +169,32 @@ def admin_import_uzhgorod_providers(
         "counts": result["counts"],
         "merge": merge_result,
         "center": result["center"],
+    }
+
+
+@router.post("/admin/providers/import/ukraine")
+def admin_import_ukraine_providers(
+    payload: dict | None = None,
+    x_pomich_admin_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+) -> dict:
+    require_admin_auth(x_pomich_admin_token, authorization)
+    options = payload or {}
+    settlement_ids = options.get("settlementIds") or options.get("cities")
+    oblast = options.get("oblast")
+    prefer_osm = bool(options.get("preferOsm", True))
+    seed_only = bool(options.get("seedOnly", False))
+    delay_seconds = float(options.get("delaySeconds", 2.0))
+    result = import_ukraine_providers(
+        settlement_ids=settlement_ids if isinstance(settlement_ids, list) else None,
+        oblast=str(oblast).strip() if oblast else None,
+        prefer_osm=prefer_osm and not seed_only,
+        use_seed=seed_only,
+        delay_seconds=delay_seconds,
+    )
+    merge_result = merge_directory_providers(result["providers"])
+    return {
+        "counts": result["counts"],
+        "perSettlement": result["perSettlement"],
+        "merge": merge_result,
     }

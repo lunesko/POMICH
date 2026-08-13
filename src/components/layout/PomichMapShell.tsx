@@ -10,8 +10,7 @@ import {
 
 import type { ProviderAvailability } from "../../api/client"
 import type { Point } from "../../lib/constants"
-import { usePomichTheme } from "../../context/PomichThemeProvider"
-import RouteMap from "../map/RouteMap"
+import LazyRouteMap from "../map/LazyRouteMap"
 
 const MAP_CENTER: Point = { lat: 48.6208, lng: 22.2879 }
 const MAP_DESTINATION: Point = { lat: 48.625, lng: 22.295 }
@@ -61,18 +60,7 @@ export function PomichMapBackground({
   /** Pin to viewport so content scrolls over the map (landing + app shell). */
   fixed?: boolean
 }) {
-  const { isDark } = usePomichTheme()
   const heroProviders = providers && providers.length > 0 ? providers : fallbackProviders
-
-  /* Soft map wash only — readable copy uses local .landing-hero-content / .pomich-map-copy-plate */
-  const overlayBg =
-    variant === "hero"
-      ? isDark
-        ? "linear-gradient(105deg, rgba(8,12,14,0.42) 0%, rgba(8,12,14,0.18) 36%, rgba(8,12,14,0.04) 64%, transparent 100%)"
-        : "linear-gradient(105deg, rgba(244,249,247,0.5) 0%, rgba(244,249,247,0.22) 38%, rgba(244,249,247,0.05) 68%, transparent 100%)"
-      : isDark
-        ? "linear-gradient(165deg, rgba(8,12,14,0.22) 0%, rgba(8,12,14,0.12) 45%, rgba(8,12,14,0.18) 100%)"
-        : "linear-gradient(165deg, rgba(244,249,247,0.28) 0%, rgba(244,249,247,0.16) 45%, rgba(244,249,247,0.22) 100%)"
 
   return (
     <div
@@ -80,16 +68,8 @@ export function PomichMapBackground({
       aria-hidden="true"
     >
       <div className="pomich-map-shell__clip landing-hero-map-clip">
-        <div
-          className="pomich-map-shell__map landing-hero-map"
-          style={{
-            opacity: isDark ? 0.88 : 0.98,
-            filter: isDark
-              ? "saturate(1.2) contrast(1.1) brightness(0.98)"
-              : "saturate(1.12) contrast(1.12) brightness(1.05)",
-          }}
-        >
-          <RouteMap
+        <div className="pomich-map-shell__map landing-hero-map">
+          <LazyRouteMap
             pickup={MAP_CENTER}
             destination={MAP_DESTINATION}
             providers={heroProviders}
@@ -98,25 +78,11 @@ export function PomichMapBackground({
             showBadges={false}
             directoryOnly
             decorative
+            mapTileTheme="light"
+            ukraineMapFitCountry
           />
         </div>
       </div>
-      <div className="pomich-map-shell__atmosphere landing-hero-atmosphere">
-        <span className="landing-hero-orb landing-hero-orb--a" />
-        <span className="landing-hero-orb landing-hero-orb--b" />
-        <span className="landing-hero-orb landing-hero-orb--c" />
-        <span className="landing-hero-grain" />
-        <span className="landing-hero-scan" />
-      </div>
-      <div className="pomich-map-shell__scrim landing-hero-scrim" style={{ background: overlayBg }} />
-      <div
-        className="pomich-map-shell__vignette landing-hero-vignette"
-        style={{
-          background: isDark
-            ? "radial-gradient(ellipse 75% 60% at 50% 45%, transparent 48%, rgba(4,8,10,0.22) 100%), radial-gradient(ellipse 55% 50% at 16% 48%, rgba(22,163,106,0.12), transparent 64%)"
-            : "radial-gradient(ellipse 75% 60% at 50% 45%, transparent 52%, rgba(20,40,35,0.06) 100%), radial-gradient(ellipse 55% 50% at 16% 48%, rgba(22,163,106,0.08), transparent 64%)",
-        }}
-      />
       {fadeBottom ? (
         <div className="pomich-map-shell__fade" style={{ background: fadeBottom }} />
       ) : null}

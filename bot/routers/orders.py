@@ -11,6 +11,7 @@ from bot.api_deps import (
     require_provider_auth,
     verify_init_data_or_raise,
 )
+from bot.occupied_territories import is_occupied_coordinates, occupied_zone_name
 from bot.order_store import (
     DispatchConflict,
     InvalidStatusTransition,
@@ -66,6 +67,22 @@ def create_order(payload: dict, authorization: str | None = Header(default=None)
             raise HTTPException(status_code=403, detail="customer_identity_mismatch")
     elif customer_principal is not None:
         payload["customerIdentity"] = {"type": "guest", "customerId": customer_principal.subject_id}
+
+    pickup = payload.get("customerCoordinates")
+    if isinstance(pickup, dict):
+        plat = pickup.get("lat")
+        plng = pickup.get("lng")
+        if is_occupied_coordinates(plat, plng):
+            zone = occupied_zone_name(plat, plng) or "occupied"
+            raise HTTPException(status_code=400, detail=f"order_location_in_{zone}")
+
+    destination = payload.get("destinationCoordinates")
+    if isinstance(destination, dict):
+        dlat = destination.get("lat")
+        dlng = destination.get("lng")
+        if is_occupied_coordinates(dlat, dlng):
+            zone = occupied_zone_name(dlat, dlng) or "occupied"
+            raise HTTPException(status_code=400, detail=f"destination_in_{zone}")
 
     order = save_order(payload)
     if order.get("status") == "searching":
@@ -183,6 +200,8 @@ def provider_patch_order_status(
             raise dispatch_conflict(exc) from exc
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     publish_order_event(order, "order.status")
+    if normalize_order_status(order.get("status")) in {"completed", "cancelled"}:
+        publish_provider_event(provider_id, "offers.changed", {"orderId": order_id, "action": "terminal"})
     return order
 
 

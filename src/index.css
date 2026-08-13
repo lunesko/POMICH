@@ -4,54 +4,55 @@
 /* POMICH theme tokens — toggled via html[data-pomich-theme] */
 [data-pomich-theme="light"],
 html:not([data-pomich-theme]) {
-  --pomich-bg: rgba(240, 245, 243, 0.75);
-  --pomich-surface: rgba(255, 255, 255, 0.90);
-  --pomich-text: #0F172A;
-  --pomich-border: rgba(15, 23, 42, 0.12);
+  /* Soft sage glass — avoid pure white glare */
+  --pomich-bg: #E2E9E6;
+  --pomich-surface: rgba(232, 238, 235, 0.92);
+  --pomich-text: #1A2332;
+  --pomich-border: rgba(28, 42, 36, 0.10);
   --pomich-brand: #16A36A;
-  --pomich-muted: #475569;
-  --pomich-label: #334155;
-  --pomich-subtle: #64748B;
+  --pomich-muted: #4A5A68;
+  --pomich-label: #2F3F4F;
+  --pomich-subtle: #5F7385;
   --pomich-accent: #0B7A4D;
   --pomich-accent-blue: #1D6FD4;
   --pomich-badge-text: #0B7A4D;
-  --pomich-ghost-bg: rgba(15, 23, 42, 0.05);
-  --pomich-ghost-border: rgba(15, 23, 42, 0.12);
-  --pomich-card-shadow: 0 20px 50px rgba(15, 23, 42, 0.12), 0 2px 6px rgba(0, 0, 0, 0.04);
-  --pomich-error-bg: rgba(254, 226, 226, 0.90);
+  --pomich-ghost-bg: rgba(28, 42, 36, 0.05);
+  --pomich-ghost-border: rgba(28, 42, 36, 0.12);
+  --pomich-card-shadow: 0 8px 24px rgba(28, 42, 36, 0.06), 0 1px 2px rgba(0, 0, 0, 0.03);
+  --pomich-error-bg: rgba(254, 226, 226, 0.88);
   --pomich-error-text: #991B1B;
-  --pomich-error-border: rgba(239, 68, 68, 0.3);
-  --pomich-input-bg: rgba(248, 250, 252, 0.92);
-  --pomich-input-disabled-bg: rgba(241, 245, 249, 0.80);
-  --pomich-prefix-bg: rgba(238, 244, 241, 0.90);
-  --pomich-footer-bg: rgba(255, 255, 255, 0.90);
-  --pomich-nav: rgba(255, 255, 255, 0.90);
-  --pomich-nav-border: rgba(15, 23, 42, 0.10);
-  --pomich-nav-text: #0F172A;
-  --pomich-section: rgba(244, 249, 247, 0.65);
-  --pomich-section-alt: rgba(234, 242, 239, 0.70);
-  --pomich-glass-card: rgba(255, 255, 255, 0.90);
-  --pomich-glass-border: rgba(15, 23, 42, 0.12);
-  --pomich-role-card-bg: rgba(255, 255, 255, 0.90);
-  --pomich-role-card-border: rgba(15, 23, 42, 0.12);
-  --pomich-role-card-muted: #475569;
-  --pomich-selected-bg: rgba(34, 197, 94, 0.14);
-  --pomich-card-bg: rgba(255, 255, 255, 0.90);
-  --pomich-map-bg: #DDE7E2;
-  --pomich-service-tone-default: rgba(248, 250, 252, 0.90);
-  --pomich-service-pastel-ink: #0F172A;
-  --pomich-sheet-handle: rgba(148, 163, 184, 0.6);
-  --pomich-warn-bg: rgba(254, 243, 199, 0.90);
+  --pomich-error-border: rgba(239, 68, 68, 0.28);
+  --pomich-input-bg: rgba(226, 233, 230, 0.95);
+  --pomich-input-disabled-bg: rgba(220, 228, 224, 0.85);
+  --pomich-prefix-bg: rgba(220, 230, 226, 0.92);
+  --pomich-footer-bg: rgba(232, 238, 235, 0.94);
+  --pomich-nav: rgba(232, 238, 235, 0.94);
+  --pomich-nav-border: rgba(28, 42, 36, 0.10);
+  --pomich-nav-text: #1A2332;
+  --pomich-section: rgba(226, 234, 230, 0.88);
+  --pomich-section-alt: rgba(216, 226, 221, 0.90);
+  --pomich-glass-card: rgba(236, 241, 238, 0.82);
+  --pomich-glass-border: rgba(28, 42, 36, 0.10);
+  --pomich-role-card-bg: rgba(236, 241, 238, 0.88);
+  --pomich-role-card-border: rgba(28, 42, 36, 0.10);
+  --pomich-role-card-muted: #4A5A68;
+  --pomich-selected-bg: rgba(22, 163, 106, 0.14);
+  --pomich-card-bg: rgba(236, 241, 238, 0.88);
+  --pomich-map-bg: #D0DDD7;
+  --pomich-service-tone-default: rgba(220, 230, 226, 0.95);
+  --pomich-service-pastel-ink: #1A2332;
+  --pomich-sheet-handle: rgba(120, 140, 150, 0.55);
+  --pomich-warn-bg: rgba(254, 243, 199, 0.88);
   --pomich-warn-text: #B45309;
-  --pomich-info-bg: rgba(219, 234, 254, 0.90);
+  --pomich-info-bg: rgba(219, 234, 254, 0.88);
   --pomich-info-text: #1D4ED8;
   --pomich-accent-panel-bg: rgba(17, 19, 21, 0.88);
-  --pomich-toggle-track: rgba(203, 213, 225, 0.60);
-  --pomich-toggle-border: rgba(148, 163, 184, 0.50);
-  --pomich-toggle-knob: #FFFFFF;
-  --pomich-toggle-icon: #64748B;
-  --pomich-toggle-icon-active: #0F172A;
-  --pomich-toggle-shadow: 0 4px 12px rgba(15, 23, 42, 0.15);
+  --pomich-toggle-track: #D2DBD7;
+  --pomich-toggle-border: rgba(120, 140, 150, 0.40);
+  --pomich-toggle-knob: #F4F7F6;
+  --pomich-toggle-icon: #5F7385;
+  --pomich-toggle-icon-active: #1A2332;
+  --pomich-toggle-shadow: none;
   --pomich-hero-gradient-text: linear-gradient(90deg, #0B7A4D 0%, #1D6FD4 52%, #B8860B 100%);
   --tg-theme-bg-color: var(--pomich-bg);
   --tg-theme-text-color: var(--pomich-text);
@@ -154,10 +155,15 @@ html:not([data-pomich-theme]) {
   --pomich-space-2: 0.5rem;
   --pomich-space-3: 0.75rem;
   --pomich-space-4: 1rem;
-  --pomich-btn-height: 3rem;
-  --pomich-btn-height-sm: 2.75rem;
-  --pomich-input-height: 2.75rem;
+  --pomich-btn-height: 2.75rem;
+  --pomich-btn-height-sm: 2.5rem;
+  --pomich-input-height: 2.5rem;
   --pomich-app-header-height: 3.875rem;
+  /* Cabinet fixed header: title + subtitle row + chip actions + vertical padding */
+  --pomich-cabinet-header-block: calc(4.75rem + 12px);
+  --pomich-cabinet-chrome-top: calc(
+    env(safe-area-inset-top, 0px) + var(--tg-content-safe-area-inset-top, 0px) + var(--pomich-cabinet-header-block)
+  );
   --pomich-card-radius: 1.125rem;
   --pomich-card-padding: 0.875rem;
   /* % of ride-screen — survives mobile browser chrome better than vh/dvh */
@@ -215,7 +221,7 @@ html:not([data-pomich-theme]) {
     --pomich-sheet-half: 40%;
     --pomich-sheet-expanded: 68%;
     --pomich-sheet-max: 74%;
-    --pomich-service-row-height: 2.875rem;
+    --pomich-service-row-height: 3.125rem;
     --pomich-service-icon: 2.125rem;
   }
 }
@@ -402,8 +408,11 @@ html[data-pomich-theme="dark"] {
   box-sizing: border-box;
   z-index: 3200 !important;
   pointer-events: auto !important;
-  min-height: var(--pomich-app-header-height);
+  height: auto !important;
+  overflow: visible !important;
+  min-height: calc(var(--pomich-app-header-height) + env(safe-area-inset-top, 0px));
   padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: 6px;
   padding-left: max(12px, env(safe-area-inset-left, 0px));
   padding-right: max(12px, env(safe-area-inset-right, 0px));
   /* Opaque-enough scrim — map still peeks through blur, text stays crisp */
@@ -424,11 +433,11 @@ html[data-pomich-theme="dark"] {
 }
 [data-pomich-theme="light"] .pomich-tg-header,
 html:not([data-pomich-theme]) .pomich-tg-header {
-  /* Near-opaque so sheet step labels never ghost through brand */
-  background: rgba(255, 255, 255, 0.97) !important;
-  border-bottom-color: rgba(15, 40, 30, 0.14);
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
-  color: #0f172a !important;
+  /* Soft sage frosted glass — no pure-white glare */
+  background: rgba(228, 235, 231, 0.88) !important;
+  border-bottom-color: rgba(28, 42, 36, 0.12);
+  box-shadow: 0 4px 18px rgba(28, 42, 36, 0.06);
+  color: #1a2332 !important;
 }
 .pomich-tg-header .pomich-app-header-chip {
   background: color-mix(in srgb, var(--pomich-ghost-bg) 72%, transparent);
@@ -448,9 +457,9 @@ html:not([data-pomich-theme]) .pomich-tg-header {
 }
 [data-pomich-theme="light"] .pomich-tg-header .pomich-app-header-chip,
 html:not([data-pomich-theme]) .pomich-tg-header .pomich-app-header-chip {
-  background: rgba(15, 23, 42, 0.06);
-  border-color: rgba(15, 40, 30, 0.16);
-  color: #0f172a;
+  background: rgba(28, 42, 36, 0.06);
+  border-color: rgba(28, 42, 36, 0.14);
+  color: #1a2332;
 }
 .pomich-tg-header .pomich-app-header-brand {
   color: inherit !important;
@@ -568,6 +577,22 @@ html:not([data-pomich-theme]) .pomich-tg-header .pomich-app-header-chip {
   border-color: var(--pomich-ghost-border);
   background: var(--pomich-ghost-bg);
 }
+.pomich-app-header-actions {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  overflow-x: auto;
+  overflow-y: visible;
+  min-height: 42px;
+  flex-shrink: 0;
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.pomich-app-header-actions::-webkit-scrollbar {
+  display: none;
+}
 .pomich-tg-header .pomich-app-header-session {
   flex: 1;
   min-width: 0;
@@ -635,29 +660,23 @@ html:not([data-pomich-theme]) .pomich-tg-header .pomich-app-header-brand {
   color: #e2e8f0;
 }
 .pomich-sheet-panel {
-  background: var(--pomich-surface);
+  background: var(--pomich-glass-card);
   color: var(--pomich-text);
   backdrop-filter: blur(24px) saturate(185%);
   -webkit-backdrop-filter: blur(24px) saturate(185%);
-  border: 1px solid var(--pomich-border);
+  border: 1px solid var(--pomich-glass-border);
   box-shadow: var(--pomich-card-shadow);
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
   touch-action: pan-y;
 }
-.pomich-tg-header {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 1000;
-  height: var(--pomich-app-header-height, 62px);
-  background: var(--pomich-nav);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  border-bottom: 1px solid var(--pomich-nav-border);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+[data-pomich-theme="light"] .pomich-sheet-panel,
+html:not([data-pomich-theme]) .pomich-sheet-panel {
+  background: rgba(232, 238, 235, 0.9);
+  border-color: rgba(28, 42, 36, 0.12);
+  box-shadow: 0 8px 28px rgba(28, 42, 36, 0.08);
 }
+/* Chip row styles — header chrome is fixed glass (see .pomich-tg-header above) */
 .pomich-app-header-brand {
   font-family: 'Outfit', sans-serif;
   font-weight: 900;
@@ -764,98 +783,126 @@ html:not([data-pomich-theme]) .pomich-tg-header .pomich-app-header-brand {
   font-size: var(--pomich-text-sm);
   font-weight: 800;
 }
-/* Light map tiles: chips/zoom must not blend into pale OSM */
+/* Light map tiles: soft sage chips, readable without glare */
 [data-pomich-theme="light"] .pomich-map-chip,
 html:not([data-pomich-theme]) .pomich-map-chip {
-  background: rgba(255, 255, 255, 0.96);
-  border-color: #94A3B8;
-  box-shadow: 0 4px 18px rgba(15, 23, 42, 0.16);
-  color: #0F172A;
+  background: rgba(232, 238, 235, 0.9);
+  border-color: rgba(28, 42, 36, 0.16);
+  box-shadow: 0 2px 10px rgba(28, 42, 36, 0.08);
+  color: #1A2332;
 }
 [data-pomich-theme="light"] .pomich-map-chip--muted,
 html:not([data-pomich-theme]) .pomich-map-chip--muted {
-  color: #334155;
-  border-color: #64748B;
+  color: #2F3F4F;
+  border-color: rgba(28, 42, 36, 0.18);
 }
 [data-pomich-theme="light"] .pomich-map-chip--brand,
 html:not([data-pomich-theme]) .pomich-map-chip--brand {
   border-color: #0B7A4D;
   color: #0B7A4D;
 }
-[data-pomich-theme="light"] .pomich-route-map .leaflet-bar,
-html:not([data-pomich-theme]) .pomich-route-map .leaflet-bar {
-  border: 1px solid #64748B !important;
-  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.18) !important;
+.pomich-route-map .leaflet-top.leaflet-left {
+  top: var(--pomich-map-chrome-top, 78px) !important;
+  left: var(--pomich-map-chrome-left, 12px) !important;
+  margin: 0 !important;
+  padding: 0 !important;
 }
-[data-pomich-theme="light"] .pomich-route-map .leaflet-control-zoom a,
-html:not([data-pomich-theme]) .pomich-route-map .leaflet-control-zoom a {
-  background: #FFFFFF !important;
-  color: #0F172A !important;
-  border-bottom-color: #CBD5E1 !important;
-  font-weight: 900;
-}
-/* Zoom +/− and geolocation in one horizontal row */
 .pomich-route-map .leaflet-control-zoom {
-  display: flex !important;
+  margin: 0 !important;
+  border: 1px solid var(--pomich-glass-border) !important;
+  border-radius: 999px !important;
+  background: var(--pomich-glass-card) !important;
+  backdrop-filter: blur(14px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(14px) saturate(180%) !important;
+  box-shadow: var(--pomich-card-shadow) !important;
+  display: inline-flex !important;
   flex-direction: row !important;
-  align-items: stretch;
+  flex-wrap: nowrap !important;
+  align-items: center !important;
+  width: auto !important;
+  height: auto !important;
+  min-height: 32px !important;
+  overflow: visible !important;
 }
+.pomich-route-map .leaflet-container.leaflet-touch .leaflet-control-zoom,
+.pomich-route-map .leaflet-touch .leaflet-control-zoom {
+  flex-direction: row !important;
+  width: auto !important;
+  height: auto !important;
+}
+.pomich-route-map .leaflet-touch .leaflet-control-zoom a,
 .pomich-route-map .leaflet-control-zoom a {
-  float: none !important;
-  width: 34px;
-  height: 34px;
-  line-height: 34px;
-  border-bottom: none !important;
-  border-right: 1px solid #64748B;
-}
-.pomich-route-map .leaflet-control-zoom a:last-child {
-  border-right: none;
+  width: 30px !important;
+  height: 30px !important;
+  line-height: 28px !important;
+  font-size: 15px !important;
+  font-weight: 800 !important;
+  color: var(--pomich-text) !important;
+  background: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
 }
 .pomich-route-map .leaflet-control-zoom a.leaflet-control-zoom-in {
-  border-top-right-radius: 0 !important;
-  border-bottom-left-radius: 4px !important;
+  border-right: 1px solid var(--pomich-border) !important;
 }
-.pomich-route-map .leaflet-control-zoom a.leaflet-control-zoom-out {
-  border-top-left-radius: 0 !important;
-  border-bottom-right-radius: 4px !important;
+.pomich-route-map .leaflet-control-zoom a:hover {
+  background: var(--pomich-ghost-bg) !important;
+  color: var(--pomich-brand) !important;
 }
-/* My-location sits in the same row as + / − */
-.pomich-map-locate {
+/* Map chrome row: geo + brand + hint — flex beside Leaflet +/− (no absolute overlap) */
+.pomich-map-chrome-row {
   position: absolute;
-  z-index: 400;
-  left: calc(var(--pomich-map-chrome-left) + 68px + 8px);
-  top: var(--pomich-map-chrome-top);
+  z-index: 1200;
+  left: calc(var(--pomich-map-chrome-left, 12px) + 62px + 6px);
+  right: var(--pomich-map-chrome-right, 12px);
+  top: var(--pomich-map-chrome-top, 78px);
   display: flex;
   flex-direction: row;
-  align-items: flex-start;
+  flex-wrap: nowrap;
+  align-items: center;
   gap: 8px;
+  margin: 0 !important;
+  min-width: 0;
   pointer-events: none;
+}
+.pomich-map-chrome-row__brand {
+  flex-shrink: 0;
+  max-width: none;
+  pointer-events: auto;
 }
 .pomich-map-locate__btn {
   pointer-events: auto;
-  width: 34px;
-  height: 34px;
+  width: 32px;
+  height: 32px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 4px;
-  border: 1px solid #64748B;
-  background: #FFFFFF;
-  color: #0F172A;
-  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.18);
+  border-radius: 999px;
+  border: 1px solid var(--pomich-glass-border);
+  background: var(--pomich-glass-card);
+  backdrop-filter: blur(14px) saturate(180%);
+  -webkit-backdrop-filter: blur(14px) saturate(180%);
+  color: var(--pomich-text);
+  box-shadow: var(--pomich-card-shadow);
   cursor: pointer;
   padding: 0;
   font-family: inherit;
   touch-action: manipulation;
+  transition: all 0.2s ease;
 }
 .pomich-map-locate__btn:hover:not(:disabled) {
-  color: var(--pomich-brand, #0B7A4D);
+  border-color: var(--pomich-brand);
+  color: var(--pomich-brand);
+  transform: translateY(-1px);
 }
 .pomich-map-locate__btn:disabled,
 .pomich-map-locate__btn.is-loading {
   cursor: wait;
-  color: #64748B;
-  background: #F8FAFC;
+  color: var(--pomich-muted);
+  background: var(--pomich-ghost-bg);
 }
 .pomich-map-locate__btn.is-error {
   color: #B45309;
@@ -863,10 +910,13 @@ html:not([data-pomich-theme]) .pomich-route-map .leaflet-control-zoom a {
 }
 .pomich-map-locate__hint {
   pointer-events: none;
-  max-width: min(62vw, 220px);
+  flex: 0 1 auto;
+  width: auto;
+  min-width: 0;
+  max-width: min(220px, calc(100% - 8px));
   margin-left: 0;
-  padding: 8px 10px;
-  border-radius: 12px;
+  padding: 6px 10px;
+  border-radius: 999px;
   background: rgba(255, 247, 237, 0.97);
   color: #B45309;
   border: 1px solid #FDBA74;
@@ -874,11 +924,30 @@ html:not([data-pomich-theme]) .pomich-route-map .leaflet-control-zoom a {
   font-weight: 800;
   line-height: 1.35;
   box-shadow: 0 4px 14px rgba(15, 23, 42, 0.1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pomich-map-locate__hint-short {
+  display: none;
+}
+@media (max-width: 520px) {
+  .pomich-map-locate__hint {
+    max-width: min(160px, calc(100% - 8px));
+    padding: 5px 8px;
+    font-size: 10px;
+  }
+  .pomich-map-locate__hint-full {
+    display: none;
+  }
+  .pomich-map-locate__hint-short {
+    display: inline;
+  }
 }
 .pomich-map-locate__hint--muted {
-  background: rgba(255, 255, 255, 0.96);
-  color: #475569;
-  border-color: #CBD5E1;
+  background: rgba(232, 238, 235, 0.94);
+  color: #4A5A68;
+  border-color: #B8C9C0;
 }
 @keyframes pomich-locate-spin {
   from { transform: rotate(0deg); }
@@ -963,10 +1032,9 @@ html:not([data-pomich-theme]) .pomich-user-loc__pulse {
   }
 }
 
-/* Soft breathe on service / partner markers */
+/* Soft breathe on single ride markers — not directory POIs (thousands on map) */
 .pomich-partner-marker > div,
 .pomich-live-provider-marker > div,
-.pomich-directory-marker > div,
 .pomich-pickup-marker > div {
   animation: pomichMarkerBreathe 4.8s ease-in-out infinite;
 }
@@ -977,10 +1045,30 @@ html:not([data-pomich-theme]) .pomich-user-loc__pulse {
 @media (prefers-reduced-motion: reduce) {
   .pomich-partner-marker > div,
   .pomich-live-provider-marker > div,
-  .pomich-directory-marker > div,
   .pomich-pickup-marker > div {
     animation: pomichMarkerBreathe 10s ease-in-out infinite;
   }
+}
+.pomich-pickup-marker.leaflet-div-icon,
+.pomich-destination-marker.leaflet-div-icon,
+.pomich-partner-marker.leaflet-div-icon,
+.pomich-live-provider-marker.leaflet-div-icon,
+.pomich-request-marker.leaflet-div-icon,
+.leaflet-marker-icon.pomich-pickup-marker,
+.leaflet-marker-icon.pomich-destination-marker,
+.leaflet-marker-icon.pomich-partner-marker,
+.leaflet-marker-icon.pomich-live-provider-marker,
+.leaflet-marker-icon.pomich-request-marker {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  overflow: visible !important;
+}
+.pomich-directory-marker.leaflet-div-icon,
+.leaflet-marker-icon.pomich-directory-marker {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
 }
 [data-pomich-theme="dark"] .pomich-map-locate__btn {
   background: color-mix(in srgb, var(--pomich-card-bg) 96%, transparent);
@@ -989,21 +1077,42 @@ html:not([data-pomich-theme]) .pomich-user-loc__pulse {
   box-shadow: var(--pomich-card-shadow);
 }
 
+[data-pomich-theme="dark"] .pomich-map-locate__hint {
+  background: rgba(24, 28, 36, 0.96);
+  color: #FBBF24;
+  border-color: rgba(251, 191, 36, 0.35);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+[data-pomich-theme="dark"] .pomich-map-locate__hint--muted {
+  background: rgba(24, 28, 36, 0.94);
+  color: var(--pomich-muted);
+  border-color: var(--pomich-border);
+}
+[data-pomich-theme="dark"] .pomich-route-map .leaflet-control-attribution {
+  background: rgba(24, 28, 36, 0.88) !important;
+  color: rgba(226, 232, 240, 0.88) !important;
+}
+[data-pomich-theme="dark"] .pomich-route-map .leaflet-control-attribution a {
+  color: #8EF0BE !important;
+}
+
 [data-pomich-theme="light"] .pomich-map-tools-toggle,
 html:not([data-pomich-theme]) .pomich-map-tools-toggle,
 [data-pomich-theme="light"] .pomich-map-tools-panel,
 html:not([data-pomich-theme]) .pomich-map-tools-panel {
-  background: rgba(255, 255, 255, 0.96);
-  border-color: #64748B;
-  color: #0F172A;
-  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.14);
+  background: rgba(232, 238, 235, 0.92);
+  border-color: rgba(28, 42, 36, 0.16);
+  color: #1A2332;
+  box-shadow: 0 2px 12px rgba(28, 42, 36, 0.08);
 }
 [data-pomich-theme="light"] .pomich-map-tools-panel__brand,
 html:not([data-pomich-theme]) .pomich-map-tools-panel__brand,
 [data-pomich-theme="light"] .pomich-map-tools-legend-item,
 html:not([data-pomich-theme]) .pomich-map-tools-legend-item,
 [data-pomich-theme="light"] .pomich-map-tools-filter-btn,
-html:not([data-pomich-theme]) .pomich-map-tools-filter-btn {
+html:not([data-pomich-theme]) .pomich-map-tools-filter-btn,
+[data-pomich-theme="light"] .pomich-map-tools-scope-btn,
+html:not([data-pomich-theme]) .pomich-map-tools-scope-btn {
   color: #0F172A;
 }
 [data-pomich-theme="light"] .pomich-map-tools-panel__title,
@@ -1014,10 +1123,12 @@ html:not([data-pomich-theme]) .pomich-map-tools-legend-item--muted {
 }
 [data-pomich-theme="light"] .pomich-map-tools-filter-btn,
 html:not([data-pomich-theme]) .pomich-map-tools-filter-btn,
+[data-pomich-theme="light"] .pomich-map-tools-scope-btn,
+html:not([data-pomich-theme]) .pomich-map-tools-scope-btn,
 [data-pomich-theme="light"] .pomich-map-tools-panel__close,
 html:not([data-pomich-theme]) .pomich-map-tools-panel__close {
-  background: #FFFFFF;
-  border-color: #94A3B8;
+  background: #E4EBE7;
+  border-color: #A8BBB2;
 }
 [data-pomich-theme="dark"] .pomich-map-tools-toggle,
 [data-pomich-theme="dark"] .pomich-map-tools-panel {
@@ -1027,10 +1138,23 @@ html:not([data-pomich-theme]) .pomich-map-tools-panel__close {
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
 }
 [data-pomich-theme="dark"] .pomich-map-tools-filter-btn,
+[data-pomich-theme="dark"] .pomich-map-tools-scope-btn,
 [data-pomich-theme="dark"] .pomich-map-tools-panel__close {
   background: rgba(255, 255, 255, 0.06);
   border-color: rgba(255, 255, 255, 0.16);
   color: #FFFFFF;
+}
+[data-pomich-theme="dark"] .pomich-map-tools-scope-btn.is-active {
+  background: rgba(22, 163, 106, 0.22);
+  border-color: rgba(142, 240, 190, 0.55);
+  color: #F8FAFC;
+}
+[data-pomich-theme="dark"] .pomich-map-tools-scope-hint {
+  color: #B9C2D0;
+}
+[data-pomich-theme="dark"] .pomich-map-tools-scope-error {
+  background: rgba(239, 68, 68, 0.16);
+  color: #FCA5A5;
 }
 .pomich-field-feedback {
   display: grid;
@@ -1104,20 +1228,101 @@ html:not([data-pomich-theme]) .pomich-map-tools-panel__close {
   position: relative;
   flex: 1 1 0;
   min-height: 0;
-  overflow: hidden;
-  contain: layout paint;
+  overflow: visible;
+  contain: layout;
 }
 .pomich-ride-screen__map .pomich-route-map,
 .pomich-ride-screen__map .pomich-route-map .leaflet-container {
   height: 100% !important;
   width: 100% !important;
 }
+.pomich-ride-screen__map .pomich-route-map .leaflet-container {
+  overflow: hidden;
+  border-radius: inherit;
+}
+.pomich-route-map--full .leaflet-container {
+  border-radius: 0;
+  overflow: hidden;
+}
+.pomich-route-map {
+  background: var(--pomich-map-bg);
+  transition: background-color 0.25s ease;
+}
+.pomich-route-map--ukraine-wide {
+  background: var(--pomich-map-bg);
+}
+.pomich-route-map--ukraine-wide .leaflet-container {
+  background: var(--pomich-map-bg);
+}
+.pomich-route-map--ukraine-wide .leaflet-control-attribution {
+  background: rgba(255, 255, 255, 0.82);
+  color: rgba(26, 35, 50, 0.78);
+  font-size: 10px;
+  border-radius: 6px 0 0 0;
+}
+.pomich-route-map--ukraine-wide .leaflet-control-attribution a {
+  color: rgba(26, 35, 50, 0.88);
+}
+[data-pomich-theme="dark"] .pomich-route-map--ukraine-wide .leaflet-control-attribution {
+  background: rgba(8, 12, 14, 0.72);
+  color: rgba(255, 255, 255, 0.78);
+}
+[data-pomich-theme="dark"] .pomich-route-map--ukraine-wide .leaflet-control-attribution a {
+  color: rgba(255, 255, 255, 0.88);
+}
 .pomich-route-map .leaflet-container {
   transform: translateZ(0);
   backface-visibility: hidden;
 }
-.pomich-ride-screen__map .leaflet-pane {
-  z-index: 1;
+/* Ukraine mask / occupied overlay — below markers (600), above tiles (200) */
+.pomich-route-map .leaflet-pane.pomich-ukraine-pane,
+.pomich-ride-screen__map .leaflet-pane.pomich-ukraine-pane {
+  z-index: 350;
+}
+.pomich-map-occupied-hint {
+  position: absolute;
+  left: var(--pomich-map-chrome-left, 12px);
+  right: var(--pomich-map-chrome-right, 12px);
+  bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  z-index: 650;
+  background: rgba(127, 29, 29, 0.92);
+  color: #fee2e2;
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.35;
+  pointer-events: none;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+}
+.pomich-map-occupied-hint--overlay {
+  bottom: calc(var(--pomich-sheet-height, 42vh) + 12px + env(safe-area-inset-bottom, 0px));
+}
+html.tg-compact .pomich-map-occupied-hint,
+html.mobile-compact .pomich-map-occupied-hint {
+  font-size: 11px;
+  padding: 9px 10px;
+}
+/* Tiles low; markers/routes above Ukraine mask (350), below bottom sheet (450) */
+.pomich-ride-screen__map .leaflet-pane.leaflet-tile-pane,
+.pomich-route-map .leaflet-pane.leaflet-tile-pane {
+  z-index: 200;
+}
+.pomich-ride-screen__map .leaflet-pane.leaflet-shadow-pane,
+.pomich-route-map .leaflet-pane.leaflet-shadow-pane,
+.pomich-ride-screen__map .leaflet-pane.leaflet-overlay-pane,
+.pomich-route-map .leaflet-pane.leaflet-overlay-pane,
+.pomich-ride-screen__map .leaflet-pane.leaflet-marker-pane,
+.pomich-route-map .leaflet-pane.leaflet-marker-pane {
+  z-index: 400;
+}
+.pomich-ride-screen__map .leaflet-pane.leaflet-tooltip-pane,
+.pomich-route-map .leaflet-pane.leaflet-tooltip-pane {
+  z-index: 420;
+}
+.pomich-ride-screen__map .leaflet-pane.leaflet-popup-pane,
+.pomich-route-map .leaflet-pane.leaflet-popup-pane {
+  z-index: 430;
 }
 /* Zoom / locate clear the sticky glass header on every map, not only ride wrappers */
 .pomich-route-map .leaflet-top,
@@ -1158,32 +1363,41 @@ html:not([data-pomich-theme]) .pomich-map-tools-panel__close {
 }
 .pomich-ride-screen--split > .pomich-sheet-panel--side {
   align-self: stretch;
-  background: var(--pomich-surface);
-  /* Physically clear the fixed glass header so «Вийти» / Кабінет stay clickable */
-  margin-top: calc(var(--pomich-app-header-height) + env(safe-area-inset-top, 0px));
-  height: calc(100% - var(--pomich-app-header-height) - env(safe-area-inset-top, 0px));
-  max-height: calc(100% - var(--pomich-app-header-height) - env(safe-area-inset-top, 0px));
+  background: var(--pomich-glass-card);
+  /* Absolute overlay: top matches left map chrome (+/− / geo). No margin-top —
+     stacking margin on top: would double-count the header and leave a map gap. */
+  margin-top: 0;
+  top: var(--pomich-map-chrome-top);
+  bottom: 16px;
+  height: auto;
+  max-height: none;
   padding-top: 0;
   box-sizing: border-box;
   z-index: 5;
 }
-/* Desktop split only — never render on TG/mobile overlay (covers zoom) */
+/* Map chrome (geo hint, tools) must not extend under the side panel */
+.pomich-ride-screen--split > .pomich-ride-screen__map {
+  --pomich-map-panel-width: min(380px, 36vw);
+  --pomich-map-panel-gap: 12px;
+}
+.pomich-ride-screen--split > .pomich-ride-screen__map .pomich-map-chrome-row,
+.pomich-ride-screen--split > .pomich-ride-screen__map .pomich-map-tools-toggle,
+.pomich-ride-screen--split > .pomich-ride-screen__map .pomich-map-tools-panel {
+  right: calc(
+    var(--pomich-map-chrome-right, 12px) + var(--pomich-map-panel-width) + var(--pomich-map-panel-gap)
+  );
+}
+@media (max-width: 1024px) {
+  .pomich-ride-screen--split > .pomich-ride-screen__map {
+    --pomich-map-panel-width: min(340px, 42vw);
+  }
+}
+/* Desktop split: brand chip lives in .pomich-map-chrome-row (RouteMap) — legacy slot unused */
 .pomich-ride-screen__chrome {
   display: none;
 }
 .pomich-ride-screen__chrome--desktop {
-  display: block;
-  top: var(--pomich-map-chrome-top);
-  /* Clear horizontal zoom (+/−) + geo (~110px) + gap */
-  left: calc(var(--pomich-map-chrome-left) + 110px + 12px);
-  right: auto;
-  z-index: 450;
-  pointer-events: none;
-  max-width: min(42vw, 140px);
-}
-.pomich-ride-screen__chrome .pomich-map-chip {
-  pointer-events: auto;
-  max-width: 100%;
+  display: none;
 }
 .pomich-ride-screen .pomich-sheet-panel--bottom {
   position: relative;
@@ -1211,9 +1425,11 @@ html:not([data-pomich-theme]) .pomich-map-tools-panel__close {
   left: 0;
   right: 0;
   margin-top: 0;
-  z-index: 4;
+  /* Above Leaflet panes (1–400) so duty/offer panels stay tappable on TG mobile */
+  z-index: 450;
   /* Cap against parent ride-screen so content stays above browser/TG chrome */
   max-height: min(var(--pomich-sheet-max, 78%), 100%) !important;
+  min-height: min(var(--pomich-sheet-min, 14%), 7.5rem);
   height: var(--pomich-sheet-height, var(--pomich-sheet-half));
   transition: height 0.28s cubic-bezier(0.32, 0.72, 0, 1);
   will-change: height;
@@ -1295,9 +1511,55 @@ html:not([data-pomich-theme]) .pomich-map-tools-panel__close {
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
   touch-action: pan-y;
+  scroll-padding-bottom: 120px;
+}
+.pomich-ride-screen--overlay .pomich-sheet-panel--bottom .pomich-sheet-panel__scroll--bottom {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
+  overflow-y: auto;
 }
 .pomich-sheet-panel__body {
   padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px) + var(--tg-content-safe-area-inset-bottom, 0px));
+}
+
+/* Mobile input auto-zoom prevention (iOS WebKit requires >=16px font to avoid scaling) */
+@media (max-width: 768px), (pointer: coarse) {
+  input,
+  textarea,
+  select,
+  .pomich-comment-field,
+  .pomich-form-input {
+    font-size: 16px !important;
+  }
+}
+
+.pomich-comment-field {
+  width: 100%;
+  min-height: 88px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--pomich-border);
+  background: var(--pomich-input-bg);
+  color: var(--pomich-text);
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.45;
+  box-sizing: border-box;
+  resize: vertical;
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.pomich-comment-field:focus {
+  border-color: var(--pomich-brand);
+  box-shadow: 0 0 0 3px rgba(22, 163, 106, 0.15);
+}
+
+.pomich-comment-field::placeholder {
+  color: var(--pomich-subtle);
+  opacity: 0.8;
 }
 .pomich-map-address-pill {
   position: absolute;
@@ -1308,20 +1570,28 @@ html:not([data-pomich-theme]) .pomich-map-tools-panel__close {
   max-width: none;
   width: auto;
   box-sizing: border-box;
-  background: rgba(255, 255, 255, 0.94);
+  background: rgba(232, 238, 235, 0.92);
   border-radius: 999px;
   padding: 8px 14px;
   font-size: 12px;
   font-weight: 800;
-  color: #0F172A;
+  color: #1A2332;
   pointer-events: auto;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.14);
-  border: 1px solid rgba(15, 23, 42, 0.12);
+  box-shadow: 0 2px 12px rgba(28, 42, 36, 0.08);
+  border: 1px solid rgba(28, 42, 36, 0.12);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
+}
+/* Pin address pill just above the live bottom sheet (same --pomich-sheet-height as drag/snap). */
+.pomich-ride-screen--overlay .pomich-map-address-pill {
+  bottom: calc(
+    var(--pomich-sheet-height, var(--pomich-sheet-half))
+    + var(--pomich-space-2, 8px)
+    + env(safe-area-inset-bottom, 0px)
+  );
 }
 .pomich-ride-screen--split .pomich-map-address-pill {
   right: auto;
@@ -1347,7 +1617,9 @@ html:not([data-pomich-theme]) .pomich-map-tools-panel__close {
 .pomich-sheet-panel--side {
   max-height: none !important;
 }
-.pomich-sheet-panel__scroll {
+/* Side panel only — height:0 lets flex grow inside fixed side chrome.
+   Do NOT apply to __scroll--bottom (same class list) or mobile duty content collapses to 0. */
+.pomich-sheet-panel--side .pomich-sheet-panel__scroll {
   min-height: 0;
   height: 0;
   flex: 1 1 auto;
@@ -1591,6 +1863,31 @@ html:not([data-pomich-theme]) .pomich-landing-header .pomich-landing-nav-link:fo
   -webkit-backdrop-filter: blur(16px);
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.32);
 }
+/* Login ghost CTA: light text on dark header glass (both themes). */
+.pomich-landing-header .landing-header-ghost-btn,
+[data-pomich-theme="light"] .pomich-landing-header .landing-header-ghost-btn,
+[data-pomich-theme="dark"] .pomich-landing-header .landing-header-ghost-btn,
+html:not([data-pomich-theme]) .pomich-landing-header .landing-header-ghost-btn {
+  color: #f8fafc !important;
+  border-color: rgba(255, 255, 255, 0.22) !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+  box-shadow: none !important;
+}
+.pomich-landing-header .landing-header-ghost-btn:hover,
+.pomich-landing-header .landing-header-ghost-btn:focus-visible {
+  color: #ffffff !important;
+  border-color: rgba(255, 255, 255, 0.34) !important;
+  background: rgba(255, 255, 255, 0.14) !important;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.28) !important;
+  filter: none;
+}
+.pomich-landing-header .landing-header-ghost-btn:active {
+  color: #e2e8f0 !important;
+  background: rgba(255, 255, 255, 0.1) !important;
+  transform: translateY(1px) scale(0.98);
+  filter: none;
+}
 
 /* ── Shared map atmosphere shell (landing + all non-ride pages) ── */
 .pomich-map-shell {
@@ -1691,8 +1988,7 @@ html.mobile-compact .pomich-map-shell--root > .pomich-map-shell__content > * {
 .pomich-map-shell--root .pomich-screen-layout {
   background: transparent;
 }
-/* Form / cabinet / role plates: solid over map — readability first */
-.pomich-map-shell--root .pomich-cabinet-card,
+/* Form / role plates: solid over map — readability first (cabinet keeps glass below) */
 .pomich-map-shell--root .pomich-form-card,
 .pomich-map-shell--root .pomich-onboarding-card,
 .pomich-map-shell--root .pomich-role-card,
@@ -1705,7 +2001,6 @@ html.mobile-compact .pomich-map-shell--root > .pomich-map-shell__content > * {
   border-color: var(--pomich-glass-border);
   box-shadow: var(--pomich-card-shadow);
 }
-[data-pomich-theme="dark"] .pomich-map-shell--root .pomich-cabinet-card,
 [data-pomich-theme="dark"] .pomich-map-shell--root .pomich-form-card,
 [data-pomich-theme="dark"] .pomich-map-shell--root .pomich-onboarding-card,
 [data-pomich-theme="dark"] .pomich-map-shell--root .pomich-role-card,
@@ -1714,20 +2009,36 @@ html.mobile-compact .pomich-map-shell--root > .pomich-map-shell__content > * {
   background: #12151A;
   border-color: rgba(255, 255, 255, 0.22);
 }
-[data-pomich-theme="light"] .pomich-map-shell--root .pomich-cabinet-card,
 [data-pomich-theme="light"] .pomich-map-shell--root .pomich-form-card,
 [data-pomich-theme="light"] .pomich-map-shell--root .pomich-onboarding-card,
 [data-pomich-theme="light"] .pomich-map-shell--root .pomich-role-card,
 [data-pomich-theme="light"] .pomich-map-shell--root .pomich-app-fallback__card,
 [data-pomich-theme="light"] .pomich-map-shell--root .pomich-terminal-card,
-html:not([data-pomich-theme]) .pomich-map-shell--root .pomich-cabinet-card,
 html:not([data-pomich-theme]) .pomich-map-shell--root .pomich-form-card,
 html:not([data-pomich-theme]) .pomich-map-shell--root .pomich-onboarding-card,
 html:not([data-pomich-theme]) .pomich-map-shell--root .pomich-role-card,
 html:not([data-pomich-theme]) .pomich-map-shell--root .pomich-app-fallback__card,
 html:not([data-pomich-theme]) .pomich-map-shell--root .pomich-terminal-card {
-  background: #FFFFFF;
-  border-color: #D8E6E0;
+  background: #E8EEEB;
+  border-color: #C5D4CC;
+}
+/* Client cabinet: frosted glass over map atmosphere */
+.pomich-map-shell--root .pomich-cabinet-card {
+  background: var(--pomich-glass-card) !important;
+  border-color: var(--pomich-glass-border) !important;
+  backdrop-filter: blur(18px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(18px) saturate(180%) !important;
+  box-shadow: var(--pomich-card-shadow);
+  color: var(--pomich-text);
+}
+[data-pomich-theme="dark"] .pomich-map-shell--root .pomich-cabinet-card {
+  background: rgba(18, 22, 28, 0.52) !important;
+  border-color: rgba(255, 255, 255, 0.14) !important;
+}
+[data-pomich-theme="light"] .pomich-map-shell--root .pomich-cabinet-card,
+html:not([data-pomich-theme]) .pomich-map-shell--root .pomich-cabinet-card {
+  background: rgba(232, 238, 235, 0.78) !important;
+  border-color: rgba(28, 42, 36, 0.12) !important;
 }
 .pomich-map-shell--root .pomich-form-error {
   backdrop-filter: none;
@@ -1740,12 +2051,22 @@ html:not([data-pomich-theme]) .pomich-map-shell--root .pomich-terminal-card {
 html:not([data-pomich-theme]) .pomich-map-shell--root .pomich-form-error {
   background: #FFF1F2;
 }
-/* Footers stay solid for readability — never paint cabinet/app chrome solid */
-.pomich-map-shell--root .pomich-form-footer-bar,
-.pomich-map-shell--root .pomich-cabinet-footer {
+/* Form footers stay solid; cabinet footer keeps glass chrome */
+.pomich-map-shell--root .pomich-form-footer-bar {
   background: var(--pomich-footer-bg);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
+}
+.pomich-map-shell--root .pomich-cabinet-footer {
+  background: rgba(8, 12, 14, 0.28) !important;
+  backdrop-filter: blur(16px) saturate(1.2) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(1.2) !important;
+  border-top-color: rgba(255, 255, 255, 0.1);
+}
+[data-pomich-theme="light"] .pomich-map-shell--root .pomich-cabinet-footer,
+html:not([data-pomich-theme]) .pomich-map-shell--root .pomich-cabinet-footer {
+  background: rgba(228, 235, 231, 0.82) !important;
+  border-top-color: rgba(28, 42, 36, 0.10);
 }
 .pomich-map-shell--root .pomich-cabinet-shell > .pomich-cabinet-header .pomich-form-header,
 .pomich-map-shell--root .pomich-cabinet-header .pomich-form-header {
@@ -1773,6 +2094,7 @@ html:not([data-pomich-theme]) .pomich-map-shell--root .pomich-form-error {
   pointer-events: none;
   z-index: 0;
 }
+/* Hero copy floats on map — NO boxed card/plate */
 .landing-hero-map {
   position: absolute;
   inset: -14%;
@@ -1990,6 +2312,7 @@ html:not([data-pomich-theme]) .landing-hero-brand {
   height: 0.11em;
   border-radius: 999px;
   overflow: hidden;
+  pointer-events: none;
   transform-origin: left center;
   background: linear-gradient(
     90deg,
@@ -2010,6 +2333,7 @@ html:not([data-pomich-theme]) .landing-hero-brand {
   content: "";
   position: absolute;
   inset: 0;
+  pointer-events: none;
   background: linear-gradient(
     90deg,
     transparent 0%,
@@ -2067,6 +2391,9 @@ html:not([data-pomich-theme]) .landing-hero-eyebrow {
     0 4px 14px rgba(0, 0, 0, 0.4);
 }
 .landing-hero-ctas {
+  position: relative;
+  z-index: 5;
+  pointer-events: auto;
   animation: none;
 }
 .landing-hero-ctas .landing-hero-cta-primary {
@@ -2078,6 +2405,9 @@ html:not([data-pomich-theme]) .landing-hero-eyebrow {
   animation-delay: 0.9s;
 }
 .landing-cta-btn {
+  position: relative;
+  z-index: 1;
+  pointer-events: auto;
   transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
 }
 .landing-cta-btn:hover {
@@ -2360,12 +2690,14 @@ html.mobile-compact .pomich-tg-main {
   bottom: auto !important;
 }
 .pomich-landing .landing-map-frame .pomich-map-tools-toggle {
-  max-width: min(38%, 132px);
+  max-width: min(46%, 168px);
 }
 .pomich-landing .landing-map-frame .pomich-map-tools-panel {
-  max-width: min(128px, 30%);
-  max-height: min(34%, 168px);
+  width: min(240px, calc(100vw - 48px));
+  max-width: min(240px, calc(100vw - 48px));
+  max-height: min(52vh, 280px);
   overflow-y: auto;
+  pointer-events: auto;
 }
 /* «Моє місце»: bottom-left — never overlaps filter (top-right) or zoom */
 .pomich-landing .landing-map-geo-btn {
@@ -2389,13 +2721,14 @@ html.mobile-compact .pomich-tg-main {
 }
 @media (max-width: 759px) {
   .pomich-landing .landing-map-frame .pomich-map-tools-toggle {
-    max-width: min(36%, 118px);
+    max-width: min(44%, 156px);
     font-size: 10px;
     padding: 6px 9px;
   }
   .pomich-landing .landing-map-frame .pomich-map-tools-panel {
-    max-width: min(118px, 32%);
-    max-height: min(30%, 132px);
+    width: min(220px, calc(100vw - 32px));
+    max-width: min(220px, calc(100vw - 32px));
+    max-height: min(48vh, 240px);
   }
   .pomich-landing .landing-map-geo-btn {
     left: 8px !important;
@@ -2418,12 +2751,14 @@ html.mobile-compact .pomich-tg-app {
   overflow: hidden;
 }
 html.tg-compact .pomich-tg-app > .pomich-tg-header,
-html.mobile-compact .pomich-tg-app > .pomich-tg-header {
+html.mobile-compact .pomich-tg-app > .pomich-tg-header,
+.pomich-themed-shell > .pomich-tg-header {
   position: fixed !important;
   flex-shrink: 0;
   z-index: 3200 !important;
   min-height: calc(var(--pomich-app-header-height) + env(safe-area-inset-top, 0px));
-  height: auto;
+  height: auto !important;
+  overflow: visible !important;
   width: 100%;
   left: 0;
   right: 0;
@@ -2474,12 +2809,14 @@ html:not(.tg-compact):not(.mobile-compact) .pomich-map-shell--root:has(.pomich-r
   max-height: 100%;
   height: 100%;
 }
-/* Split side panel: content clears fixed glass header; map stays edge-to-edge underneath */
+/* Split side panel: align with map chrome (header already in --pomich-map-chrome-top) */
 .pomich-themed-shell:has(> .pomich-tg-header) .pomich-ride-screen--split > .pomich-sheet-panel--side,
 .pomich-tg-app:has(> .pomich-tg-header) .pomich-ride-screen--split > .pomich-sheet-panel--side {
-  margin-top: calc(var(--pomich-app-header-height) + env(safe-area-inset-top, 0px));
-  height: calc(100% - var(--pomich-app-header-height) - env(safe-area-inset-top, 0px));
-  max-height: calc(100% - var(--pomich-app-header-height) - env(safe-area-inset-top, 0px));
+  margin-top: 0;
+  top: var(--pomich-map-chrome-top);
+  bottom: 16px;
+  height: auto;
+  max-height: none;
   padding-top: 0;
   box-sizing: border-box;
 }
@@ -2488,12 +2825,13 @@ html:not(.tg-compact):not(.mobile-compact) .pomich-map-shell--root:has(.pomich-r
   padding-top: calc(var(--pomich-app-header-height) + env(safe-area-inset-top, 0px));
 }
 /* Map chrome sits below the fixed glass app header (zoom, locate, filter chip) */
-.pomich-tg-app:has(> .pomich-tg-header) .pomich-ride-screen,
-.pomich-themed-shell:has(> .pomich-tg-header) .pomich-ride-screen,
-.pomich-tg-app:has(> .pomich-tg-header) .pomich-ride-map-bg,
-.pomich-themed-shell:has(> .pomich-tg-header) .pomich-ride-map-bg,
-.pomich-tg-app:has(> .pomich-tg-header) .pomich-route-map,
-.pomich-themed-shell:has(> .pomich-tg-header) .pomich-route-map {
+.pomich-map-shell--root:has(.pomich-tg-header) .pomich-route-map,
+.pomich-tg-app:has(.pomich-tg-header) .pomich-ride-screen,
+.pomich-themed-shell:has(.pomich-tg-header) .pomich-ride-screen,
+.pomich-tg-app:has(.pomich-tg-header) .pomich-ride-map-bg,
+.pomich-themed-shell:has(.pomich-tg-header) .pomich-ride-map-bg,
+.pomich-tg-app:has(.pomich-tg-header) .pomich-route-map,
+.pomich-themed-shell:has(.pomich-tg-header) .pomich-route-map {
   --pomich-map-chrome-top: calc(
     var(--pomich-app-header-height) + 14px + env(safe-area-inset-top, 0px) + var(--tg-content-safe-area-inset-top, 0px)
   );
@@ -2546,14 +2884,16 @@ html.mobile-compact .pomich-cabinet-shell {
   max-height: 100%;
   min-height: 0;
   overflow: hidden;
-  padding-top: calc(var(--pomich-app-header-height) + env(safe-area-inset-top, 0px) + 8px);
+  padding-top: var(--pomich-cabinet-chrome-top);
 }
 html.tg-compact .pomich-cabinet-body,
 html.mobile-compact .pomich-cabinet-body {
   flex: 1 1 0;
   min-height: 0;
   overflow-y: auto;
-  padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+  scroll-padding-top: 12px;
+  padding-top: 12px;
+  padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px) + var(--tg-content-safe-area-inset-bottom, 0px));
 }
 html.tg-compact .pomich-role-select,
 html.mobile-compact .pomich-role-select {
@@ -2581,6 +2921,11 @@ html.tg-compact .pomich-tg-main .pomich-ride-screen__map,
 html.mobile-compact .pomich-tg-main .pomich-ride-screen__map {
   margin: 0 6px;
   border-radius: 14px 14px 0 0;
+  overflow: visible;
+}
+html.tg-compact .pomich-tg-main .pomich-ride-screen__map .leaflet-container,
+html.mobile-compact .pomich-tg-main .pomich-ride-screen__map .leaflet-container {
+  border-radius: 14px 14px 0 0;
   overflow: hidden;
 }
 html.mobile-compact-xs .pomich-tg-main > .pomich-ride-screen {
@@ -2590,6 +2935,11 @@ html.mobile-compact-xs .pomich-tg-main > .pomich-ride-screen {
 html.mobile-compact-xs .pomich-tg-main .pomich-ride-screen__map {
   margin: 0 4px;
   border-radius: 12px 12px 0 0;
+  overflow: visible;
+}
+html.mobile-compact-xs .pomich-tg-main .pomich-ride-screen__map .leaflet-container {
+  border-radius: 12px 12px 0 0;
+  overflow: hidden;
 }
 .pomich-map-tools-toggle {
   position: absolute;
@@ -2645,29 +2995,62 @@ html.mobile-compact-xs .pomich-tg-main .pomich-ride-screen__map {
   gap: 8px;
   touch-action: pan-y;
 }
-/* Desktop split view: move "Допомога поруч" to the left of the 420px side panel so it never overlaps! */
+.pomich-map-legend-box {
+  position: absolute;
+  z-index: 1200;
+  right: var(--pomich-map-chrome-right, 12px);
+  top: var(--pomich-map-chrome-top, 78px);
+  background: var(--pomich-glass-card);
+  backdrop-filter: blur(14px) saturate(180%);
+  -webkit-backdrop-filter: blur(14px) saturate(180%);
+  border: 1px solid var(--pomich-glass-border);
+  border-radius: 14px;
+  padding: 8px 12px;
+  font-size: 10px;
+  font-weight: 850;
+  color: var(--pomich-text);
+  box-shadow: var(--pomich-card-shadow);
+  display: grid;
+  gap: 4px;
+  pointer-events: auto;
+}
+.pomich-map-legend-title {
+  margin-bottom: 2px;
+  font-size: 9px;
+  font-weight: 900;
+  color: var(--pomich-subtle);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+/* Desktop split view: legend/filter share the same top as zoom/geo + side panel */
 .pomich-ride-screen--split .pomich-map-tools-toggle,
-.pomich-ride-screen--split .pomich-map-tools-panel {
+.pomich-ride-screen--split .pomich-map-tools-panel,
+.pomich-ride-screen--split .pomich-map-legend-box {
   right: calc(420px + 32px) !important;
-  top: calc(var(--pomich-app-header-height, 64px) + 16px) !important;
+  top: var(--pomich-map-chrome-top) !important;
 }
 @media (max-width: 1280px) {
   .pomich-ride-screen--split .pomich-map-tools-toggle,
-  .pomich-ride-screen--split .pomich-map-tools-panel {
+  .pomich-ride-screen--split .pomich-map-tools-panel,
+  .pomich-ride-screen--split .pomich-map-legend-box {
     right: calc(360px + 28px) !important;
   }
 }
 @media (max-width: 767px) {
   .pomich-map-tools-toggle {
-    right: 12px;
-    top: calc(var(--pomich-app-header-height, 62px) + 8px);
+    right: var(--pomich-map-chrome-right, 12px);
+    top: var(--pomich-map-chrome-top);
     font-size: 11px;
     padding: 7px 11px;
   }
   .pomich-map-tools-panel {
-    right: 12px;
-    top: calc(var(--pomich-app-header-height, 62px) + 8px);
+    right: var(--pomich-map-chrome-right, 12px);
+    top: var(--pomich-map-chrome-top);
     width: min(240px, calc(100vw - 24px));
+  }
+  .pomich-map-legend-box {
+    right: var(--pomich-map-chrome-right, 12px);
+    top: var(--pomich-map-chrome-top);
   }
 }
 .pomich-map-tools-panel__head {
@@ -2704,18 +3087,91 @@ html.mobile-compact-xs .pomich-tg-main .pomich-ride-screen__map {
   cursor: pointer;
   touch-action: manipulation;
 }
-.pomich-map-tools-filter-btn {
+.pomich-map-tools-filter-btn,
+.pomich-map-tools-scope-btn {
   border: 1px solid #94A3B8;
   border-radius: 8px;
   background: #FFFFFF;
   color: #0F172A;
   padding: 5px 7px;
   font-size: 10px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.pomich-map-tools-filter-btn {
+  text-align: left;
+}
+.pomich-map-tools-scope-btn {
+  text-align: center;
+  min-height: 40px;
+  padding: 8px 6px;
+  font-weight: 800;
+}
+.pomich-map-tools-scope-btn.is-active {
+  border-color: var(--pomich-brand, #16A36A);
+  background: color-mix(in srgb, var(--pomich-brand, #16A36A) 14%, transparent);
+  font-weight: 900;
+}
+.pomich-map-tools-scope-btn:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+.pomich-map-tools-scope-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-bottom: 4px;
+  pointer-events: auto;
+}
+.pomich-flag-ua {
+  display: inline-block;
+  width: 1.05em;
+  height: 0.72em;
+  margin-right: 0.28em;
+  vertical-align: -0.08em;
+  border-radius: 2px;
+  background: linear-gradient(to bottom, #005BBB 0%, #005BBB 50%, #FFD500 50%, #FFD500 100%);
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.14);
+  flex-shrink: 0;
+}
+.pomich-map-tools-filter-btn--toggle.is-active {
+  border-color: #64748B;
+  background: rgba(100, 116, 139, 0.12);
+  font-weight: 900;
+}
+.pomich-map-tools-scope-btn {
+  pointer-events: auto;
+}
+.pomich-map-tools-scope-hint {
+  margin: 2px 0 6px;
+  font-size: 10px;
+  font-weight: 800;
+  color: #64748B;
+}
+.pomich-map-tools-scope-error {
+  margin: 0 0 6px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: rgba(239, 68, 68, 0.1);
+  color: #B91C1C;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+.pomich-map-tools-scope-retry {
+  display: block;
+  margin-top: 4px;
+  border: none;
+  background: transparent;
+  color: #16A36A;
+  font-size: 10px;
   font-weight: 900;
   font-family: inherit;
   cursor: pointer;
-  text-align: left;
-  touch-action: manipulation;
+  padding: 0;
+  text-decoration: underline;
 }
 .pomich-map-tools-legend-item {
   font-size: 10px;
@@ -2737,6 +3193,7 @@ html.mobile-compact-xs .pomich-tg-main .pomich-ride-screen__map {
 [data-pomich-theme="dark"] .pomich-map-tools-panel__brand,
 [data-pomich-theme="dark"] .pomich-map-tools-legend-item,
 [data-pomich-theme="dark"] .pomich-map-tools-filter-btn,
+[data-pomich-theme="dark"] .pomich-map-tools-scope-btn,
 [data-pomich-theme="dark"] .pomich-map-tools-panel__close {
   color: #F8FAFC;
 }
@@ -2745,9 +3202,14 @@ html.mobile-compact-xs .pomich-tg-main .pomich-ride-screen__map {
   color: #B9C2D0;
 }
 [data-pomich-theme="dark"] .pomich-map-tools-filter-btn,
+[data-pomich-theme="dark"] .pomich-map-tools-scope-btn,
 [data-pomich-theme="dark"] .pomich-map-tools-panel__close {
   background: rgba(255, 255, 255, 0.08);
   border-color: rgba(255, 255, 255, 0.22);
+}
+[data-pomich-theme="dark"] .pomich-map-tools-scope-btn.is-active {
+  background: rgba(22, 163, 106, 0.22);
+  border-color: rgba(142, 240, 190, 0.55);
 }
 /* Map tools live inside RouteMap — keep above tiles, below sheet */
 .pomich-ride-screen__map .pomich-route-map {
@@ -2780,8 +3242,9 @@ html.mobile-compact-xs .pomich-tg-main .pomich-ride-screen__map {
     border-radius: 16px !important;
   }
   .pomich-landing .landing-map-frame .pomich-map-tools-panel {
-    max-height: min(38%, 110px);
-    max-width: min(132px, 34%);
+    max-height: min(62vh, 220px);
+    width: min(210px, calc(100vw - 28px));
+    max-width: min(210px, calc(100vw - 28px));
   }
   .pomich-landing .landing-map-geo-btn {
     left: 10px;
@@ -2835,7 +3298,7 @@ html.mobile-compact .pomich-landing .landing-map-frame {
 }
 [data-pomich-theme="light"] .pomich-form-footer-bar,
 html:not([data-pomich-theme]) .pomich-form-footer-bar {
-  background: #FFFFFF;
+  background: #E8EEEB;
 }
 .pomich-form-footer-inner {
   display: grid;
@@ -2910,9 +3373,9 @@ html:not([data-pomich-theme]) .pomich-form-footer-bar {
 }
 [data-pomich-theme="light"] .pomich-onboarding-card,
 html:not([data-pomich-theme]) .pomich-onboarding-card {
-  background: rgba(255, 255, 255, 0.78);
-  border-color: rgba(255, 255, 255, 0.88);
-  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.08), 0 0 0 1px rgba(22, 163, 106, 0.12), inset 0 1px 1px rgba(255, 255, 255, 0.9);
+  background: rgba(236, 241, 238, 0.88);
+  border-color: rgba(28, 42, 36, 0.12);
+  box-shadow: 0 12px 32px rgba(28, 42, 36, 0.07), 0 0 0 1px rgba(22, 163, 106, 0.1);
 }
 [data-pomich-theme="dark"] .pomich-onboarding-card {
   background: #12151A;
@@ -2938,7 +3401,7 @@ html:not([data-pomich-theme]) .pomich-onboarding-card {
 }
 [data-pomich-theme="light"] .pomich-onboarding-card__footer,
 html:not([data-pomich-theme]) .pomich-onboarding-card__footer {
-  background: #F8FBFA;
+  background: #E4EBE7;
 }
 html.tg-compact .pomich-onboarding-page,
 html.mobile-compact .pomich-onboarding-page {
@@ -2971,9 +3434,9 @@ html.mobile-compact .pomich-onboarding-page {
 }
 [data-pomich-theme="light"] .pomich-form-input,
 html:not([data-pomich-theme]) .pomich-form-input {
-  background: #ffffff;
-  border-color: #cbd5e1;
-  color: #0f172a;
+  background: #E4EBE7;
+  border-color: #B8C9C0;
+  color: #1a2332;
 }
 .pomich-form-input::placeholder {
   color: var(--pomich-subtle);
@@ -3386,8 +3849,8 @@ html:not([data-pomich-theme]) select.pomich-form-input {
   background: transparent;
   color: var(--pomich-text);
   overflow: hidden;
-  /* Room for fixed full-bleed cabinet chrome */
-  padding-top: calc(var(--pomich-app-header-height) + env(safe-area-inset-top, 0px) + 8px);
+  /* Room for fixed full-bleed cabinet chrome (title + subtitle + actions) */
+  padding-top: var(--pomich-cabinet-chrome-top);
 }
 .pomich-cabinet-header {
   /* Edge-to-edge glass bar — NOT a centered stub chip */
@@ -3402,7 +3865,7 @@ html:not([data-pomich-theme]) select.pomich-form-input {
   flex-shrink: 0;
   margin: 0 !important;
   padding:
-    calc(10px + env(safe-area-inset-top, 0px))
+    calc(10px + env(safe-area-inset-top, 0px) + var(--tg-content-safe-area-inset-top, 0px))
     max(16px, env(safe-area-inset-right, 0px))
     10px
     max(16px, env(safe-area-inset-left, 0px));
@@ -3415,8 +3878,8 @@ html:not([data-pomich-theme]) select.pomich-form-input {
 }
 [data-pomich-theme="light"] .pomich-cabinet-header,
 html:not([data-pomich-theme]) .pomich-cabinet-header {
-  background: rgba(244, 249, 247, 0.34) !important;
-  border-bottom-color: rgba(15, 40, 30, 0.1);
+  background: rgba(228, 235, 231, 0.82) !important;
+  border-bottom-color: rgba(28, 42, 36, 0.10);
 }
 [data-pomich-theme="dark"] .pomich-cabinet-header {
   background: rgba(8, 12, 14, 0.22) !important;
@@ -3432,8 +3895,8 @@ html:not([data-pomich-theme]) .pomich-cabinet-header {
 }
 [data-pomich-theme="light"] .pomich-cabinet-header .pomich-cabinet-chip-btn,
 html:not([data-pomich-theme]) .pomich-cabinet-header .pomich-cabinet-chip-btn {
-  background: rgba(255, 255, 255, 0.55);
-  border-color: rgba(15, 40, 30, 0.12);
+  background: rgba(28, 42, 36, 0.06);
+  border-color: rgba(28, 42, 36, 0.12);
 }
 .pomich-cabinet-header-bar {
   display: flex;
@@ -3457,14 +3920,14 @@ html:not([data-pomich-theme]) .pomich-cabinet-header .pomich-cabinet-chip-btn {
   flex-shrink: 0;
 }
 .pomich-cabinet-chip-btn {
-  min-height: 36px;
-  padding: 7px 12px;
+  min-height: 32px;
+  padding: 5px 10px;
   border-radius: 999px;
   border: 1px solid var(--pomich-ghost-border);
   background: var(--pomich-ghost-bg);
   color: var(--pomich-text);
   font-family: inherit;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 850;
   cursor: pointer;
   white-space: nowrap;
@@ -3477,25 +3940,28 @@ html:not([data-pomich-theme]) .pomich-cabinet-header .pomich-cabinet-chip-btn {
   min-height: var(--pomich-btn-height);
   padding: var(--pomich-space-3) var(--pomich-space-4);
   border-radius: var(--pomich-card-radius);
-  border: none;
-  background: linear-gradient(135deg, #16a36a 0%, #2f80ed 100%);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: linear-gradient(135deg, #159a65 0%, #2a74d4 100%);
   color: #fff;
   font-size: var(--pomich-text-base);
   font-weight: 800;
   font-family: inherit;
   cursor: pointer;
-  box-shadow: 0 12px 28px rgba(22, 163, 106, 0.2);
-  transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+  box-shadow: none;
+  transition: transform 0.12s ease, opacity 0.15s ease, filter 0.15s ease;
   white-space: normal;
   text-wrap: balance;
   line-height: 1.25;
   text-align: center;
+  filter: none;
 }
 .pomich-primary-btn:hover:not(:disabled) {
-  box-shadow: 0 18px 42px rgba(22, 163, 106, 0.28);
+  box-shadow: none;
+  filter: brightness(1.04);
 }
 .pomich-primary-btn:active:not(:disabled) {
   transform: translateY(1px);
+  filter: brightness(0.98);
 }
 .pomich-primary-btn.is-disabled,
 .pomich-primary-btn:disabled {
@@ -3523,63 +3989,70 @@ html:not([data-pomich-theme]) .pomich-cabinet-header .pomich-cabinet-chip-btn {
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
   touch-action: pan-y;
-  padding: 14px 16px 20px;
+  scroll-padding-top: 12px;
+  padding: 12px 10px 10px;
 }
 .pomich-cabinet-inner {
   width: 100%;
-  max-width: 720px;
+  max-width: 560px;
   margin: 0 auto;
   display: grid;
-  gap: 12px;
+  gap: 8px;
 }
 @media (min-width: 768px) {
   .pomich-cabinet-body {
-    padding: 18px 24px 24px;
+    padding: 12px 16px 12px;
   }
   .pomich-cabinet-inner {
-    max-width: 960px;
-    gap: 14px;
+    max-width: 720px;
+    gap: 8px;
   }
 }
 .pomich-cabinet-grid {
   display: grid;
-  gap: 12px;
+  gap: 8px;
+}
+.pomich-cabinet-grid--history-only {
+  grid-template-columns: 1fr;
 }
 @media (min-width: 768px) {
-  .pomich-cabinet-grid {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
-    gap: 14px;
+  .pomich-cabinet-grid:not(.pomich-cabinet-grid--history-only) {
+    grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.18fr);
+    gap: 8px;
     align-items: start;
   }
 }
 .pomich-cabinet-card {
   border: 1px solid var(--pomich-glass-border);
-  border-radius: 16px;
+  border-radius: 12px;
   background: var(--pomich-glass-card);
-  padding: 16px;
+  padding: 10px 11px;
   box-shadow: var(--pomich-card-shadow);
   color: var(--pomich-text);
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
+  backdrop-filter: blur(18px) saturate(180%);
+  -webkit-backdrop-filter: blur(18px) saturate(180%);
+}
+.pomich-cabinet-alert {
+  margin-bottom: 0;
 }
 .pomich-cabinet-profile {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 .pomich-cabinet-avatar {
-  width: 48px;
-  height: 48px;
-  border-radius: 14px;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
   background: linear-gradient(135deg, var(--pomich-brand), var(--pomich-accent-blue));
   color: #fff;
   display: flex;
   align-items: center;
   justify-content: center;
   font-weight: 950;
-  font-size: 20px;
+  font-size: 14px;
   flex-shrink: 0;
-  box-shadow: 0 8px 24px rgba(22, 163, 106, 0.22);
+  box-shadow: none;
 }
 .pomich-cabinet-profile-meta {
   flex: 1;
@@ -3587,14 +4060,14 @@ html:not([data-pomich-theme]) .pomich-cabinet-header .pomich-cabinet-chip-btn {
 }
 .pomich-cabinet-profile-name {
   font-weight: 950;
-  font-size: 17px;
+  font-size: 15px;
   line-height: 1.2;
   color: var(--pomich-text);
 }
 .pomich-cabinet-profile-phone {
-  margin-top: 3px;
+  margin-top: 2px;
   color: var(--pomich-muted);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
 }
 .pomich-cabinet-profile-badges {
@@ -3612,37 +4085,91 @@ html:not([data-pomich-theme]) .pomich-cabinet-header .pomich-cabinet-chip-btn {
 }
 .pomich-cabinet-edit-form {
   display: grid;
-  gap: 12px;
+  gap: 8px;
 }
 .pomich-cabinet-field {
   display: grid;
-  gap: 6px;
+  gap: 4px;
 }
 .pomich-cabinet-edit-actions {
   display: flex;
-  gap: 10px;
+  gap: 8px;
   align-items: center;
   justify-content: flex-end;
   flex-wrap: wrap;
-  margin-top: 4px;
+  margin-top: 2px;
+}
+.pomich-cabinet-edit-actions .pomich-primary-btn {
+  width: auto;
+  min-width: 108px;
+  min-height: 34px;
+  height: 34px;
+  padding: 0 14px;
+  font-size: 12px;
+  border-radius: 10px;
+  box-shadow: none;
+}
+.pomich-cabinet-service-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.pomich-cabinet-service-chip {
+  min-height: 30px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--pomich-border);
+  background: var(--pomich-ghost-bg);
+  color: var(--pomich-text);
+  font-weight: 800;
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  line-height: 1.2;
+}
+.pomich-cabinet-service-chip.is-selected {
+  border-color: var(--pomich-brand);
+  background: var(--pomich-selected-bg);
+  color: var(--pomich-accent);
+}
+.pomich-cabinet-shell .pomich-form-input,
+.pomich-cabinet-shell .pomich-phone-input .pomich-phone-field,
+.pomich-cabinet-shell .pomich-radius-wrap .pomich-form-input {
+  height: 2.25rem;
+  min-height: 2.25rem;
+  font-size: 13px;
+  border-radius: 10px;
+  padding: 0 10px;
+}
+.pomich-cabinet-shell .pomich-form-label {
+  font-size: 11px;
+  margin-bottom: 0;
+}
+.pomich-cabinet-shell .pomich-radius-wrap {
+  border-radius: 10px;
+  min-height: 2.25rem;
+}
+.pomich-cabinet-shell .pomich-radius-suffix {
+  font-size: 12px;
+  padding: 0 10px;
 }
 .pomich-cabinet-verification-help {
-  margin-bottom: 12px;
+  margin-bottom: 0;
 }
 .pomich-cabinet-help-text {
-  margin: 8px 0 0;
+  margin: 6px 0 0;
   color: var(--pomich-muted);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
-  line-height: 1.45;
+  line-height: 1.4;
 }
 .pomich-cabinet-help-steps {
-  margin: 10px 0 0;
-  padding-left: 18px;
+  margin: 8px 0 0;
+  padding-left: 16px;
   color: var(--pomich-text);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 750;
-  line-height: 1.5;
+  line-height: 1.45;
 }
 .pomich-cabinet-help-steps li + li {
   margin-top: 4px;
@@ -3723,23 +4250,47 @@ html.mobile-compact .pomich-plate-input .pomich-plate__field {
 }
 .pomich-cabinet-section-title {
   font-weight: 950;
-  font-size: 14px;
+  font-size: 13px;
   letter-spacing: 0.01em;
   color: var(--pomich-text);
   margin-bottom: 4px;
 }
+.pomich-cabinet-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.pomich-cabinet-section-head .pomich-cabinet-section-title {
+  margin-bottom: 0;
+}
+.pomich-cabinet-section-count {
+  min-width: 22px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 900;
+  color: var(--pomich-brand);
+  background: rgba(22, 163, 106, 0.14);
+  border: 1px solid rgba(22, 163, 106, 0.28);
+}
 .pomich-cabinet-section-sub {
   color: var(--pomich-muted);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 .pomich-cabinet-progress {
-  height: 6px;
+  height: 5px;
   border-radius: 999px;
   background: var(--pomich-service-tone-default);
   overflow: hidden;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 .pomich-cabinet-progress-fill {
   height: 100%;
@@ -3749,18 +4300,18 @@ html.mobile-compact .pomich-plate-input .pomich-plate__field {
 }
 .pomich-cabinet-checklist {
   display: grid;
-  gap: 6px;
+  gap: 5px;
 }
 .pomich-cabinet-checklist-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 8px 10px;
+  padding: 6px 8px;
   border-radius: 10px;
-  background: var(--pomich-service-tone-default);
+  background: color-mix(in srgb, var(--pomich-service-tone-default) 70%, transparent);
   border: 1px solid transparent;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 800;
   color: var(--pomich-text);
 }
@@ -3773,13 +4324,13 @@ html.mobile-compact .pomich-plate-input .pomich-plate__field {
 }
 .pomich-cabinet-checklist-mark {
   flex-shrink: 0;
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   border-radius: 999px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 950;
   color: var(--pomich-subtle);
   background: var(--pomich-ghost-bg);
@@ -3791,61 +4342,131 @@ html.mobile-compact .pomich-plate-input .pomich-plate__field {
   background: rgba(22, 163, 106, 0.12);
 }
 .pomich-cabinet-empty {
-  padding: 18px 14px;
-  border-radius: 12px;
-  border: 1px dashed var(--pomich-border);
+  padding: 12px 10px;
+  border-radius: 10px;
+  border: 1px dashed color-mix(in srgb, var(--pomich-border) 80%, transparent);
   background: transparent;
   color: var(--pomich-muted);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
-  line-height: 1.45;
+  line-height: 1.4;
   text-align: center;
 }
-.pomich-cabinet-order-item {
-  padding: 12px 14px;
+.pomich-cabinet-skeleton-block,
+.pomich-cabinet-skeleton-line {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--pomich-border) 55%, transparent) 0%,
+    color-mix(in srgb, var(--pomich-border) 25%, transparent) 50%,
+    color-mix(in srgb, var(--pomich-border) 55%, transparent) 100%
+  );
+  background-size: 200% 100%;
+  animation: pomich-cabinet-shimmer 1.2s ease-in-out infinite;
   border-radius: 12px;
-  border: 1px solid var(--pomich-border);
-  background: var(--pomich-service-tone-default);
-  margin-bottom: 8px;
+}
+.pomich-cabinet-profile--skeleton .pomich-cabinet-avatar {
+  color: transparent;
+}
+.pomich-cabinet-skeleton-line {
+  height: 12px;
+  margin-top: 8px;
+}
+.pomich-cabinet-skeleton-line--title {
+  height: 18px;
+  width: 58%;
+  margin-top: 0;
+}
+.pomich-cabinet-skeleton-line--short {
+  width: 42%;
+}
+@keyframes pomich-cabinet-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.pomich-cabinet-history-error {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+}
+.pomich-cabinet-order-list {
+  display: grid;
+  gap: 6px;
+  max-height: min(42vh, 360px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 2px;
+}
+.pomich-cabinet-order-item {
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--pomich-glass-border) 80%, transparent);
+  background: color-mix(in srgb, var(--pomich-service-tone-default) 55%, transparent);
+  margin-bottom: 0;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 .pomich-cabinet-order-item:last-child {
   margin-bottom: 0;
 }
 .pomich-cabinet-order-title {
   font-weight: 900;
-  font-size: 14px;
+  font-size: 12px;
   color: var(--pomich-text);
 }
 .pomich-cabinet-order-status {
-  margin-top: 4px;
+  margin-top: 2px;
   color: var(--pomich-muted);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
 }
 .pomich-cabinet-order-meta {
-  margin-top: 4px;
+  margin-top: 2px;
   color: var(--pomich-muted);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
 }
 .pomich-cabinet-footer {
   flex-shrink: 0;
-  padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
-  border-top: 1px solid var(--pomich-border);
-  background: var(--pomich-footer-bg);
+  padding: 6px 12px calc(6px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid color-mix(in srgb, var(--pomich-border) 55%, transparent);
+  background: rgba(8, 12, 14, 0.22);
+  backdrop-filter: blur(16px) saturate(1.2);
+  -webkit-backdrop-filter: blur(16px) saturate(1.2);
+}
+[data-pomich-theme="light"] .pomich-cabinet-footer,
+html:not([data-pomich-theme]) .pomich-cabinet-footer {
+  background: rgba(228, 235, 231, 0.82);
+  border-top-color: rgba(28, 42, 36, 0.10);
 }
 .pomich-cabinet-footer-inner {
   width: 100%;
-  max-width: 720px;
+  max-width: 560px;
   margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+.pomich-cabinet-footer .pomich-primary-btn {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 38px;
+  height: 38px;
+  padding: 0 16px;
+  font-size: 13px;
+  font-weight: 850;
+  border-radius: 11px;
+  box-shadow: none;
+  white-space: nowrap;
 }
 @media (min-width: 768px) {
   .pomich-cabinet-footer {
-    padding-left: 24px;
-    padding-right: 24px;
+    padding-left: 16px;
+    padding-right: 16px;
   }
   .pomich-cabinet-footer-inner {
-    max-width: 960px;
+    max-width: 720px;
   }
 }
 .pomich-cabinet-shell .pomich-form-header {
@@ -3860,8 +4481,8 @@ html.mobile-compact .pomich-plate-input .pomich-plate__field {
 }
 @media (min-width: 1024px) {
   .pomich-form-input {
-    height: 3rem;
-    min-height: 3rem;
+    height: 2.5rem;
+    min-height: 2.5rem;
   }
 }
 .pomich-phone-input .pomich-phone-field {
@@ -4431,10 +5052,21 @@ html.mobile-compact .pomich-plate-input .pomich-plate__field {
   opacity: 0.65;
 }
 .pomich-duty-panel {
-  background: var(--pomich-card-bg);
-  border: 1px solid var(--pomich-border);
-  border-radius: var(--pomich-card-radius);
-  padding: var(--pomich-card-padding);
+  background: var(--pomich-glass-card);
+  border: 1px solid var(--pomich-glass-border);
+  border-radius: 12px;
+  padding: 10px 11px;
+}
+.pomich-sheet-panel .pomich-primary-btn {
+  min-height: 40px;
+  font-size: 13px;
+  border-radius: 12px;
+  box-shadow: none;
+}
+.pomich-sheet-panel .pomich-flow-secondary-btn {
+  min-height: 36px;
+  font-size: 12px;
+  border-radius: 11px;
 }
 .pomich-duty-panel__head {
   display: flex;
@@ -4538,7 +5170,9 @@ html.mobile-compact .pomich-plate-input .pomich-plate__field {
   text-align: center;
 }
 .pomich-tg-header {
-  min-height: var(--pomich-app-header-height);
+  min-height: calc(var(--pomich-app-header-height) + env(safe-area-inset-top, 0px));
+  height: auto !important;
+  overflow: visible !important;
 }
 .pomich-app-header-menu-btn {
   font-size: var(--pomich-text-sm);
@@ -4576,16 +5210,16 @@ html.tg-compact .pomich-map-tools-toggle {
   max-width: min(44vw, 148px);
   padding: 7px 10px;
   font-size: 10px;
-  /* Force readable contrast in Telegram WebApp (avoids white-on-white) */
-  background: #FFFFFF !important;
-  color: #0F172A !important;
-  border: 1px solid #64748B !important;
+  /* Soft sage plate — readable over OSM without glare */
+  background: #E4EBE7 !important;
+  color: #1A2332 !important;
+  border: 1px solid #A8BBB2 !important;
 }
 html.mobile-compact .pomich-map-tools-panel,
 html.tg-compact .pomich-map-tools-panel {
-  background: #FFFFFF !important;
-  color: #0F172A !important;
-  border: 1px solid #64748B !important;
+  background: #E8EEEB !important;
+  color: #1A2332 !important;
+  border: 1px solid #A8BBB2 !important;
 }
 html.mobile-compact .pomich-map-tools-panel__brand,
 html.tg-compact .pomich-map-tools-panel__brand,
@@ -4593,6 +5227,8 @@ html.mobile-compact .pomich-map-tools-legend-item,
 html.tg-compact .pomich-map-tools-legend-item,
 html.mobile-compact .pomich-map-tools-filter-btn,
 html.tg-compact .pomich-map-tools-filter-btn,
+html.mobile-compact .pomich-map-tools-scope-btn,
+html.tg-compact .pomich-map-tools-scope-btn,
 html.mobile-compact .pomich-map-tools-panel__close,
 html.tg-compact .pomich-map-tools-panel__close {
   color: #0F172A !important;
@@ -4611,14 +5247,31 @@ html.mobile-compact[data-pomich-theme="dark"] .pomich-map-tools-legend-item,
 html.tg-compact[data-pomich-theme="dark"] .pomich-map-tools-legend-item,
 html.mobile-compact[data-pomich-theme="dark"] .pomich-map-tools-filter-btn,
 html.tg-compact[data-pomich-theme="dark"] .pomich-map-tools-filter-btn,
+html.mobile-compact[data-pomich-theme="dark"] .pomich-map-tools-scope-btn,
+html.tg-compact[data-pomich-theme="dark"] .pomich-map-tools-scope-btn,
 html.mobile-compact[data-pomich-theme="dark"] .pomich-map-tools-panel__close,
 html.tg-compact[data-pomich-theme="dark"] .pomich-map-tools-panel__close {
   color: #F8FAFC !important;
 }
-html.mobile-compact .pomich-map-locate,
-html.tg-compact .pomich-map-locate {
+html.mobile-compact[data-pomich-theme="dark"] .pomich-map-tools-scope-btn,
+html.tg-compact[data-pomich-theme="dark"] .pomich-map-tools-scope-btn {
+  background: rgba(255, 255, 255, 0.08) !important;
+  border-color: rgba(255, 255, 255, 0.22) !important;
+}
+html.mobile-compact[data-pomich-theme="dark"] .pomich-map-tools-scope-btn.is-active,
+html.tg-compact[data-pomich-theme="dark"] .pomich-map-tools-scope-btn.is-active {
+  background: rgba(22, 163, 106, 0.22) !important;
+  border-color: rgba(142, 240, 190, 0.55) !important;
+}
+html.mobile-compact .pomich-map-chrome-row,
+html.tg-compact .pomich-map-chrome-row {
   left: calc(var(--pomich-map-chrome-left) + 68px + 8px);
   top: var(--pomich-map-chrome-top);
+  gap: 6px;
+}
+html.mobile-compact .pomich-map-chrome-row__brand,
+html.tg-compact .pomich-map-chrome-row__brand {
+  display: none;
 }
 html.mobile-compact .pomich-route-map .leaflet-top.leaflet-left,
 html.tg-compact .pomich-route-map .leaflet-top.leaflet-left,
@@ -4856,6 +5509,124 @@ html.tg-compact .pomich-ride-screen__map .leaflet-top.leaflet-left {
   pointer-events: auto !important;
   -webkit-appearance: none;
   appearance: none;
+}
+.pomich-offer-price-input--compact {
+  min-height: 44px !important;
+  font-size: 18px !important;
+  font-weight: 900 !important;
+  padding: 0 12px !important;
+  border-radius: 12px !important;
+}
+.pomich-offer-inline-error {
+  background: var(--pomich-error-bg);
+  color: var(--pomich-error-text);
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-weight: 800;
+  font-size: var(--pomich-text-sm);
+}
+.pomich-incoming-offer {
+  padding: 8px 14px 12px;
+  display: grid;
+  gap: 10px;
+}
+.pomich-incoming-offer .pomich-route-map {
+  height: 180px !important;
+  min-height: 160px !important;
+  border-radius: 16px !important;
+}
+.pomich-incoming-offer__card {
+  background: var(--pomich-card-bg);
+  border: 1px solid var(--pomich-border);
+  border-radius: 14px;
+  padding: 12px;
+  display: grid;
+  gap: 6px;
+}
+.pomich-incoming-offer__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: flex-start;
+}
+.pomich-incoming-offer__title {
+  font-weight: 950;
+  font-size: var(--pomich-text-base);
+  color: var(--pomich-text);
+  line-height: 1.2;
+}
+.pomich-incoming-offer__eta {
+  background: var(--pomich-selected-bg, #E8F8F1);
+  color: var(--pomich-brand);
+  border-radius: 999px;
+  padding: 5px 9px;
+  font-weight: 950;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.pomich-incoming-offer__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  color: var(--pomich-muted);
+  font-weight: 750;
+  font-size: var(--pomich-text-sm);
+}
+.pomich-incoming-offer__row,
+.pomich-incoming-offer__comment {
+  color: var(--pomich-text);
+  font-size: var(--pomich-text-sm);
+  font-weight: 700;
+  line-height: 1.35;
+}
+.pomich-incoming-offer__comment {
+  background: var(--pomich-info-bg);
+  color: var(--pomich-info-text);
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+.pomich-incoming-offer__price,
+.pomich-incoming-offer__note {
+  display: grid;
+  gap: 5px;
+  font-size: var(--pomich-text-xs);
+  font-weight: 850;
+  color: var(--pomich-label);
+}
+.pomich-order-request-sheet__title {
+  font-weight: 950;
+  font-size: var(--pomich-text-lg);
+  color: var(--pomich-text);
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+.pomich-order-request-sheet__panel {
+  gap: 10px;
+  padding: 14px;
+}
+.pomich-order-request-sheet__scroll {
+  gap: 10px;
+}
+.pomich-app-header-chip--compact {
+  max-width: 72px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-inline: 8px;
+  font-size: 12px;
+}
+.pomich-tg-header {
+  overflow: hidden;
+}
+.pomich-tg-header .flex.items-center.gap-1\.5,
+.pomich-tg-header .flex.items-center.gap-2 {
+  min-width: 0;
+  flex-shrink: 1;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.pomich-map-legend-box {
+  z-index: 1100;
 }
 .pomich-comment-field {
   width: 100%;
@@ -5209,3 +5980,225 @@ html.tg-compact .pomich-ride-screen__map .leaflet-top.leaflet-left {
   .admin-panel-detail { position: static; }
   .admin-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+/* Client map: partner profile + reviews (mobile bottom sheet / desktop side card) */
+.pomich-partner-profile-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 3600;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(17, 19, 21, 0.52);
+  padding: 0;
+  padding-bottom: calc(
+    env(safe-area-inset-bottom, 0px) + var(--tg-content-safe-area-inset-bottom, 0px)
+  );
+  max-height: var(--tg-viewport-stable-height, 100dvh);
+  box-sizing: border-box;
+  pointer-events: auto;
+  touch-action: manipulation;
+}
+.pomich-partner-profile-sheet--desktop {
+  --pomich-partner-sheet-top: calc(
+    var(--pomich-app-header-height, 3.875rem) + env(safe-area-inset-top, 0px) + var(--tg-content-safe-area-inset-top, 0px)
+  );
+  --pomich-partner-sheet-bottom: calc(
+    12px + env(safe-area-inset-bottom, 0px) + var(--tg-content-safe-area-inset-bottom, 0px)
+  );
+  top: var(--pomich-partner-sheet-top);
+  right: 0;
+  bottom: 0;
+  left: 0;
+  align-items: flex-start;
+  justify-content: flex-end;
+  background: transparent;
+  pointer-events: none;
+  padding: 8px var(--pomich-map-chrome-right, 16px) var(--pomich-partner-sheet-bottom) 16px;
+}
+.pomich-partner-profile-sheet--desktop .pomich-partner-profile-sheet__panel {
+  pointer-events: auto;
+  width: min(380px, 36vw);
+  max-height: min(72dvh, calc(var(--tg-viewport-stable-height, 100dvh) - 120px));
+  border-radius: 20px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.18);
+}
+.pomich-partner-profile-sheet__panel {
+  width: 100%;
+  max-width: 100%;
+  max-height: min(
+    85dvh,
+    calc(
+      var(--tg-viewport-stable-height, 100dvh) - var(--pomich-app-header-height, 3.875rem) - env(safe-area-inset-top, 0px) - 16px
+    )
+  );
+  overflow: hidden;
+  border-radius: 20px 20px 0 0;
+  background: var(--pomich-card-bg);
+  border: 1px solid var(--pomich-border);
+  border-bottom: none;
+  padding: 14px 16px 16px;
+  box-shadow: 0 -8px 40px rgba(0, 0, 0, 0.22);
+  display: flex;
+  flex-direction: column;
+  -webkit-overflow-scrolling: touch;
+}
+.pomich-partner-profile-sheet__scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  display: grid;
+  gap: 12px;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 4px;
+}
+.pomich-partner-profile-sheet__handle {
+  width: 42px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--pomich-sheet-handle);
+  margin: 0 auto 2px;
+}
+.pomich-partner-profile-sheet__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+.pomich-partner-profile-sheet__title {
+  font-weight: 950;
+  font-size: var(--pomich-text-xl);
+  color: var(--pomich-text);
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+.pomich-partner-profile-sheet__meta {
+  margin-top: 4px;
+  color: var(--pomich-muted);
+  font-weight: 800;
+  font-size: var(--pomich-text-sm);
+}
+.pomich-partner-profile-sheet__pill {
+  margin-top: 8px;
+}
+.pomich-partner-profile-sheet__close {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  border: 1px solid var(--pomich-border);
+  background: var(--pomich-ghost-bg, #f3f4f6);
+  color: var(--pomich-text);
+  font-size: 14px;
+  font-weight: 900;
+  cursor: pointer;
+  font-family: inherit;
+}
+.pomich-partner-profile-sheet__vehicle,
+.pomich-partner-profile-sheet__address {
+  color: var(--pomich-text);
+  font-size: var(--pomich-text-sm);
+  font-weight: 750;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.pomich-partner-profile-sheet__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.pomich-partner-profile-sheet__tags span {
+  border-radius: 999px;
+  padding: 5px 9px;
+  background: var(--pomich-selected-bg, #e8f8f1);
+  color: var(--pomich-brand);
+  font-size: 11px;
+  font-weight: 900;
+}
+.pomich-partner-profile-sheet__phone {
+  display: inline-block;
+  color: var(--pomich-brand);
+  font-weight: 900;
+  font-size: var(--pomich-text-sm);
+  text-decoration: none;
+}
+.pomich-partner-profile-sheet__section-title {
+  font-weight: 950;
+  font-size: var(--pomich-text-base);
+  color: var(--pomich-text);
+  margin-top: 4px;
+}
+.pomich-partner-profile-sheet__empty,
+.pomich-partner-profile-sheet__error {
+  border-radius: 14px;
+  padding: 12px;
+  font-size: var(--pomich-text-sm);
+  font-weight: 800;
+  line-height: 1.4;
+}
+.pomich-partner-profile-sheet__empty {
+  background: var(--pomich-ghost-bg, #f3f4f6);
+  color: var(--pomich-muted);
+}
+.pomich-partner-profile-sheet__error {
+  background: var(--pomich-error-bg, #fff1f2);
+  color: var(--pomich-error-text, #be123c);
+}
+.pomich-partner-profile-sheet__reviews {
+  display: grid;
+  gap: 10px;
+}
+.pomich-partner-profile-sheet__review {
+  border: 1px solid var(--pomich-border);
+  border-radius: 14px;
+  padding: 10px 12px;
+  background: var(--pomich-bg, #fff);
+}
+.pomich-partner-profile-sheet__review-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+.pomich-partner-profile-sheet__stars {
+  color: var(--pomich-brand);
+  font-weight: 900;
+  letter-spacing: 1px;
+}
+.pomich-partner-profile-sheet__stars-empty {
+  color: var(--pomich-subtle, #d1d5db);
+}
+.pomich-partner-profile-sheet__review-service {
+  color: var(--pomich-muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+.pomich-partner-profile-sheet__review-comment {
+  margin: 8px 0 0;
+  color: var(--pomich-text);
+  font-size: var(--pomich-text-sm);
+  font-weight: 700;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.pomich-partner-profile-sheet__review-date {
+  margin-top: 6px;
+  color: var(--pomich-muted);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+/* Leaflet popups stay inside the map layer — never above app chrome (header ~3200) */
+.pomich-ride-screen__map .leaflet-pane.leaflet-popup-pane,
+.pomich-route-map .leaflet-pane.leaflet-popup-pane {
+  z-index: 430;
+  pointer-events: auto;
+}
+.pomich-tg-header,
+.pomich-themed-shell > .pomich-tg-header {
+  z-index: 3200 !important;
+}
+

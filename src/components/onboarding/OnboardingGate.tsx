@@ -29,8 +29,10 @@ import { DEFAULT_CUSTOMER_NAME, isCustomerProfileComplete, isCustomerVerified } 
 import { enrichProfileWithTelegram, readBootstrapProfileForCustomer, resolveCustomerAuthSession } from "../../lib/customerSession"
 import {
   isReturningClient,
+  isReturningPartner,
   isStoredProfileNameMismatch,
   mergeAccountProfile,
+  mergePreservedAccountStatus,
   readBootstrapProfile,
   resolveProviderIdForCustomer,
   storeLinkedProviderId,
@@ -53,6 +55,8 @@ interface OnboardingGateProps {
   startAtRoleSelect?: boolean
   /** Returning user via «Увійти» or Telegram reopen — restore session and skip re-registration when possible. */
   loginMode?: boolean
+  /** In-memory account kept during «Змінити роль» so API re-fetch cannot drop registration flags. */
+  preservedAccount?: UserAccountStatus | null
   initialRole?: Role | null
   onReady: (payload: { role: Extract<Role, "customer" | "provider">; account: UserAccountStatus; customerToken?: string }) => void
   onShowLanding: () => void
@@ -73,6 +77,11 @@ function logOnboarding(event: string, detail?: Record<string, unknown>) {
   }
 }
 
+/** Telegram Mini App: initData session replaces phone OTP login screen. */
+function shouldUsePhoneLogin(loginMode: boolean, telegramContext: ReturnType<typeof getTelegramContext>): boolean {
+  return loginMode && !telegramContext.initData
+}
+
 function needsClientOtpVerification(profile?: CustomerProfile): boolean {
   return Boolean(profile && isCustomerProfileComplete(profile) && !isCustomerVerified(profile))
 }
@@ -91,7 +100,7 @@ function resolveMergedAccountStatus(
   return mergeAccountProfile(status, storedProfile)
 }
 
-export default function OnboardingGate({ skip, startAtRoleSelect, loginMode = false, initialRole, onReady, onShowLanding, onLogout }: OnboardingGateProps) {
+export default function OnboardingGate({ skip, startAtRoleSelect, loginMode = false, preservedAccount, initialRole, onReady, onShowLanding, onLogout }: OnboardingGateProps) {
   const telegramContext = useMemo(() => getTelegramContext(), [])
   const onReadyRef = useRef(onReady)
   onReadyRef.current = onReady
@@ -111,63 +120,78 @@ export default function OnboardingGate({ skip, startAtRoleSelect, loginMode = fa
     function finishFromAccount(status: UserAccountStatus, token: string | undefined, preferred: Extract<Role, "customer" | "provider"> | null) {
       if (cancelled) return
 
+      const mergedStatus = mergePreservedAccountStatus(status, preservedAccount)
       const effectivePreferred = loginMode ? preferred || "customer" : preferred
 
       logOnboarding("finishFromAccount", {
         loginMode,
         preferred,
         effectivePreferred,
-        clientRegistered: status.clientRegistered,
-        providerRegistered: status.providerRegistered,
-        needsOnboarding: status.needsOnboarding,
-        returning: isReturningClient(status),
-        customerId: status.customerId,
+        clientRegistered: mergedStatus.clientRegistered,
+        providerRegistered: mergedStatus.providerRegistered,
+        needsOnboarding: mergedStatus.needsOnboarding,
+        returning: isReturningClient(mergedStatus),
+        returningPartner: isReturningPartner(mergedStatus),
+        customerId: mergedStatus.customerId,
       })
 
       // Role switch / explicit role picker: keep the restored session and let the user choose.
       if (startAtRoleSelect && !initialPreferredRole && !loginMode) {
-        setAccount(status)
+        setAccount(mergedStatus)
         if (token) setCustomerToken(token)
-        if (status.profile) setProfile(status.profile)
+        if (mergedStatus.profile) setProfile(mergedStatus.profile)
         setPhase("role-select")
         return
       }
 
       // Web re-login as partner: restore linked provider instead of blank registration.
       if (loginMode && effectivePreferred === "provider") {
-        if (!token) {
+        if (!token && shouldUsePhoneLogin(loginMode, telegramContext)) {
           setPhase("login-client")
           return
         }
-        if (status.linkedProviderId) storeLinkedProviderId(status.linkedProviderId)
-        onReadyRef.current({ role: "provider", account: status, customerToken: token })
+        if (isReturningPartner(mergedStatus)) {
+          if (mergedStatus.linkedProviderId) storeLinkedProviderId(mergedStatus.linkedProviderId)
+          onReadyRef.current({ role: "provider", account: mergedStatus, customerToken: token })
+          setPhase("ready")
+          return
+        }
+        if (shouldUsePhoneLogin(loginMode, telegramContext)) {
+          setPhase("login-client")
+          return
+        }
+        onReadyRef.current({ role: "provider", account: mergedStatus, customerToken: token })
         setPhase("ready")
         return
       }
 
-      if (isReturningClient(status) && effectivePreferred !== "provider") {
-        if (needsClientOtpVerification(status.profile)) {
-          if (status.profile) setProfile(status.profile)
+      if (isReturningClient(mergedStatus) && effectivePreferred !== "provider") {
+        if (needsClientOtpVerification(mergedStatus.profile)) {
+          if (mergedStatus.profile) setProfile(mergedStatus.profile)
           // Returning / WebApp reopen: show OTP UI; user must tap «Надіслати код».
           setPhase("verify-client")
           return
         }
-        onReadyRef.current({ role: "customer", account: status, customerToken: token })
+        onReadyRef.current({ role: "customer", account: mergedStatus, customerToken: token })
         setPhase("ready")
         return
       }
 
-      if (status.needsOnboarding) {
-        if (effectivePreferred === "customer" && !isReturningClient(status)) {
-          if (loginMode) {
+      if (mergedStatus.needsOnboarding) {
+        if (effectivePreferred === "customer" && !isReturningClient(mergedStatus)) {
+          if (shouldUsePhoneLogin(loginMode, telegramContext)) {
             setPhase("login-client")
             return
           }
           setPhase("register-client")
           return
         }
-        if (effectivePreferred === "provider" && !status.providerRegistered) {
-          onReadyRef.current({ role: "provider", account: status, customerToken: token })
+        if (effectivePreferred === "provider" && !isReturningPartner(mergedStatus)) {
+          if (shouldUsePhoneLogin(loginMode, telegramContext)) {
+            setPhase("login-client")
+            return
+          }
+          onReadyRef.current({ role: "provider", account: mergedStatus, customerToken: token })
           setPhase("ready")
           return
         }
@@ -175,8 +199,8 @@ export default function OnboardingGate({ skip, startAtRoleSelect, loginMode = fa
         return
       }
 
-      const role = (effectivePreferred || status.preferredRole || "customer") as Extract<Role, "customer" | "provider">
-      onReadyRef.current({ role, account: status, customerToken: token })
+      const role = (effectivePreferred || mergedStatus.preferredRole || "customer") as Extract<Role, "customer" | "provider">
+      onReadyRef.current({ role, account: mergedStatus, customerToken: token })
       setPhase("ready")
     }
 
@@ -198,7 +222,7 @@ export default function OnboardingGate({ skip, startAtRoleSelect, loginMode = fa
         }
 
         // Web «Увійти» / partner re-login must not mint a fresh guest before phone OTP.
-        if (loginMode && !telegramContext.initData) {
+        if (shouldUsePhoneLogin(loginMode, telegramContext)) {
           const stored = readStoredCustomerAuthSession({ telegramChatId: telegramContext.chatId })
           if (!stored?.token) {
             setPhase("login-client")
@@ -231,10 +255,13 @@ export default function OnboardingGate({ skip, startAtRoleSelect, loginMode = fa
         }
 
         const preferred = loginMode ? initialPreferredRole || "customer" : initialPreferredRole
-        const mergedStatus = resolveMergedAccountStatus(status, resolvedCustomerId, telegramContext, {
-          profile: sessionProfile ?? status.profile,
-          account: status,
-        })
+        const mergedStatus = mergePreservedAccountStatus(
+          resolveMergedAccountStatus(status, resolvedCustomerId, telegramContext, {
+            profile: sessionProfile ?? status.profile,
+            account: status,
+          }),
+          preservedAccount,
+        )
         setAccount(mergedStatus)
         finishFromAccount(mergedStatus, token, preferred)
       } catch (err) {
@@ -242,8 +269,10 @@ export default function OnboardingGate({ skip, startAtRoleSelect, loginMode = fa
         if (!cancelled) {
           if (startAtRoleSelect && !loginMode) {
             setPhase("role-select")
-          } else if (loginMode) {
+          } else if (shouldUsePhoneLogin(loginMode, telegramContext)) {
             setPhase("login-client")
+          } else if (telegramContext.initData) {
+            setPhase(initialPreferredRole === "customer" ? "register-client" : "role-select")
           } else {
             setPhase("role-select")
           }
@@ -255,7 +284,7 @@ export default function OnboardingGate({ skip, startAtRoleSelect, loginMode = fa
     return () => {
       cancelled = true
     }
-  }, [skip, startAtRoleSelect, loginMode, telegramContext.chatId, telegramContext.initData, initialPreferredRole])
+  }, [skip, startAtRoleSelect, loginMode, preservedAccount, telegramContext.chatId, telegramContext.initData, initialPreferredRole])
 
   const handleRoleSelect = async (role: Extract<Role, "customer" | "provider">) => {
     if (saving) return
@@ -275,7 +304,7 @@ export default function OnboardingGate({ skip, startAtRoleSelect, loginMode = fa
         }
       }
       if (!token) {
-        if (role === "provider" && !telegramContext.initData) {
+        if (role === "provider" && shouldUsePhoneLogin(true, telegramContext)) {
           setPendingLoginRole("provider")
           setPhase("login-client")
           return
@@ -325,10 +354,13 @@ export default function OnboardingGate({ skip, startAtRoleSelect, loginMode = fa
         }
       }
 
-      const mergedStatus = resolveMergedAccountStatus(status, activeCustomerId, telegramContext, {
-        profile,
-        account,
-      })
+      const mergedStatus = mergePreservedAccountStatus(
+        resolveMergedAccountStatus(status, activeCustomerId, telegramContext, {
+          profile,
+          account,
+        }),
+        preservedAccount,
+      )
       setAccount(mergedStatus)
       if (mergedStatus.linkedProviderId) {
         storeLinkedProviderId(mergedStatus.linkedProviderId)
@@ -616,11 +648,20 @@ export default function OnboardingGate({ skip, startAtRoleSelect, loginMode = fa
     )
   }
 
+  const registrationInitialName = (() => {
+    if (profile?.name && profile.name !== DEFAULT_CUSTOMER_NAME) return profile.name
+    const user = telegramContext.user
+    if (!user?.first_name) return ""
+    return `${user.first_name}${user.last_name ? ` ${user.last_name}` : ""}`.trim()
+  })()
+
   return (
     <ClientRegistrationScreen
-      initialName={profile?.name && profile.name !== DEFAULT_CUSTOMER_NAME ? profile.name : telegramContext.user?.first_name || ""}
+      initialName={registrationInitialName}
       initialPhone={profile?.phone || ""}
       initialCity={profile?.city || (typeof window !== "undefined" ? window.localStorage.getItem("pomichPreferredCity") || undefined : undefined)}
+      isTelegram={telegramContext.isTelegram}
+      webApp={telegramContext.webApp}
       loggedInAs={registrationLoggedInAs}
       saving={saving}
       error={error}

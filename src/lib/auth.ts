@@ -259,6 +259,7 @@ export function clearAllAuthStorage() {
   window.sessionStorage.removeItem("pomichLinkedProviderId")
   // Leave active ride so logout from completion/review never restores the order UI.
   window.sessionStorage.removeItem("pomichActiveOrder")
+  window.localStorage.removeItem("pomichActiveOrder")
 
   const keysToRemove: string[] = []
   for (let index = 0; index < window.sessionStorage.length; index += 1) {

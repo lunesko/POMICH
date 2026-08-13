@@ -20,7 +20,9 @@ from bot.api_deps import (
 from bot.order_store import (
     build_user_account_status,
     find_registered_customer_by_phone,
+    get_customer_profile,
     resolve_linked_provider_id,
+    sync_linked_provider_phone_verification_from_customer,
     update_customer_profile,
     upsert_telegram_customer_profile,
 )
@@ -70,6 +72,10 @@ def create_self_provider_session(payload: dict, authorization: str | None = Head
     provider_id = resolve_linked_provider_id(customer_id)
     if not provider_id:
         raise HTTPException(status_code=400, detail="provider_not_linked")
+    profile = get_customer_profile(customer_id)
+    if profile is not None and not str(profile.get("linkedProviderId") or "").strip():
+        update_customer_profile(customer_id, {"linkedProviderId": provider_id})
+    sync_linked_provider_phone_verification_from_customer(provider_id)
     session = issue_role_session("provider", provider_id, configured_provider_secret())
     session["providerId"] = provider_id
     return session

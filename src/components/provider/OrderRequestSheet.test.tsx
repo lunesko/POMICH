@@ -46,6 +46,7 @@ describe("OrderRequestSheet", () => {
 
     await user.click(screen.getByRole("button", { name: /ПРИЙНЯТИ З ЦІНОЮ/i }))
     expect(onAccept).toHaveBeenCalledTimes(1)
+    expect(onAccept).toHaveBeenCalledWith("900")
   })
 
   it("blocks accept without a price and focuses the input", async () => {
@@ -100,5 +101,31 @@ describe("OrderRequestSheet", () => {
 
     expect(screen.getByRole("button", { name: /Час вийшов/i })).toBeInTheDocument()
     expect(onAcceptBlocked).toHaveBeenCalledWith("expired")
+  })
+
+  it("calls onDecline when partner skips the request", async () => {
+    const user = userEvent.setup()
+    const onDecline = vi.fn()
+
+    render(
+      <OrderRequestSheet
+        pin={{
+          id: "ord-4",
+          service: "tow",
+          customerLocation: "Ужгород",
+          distanceKm: 2,
+        }}
+        proposedPrice=""
+        saving={false}
+        secondsLeft={30}
+        onProposedPriceChange={vi.fn()}
+        onAccept={vi.fn()}
+        onDecline={onDecline}
+        onClose={vi.fn()}
+      />,
+    )
+
+    await user.click(screen.getByRole("button", { name: /Пропустити/i }))
+    expect(onDecline).toHaveBeenCalledTimes(1)
   })
 })

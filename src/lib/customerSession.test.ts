@@ -43,8 +43,39 @@ describe('customerSession', () => {
   it('persists and restores active order snapshot', () => {
     persistActiveOrder('PM-123', 'accepted')
     expect(readActiveOrder()).toEqual(expect.objectContaining({ orderId: 'PM-123', status: 'accepted' }))
+    expect(window.localStorage.getItem('pomichActiveOrder')).toContain('PM-123')
+    // Telegram WebApp often clears sessionStorage on close — localStorage must still restore.
+    window.sessionStorage.removeItem('pomichActiveOrder')
+    expect(readActiveOrder()?.orderId).toBe('PM-123')
     clearActiveOrder()
     expect(readActiveOrder()).toBeUndefined()
+    expect(window.localStorage.getItem('pomichActiveOrder')).toBeNull()
+  })
+
+  it('drops cancelled order snapshots from storage', () => {
+    persistActiveOrder('PM-OLD', 'cancelled')
+    expect(readActiveOrder()).toBeUndefined()
+    expect(window.localStorage.getItem('pomichActiveOrder')).toBeNull()
+  })
+
+  it('clears stale cancelled snapshot on read', () => {
+    window.localStorage.setItem(
+      'pomichActiveOrder',
+      JSON.stringify({ orderId: 'PM-OLD', status: 'cancelled', updatedAt: Date.now() }),
+    )
+    expect(readActiveOrder()).toBeUndefined()
+    expect(window.localStorage.getItem('pomichActiveOrder')).toBeNull()
+  })
+
+  it('picks latest active order from server history', async () => {
+    const { pickLatestActiveOrder } = await import('./customerSession')
+    expect(
+      pickLatestActiveOrder([
+        { id: 'PM-DONE', status: 'completed' },
+        { id: 'PM-LIVE', status: 'accepted' },
+        { id: 'PM-OLD', status: 'searching' },
+      ]),
+    ).toEqual(expect.objectContaining({ orderId: 'PM-LIVE', status: 'accepted' }))
   })
 
   it('creates fresh guest session when only customer-web default remains', async () => {

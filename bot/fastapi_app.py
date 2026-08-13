@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -19,11 +19,16 @@ from bot.api_deps import (
     runtime_config_errors,
     validate_runtime_config,
 )
-from bot.routers import admin, auth, customers, events, health, orders, providers, telegram
+from bot.routers import admin, auth, customers, events, health, orders, providers, telegram, ws
 from bot.telegram_bot import notify_order_accepted, notify_order_cancelled, notify_order_created
 
-DIST_DIR = Path(__file__).resolve().parent.parent / "dist"
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+DIST_DIR = PROJECT_ROOT / "dist"
 ASSETS_DIR = DIST_DIR / "assets"
+_DIST_GEO_DIR = DIST_DIR / "geo"
+_PUBLIC_GEO_DIR = PROJECT_ROOT / "public" / "geo"
+GEO_DIR = _DIST_GEO_DIR if _DIST_GEO_DIR.is_dir() else _PUBLIC_GEO_DIR
+DATA_GEO_DIR = PROJECT_ROOT / "data" / "geo"
 
 # Backwards-compatible aliases used by tests and older imports.
 _is_production_runtime = is_production_runtime
@@ -52,6 +57,7 @@ _API_ROUTERS = (
     orders.router,
     telegram.router,
     events.router,
+    ws.router,
 )
 
 for router in _API_ROUTERS:
@@ -60,6 +66,34 @@ for router in _API_ROUTERS:
 
 if ASSETS_DIR.exists():
     app.mount("/assets", StaticFiles(directory=ASSETS_DIR), name="assets")
+
+def _resolve_geo_file(filename: str) -> Path | None:
+    for base in (GEO_DIR, DATA_GEO_DIR):
+        candidate = base / filename
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+if GEO_DIR.exists():
+    app.mount("/geo", StaticFiles(directory=GEO_DIR), name="geo")
+elif DATA_GEO_DIR.exists():
+    app.mount("/geo", StaticFiles(directory=DATA_GEO_DIR), name="geo")
+
+_INDEX_NO_CACHE_HEADERS = {
+    "Cache-Control": "no-cache, no-store, must-revalidate",
+    "Pragma": "no-cache",
+}
+
+
+def _resolve_dist_root_file(normalized: str) -> Path | None:
+    """Serve Vite public/root artifacts (pomich-sw.js, favicon, etc.) before SPA fallback."""
+    if not normalized or "/" in normalized or normalized.startswith("."):
+        return None
+    candidate = (DIST_DIR / normalized).resolve()
+    if candidate.parent != DIST_DIR.resolve() or not candidate.is_file():
+        return None
+    return candidate
 
 
 @app.get("/robots.txt")
@@ -73,9 +107,24 @@ def robots_txt():
 @app.get("/")
 @app.get("/{full_path:path}")
 def serve_frontend(full_path: str = ""):
+    normalized = str(full_path or "").lstrip("/")
+    if normalized.startswith("geo/"):
+        geo_name = normalized.removeprefix("geo/")
+        geo_path = _resolve_geo_file(geo_name)
+        if geo_path is not None:
+            return FileResponse(geo_path, media_type="application/geo+json")
+        raise HTTPException(status_code=404, detail="GeoJSON file not found")
+    if normalized.startswith("assets/"):
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    root_file = _resolve_dist_root_file(normalized)
+    if root_file is not None:
+        headers = {"Cache-Control": "no-cache"} if root_file.name == "pomich-sw.js" else None
+        return FileResponse(root_file, headers=headers)
+
     index_path = DIST_DIR / "index.html"
     if index_path.exists():
-        return FileResponse(index_path)
+        return FileResponse(index_path, headers=_INDEX_NO_CACHE_HEADERS)
     return {"detail": "Frontend build is missing. Run npm run build first."}
 
 

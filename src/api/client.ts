@@ -38,7 +38,14 @@ const providerErrorMessages: Record<string, string> = {
   ORDER_NOT_COMPLETED: 'Оцінку можна залишити лише після завершення заявки.',
   REVIEW_FORBIDDEN: 'Немає доступу до оцінки цієї заявки.',
   ORDER_NOT_FOUND: 'Заявку не знайдено.',
+  OFFER_EXPIRED: 'Пропозиція вже завершилась. Очікуйте нову заявку.',
+  OFFER_NOT_FOUND: 'Пропозицію не знайдено.',
+  OFFER_DECLINED: 'Цю пропозицію вже пропущено.',
+  PRICE_REQUIRED: 'Вкажіть вартість послуги в гривнях.',
+  ORDER_ALREADY_ACCEPTED: 'Замовлення вже прийняв інший виконавець.',
+  PROVIDER_NOT_VERIFIED: 'Підтвердіть телефон, щоб приймати заявки.',
   'Internal Server Error': 'Помилка сервера. Спробуйте ще раз через хвилину.',
+  service_unavailable: 'Сервер тимчасово недоступний (оновлення). Спробуйте через хвилину.',
 }
 
 export function formatOtpRetryWait(seconds: number, code?: string): string {
@@ -122,6 +129,9 @@ export async function parseApiErrorDetails(
   if (response.status === 429) {
     return { message: providerErrorMessages.send_cooldown, code: 'send_cooldown' }
   }
+  if (response.status === 502 || response.status === 503 || response.status === 504) {
+    return { message: providerErrorMessages.service_unavailable, code: 'service_unavailable' }
+  }
   if (response.status >= 500) {
     return { message: providerErrorMessages['Internal Server Error'], code: 'Internal Server Error' }
   }
@@ -129,9 +139,14 @@ export async function parseApiErrorDetails(
 }
 
 export const FETCH_NETWORK_ERROR_UA = "Не вдалося з'єднатися з сервером. Спробуйте ще раз."
+export const FETCH_TIMEOUT_ERROR_UA = 'Запит перевищив час очікування. Спробуйте ще раз.'
+export const DEFAULT_API_TIMEOUT_MS = 25_000
 
 export function messageFromFetchError(error: unknown, fallback = FETCH_NETWORK_ERROR_UA): string {
   if (error instanceof Error) {
+    if (error.name === 'AbortError' || /aborted|timeout|timed out/i.test(error.message)) {
+      return FETCH_TIMEOUT_ERROR_UA
+    }
     if (/failed to fetch|networkerror|load failed/i.test(error.message)) {
       return FETCH_NETWORK_ERROR_UA
     }
@@ -140,11 +155,19 @@ export function messageFromFetchError(error: unknown, fallback = FETCH_NETWORK_E
   return fallback
 }
 
-async function fetchApi(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+async function fetchApi(input: RequestInfo | URL, init?: RequestInit, timeoutMs = DEFAULT_API_TIMEOUT_MS): Promise<Response> {
+  const controller = new AbortController()
+  const upstreamSignal = init?.signal
+  const onUpstreamAbort = () => controller.abort(upstreamSignal?.reason)
+  upstreamSignal?.addEventListener('abort', onUpstreamAbort, { once: true })
+  const timeoutId = window.setTimeout(() => controller.abort(new DOMException('timeout', 'AbortError')), timeoutMs)
   try {
-    return await fetch(input, init)
+    return await fetch(input, { ...init, signal: controller.signal })
   } catch (error) {
     throw new Error(messageFromFetchError(error))
+  } finally {
+    window.clearTimeout(timeoutId)
+    upstreamSignal?.removeEventListener('abort', onUpstreamAbort)
   }
 }
 
@@ -274,6 +297,7 @@ export interface CustomerProfile {
   email?: string
   telegram?: string
   city?: string
+  vehicle?: string
   avatarUrl?: string
   bio?: string
   rating?: number
@@ -306,6 +330,8 @@ export interface DispatchOffer {
   orderId: string
   providerId: string
   status: OfferStatus
+  /** Parent order status — used to hide stale offers for completed/cancelled orders. */
+  orderStatus?: string
   distanceKm?: number
   createdAt?: string
   expiresAt?: string
@@ -325,6 +351,7 @@ export interface ProviderAvailability {
   id: string
   name: string
   rating?: number
+  ratingCount?: number
   vehicle?: string
   vehicleMake?: string
   vehicleModel?: string
@@ -356,6 +383,40 @@ export interface ProviderAvailability {
   verification?: VerificationDetails
   trustedBadges?: string[]
   updatedAt?: string
+  distanceKm?: number
+  ordersCompleted?: number
+}
+
+export interface ProviderPublicReview {
+  rating: number
+  comment?: string
+  at?: string
+  service?: string
+}
+
+export interface ProviderPublicProfile {
+  id: string
+  name: string
+  rating?: number
+  ratingCount?: number
+  vehicle?: string
+  specialties?: string[]
+  status?: ProviderStatus
+  etaMinutes?: number
+  providerKind?: 'dispatch' | 'directory' | string
+  city?: string
+  address?: string
+  phone?: string
+  telegram?: string
+  verificationStatus?: VerificationStatus
+  openingHours?: string
+  website?: string
+  ordersCompleted?: number
+  location?: {
+    lat: number
+    lng: number
+  }
+  reviews: ProviderPublicReview[]
 }
 
 export interface MapRequestPin {
@@ -615,14 +676,112 @@ export async function getProviders() {
   return response.json() as Promise<ProviderAvailability[]>
 }
 
-export async function getMapProviders() {
-  const response = await fetch(`${getBaseUrl()}/map/providers`)
+export async function getMapProviders(options?: {
+  scope?: "all" | "city"
+  city?: string
+  lat?: number
+  lng?: number
+  radiusKm?: number
+}) {
+  const params = new URLSearchParams()
+  if (options?.scope === "all") params.set("scope", "all")
+  if (options?.city) params.set("city", options.city)
+  if (options?.lat != null) params.set("lat", String(options.lat))
+  if (options?.lng != null) params.set("lng", String(options.lng))
+  if (options?.radiusKm != null) params.set("radius_km", String(options.radiusKm))
+  const query = params.toString()
+  const response = await fetch(`${getBaseUrl()}/map/providers${query ? `?${query}` : ""}`)
 
   if (!response.ok) {
     throw new Error(`Map providers request failed with ${response.status}`)
   }
 
   return response.json() as Promise<ProviderAvailability[]>
+}
+
+export interface MapSettlement {
+  id: string
+  name: string
+  oblast?: string
+  type?: string
+  center?: { lat: number; lng: number }
+  bbox?: [number, number, number, number]
+}
+
+const SETTLEMENTS_CACHE_KEY = "pomichMapSettlements"
+const SETTLEMENTS_CACHE_TTL_MS = 24 * 60 * 60 * 1000
+
+let settlementsMemoryCache: MapSettlement[] | null = null
+let settlementsInflight: Promise<MapSettlement[]> | null = null
+
+function readSettlementsCache(): MapSettlement[] | null {
+  if (settlementsMemoryCache) return settlementsMemoryCache
+  if (typeof window === "undefined") return null
+  try {
+    const raw = window.sessionStorage.getItem(SETTLEMENTS_CACHE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as { ts?: number; items?: MapSettlement[] }
+    if (!parsed.ts || !Array.isArray(parsed.items)) return null
+    if (Date.now() - parsed.ts > SETTLEMENTS_CACHE_TTL_MS) return null
+    settlementsMemoryCache = parsed.items
+    return parsed.items
+  } catch {
+    return null
+  }
+}
+
+function writeSettlementsCache(items: MapSettlement[]): void {
+  settlementsMemoryCache = items
+  if (typeof window === "undefined") return
+  try {
+    window.sessionStorage.setItem(
+      SETTLEMENTS_CACHE_KEY,
+      JSON.stringify({ ts: Date.now(), items }),
+    )
+  } catch {
+    // Ignore quota errors — in-memory cache still helps within the session.
+  }
+}
+
+export async function getMapSettlements() {
+  const cached = readSettlementsCache()
+  if (cached) return cached
+  if (settlementsInflight) return settlementsInflight
+
+  settlementsInflight = (async () => {
+    const response = await fetch(`${getBaseUrl()}/map/settlements`)
+    if (!response.ok) {
+      throw new Error(`Map settlements request failed with ${response.status}`)
+    }
+    const items = (await response.json()) as MapSettlement[]
+    writeSettlementsCache(Array.isArray(items) ? items : [])
+    return Array.isArray(items) ? items : []
+  })()
+
+  try {
+    return await settlementsInflight
+  } finally {
+    settlementsInflight = null
+  }
+}
+
+export async function getNearestMapSettlement(lat: number, lng: number, maxKm = 80) {
+  const params = new URLSearchParams({
+    lat: String(lat),
+    lng: String(lng),
+    max_km: String(maxKm),
+  })
+  const response = await fetch(`${getBaseUrl()}/map/settlements/nearest?${params.toString()}`)
+
+  if (response.status === 404) {
+    return null
+  }
+
+  if (!response.ok) {
+    throw new Error(`Nearest settlement request failed with ${response.status}`)
+  }
+
+  return response.json() as Promise<MapSettlement & { distanceKm?: number }>
 }
 
 export async function getNearbyMapOrders(lat: number, lng: number, radiusKm = 20, service?: string) {
@@ -658,6 +817,38 @@ export async function importUzhgorodProviders(adminToken?: string, options?: { s
     counts: { osm: number; seed: number; total: number }
     merge: { added: number; updated: number; total: number; directory: number }
     center: { lat: number; lng: number }
+  }>
+}
+
+export async function importUkraineProviders(
+  adminToken?: string,
+  options?: {
+    settlementIds?: string[]
+    oblast?: string
+    preferOsm?: boolean
+    seedOnly?: boolean
+    delaySeconds?: number
+  },
+) {
+  const response = await fetch(`${getBaseUrl()}/admin/providers/import/ukraine`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(adminHeaders(adminToken) ?? {}) },
+    body: JSON.stringify(options ?? {}),
+  })
+
+  if (!response.ok) {
+    throw new Error(`Ukraine import request failed with ${response.status}`)
+  }
+
+  return response.json() as Promise<{
+    counts: { total: number; withPhone: number; directoryOnly: number }
+    perSettlement: Array<{
+      settlementId: string
+      city: string
+      counts: { osm: number; seed: number; total: number; withPhone: number; directoryOnly: number }
+      source: string
+    }>
+    merge: { added: number; updated: number; total: number; directory: number }
   }>
 }
 
@@ -786,15 +977,30 @@ export async function submitCustomerVerification(customerId: string, payload: Re
 }
 
 export async function getProviderProfile(providerId: string, providerToken?: string) {
-  const response = await fetch(`${getBaseUrl()}/providers/${encodeURIComponent(providerId)}/profile`, {
+  const response = await fetchApi(`${getBaseUrl()}/providers/${encodeURIComponent(providerId)}/profile`, {
     headers: providerHeaders(providerToken),
   })
 
   if (!response.ok) {
-    throw new Error(`Provider profile request failed with ${response.status}`)
+    throw new ApiRequestError(await parseApiError(response, `Provider profile request failed with ${response.status}`), {
+      status: response.status,
+    })
   }
 
   return response.json() as Promise<ProviderAvailability>
+}
+
+export async function getProviderPublicProfile(providerId: string, limit = 20, signal?: AbortSignal) {
+  const response = await fetch(
+    `${getBaseUrl()}/providers/${encodeURIComponent(providerId)}/public?limit=${encodeURIComponent(String(limit))}`,
+    signal ? { signal } : undefined,
+  )
+
+  if (!response.ok) {
+    throw new Error(await parseApiError(response, `Provider public profile failed with ${response.status}`))
+  }
+
+  return response.json() as Promise<ProviderPublicProfile>
 }
 
 export async function submitProviderVerification(providerId: string, payload: Record<string, unknown>, providerToken?: string) {
@@ -843,7 +1049,7 @@ export async function acceptProviderOffer(
   providerToken?: string,
   payload?: { proposedPrice: number; priceNote?: string },
 ) {
-  const response = await fetch(`${getBaseUrl()}/providers/${encodeURIComponent(providerId)}/offers/${encodeURIComponent(offerId)}/accept`, {
+  const response = await fetchApi(`${getBaseUrl()}/providers/${encodeURIComponent(providerId)}/offers/${encodeURIComponent(offerId)}/accept`, {
     method: 'POST',
     headers: providerJsonHeaders(providerToken),
     body: JSON.stringify({
@@ -853,22 +1059,22 @@ export async function acceptProviderOffer(
   })
 
   if (!response.ok) {
-    const error = await response.json().catch(() => undefined)
-    throw Object.assign(new Error(`Offer accept request failed with ${response.status}`), { status: response.status, detail: error?.detail })
+    const parsed = await parseApiErrorDetails(response, 'Не вдалося прийняти заявку.')
+    throw Object.assign(new Error(parsed.message), { status: response.status, detail: parsed.code ? { code: parsed.code, message: parsed.message } : parsed.message })
   }
 
   return response.json() as Promise<{ offer: DispatchOffer; order: OrderResponse; provider: ProviderAvailability }>
 }
 
 export async function declineProviderOffer(providerId: string, offerId: string, providerToken?: string) {
-  const response = await fetch(`${getBaseUrl()}/providers/${encodeURIComponent(providerId)}/offers/${encodeURIComponent(offerId)}/decline`, {
+  const response = await fetchApi(`${getBaseUrl()}/providers/${encodeURIComponent(providerId)}/offers/${encodeURIComponent(offerId)}/decline`, {
     method: 'POST',
     headers: providerHeaders(providerToken),
   })
 
   if (!response.ok) {
-    const error = await response.json().catch(() => undefined)
-    throw Object.assign(new Error(`Offer decline request failed with ${response.status}`), { status: response.status, detail: error?.detail })
+    const parsed = await parseApiErrorDetails(response, 'Не вдалося пропустити заявку.')
+    throw Object.assign(new Error(parsed.message), { status: response.status, detail: parsed.code ? { code: parsed.code, message: parsed.message } : parsed.message })
   }
 
   return response.json() as Promise<DispatchOffer>
@@ -927,7 +1133,7 @@ export async function updateProviderProfile(providerId: string, payload: {
   serviceRadiusKm: number
   location?: { lat: number; lng: number }
 }, providerToken?: string) {
-  const response = await fetch(`${getBaseUrl()}/providers/${encodeURIComponent(providerId)}/profile`, {
+  const response = await fetchApi(`${getBaseUrl()}/providers/${encodeURIComponent(providerId)}/profile`, {
     method: 'PATCH',
     headers: providerJsonHeaders(providerToken),
     body: JSON.stringify(payload),
@@ -1001,7 +1207,7 @@ export async function setUserPreferredRole(customerId: string, role: 'customer' 
 }
 
 export async function createSelfProviderSession(customerId: string, customerToken?: string) {
-  const response = await fetch(`${getBaseUrl()}/auth/provider/self/session`, {
+  const response = await fetchApi(`${getBaseUrl()}/auth/provider/self/session`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(authHeaders(customerToken) ?? {}) },
     body: JSON.stringify({ customerId }),

@@ -54,7 +54,7 @@ describe('Telegram WebApp scroll init', () => {
     expect(ready).not.toHaveBeenCalled()
   })
 
-  it('syncAppViewportHeight prefers the smallest visible height', () => {
+  it('syncAppViewportHeight preserves Telegram stable viewport height and sets visible height', () => {
     Object.defineProperty(window, 'innerHeight', { configurable: true, value: 900 })
     Object.defineProperty(window, 'visualViewport', {
       configurable: true,
@@ -63,7 +63,21 @@ describe('Telegram WebApp scroll init', () => {
 
     syncAppViewportHeight({ viewportStableHeight: 780, viewportHeight: 800 })
 
-    expect(document.documentElement.style.getPropertyValue('--tg-viewport-stable-height')).toBe('720px')
+    expect(document.documentElement.style.getPropertyValue('--tg-viewport-stable-height')).toBe('780px')
+    expect(document.documentElement.style.getPropertyValue('--tg-viewport-visible-height')).toBe('720px')
+  })
+
+  it('syncAppViewportHeight preserves stable height when virtual keyboard is active', () => {
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 844 })
+    Object.defineProperty(window, 'visualViewport', {
+      configurable: true,
+      value: { height: 420 },
+    })
+
+    syncAppViewportHeight(undefined)
+
+    expect(document.documentElement.style.getPropertyValue('--tg-viewport-stable-height')).toBe('844px')
+    expect(document.documentElement.style.getPropertyValue('--tg-viewport-visible-height')).toBe('420px')
   })
 
   it('syncAppViewportHeight writes Telegram content safe-area insets', () => {

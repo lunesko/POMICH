@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { CustomerProfile } from '../api/client'
-import { isReturningClient, isStoredProfileNameMismatch, mergeAccountProfile, type UserAccountStatus } from './userAccount'
+import { enrichPartnerAccountStatus, isReturningClient, isReturningPartner, isStoredProfileNameMismatch, mergeAccountProfile, mergePreservedAccountStatus, type UserAccountStatus } from './userAccount'
 
 const baseStatus: UserAccountStatus = {
   customerId: 'guest-test',
@@ -54,5 +54,33 @@ describe('userAccount helpers', () => {
     expect(isStoredProfileNameMismatch('Vitaliy', 'Vitaliy')).toBe(false)
     expect(isStoredProfileNameMismatch('Клієнт POMICH', 'Vitaliy')).toBe(false)
     expect(isStoredProfileNameMismatch(undefined, 'Vitaliy')).toBe(false)
+  })
+
+  it('treats linked provider id as returning partner', () => {
+    expect(isReturningPartner({ ...baseStatus, linkedProviderId: 'provider-guest-test' })).toBe(true)
+  })
+
+  it('merges preserved partner flags when API drops providerRegistered', () => {
+    const preserved: UserAccountStatus = {
+      ...baseStatus,
+      clientRegistered: true,
+      providerRegistered: true,
+      linkedProviderId: 'provider-guest-test',
+      rolesRegistered: ['customer', 'provider'],
+      needsOnboarding: false,
+    }
+    const staleApi: UserAccountStatus = {
+      ...baseStatus,
+      clientRegistered: true,
+      providerRegistered: false,
+      linkedProviderId: '',
+      rolesRegistered: ['customer'],
+      needsOnboarding: true,
+    }
+    const merged = mergePreservedAccountStatus(staleApi, preserved)
+    expect(merged.providerRegistered).toBe(true)
+    expect(merged.linkedProviderId).toBe('provider-guest-test')
+    expect(isReturningPartner(merged)).toBe(true)
+    expect(enrichPartnerAccountStatus(merged).needsOnboarding).toBe(false)
   })
 })

@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Header, HTTPException
 
-from bot.api_deps import optional_customer_auth, require_admin_auth, require_customer_auth, verify_init_data_or_raise
+from bot.api_deps import (
+    optional_customer_auth,
+    require_admin_auth,
+    require_customer_auth,
+    require_customer_auth_linked,
+    verify_init_data_or_raise,
+)
 from bot.order_store import (
     build_user_account_status,
     get_customer_profile,
@@ -99,5 +105,5 @@ def customer_order_history(
     authorization: str | None = Header(default=None),
     limit: int = 50,
 ) -> list[dict]:
-    principal = require_customer_auth(customer_id, authorization)
-    return list_orders_for_customer(principal.subject_id, limit=limit)
+    require_customer_auth_linked(customer_id, authorization)
+    return list_orders_for_customer(customer_id, limit=limit)

@@ -3,13 +3,23 @@ from __future__ import annotations
 from fastapi import APIRouter, Body, Header, HTTPException
 
 from bot.api_deps import dispatch_conflict, require_admin_auth, require_provider_auth
+from bot.occupied_territories import filter_non_occupied_providers, is_occupied_coordinates, occupied_zone_name
+from bot.settlements import (
+    filter_providers_by_city,
+    filter_providers_near,
+    load_settlements,
+    nearest_settlement_with_distance,
+    settlement_center,
+)
 from bot.order_store import (
     DispatchConflict,
     accept_offer,
+    build_empty_provider_profile_shell,
     decline_offer,
     expire_offers,
     get_provider_offers,
     get_provider_profile,
+    get_provider_public_card,
     list_orders_for_provider,
     load_providers,
     nearby_searching_orders,
@@ -35,9 +45,70 @@ def list_providers(kind: str | None = None) -> list[dict]:
 
 
 @router.get("/map/providers")
-def map_providers() -> list[dict]:
-    """All providers for map display, including directory listings."""
-    return load_providers()
+def map_providers(
+    scope: str | None = None,
+    city: str | None = None,
+    lat: float | None = None,
+    lng: float | None = None,
+    radius_km: float = 25.0,
+) -> list[dict]:
+    """Providers for map display; scope=all (free UA) or city/geo filter. Occupied zones excluded."""
+    providers = filter_non_occupied_providers(load_providers())
+    normalized_scope = str(scope or "").strip().lower()
+    if normalized_scope == "all":
+        return providers
+    if city and city.strip():
+        providers = filter_providers_by_city(providers, city.strip())
+    elif lat is not None and lng is not None:
+        providers = filter_providers_near(providers, lat, lng, radius_km=max(1.0, min(radius_km, 100.0)))
+    return providers
+
+
+@router.get("/map/settlements/nearest")
+def map_nearest_settlement(lat: float, lng: float, max_km: float = 80.0) -> dict:
+    """Resolve nearest known settlement for geolocation-based directory scope."""
+    if is_occupied_coordinates(lat, lng):
+        zone = occupied_zone_name(lat, lng)
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "occupied_territory", "zone": zone, "message": "Ця територія тимчасово окупована."},
+        )
+    cap_km = max(5.0, min(max_km, 200.0))
+    item, distance_km = nearest_settlement_with_distance(lat, lng, max_km=cap_km)
+    if item is None:
+        _, raw_km = nearest_settlement_with_distance(lat, lng)
+        detail: dict = {
+            "code": "no_nearby_settlement",
+            "message": "Найближче місто занадто далеко — використайте радіус.",
+            "fallback": "radius",
+            "radiusKm": 25,
+        }
+        if raw_km is not None:
+            detail["distanceKm"] = round(raw_km, 2)
+        raise HTTPException(status_code=404, detail=detail)
+    center = settlement_center(item)
+    return {
+        "id": item.get("id"),
+        "name": item.get("name"),
+        "oblast": item.get("oblast"),
+        "center": center,
+        "distanceKm": round(distance_km or 0, 2),
+    }
+
+
+@router.get("/map/settlements")
+def map_settlements() -> list[dict]:
+    """Known settlements with center/bbox for city picker and map recenter."""
+    return load_settlements()
+
+
+@router.get("/providers/{provider_id}/public")
+def read_provider_public_card(provider_id: str, limit: int = 20) -> dict:
+    """Public partner card with reviews for client map (no auth)."""
+    card = get_provider_public_card(provider_id, limit=limit)
+    if card is None:
+        raise HTTPException(status_code=404, detail="provider profile not found")
+    return card
 
 
 @router.get("/map/orders/nearby")
@@ -65,7 +136,7 @@ def read_provider_profile(
     require_provider_auth(provider_id, x_pomich_provider_token, authorization)
     provider = get_provider_profile(provider_id)
     if provider is None:
-        raise HTTPException(status_code=404, detail="provider profile not found")
+        return build_empty_provider_profile_shell(provider_id)
     return provider
 
 
@@ -81,9 +152,12 @@ def patch_provider_presence(
     if status not in {"online", "busy", "offline"}:
         raise HTTPException(status_code=400, detail="provider status must be online, busy or offline")
     try:
-        return update_provider_presence(provider_id, payload)
+        updated = update_provider_presence(provider_id, payload)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if str(updated.get("status") or "") == "online":
+        publish_provider_event(provider_id, "offers.changed", {"source": "presence"})
+    return updated
 
 
 @router.post("/providers/{provider_id}/profile")

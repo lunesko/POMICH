@@ -34,6 +34,8 @@ function renderCabinet(overrides?: Partial<Parameters<typeof ProviderCabinet>[0]
 
 describe('ProviderCabinet', () => {
   beforeEach(() => {
+    window.sessionStorage.clear()
+    window.localStorage.clear()
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
       const url = String(input)
       if (url.includes('/providers/provider-oleksandr/profile')) {
@@ -77,6 +79,52 @@ describe('ProviderCabinet', () => {
         expect.objectContaining({ method: 'PATCH' }),
       )
     })
+  })
+
+  it('opens in edit mode when initialEditing is set', async () => {
+    renderCabinet({ initialEditing: true })
+
+    expect(await screen.findByPlaceholderText("Ваше ім'я")).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Зберегти$/i })).toBeInTheDocument()
+  })
+
+  it('opens setup instead of error when provider profile is missing', async () => {
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/auth/provider/self/session')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            role: 'provider',
+            subjectId: 'provider-guest-new',
+            providerId: 'provider-guest-new',
+            tokenType: 'Bearer',
+            accessToken: 'pomich_auth_v1.provider-guest-new',
+            expiresAt: Math.floor(Date.now() / 1000) + 3600,
+          }),
+        })
+      }
+      if (url.includes('/providers/provider-guest-new/profile')) {
+        return Promise.resolve({ ok: false, status: 404, json: async () => ({ detail: 'not found' }) })
+      }
+      if (url.endsWith('/providers')) {
+        return Promise.resolve({ ok: true, json: async () => [] })
+      }
+      return Promise.resolve({ ok: true, json: async () => [] })
+    }))
+
+    window.sessionStorage.setItem('pomichCustomerId', 'guest-new')
+    window.sessionStorage.setItem('pomichAuthSession:customer:guest-new', JSON.stringify({
+      role: 'customer',
+      subjectId: 'guest-new',
+      accessToken: 'pomich_auth_v1.customer-guest-new',
+      expiresAt: Math.floor(Date.now() / 1000) + 3600,
+    }))
+
+    renderCabinet({ providerId: 'provider-guest-new' })
+
+    expect(await screen.findByPlaceholderText("Ваше ім'я")).toBeInTheDocument()
+    expect(screen.queryByText('Не вдалося завантажити профіль партнера.')).not.toBeInTheDocument()
   })
 
   it('shows unverified status until OTP completes', async () => {

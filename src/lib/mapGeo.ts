@@ -13,11 +13,11 @@ export const MAP_GEO_DEBOUNCE_MS = 400
 /** Distances below this use instant panBy; larger moves use a single flyTo. */
 export const MAP_FLY_THRESHOLD_M = 200
 
-/** Default sheet heights in vh when CSS vars / DOM measurement are unavailable. */
+/** Default sheet heights (% of ride-screen) when CSS vars / DOM measurement are unavailable. */
 export const DEFAULT_SHEET_HEIGHTS_VH = {
-  peek: 18,
-  half: 52,
-  expanded: 88,
+  peek: 15,
+  half: 44,
+  expanded: 72,
 } as const
 
 /** Extra clearance above the sheet edge so the marker sits in the visible map center. */

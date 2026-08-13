@@ -5,15 +5,21 @@ export type SheetSnap = "collapsed" | "half" | "expanded"
 const SNAP_ORDER: SheetSnap[] = ["collapsed", "half", "expanded"]
 
 /** Heights as % of the ride-screen (not raw vh — avoids browser-chrome clipping). */
-const DEFAULT_HEIGHTS = {
+export interface SheetHeights {
+  peek: number
+  half: number
+  expanded: number
+  min: number
+  max: number
+}
+
+const DEFAULT_HEIGHTS: SheetHeights = {
   peek: 15,
   half: 44,
   expanded: 72,
   min: 14,
   max: 78,
-} as const
-
-type SheetHeights = typeof DEFAULT_HEIGHTS
+}
 
 function resolveDefaultSnap(mapFocus?: boolean, expandedSheet?: boolean, defaultSnap: SheetSnap = "half"): SheetSnap {
   if (expandedSheet) return "expanded"
@@ -154,6 +160,12 @@ export function useMobileSheetSnap(options: {
     refreshHeights()
     const onResize = () => {
       refreshHeights()
+      /* Don't collapse sheet if user is currently typing in an input field */
+      const active = document.activeElement
+      const isTyping =
+        Boolean(active) &&
+        (active?.tagName === "INPUT" || active?.tagName === "TEXTAREA" || (active as HTMLElement)?.isContentEditable)
+      if (isTyping) return
       applyHeight(heightRef.current)
     }
     window.addEventListener("resize", onResize)
@@ -163,6 +175,24 @@ export function useMobileSheetSnap(options: {
       window.visualViewport?.removeEventListener("resize", onResize)
     }
   }, [enabled, refreshHeights, applyHeight])
+
+  useEffect(() => {
+    if (!enabled) return
+
+    const handleFocusIn = (event: FocusEvent) => {
+      const target = event.target as HTMLElement | null
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) {
+        refreshHeights()
+        const expandedHeight = heightsRef.current.expanded
+        heightRef.current = expandedHeight
+        setHeightVh(expandedHeight)
+        setSnap("expanded")
+      }
+    }
+
+    window.addEventListener("focusin", handleFocusIn)
+    return () => window.removeEventListener("focusin", handleFocusIn)
+  }, [enabled, refreshHeights])
 
   useEffect(
     () => () => {

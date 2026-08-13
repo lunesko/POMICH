@@ -40,6 +40,10 @@ import {
 
   isProviderAvailable,
 
+  isDirectoryMapProvider,
+
+  distanceToProvider,
+
   providerStatusLabel,
 
   toServiceKeys,
@@ -56,6 +60,8 @@ import { fetchOsrmRoute, formatRouteDistance, formatRouteDuration, forwardGeocod
 
 import ClickToPick from "./ClickToPick"
 
+import UkraineMapLayers from "./UkraineMapLayers"
+
 import MapSizeController from "./MapSizeController"
 
 import {
@@ -68,6 +74,10 @@ import {
 } from "../../lib/mapGeo"
 
 import { readSheetHeights, type SheetSnap } from "../../hooks/useMobileSheetSnap"
+import { resolveMapTileConfig, type MapTileTheme } from "../../lib/theme"
+import { isOccupiedCoordinates, OCCUPIED_PICK_MESSAGE } from "../../lib/occupiedTerritories"
+import type { DirectoryScopeMode } from "../../lib/directoryScope"
+import { UKRAINE_BOUNDS, UKRAINE_MAP_FIT_MAX_ZOOM, UKRAINE_MAP_FIT_MAX_ZOOM_MOBILE } from "../../lib/ukraineMapMask"
 
 function sheetPaddingBottomPx(
   map: { getSize: () => { x: number; y: number } },
@@ -130,6 +140,20 @@ function MapPointerScrollZoom() {
     }
   }, [map])
   return null
+}
+
+function MapThemeTileLayer({ mapTileTheme }: { mapTileTheme: MapTileTheme }) {
+  const tile = resolveMapTileConfig({ mapTileTheme })
+  const usesSubdomains = tile.url.includes("{s}")
+  return (
+    <TileLayer
+      key={tile.url}
+      url={tile.url}
+      maxZoom={19}
+      {...(usesSubdomains && tile.subdomains ? { subdomains: tile.subdomains } : {})}
+      attribution={tile.attribution}
+    />
+  )
 }
 
 function FitRouteBounds({ coords }: { coords: LatLngTuple[] }) {
@@ -252,13 +276,184 @@ function MapKeepVisibleAboveSheet({
   return null
 }
 
+function MapDirectoryScopeRecenter({
+  scope,
+  cityCenter,
+  trigger,
+  compact,
+}: {
+  scope: DirectoryScopeMode
+  cityCenter?: Point
+  trigger: number
+  compact?: boolean
+}) {
+  const map = useMap()
+  const lastTriggerRef = useRef(0)
+
+  useEffect(() => {
+    if (trigger <= 0 || trigger === lastTriggerRef.current) return
+    lastTriggerRef.current = trigger
+    return afterLayout(() => {
+      if (scope === "all-ukraine") {
+        const [south, west, north, east] = UKRAINE_BOUNDS
+        map.fitBounds(
+          [
+            [south, west],
+            [north, east],
+          ],
+          {
+            padding: [24, 24],
+            maxZoom: compact ? UKRAINE_MAP_FIT_MAX_ZOOM_MOBILE : UKRAINE_MAP_FIT_MAX_ZOOM,
+            animate: true,
+          },
+        )
+        return
+      }
+      if (cityCenter) {
+        moveMapToPoint(map, [cityCenter.lat, cityCenter.lng], { animateLarge: true, minZoom: 13 })
+      }
+    })
+  }, [trigger, scope, cityCenter, compact, map])
+
+  return null
+}
+
+const DIRECTORY_VIEWPORT_CULL_THRESHOLD = 50
+
+/** Per-viewport caps — never sample the whole country when zoomed into a region. */
+export function directoryMaxMarkersForZoom(zoom: number): number {
+  if (zoom <= 7) return 250
+  if (zoom <= 10) return 200
+  return 500
+}
+
+function directoryViewportPad(zoom: number): number {
+  if (zoom <= 7) return 0.22
+  if (zoom <= 9) return 0.16
+  return 0.1
+}
+
+export function selectDirectoryProvidersForRender(
+  providers: ProviderAvailability[],
+  map: L.Map,
+): ProviderAvailability[] {
+  const zoom = typeof map.getZoom === "function" ? map.getZoom() : 13
+  const maxMarkers = directoryMaxMarkersForZoom(zoom)
+  let candidates = providers
+
+  const useViewportCull = providers.length > DIRECTORY_VIEWPORT_CULL_THRESHOLD || zoom <= 10
+
+  if (useViewportCull) {
+    if (typeof map.getBounds !== "function") {
+      return providers.length <= maxMarkers ? providers : providers.slice(0, maxMarkers)
+    }
+    const bounds = map.getBounds().pad(directoryViewportPad(zoom))
+    candidates = providers.filter((item) => {
+      const point = providerPoint(item)
+      return point ? bounds.contains([point.lat, point.lng]) : false
+    })
+  }
+
+  if (candidates.length <= maxMarkers) return candidates
+
+  const step = candidates.length / maxMarkers
+  const sampled: ProviderAvailability[] = []
+  for (let i = 0; i < maxMarkers; i += 1) {
+    sampled.push(candidates[Math.floor(i * step)]!)
+  }
+  return sampled
+}
+
+function DirectoryProviderMarkers({
+  providers,
+  userLocation,
+  pickup,
+  onProviderSelect,
+  onRoute,
+  navLoading,
+  navTargetProviderId,
+  navRouteCoords,
+  navRouteLabel,
+}: {
+  providers: ProviderAvailability[]
+  userLocation?: Point
+  pickup: Point
+  onProviderSelect?: (provider: ProviderAvailability) => void
+  onRoute: (item: ProviderAvailability) => void
+  navLoading: boolean
+  navTargetProviderId: string | null
+  navRouteCoords: LatLngTuple[] | null
+  navRouteLabel: string | null
+}) {
+  const map = useMap()
+  const [renderProviders, setRenderProviders] = useState(() => selectDirectoryProvidersForRender(providers, map))
+
+  useEffect(() => {
+    const syncVisible = () => {
+      setRenderProviders(selectDirectoryProvidersForRender(providers, map))
+    }
+
+    syncVisible()
+    if (typeof map.on !== "function" || typeof map.off !== "function") return
+    map.on("moveend", syncVisible)
+    map.on("zoomend", syncVisible)
+    return () => {
+      map.off("moveend", syncVisible)
+      map.off("zoomend", syncVisible)
+    }
+  }, [map, providers])
+
+  return (
+    <>
+      {renderProviders.map((item) => {
+        const point = providerPoint(item)
+        return point ? (
+          <Marker
+            key={item.id}
+            position={toTuple(point)}
+            icon={directoryProviderIcon(item)}
+            eventHandlers={
+              onProviderSelect
+                ? {
+                    click: () => {
+                      const distanceKm = distanceToProvider(userLocation ?? pickup, item)
+                      onProviderSelect({
+                        ...item,
+                        distanceKm: Number.isFinite(distanceKm) ? Number(distanceKm.toFixed(1)) : undefined,
+                        etaMinutes:
+                          item.etaMinutes ??
+                          (Number.isFinite(distanceKm) ? Math.max(5, Math.ceil(distanceKm * 4)) : undefined),
+                      })
+                    },
+                  }
+                : undefined
+            }
+          >
+            {onProviderSelect ? null : (
+              <Popup>
+                <DirectoryPopup
+                  item={item}
+                  onRoute={() => onRoute(item)}
+                  routeLoading={navLoading && navTargetProviderId === item.id}
+                  routeActive={navTargetProviderId === item.id && Boolean(navRouteCoords)}
+                  routeLabel={navTargetProviderId === item.id ? navRouteLabel : null}
+                />
+              </Popup>
+            )}
+          </Marker>
+        ) : null
+      })}
+    </>
+  )
+}
+
 
 
 const pickupIcon = L.divIcon({
 
   className: "pomich-pickup-marker",
 
-  html: '<div style="width:24px;height:24px;border-radius:999px;background:#16A36A;border:3px solid white;box-shadow:0 8px 24px rgba(0,0,0,0.22)"></div>',
+  html: '<div style="width:24px;height:24px;border-radius:999px;background:#16A36A;border:3px solid white"></div>',
 
   iconSize: [24, 24],
 
@@ -272,7 +467,7 @@ const destinationIcon = L.divIcon({
 
   className: "pomich-destination-marker",
 
-  html: '<div style="width:24px;height:24px;border-radius:999px;background:#2563EB;border:3px solid white;box-shadow:0 8px 24px rgba(0,0,0,0.22)"></div>',
+  html: '<div style="width:24px;height:24px;border-radius:999px;background:#2563EB;border:3px solid white"></div>',
 
   iconSize: [24, 24],
 
@@ -286,7 +481,7 @@ const partnerIcon = L.divIcon({
 
   className: "pomich-partner-marker",
 
-  html: '<div style="width:28px;height:28px;border-radius:999px;background:#F59E0B;border:3px solid white;box-shadow:0 8px 24px rgba(245,158,11,0.35);display:flex;align-items:center;justify-content:center;color:white;font-size:13px">🚛</div>',
+  html: '<div style="width:28px;height:28px;border-radius:999px;background:#F59E0B;border:3px solid white;display:flex;align-items:center;justify-content:center;color:white;font-size:13px">🚛</div>',
 
   iconSize: [28, 28],
 
@@ -300,7 +495,7 @@ const liveProviderIcon = L.divIcon({
 
   className: "pomich-live-provider-marker",
 
-  html: '<div style="width:28px;height:28px;border-radius:999px;background:#111315;border:3px solid white;box-shadow:0 8px 24px rgba(0,0,0,0.24);display:flex;align-items:center;justify-content:center;color:white;font-size:13px">🚛</div>',
+  html: '<div style="width:28px;height:28px;border-radius:999px;background:#F59E0B;border:3px solid white;display:flex;align-items:center;justify-content:center;color:white;font-size:13px">🚛</div>',
 
   iconSize: [28, 28],
 
@@ -328,7 +523,7 @@ const requestIcon = L.divIcon({
 
   className: "pomich-request-marker",
 
-  html: '<div style="width:30px;height:30px;border-radius:999px;background:#EF4444;border:3px solid white;box-shadow:0 8px 24px rgba(239,68,68,0.35);display:flex;align-items:center;justify-content:center;color:white;font-size:14px">!</div>',
+  html: '<div style="width:30px;height:30px;border-radius:999px;background:#EF4444;border:3px solid white;display:flex;align-items:center;justify-content:center;color:white;font-size:14px">!</div>',
 
   iconSize: [30, 30],
 
@@ -358,7 +553,7 @@ function directoryProviderIcon(item: ProviderAvailability): L.DivIcon {
 
     className: "pomich-directory-marker",
 
-    html: `<div style="width:26px;height:26px;border-radius:8px;background:${color};border:2px solid white;box-shadow:0 8px 24px rgba(0,0,0,0.2);display:flex;align-items:center;justify-content:center;color:white;font-size:12px">${emoji}</div>`,
+    html: `<div style="width:26px;height:26px;border-radius:8px;background:${color};border:2px solid white;display:flex;align-items:center;justify-content:center;color:white;font-size:12px">${emoji}</div>`,
 
     iconSize: [26, 26],
 
@@ -550,7 +745,7 @@ function RouteOriginSheet({
           <input
             value={address}
             onChange={(event) => onAddressChange(event.target.value)}
-            placeholder="Напр. вул. Швабська, Ужгород"
+            placeholder="Напр. вул. Хрещатик, Київ"
             className="pomich-form-input"
             style={{ color: DARK }}
             onKeyDown={(event) => {
@@ -629,52 +824,28 @@ function RouteOriginSheet({
 
 
 
-function MapLegend({ directoryOnly, hasDestination, hasPartner, overlayMode }: { directoryOnly?: boolean; hasDestination?: boolean; hasPartner?: boolean; overlayMode?: boolean }) {
-
-  const chromeStyle = { position: "absolute" as const, zIndex: 1100, right: 12, top: overlayMode ? 8 : 12, background: "rgba(255,255,255,0.96)", borderRadius: 12, padding: "7px 10px", fontSize: 10, fontWeight: 900, color: DARK, boxShadow: "0 4px 14px rgba(0,0,0,0.08)", display: "grid", gap: 4 }
-
+function MapLegend({ directoryOnly, hasDestination, hasPartner }: { directoryOnly?: boolean; hasDestination?: boolean; hasPartner?: boolean; overlayMode?: boolean }) {
   if (directoryOnly) {
-
     return (
-
-      <div style={chromeStyle}>
-
-        <span style={{ marginBottom: 2, fontSize: 9, color: "#6B7280" }}>Легенда</span>
-
+      <div className="pomich-map-legend-box">
+        <span className="pomich-map-legend-title">Легенда</span>
         <span>🔧 Сервіс / СТО</span>
-
         <span>🟣 Ваше місце</span>
-
         <span>🔵 Маршрут</span>
-
       </div>
-
     )
-
   }
 
-
-
   return (
-
-    <div style={chromeStyle}>
-
-      <span style={{ marginBottom: 2, fontSize: 9, color: "#6B7280" }}>Легенда</span>
-
+    <div className="pomich-map-legend-box">
+      <span className="pomich-map-legend-title">Легенда</span>
       <span>🟢 Клієнт</span>
-
       {hasPartner ? <span>🟠 Партнер</span> : <span>🚛 Партнер на лінії</span>}
-
       {hasDestination ? <span>🔵 Пункт призначення</span> : null}
-
       <span>🔧 Сервіс</span>
-
       <span>🔴 Заявка</span>
-
     </div>
-
   )
-
 }
 
 
@@ -747,6 +918,8 @@ interface RouteMapProps {
 
   onRequestPinSelect?: (pin: MapRequestPin) => void
 
+  onProviderSelect?: (provider: ProviderAvailability) => void
+
   full?: boolean
 
   showBadges?: boolean
@@ -763,6 +936,9 @@ interface RouteMapProps {
 
   decorative?: boolean
 
+  /** `light` = always OSM (landing/marketing). `auto` = in-app only, dark tiles if user saved dark. */
+  mapTileTheme?: MapTileTheme
+
   overlayMode?: boolean
 
   sheetSnap?: SheetSnap
@@ -776,6 +952,28 @@ interface RouteMapProps {
   geoError?: string
 
   showLocateControl?: boolean
+
+  /** Desktop split: brand chip in the map chrome row beside geo (not absolute overlap). */
+  showBrandBadge?: boolean
+
+  /** Subtle occupied-territory tint (no border stroke or outside dim). */
+  showUkraineMask?: boolean
+
+  /** Fit whole Ukraine on load (decorative hero / directory wide view). */
+  ukraineMapFitCountry?: boolean
+
+  /** Override map zoom (defaults to 6 for all-ukraine directory, else 13). */
+  mapZoom?: number
+
+  /** Directory scope selector — «Вся Україна» vs «Моє місто». */
+  directoryScope?: DirectoryScopeMode
+  onDirectoryScopeChange?: (scope: DirectoryScopeMode) => void
+  directoryScopeCity?: string
+  directoryScopeGeoLoading?: boolean
+  directoryScopeGeoError?: string
+  onDirectoryScopeGeoRetry?: () => void
+  directoryScopeRecenterTrigger?: number
+  directoryScopeCityCenter?: Point
 
 }
 
@@ -803,6 +1001,8 @@ export function RouteMap({
 
   onRequestPinSelect,
 
+  onProviderSelect,
+
   full = false,
 
   showBadges = true,
@@ -819,6 +1019,8 @@ export function RouteMap({
 
   decorative = false,
 
+  mapTileTheme = "light",
+
   overlayMode = false,
 
   sheetSnap,
@@ -833,11 +1035,41 @@ export function RouteMap({
 
   showLocateControl = true,
 
+  showBrandBadge = false,
+
+  showUkraineMask = false,
+
+  ukraineMapFitCountry,
+
+  mapZoom,
+
+  directoryScope,
+
+  onDirectoryScopeChange,
+
+  directoryScopeCity,
+
+  directoryScopeGeoLoading = false,
+
+  directoryScopeGeoError,
+
+  onDirectoryScopeGeoRetry,
+
+  directoryScopeRecenterTrigger = 0,
+
+  directoryScopeCityCenter,
+
 }: RouteMapProps) {
   const mapInteractive = !decorative
   const locationPickMode = Boolean(onPick) && !destination && !directoryOnly && !providerPosition
-  const initialCenterRef = useRef<LatLngTuple>(toTuple(providerPosition ?? userLocation ?? pickup))
+  const ukraineWideView =
+    !onPick && (directoryOnly || directoryScope === "all-ukraine")
+  const effectiveShowOccupiedOverlay = showUkraineMask
+  const effectiveZoom = mapZoom ?? (ukraineWideView ? 6 : 13)
+  const effectiveCenter: LatLngTuple = ukraineWideView ? [48.5, 31.5] : toTuple(providerPosition ?? userLocation ?? pickup)
+  const initialCenterRef = useRef<LatLngTuple>(effectiveCenter)
   const [markerDragging, setMarkerDragging] = useState(false)
+  const [occupiedPickHint, setOccupiedPickHint] = useState<string | undefined>()
 
   const [localGeoLoading, setLocalGeoLoading] = useState(false)
 
@@ -848,6 +1080,8 @@ export function RouteMap({
   const [localLocateTrigger, setLocalLocateTrigger] = useState(0)
 
   const [categoryFilter, setCategoryFilter] = useState<DirectoryCategoryKey>("all")
+
+  const [directoryMarkersHidden, setDirectoryMarkersHidden] = useState(false)
 
   const [mapToolsOpen, setMapToolsOpen] = useState(false)
 
@@ -1012,6 +1246,11 @@ export function RouteMap({
   }
 
   const handleMapPick = (point: Point) => {
+    if (isOccupiedCoordinates(point.lat, point.lng)) {
+      setOccupiedPickHint(OCCUPIED_PICK_MESSAGE)
+      return
+    }
+    setOccupiedPickHint(undefined)
     if (originPickMode && pendingNavTarget) {
       loadNavigationRoute(point, pendingNavTarget)
       return
@@ -1110,7 +1349,15 @@ export function RouteMap({
 
 
   const center = providerPosition ? toTuple(providerPosition) : userLocation ? toTuple(userLocation) : toTuple(pickup)
-  const followMapCenter = !decorative && !destination && !providerPosition && !directoryOnly && !markerDragging && !navRouteCoords && !locationPickMode
+  const followMapCenter =
+    !decorative &&
+    !destination &&
+    !providerPosition &&
+    !directoryOnly &&
+    !markerDragging &&
+    !navRouteCoords &&
+    !locationPickMode &&
+    !ukraineWideView
 
 
 
@@ -1120,7 +1367,7 @@ export function RouteMap({
 
     const directory = showDirectoryProviders
 
-      ? items.filter((item) => item.providerKind === "directory" && providerPoint(item))
+      ? items.filter((item) => isDirectoryMapProvider(item) && providerPoint(item))
 
       : []
 
@@ -1137,12 +1384,12 @@ export function RouteMap({
 
 
   const filteredDirectoryProviders = useMemo(() => {
+    if (directoryMarkersHidden) return []
 
     if (categoryFilter === "all") return directoryProviders
 
     return directoryProviders.filter((item) => getDirectoryPrimarySpecialty(item) === categoryFilter)
-
-  }, [categoryFilter, directoryProviders])
+  }, [categoryFilter, directoryMarkersHidden, directoryProviders])
 
 
 
@@ -1164,17 +1411,18 @@ export function RouteMap({
 
 
 
-  const overlayBottom = sheetSnap === "collapsed" ? "18%" : sheetSnap === "half" ? "48%" : sheetSnap === "expanded" ? "76%" : overlayMode ? 56 : 12
-
   const hideMapChrome = sheetSnap === "expanded"
 
-  /* Always chip ↔ panel — never a stuck-open static filter covering the map. */
-  const showMapTools = showBadges && directoryProviders.length > 0 && !hideMapChrome
+  /* Scope selector must stay available even when the directory list is empty. */
+  const showDirectoryScopeTools = Boolean(onDirectoryScopeChange)
+  const showMapTools =
+    showBadges && !hideMapChrome && (directoryProviders.length > 0 || showDirectoryScopeTools)
 
   const locateLoading = geoLoading || localGeoLoading
   /* Sheet already shows parent geoError on overlay rides — avoid duplicate banners. */
   const locateError = localGeoError || (overlayMode ? undefined : geoError)
   const showLocate = showLocateControl && mapInteractive && !hideMapChrome
+  const showMapChromeRow = (showLocate || showBrandBadge) && !hideMapChrome
 
   const handleLocateClick = () => {
     setLocalGeoError(undefined)
@@ -1194,7 +1442,14 @@ export function RouteMap({
         setLocalLocatePoint(tuple)
         setLocalLocateTrigger((value) => value + 1)
         onUserLocationChange?.(point)
-        if (locationPickMode) onPick?.(point)
+        if (locationPickMode) {
+          if (isOccupiedCoordinates(point.lat, point.lng)) {
+            setOccupiedPickHint(OCCUPIED_PICK_MESSAGE)
+          } else {
+            setOccupiedPickHint(undefined)
+            onPick?.(point)
+          }
+        }
       },
       (message) => {
         setLocalGeoLoading(false)
@@ -1240,13 +1495,21 @@ export function RouteMap({
 
   return (
 
-    <div className={`pomich-route-map${full ? " pomich-route-map--full" : ""}`} style={{ height: full ? "100%" : 244, minHeight: full ? 0 : undefined, borderRadius: full ? 0 : 22, overflow: "hidden", border: full ? "none" : `1px solid ${BORDER}`, position: "relative", background: "#EAF4EE", ...(decorative ? { pointerEvents: "none" } : {}) }}>
+    <div className={`pomich-route-map${full ? " pomich-route-map--full" : ""}${ukraineWideView ? " pomich-route-map--ukraine-wide" : ""}`} style={{ height: full ? "100%" : 244, minHeight: full ? 0 : undefined, borderRadius: full ? 0 : 22, overflow: full ? "visible" : "hidden", border: full ? "none" : `1px solid ${BORDER}`, position: "relative", ...(decorative ? { pointerEvents: "none" } : {}) }}>
 
-      <MapContainer center={initialCenterRef.current} zoom={13} zoomControl={mapInteractive} scrollWheelZoom={mapInteractive} dragging={mapInteractive} touchZoom={mapInteractive} doubleClickZoom={mapInteractive} boxZoom={mapInteractive} keyboard={mapInteractive} style={{ width: "100%", height: "100%" }}>
+      <MapContainer center={initialCenterRef.current} zoom={effectiveZoom} zoomControl={mapInteractive} scrollWheelZoom={mapInteractive} dragging={mapInteractive} touchZoom={mapInteractive} doubleClickZoom={mapInteractive} boxZoom={mapInteractive} keyboard={mapInteractive} style={{ width: "100%", height: "100%" }}>
 
         <MapSizeController />
 
-        {recenterTrigger > 0 ? (
+        {directoryScopeRecenterTrigger > 0 && directoryScope ? (
+          <MapDirectoryScopeRecenter
+            scope={directoryScope}
+            cityCenter={directoryScopeCityCenter}
+            trigger={directoryScopeRecenterTrigger}
+            compact={overlayMode}
+          />
+        ) : null}
+        {recenterTrigger > 0 && !ukraineWideView ? (
           <MapExplicitRecenter point={center} trigger={recenterTrigger} sheetSnap={sheetSnap} overlayMode={overlayMode} />
         ) : null}
         {localLocateTrigger > 0 && localLocatePoint ? (
@@ -1261,7 +1524,7 @@ export function RouteMap({
             overlayMode={overlayMode}
           />
         ) : null}
-        {(followMapCenter || recenterTrigger > 0 || localLocateTrigger > 0) && (overlayMode || sheetSnap) ? (
+        {(followMapCenter || (recenterTrigger > 0 && !ukraineWideView) || localLocateTrigger > 0) && (overlayMode || sheetSnap) ? (
           <MapKeepVisibleAboveSheet
             point={localLocatePoint ?? center}
             sheetSnap={sheetSnap}
@@ -1272,7 +1535,12 @@ export function RouteMap({
 
         {decorative ? <DisableMapInteractions /> : mapInteractive ? <MapPointerScrollZoom /> : null}
 
-        <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="&copy; OpenStreetMap contributors" />
+        <MapThemeTileLayer mapTileTheme={mapTileTheme} />
+
+        <UkraineMapLayers
+          enabled={effectiveShowOccupiedOverlay}
+          fitCountry={ukraineMapFitCountry ?? (decorative || directoryScope === "all-ukraine")}
+        />
 
         {mapInteractive ? <ClickToPick onPick={handleMapPick} /> : null}
 
@@ -1336,7 +1604,14 @@ export function RouteMap({
                     },
                     dragend: (event) => {
                       const position = event.target.getLatLng()
-                      onPick?.({ lat: position.lat, lng: position.lng })
+                      const point = { lat: position.lat, lng: position.lng }
+                      if (isOccupiedCoordinates(point.lat, point.lng)) {
+                        setOccupiedPickHint(OCCUPIED_PICK_MESSAGE)
+                        setMarkerDragging(false)
+                        return
+                      }
+                      setOccupiedPickHint(undefined)
+                      onPick?.(point)
                       setMarkerDragging(false)
                     },
                   }
@@ -1350,31 +1625,19 @@ export function RouteMap({
 
         ) : null}
 
-        {filteredDirectoryProviders.map((item) => {
-
-          const point = providerPoint(item)
-
-          return point ? (
-
-            <Marker key={item.id} position={toTuple(point)} icon={directoryProviderIcon(item)}>
-
-              <Popup>
-
-                <DirectoryPopup
-                  item={item}
-                  onRoute={() => handleProviderRoute(item)}
-                  routeLoading={navLoading && navTargetProviderId === item.id}
-                  routeActive={navTargetProviderId === item.id && Boolean(navRouteCoords)}
-                  routeLabel={navTargetProviderId === item.id ? navRouteLabel : null}
-                />
-
-              </Popup>
-
-            </Marker>
-
-          ) : null
-
-        })}
+        {filteredDirectoryProviders.length > 0 ? (
+          <DirectoryProviderMarkers
+            providers={filteredDirectoryProviders}
+            userLocation={userLocation}
+            pickup={pickup}
+            onProviderSelect={onProviderSelect}
+            onRoute={handleProviderRoute}
+            navLoading={navLoading}
+            navTargetProviderId={navTargetProviderId}
+            navRouteCoords={navRouteCoords}
+            navRouteLabel={navRouteLabel}
+          />
+        ) : null}
 
         {!directoryOnly
 
@@ -1384,14 +1647,30 @@ export function RouteMap({
 
               return point ? (
 
-                <Marker key={item.id} position={toTuple(point)} icon={liveProviderIcon}>
-
-                  <Popup>
-
-                    <LivePartnerPopup item={item} />
-
-                  </Popup>
-
+                <Marker
+                  key={item.id}
+                  position={toTuple(point)}
+                  icon={liveProviderIcon}
+                  eventHandlers={
+                    onProviderSelect
+                      ? {
+                          click: () => {
+                            const distanceKm = distanceToProvider(userLocation ?? pickup, item)
+                            onProviderSelect({
+                              ...item,
+                              distanceKm: Number.isFinite(distanceKm) ? Number(distanceKm.toFixed(1)) : undefined,
+                              etaMinutes: item.etaMinutes ?? (Number.isFinite(distanceKm) ? Math.max(5, Math.ceil(distanceKm * 4)) : undefined),
+                            })
+                          },
+                        }
+                      : undefined
+                  }
+                >
+                  {onProviderSelect ? null : (
+                    <Popup>
+                      <LivePartnerPopup item={item} />
+                    </Popup>
+                  )}
                 </Marker>
 
               ) : null
@@ -1543,35 +1822,43 @@ export function RouteMap({
       ) : null}
 
       {showBadges && displaySubtitle && !hideMapChrome ? (
-        <div
-          className="pomich-map-address-pill"
-          style={{
-            bottom: typeof overlayBottom === "string" ? overlayBottom : overlayMode ? 56 : 12,
-          }}
-        >
+        <div className="pomich-map-address-pill">
           {displaySubtitle}
         </div>
       ) : null}
 
-      {showLocate ? (
-        <div className="pomich-map-locate">
-          <button
-            type="button"
-            className={`pomich-map-locate__btn${locateLoading ? " is-loading" : ""}${locateError ? " is-error" : ""}`}
-            aria-label="Моє місцезнаходження"
-            title="Моє місцезнаходження"
-            onClick={handleLocateClick}
-            disabled={locateLoading}
-          >
-            <LocateCrosshairIcon spinning={locateLoading} />
-          </button>
-          {locateError ? (
+      {showMapChromeRow ? (
+        <div className="pomich-map-chrome-row">
+          {showLocate ? (
+            <button
+              type="button"
+              className={`pomich-map-locate__btn${locateLoading ? " is-loading" : ""}${locateError ? " is-error" : ""}`}
+              aria-label="Моє місцезнаходження"
+              title="Моє місцезнаходження"
+              onClick={handleLocateClick}
+              disabled={locateLoading}
+            >
+              <LocateCrosshairIcon spinning={locateLoading} />
+            </button>
+          ) : null}
+          {showBrandBadge ? (
+            <div className="pomich-map-chip pomich-map-chip--brand pomich-map-chrome-row__brand px-3 py-2">
+              <span className="h-2 w-2 shrink-0 rounded-full bg-brand" aria-hidden="true" />
+              POMICH
+            </div>
+          ) : null}
+          {showLocate && locateError ? (
             <div className="pomich-map-locate__hint" role="status">
               {locateError}
             </div>
-          ) : locateLoading ? (
-            <div className="pomich-map-locate__hint pomich-map-locate__hint--muted" role="status">
-              Визначаємо місцезнаходження…
+          ) : showLocate && locateLoading ? (
+            <div
+              className="pomich-map-locate__hint pomich-map-locate__hint--muted"
+              role="status"
+              aria-label="Визначаємо місцезнаходження…"
+            >
+              <span className="pomich-map-locate__hint-full">Визначаємо місцезнаходження…</span>
+              <span className="pomich-map-locate__hint-short" aria-hidden="true">Визначаємо…</span>
             </div>
           ) : null}
         </div>
@@ -1583,7 +1870,6 @@ export function RouteMap({
             <div className="pomich-map-tools-panel__head">
               <div>
                 <div className="pomich-map-tools-panel__brand">Допомога поруч</div>
-                <div className="pomich-map-tools-panel__title">Фільтр сервісів</div>
               </div>
               <button
                 type="button"
@@ -1594,20 +1880,82 @@ export function RouteMap({
                 ✕
               </button>
             </div>
+            {onDirectoryScopeChange ? (
+              <>
+                <div className="pomich-map-tools-panel__title">Регіон</div>
+                <div className="pomich-map-tools-scope-row">
+                  <button
+                    type="button"
+                    className={`pomich-map-tools-scope-btn${directoryScope === "all-ukraine" ? " is-active" : ""}`}
+                    onClick={() => onDirectoryScopeChange("all-ukraine")}
+                    aria-pressed={directoryScope === "all-ukraine"}
+                  >
+                    <span className="pomich-flag-ua" aria-hidden="true" />
+                    Вся Україна
+                  </button>
+                  <button
+                    type="button"
+                    className={`pomich-map-tools-scope-btn${directoryScope === "my-city" ? " is-active" : ""}`}
+                    onClick={() => onDirectoryScopeChange("my-city")}
+                    aria-pressed={directoryScope === "my-city"}
+                    disabled={directoryScopeGeoLoading}
+                  >
+                    {directoryScopeGeoLoading ? "📍 …" : "📍 Моє місто"}
+                  </button>
+                </div>
+                {directoryScope === "my-city" && directoryScopeCity ? (
+                  <div className="pomich-map-tools-scope-hint" role="status">
+                    Показано: {directoryScopeCity}
+                  </div>
+                ) : null}
+                {directoryScopeGeoError ? (
+                  <div className="pomich-map-tools-scope-error" role="alert">
+                    {directoryScopeGeoError}
+                    {onDirectoryScopeGeoRetry ? (
+                      <button type="button" className="pomich-map-tools-scope-retry" onClick={onDirectoryScopeGeoRetry}>
+                        Спробувати знову
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
+              </>
+            ) : null}
+            <div className="pomich-map-tools-panel__title">{onDirectoryScopeChange ? "Категорії" : "Фільтр сервісів"}</div>
+            {directoryProviders.length > 0 ? (
+              <button
+                type="button"
+                className={`pomich-map-tools-filter-btn pomich-map-tools-filter-btn--toggle${directoryMarkersHidden ? " is-active" : ""}`}
+                onClick={() => {
+                  if (directoryMarkersHidden) {
+                    setDirectoryMarkersHidden(false)
+                    setCategoryFilter("all")
+                    return
+                  }
+                  setDirectoryMarkersHidden(true)
+                }}
+                aria-pressed={directoryMarkersHidden}
+              >
+                {directoryMarkersHidden ? "👁 Показати всі" : "Сховати все"}
+              </button>
+            ) : null}
             {directoryCategoryFilters.map((filter) => {
               const count = categoryCounts[filter.key] ?? 0
               if (filter.key !== "all" && count === 0) return null
-              const active = categoryFilter === filter.key
+              const active = !directoryMarkersHidden && categoryFilter === filter.key
               return (
                 <button
                   key={filter.key}
                   type="button"
                   className="pomich-map-tools-filter-btn"
-                  onClick={() => setCategoryFilter(filter.key)}
+                  onClick={() => {
+                    setDirectoryMarkersHidden(false)
+                    setCategoryFilter(filter.key)
+                  }}
                   style={{
                     borderColor: active ? filter.color : undefined,
                     background: active ? `${filter.color}18` : undefined,
                     fontWeight: active ? 900 : 700,
+                    opacity: directoryMarkersHidden ? 0.55 : 1,
                   }}
                 >
                   {filter.emoji} {filter.label}{count > 0 ? ` (${count})` : ""}
@@ -1620,6 +1968,7 @@ export function RouteMap({
                 <span className="pomich-map-tools-legend-item">🔧 Сервіс / СТО</span>
                 <span className="pomich-map-tools-legend-item">🟣 Ваше місце</span>
                 <span className="pomich-map-tools-legend-item">🔵 Маршрут</span>
+                {effectiveShowOccupiedOverlay ? <span className="pomich-map-tools-legend-item">🟥 Тимчасово окуповано</span> : null}
               </>
             ) : (
               <>
@@ -1642,8 +1991,17 @@ export function RouteMap({
             Допомога поруч
           </button>
         )
-      ) : showBadges && !hideMapChrome && directoryProviders.length === 0 ? (
+      ) : showBadges && !hideMapChrome && directoryProviders.length === 0 && !showDirectoryScopeTools ? (
         <MapLegend directoryOnly={directoryOnly} hasDestination={Boolean(destination)} hasPartner={Boolean(providerPosition)} overlayMode={overlayMode} />
+      ) : null}
+
+      {occupiedPickHint ? (
+        <div
+          className={`pomich-map-occupied-hint${overlayMode ? " pomich-map-occupied-hint--overlay" : ""}`}
+          role="status"
+        >
+          {occupiedPickHint}
+        </div>
       ) : null}
 
     </div>

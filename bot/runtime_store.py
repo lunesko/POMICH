@@ -468,7 +468,7 @@ def sql_candidate_providers_for_order(
 ) -> list[dict[str, Any]]:
     engine = get_engine()
     checked_at = now or datetime.now(timezone.utc).replace(tzinfo=None)
-    threshold_iso = (checked_at - timedelta(seconds=ttl_seconds)).isoformat(timespec="seconds")
+    threshold_iso = f"{(checked_at - timedelta(seconds=ttl_seconds)).isoformat(timespec='seconds')}Z"
     offered_ids = {str(item) for item in (already_offered_provider_ids or set())}
 
     if engine.dialect.name == "postgresql":
@@ -970,7 +970,8 @@ def sql_upsert_provider(provider: dict[str, Any]) -> dict[str, Any]:
 
     now_iso = str(payload.get("updatedAt") or payload.get("lastSeenAt") or datetime.now(timezone.utc).replace(tzinfo=None).isoformat(timespec="seconds") + "Z")
     payload["updatedAt"] = now_iso
-    location_lat, location_lng = _point(payload.get("location"))
+    has_location_update = isinstance(payload.get("location"), dict)
+    location_lat, location_lng = _point(payload.get("location")) if has_location_update else (None, None)
     presence_payload = {
         "status": payload.get("status") or "offline",
         "location": payload.get("location"),
@@ -1010,8 +1011,6 @@ def sql_upsert_provider(provider: dict[str, Any]) -> dict[str, Any]:
         presence_values = {
             "provider_id": provider_id,
             "status": str(payload.get("status") or "offline"),
-            "lat": location_lat,
-            "lng": location_lng,
             "eta_minutes": float(payload.get("etaMinutes")) if payload.get("etaMinutes") is not None else None,
             "assigned_order_id": str(payload.get("assignedOrderId") or "") or None,
             "last_seen_at": str(payload.get("lastSeenAt") or ""),
@@ -1019,6 +1018,9 @@ def sql_upsert_provider(provider: dict[str, Any]) -> dict[str, Any]:
             "updated_at": now_iso,
             "payload": presence_payload,
         }
+        if has_location_update and location_lat is not None and location_lng is not None:
+            presence_values["lat"] = location_lat
+            presence_values["lng"] = location_lng
         existing_presence = connection.execute(
             select(provider_presence.c.provider_id).where(provider_presence.c.provider_id == provider_id)
         ).first()
@@ -1029,7 +1031,10 @@ def sql_upsert_provider(provider: dict[str, Any]) -> dict[str, Any]:
                 .values(**{key: value for key, value in presence_values.items() if key != "provider_id"})
             )
         else:
-            connection.execute(insert(provider_presence).values(**presence_values))
+            insert_values = dict(presence_values)
+            insert_values.setdefault("lat", location_lat)
+            insert_values.setdefault("lng", location_lng)
+            connection.execute(insert(provider_presence).values(**insert_values))
 
     return payload
 
