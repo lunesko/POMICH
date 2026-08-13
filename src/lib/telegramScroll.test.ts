@@ -8,13 +8,14 @@ describe('Telegram WebApp scroll init', () => {
     delete (window as Window & { Telegram?: unknown }).Telegram
   })
 
-  it('calls disableVerticalSwipes during initTelegramApp', () => {
+  it('calls disableVerticalSwipes during initTelegramApp when Bot API >= 7.7', () => {
     const disableVerticalSwipes = vi.fn()
     window.Telegram = {
       WebApp: {
         initData: 'telegram-init-data-stub',
         ready: vi.fn(),
         expand: vi.fn(),
+        isVersionAtLeast: () => true,
         disableVerticalSwipes,
       },
     }
@@ -22,6 +23,17 @@ describe('Telegram WebApp scroll init', () => {
     initTelegramApp()
 
     expect(disableVerticalSwipes).toHaveBeenCalledTimes(1)
+  })
+
+  it('skips disableVerticalSwipes on Bot API 6.0', () => {
+    const disableVerticalSwipes = vi.fn()
+    expect(() =>
+      enableTelegramPageScroll({
+        isVersionAtLeast: () => false,
+        disableVerticalSwipes,
+      }),
+    ).not.toThrow()
+    expect(disableVerticalSwipes).not.toHaveBeenCalled()
   })
 
   it('enableTelegramPageScroll is safe when API is missing', () => {

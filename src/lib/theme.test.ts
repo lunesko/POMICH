@@ -50,16 +50,37 @@ describe("pomich theme", () => {
     expect(document.documentElement.style.getPropertyValue("--tg-theme-bg-color")).toBe("")
   })
 
-  it("syncs telegram webapp chrome colors for dark mode", () => {
+  it("syncs telegram webapp chrome colors for dark mode when Bot API >= 6.1", () => {
     const setHeaderColor = vi.fn()
     const setBackgroundColor = vi.fn()
     window.Telegram = {
-      WebApp: { setHeaderColor, setBackgroundColor },
+      WebApp: {
+        isVersionAtLeast: () => true,
+        setHeaderColor,
+        setBackgroundColor,
+      },
     }
 
     syncPomichThemeToTelegramWebApp("dark")
 
     expect(setHeaderColor).toHaveBeenCalledWith("#090B0E")
     expect(setBackgroundColor).toHaveBeenCalledWith("#090B0E")
+  })
+
+  it("skips telegram chrome color APIs on Bot API 6.0", () => {
+    const setHeaderColor = vi.fn()
+    const setBackgroundColor = vi.fn()
+    window.Telegram = {
+      WebApp: {
+        isVersionAtLeast: () => false,
+        setHeaderColor,
+        setBackgroundColor,
+      },
+    }
+
+    syncPomichThemeToTelegramWebApp("dark")
+
+    expect(setHeaderColor).not.toHaveBeenCalled()
+    expect(setBackgroundColor).not.toHaveBeenCalled()
   })
 })

@@ -11,7 +11,7 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import Body, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -40,6 +40,8 @@ from bot.order_store import (
     get_telegram_session,
     invalidate_order_offers,
     list_admin_customer_profiles,
+    list_orders_for_customer,
+    list_orders_for_provider,
     load_offers,
     load_orders,
     load_providers,
@@ -53,6 +55,7 @@ from bot.order_store import (
     save_order,
     set_user_preferred_role,
     submit_customer_verification,
+    submit_order_review,
     submit_provider_verification,
     upsert_telegram_customer_profile,
     update_customer_profile,
@@ -65,7 +68,7 @@ from bot.provider_importer import import_uzhgorod_providers
 from bot.field_encryption import encryption_enabled
 from bot.otp_verification import OtpVerificationError, confirm_customer_verification_code, send_customer_verification_code
 from bot.telegram_auth import verify_telegram_init_data
-from bot.telegram_bot import get_configured_token, handle_update, notify_order_cancelled, notify_order_created
+from bot.telegram_bot import get_configured_token, handle_update, notify_order_accepted, notify_order_cancelled, notify_order_created
 
 DIST_DIR = Path(__file__).resolve().parent.parent / "dist"
 ASSETS_DIR = DIST_DIR / "assets"
@@ -677,7 +680,12 @@ def read_customer_profile(customer_id: str, authorization: str | None = Header(d
 @app.patch("/api/customers/{customer_id}/profile")
 def patch_customer_profile(customer_id: str, payload: dict, authorization: str | None = Header(default=None)) -> dict:
     _require_customer_auth(customer_id, authorization)
-    profile = update_customer_profile(customer_id, payload)
+    try:
+        profile = update_customer_profile(customer_id, payload)
+    except ValueError as exc:
+        if str(exc) == "phone_already_registered":
+            raise HTTPException(status_code=409, detail="phone_already_registered") from exc
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if payload.get("name") and payload.get("phone"):
         mark_user_role_registered(customer_id, "customer")
     return profile
@@ -843,6 +851,18 @@ def create_telegram_customer_session(payload: dict | None = None, x_telegram_ini
     return session
 
 
+def _otp_http_status(code: str) -> int:
+    if code in {"rate_limit_exceeded", "send_cooldown"}:
+        return 429
+    return 400
+
+
+def _otp_http_detail(exc: OtpVerificationError):
+    if exc.retry_after_seconds is None:
+        return exc.code
+    return {"code": exc.code, "retryAfterSeconds": int(exc.retry_after_seconds)}
+
+
 @app.post("/auth/customer/verify/send")
 @app.post("/api/auth/customer/verify/send")
 def customer_verify_send(payload: dict, authorization: str | None = Header(default=None)) -> dict:
@@ -854,10 +874,10 @@ def customer_verify_send(payload: dict, authorization: str | None = Header(defau
             channel,
             phone=payload.get("phone"),
             email=payload.get("email"),
+            send_reason="auth/customer/verify/send",
         )
     except OtpVerificationError as exc:
-        status_code = 429 if exc.code == "rate_limit_exceeded" else 400
-        raise HTTPException(status_code=status_code, detail=exc.code) from exc
+        raise HTTPException(status_code=_otp_http_status(exc.code), detail=_otp_http_detail(exc)) from exc
 
 
 @app.post("/auth/customer/verify/confirm")
@@ -884,10 +904,20 @@ def customer_phone_login_send(payload: dict) -> dict:
         raise HTTPException(status_code=404, detail="customer_not_found")
     customer_id = str(profile.get("id") or "").strip()
     try:
-        return send_customer_verification_code(customer_id, "telegram", phone=phone)
+        # Never re-patch phone on login: another registered row with the same number
+        # (guest + tg-*) would raise phone_already_registered → HTTP 500.
+        return send_customer_verification_code(
+            customer_id,
+            "telegram",
+            send_reason="auth/customer/phone/login/send",
+        )
     except OtpVerificationError as exc:
-        status_code = 429 if exc.code == "rate_limit_exceeded" else 400
-        raise HTTPException(status_code=status_code, detail=exc.code) from exc
+        raise HTTPException(status_code=_otp_http_status(exc.code), detail=_otp_http_detail(exc)) from exc
+    except ValueError as exc:
+        # Belt-and-suspenders: never surface phone conflict as opaque 500 on login.
+        if str(exc) == "phone_already_registered":
+            raise HTTPException(status_code=409, detail="phone_already_registered") from exc
+        raise
 
 
 @app.post("/auth/customer/phone/login/confirm")
@@ -958,6 +988,8 @@ def patch_provider_profile(
     try:
         return update_provider_profile(provider_id, payload)
     except ValueError as exc:
+        if str(exc) == "phone_already_registered":
+            raise HTTPException(status_code=409, detail="phone_already_registered") from exc
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
@@ -1038,6 +1070,80 @@ def read_order(order_id: str) -> dict:
     return attach_dispatch_to_order(order, load_offers())
 
 
+@app.get("/customers/{customer_id}/orders")
+@app.get("/api/customers/{customer_id}/orders")
+def customer_order_history(
+    customer_id: str,
+    authorization: str | None = Header(default=None),
+    limit: int = 50,
+) -> list[dict]:
+    principal = _require_customer_auth(customer_id, authorization)
+    # Always list by authenticated subject so completed/cancelled history matches the session.
+    return list_orders_for_customer(principal.subject_id, limit=limit)
+
+
+@app.get("/providers/{provider_id}/orders")
+@app.get("/api/providers/{provider_id}/orders")
+def provider_order_history(
+    provider_id: str,
+    x_pomich_provider_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+    limit: int = 50,
+) -> list[dict]:
+    principal = _require_provider_auth(provider_id, x_pomich_provider_token, authorization)
+    return list_orders_for_provider(principal.subject_id, limit=limit)
+
+
+@app.post("/orders/{order_id}/reviews")
+@app.post("/api/orders/{order_id}/reviews")
+def create_order_review(
+    order_id: str,
+    payload: dict = Body(default=None),
+    authorization: str | None = Header(default=None),
+    x_pomich_provider_token: str | None = Header(default=None),
+) -> dict:
+    body = payload or {}
+    role = str(body.get("role") or body.get("authorRole") or "").strip().lower()
+    rating = body.get("rating", body.get("stars"))
+    comment = str(body.get("comment") or body.get("text") or "").strip()
+    author_id = str(body.get("authorId") or "").strip()
+
+    if role == "customer":
+        if not author_id:
+            principal = _optional_customer_auth(authorization)
+            if principal is None:
+                raise HTTPException(status_code=401, detail="customer_session_required")
+            author_id = principal.subject_id
+        else:
+            _require_customer_auth(author_id, authorization)
+    elif role == "partner":
+        provider_id = author_id or str(body.get("providerId") or "").strip()
+        if not provider_id:
+            raise HTTPException(status_code=400, detail="providerId missing")
+        _require_provider_auth(provider_id, x_pomich_provider_token, authorization)
+        author_id = provider_id
+    else:
+        raise HTTPException(status_code=400, detail="invalid_review_role")
+
+    try:
+        return submit_order_review(
+            order_id,
+            author_role=role,
+            rating=rating,
+            comment=comment,
+            author_id=author_id,
+        )
+    except DispatchConflict as exc:
+        # Idempotent: already submitted review for this role — return current order.
+        if exc.code == "REVIEW_ALREADY_SUBMITTED":
+            existing = get_order(order_id)
+            if existing is not None:
+                return existing
+        raise _dispatch_conflict(exc) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.post("/orders/{order_id}/dispatch/retry")
 @app.post("/api/orders/{order_id}/dispatch/retry")
 def retry_order_dispatch(order_id: str) -> dict:
@@ -1063,7 +1169,7 @@ def provider_offers(
 def provider_accept_offer(
     provider_id: str,
     offer_id: str,
-    payload: dict | None = None,
+    payload: dict | None = Body(default=None),
     x_pomich_provider_token: str | None = Header(default=None),
     authorization: str | None = Header(default=None),
 ) -> dict:
@@ -1072,9 +1178,13 @@ def provider_accept_offer(
     proposed_price = body.get("proposedPrice", body.get("partnerProposedPrice"))
     price_note = body.get("priceNote", body.get("partnerPriceNote"))
     try:
-        return accept_offer(offer_id, provider_id, proposed_price=proposed_price, price_note=price_note)
+        result = accept_offer(offer_id, provider_id, proposed_price=proposed_price, price_note=price_note)
     except DispatchConflict as exc:
         raise _dispatch_conflict(exc) from exc
+    order = result.get("order") if isinstance(result, dict) else None
+    if isinstance(order, dict):
+        notify_order_accepted(order)
+    return result
 
 
 @app.post("/offers/{offer_id}/accept")
@@ -1092,9 +1202,13 @@ def accept_offer_legacy(
     proposed_price = payload.get("proposedPrice", payload.get("partnerProposedPrice"))
     price_note = payload.get("priceNote", payload.get("partnerPriceNote"))
     try:
-        return accept_offer(offer_id, provider_id, proposed_price=proposed_price, price_note=price_note)
+        result = accept_offer(offer_id, provider_id, proposed_price=proposed_price, price_note=price_note)
     except DispatchConflict as exc:
         raise _dispatch_conflict(exc) from exc
+    order = result.get("order") if isinstance(result, dict) else None
+    if isinstance(order, dict):
+        notify_order_accepted(order)
+    return result
 
 
 @app.post("/providers/{provider_id}/offers/{offer_id}/decline")

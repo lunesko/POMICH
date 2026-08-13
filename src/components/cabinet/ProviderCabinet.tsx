@@ -1,30 +1,40 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 
 import {
+  createSelfProviderSession,
   getProviderOffers,
+  getProviderOrders,
   getProviderProfile,
   getProviders,
   messageFromFetchError,
   updateProviderPresence,
   updateProviderProfile,
+  type AuthSession,
   type CustomerProfile,
   type DispatchOffer,
+  type OrderResponse,
   type ProviderAvailability,
 } from "../../api/client"
 import {
   BRAND,
   DEFAULT_SERVICE_RADIUS_KM,
   getServiceEmoji,
+  getServiceLabel,
   isProviderPhoneVerified,
   services,
   toServiceKeys,
 } from "../../lib/constants"
 import type { ServiceKey } from "../../lib/pomichDomain"
-import { roleLabel, type UserRole } from "../../lib/userAccount"
+import { roleLabel, resolveProviderIdForCustomer, storeLinkedProviderId, type UserRole } from "../../lib/userAccount"
 import { validateUkraineMobilePhone } from "../../lib/ukrainePhone"
-import { authSessionStorageKey, readStoredAuthSession } from "../../lib/auth"
+import { DEFAULT_SERVICE_CITY, validateServiceCity } from "../../lib/ukraineCities"
+import { validatePersonName } from "../../lib/personName"
+import { authSessionStorageKey, isAuthSessionToken, readAuthSessionSubject, readStoredAuthSession, storeAuthSession } from "../../lib/auth"
+import { presenceErrorMessage } from "../ui/DutyStatusToggle"
 import { getTelegramContext } from "../../telegram"
 import { Header } from "../layout/Header"
+import { formatCabinetOrderStatus, formatCabinetReviewStars } from "../customer/OrderTerminalStep"
+import { CitySelect } from "../ui/CitySelect"
 import { OtpVerificationPanel } from "../ui/OtpVerificationPanel"
 import { PhoneInput } from "../ui/PhoneInput"
 import { PrimaryButton } from "../ui/PrimaryButton"
@@ -65,6 +75,9 @@ export default function ProviderCabinet({
 }: ProviderCabinetProps) {
   const [profile, setProfile] = useState<ProviderAvailability | undefined>()
   const [offers, setOffers] = useState<DispatchOffer[]>([])
+  const [orderHistory, setOrderHistory] = useState<OrderResponse[]>([])
+  const [ordersLoading, setOrdersLoading] = useState(false)
+  const [ordersError, setOrdersError] = useState<string>()
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string>()
   const [editing, setEditing] = useState(false)
@@ -87,16 +100,62 @@ export default function ProviderCabinet({
   const customerTokenForOtp = customerIdForOtp
     ? readStoredAuthSession(authSessionStorageKey("customer", customerIdForOtp), "customer", customerIdForOtp)
     : undefined
+  const [activeProviderId, setActiveProviderId] = useState(providerId)
+  const [activeProviderToken, setActiveProviderToken] = useState(providerToken)
 
-  const refreshProfile = useCallback(async () => {
+  useEffect(() => {
+    setActiveProviderId(providerId)
+  }, [providerId])
+
+  useEffect(() => {
+    setActiveProviderToken(providerToken)
+  }, [providerToken])
+
+  const applyProviderSession = useCallback((session: AuthSession) => {
+    const resolvedId = String(session.providerId || session.subjectId || activeProviderId).trim() || activeProviderId
+    if (resolvedId) storeLinkedProviderId(resolvedId)
+    storeAuthSession(authSessionStorageKey("provider", resolvedId), session)
+    setActiveProviderId(resolvedId)
+    setActiveProviderToken(session.accessToken)
+    return { token: session.accessToken, providerId: resolvedId }
+  }, [activeProviderId])
+
+  const ensureProviderSession = useCallback(async () => {
+    if (activeProviderToken && isAuthSessionToken(activeProviderToken)) {
+      const subject = readAuthSessionSubject(activeProviderToken) || activeProviderId
+      if (subject && subject !== activeProviderId) {
+        setActiveProviderId(subject)
+        storeLinkedProviderId(subject)
+      }
+      return { token: activeProviderToken, providerId: subject }
+    }
+
+    const customerId = typeof window !== "undefined" ? window.sessionStorage.getItem("pomichCustomerId") : null
+    const customerToken = customerId
+      ? readStoredAuthSession(authSessionStorageKey("customer", customerId), "customer", customerId)
+      : undefined
+    if (!customerId || !customerToken) {
+      throw Object.assign(new Error("provider_session_missing"), { detail: "provider_session_missing" })
+    }
+
+    const linkedId = resolveProviderIdForCustomer(customerId)
+    if (linkedId) storeLinkedProviderId(linkedId)
+
+    const session = await createSelfProviderSession(customerId, customerToken)
+    return applyProviderSession(session)
+  }, [activeProviderId, activeProviderToken, applyProviderSession])
+
+  const refreshProfile = useCallback(async (overrideId?: string, overrideToken?: string) => {
+    const targetId = overrideId || activeProviderId
+    const targetToken = overrideToken || activeProviderToken
     try {
-      const loaded = await getProviderProfile(providerId, providerToken)
+      const loaded = await getProviderProfile(targetId, targetToken)
       setProfile(loaded)
       setLoadError(undefined)
       return loaded
     } catch {
       const providers = await getProviders()
-      const current = Array.isArray(providers) ? providers.find((item) => item.id === providerId) : undefined
+      const current = Array.isArray(providers) ? providers.find((item) => item.id === targetId) : undefined
       if (current) {
         setProfile(current)
         setLoadError(undefined)
@@ -104,7 +163,7 @@ export default function ProviderCabinet({
       }
       throw new Error("provider_profile_missing")
     }
-  }, [providerId, providerToken])
+  }, [activeProviderId, activeProviderToken])
 
   useEffect(() => {
     let cancelled = false
@@ -112,10 +171,23 @@ export default function ProviderCabinet({
     const load = async () => {
       setLoading(true)
       try {
-        await refreshProfile()
-        if (providerToken) {
-          const nextOffers = await getProviderOffers(providerId, providerToken).catch(() => [])
-          if (!cancelled) setOffers(Array.isArray(nextOffers) ? nextOffers : [])
+        const session = await ensureProviderSession().catch(() => undefined)
+        const targetId = session?.providerId || activeProviderId
+        const targetToken = session?.token || activeProviderToken
+        await refreshProfile(targetId, targetToken)
+        if (targetToken) {
+          const [nextOffers, nextOrders] = await Promise.all([
+            getProviderOffers(targetId, targetToken).catch(() => []),
+            getProviderOrders(targetId, targetToken).catch(() => {
+              if (!cancelled) setOrdersError("Не вдалося завантажити історію заявок.")
+              return []
+            }),
+          ])
+          if (!cancelled) {
+            setOffers(Array.isArray(nextOffers) ? nextOffers : [])
+            setOrderHistory(Array.isArray(nextOrders) ? nextOrders : [])
+            if (Array.isArray(nextOrders)) setOrdersError(undefined)
+          }
         }
       } catch {
         if (!cancelled) setLoadError("Не вдалося завантажити профіль партнера.")
@@ -126,14 +198,32 @@ export default function ProviderCabinet({
 
     void load()
     const interval = window.setInterval(() => {
-      refreshProfile().catch(() => undefined)
+      void (async () => {
+        const session = await ensureProviderSession().catch(() => undefined)
+        const targetId = session?.providerId || activeProviderId
+        const targetToken = session?.token || activeProviderToken
+        refreshProfile(targetId, targetToken).catch(() => undefined)
+        if (!targetToken) return
+        setOrdersLoading(true)
+        getProviderOrders(targetId, targetToken)
+          .then((nextOrders) => {
+            if (!cancelled) {
+              setOrderHistory(Array.isArray(nextOrders) ? nextOrders : [])
+              setOrdersError(undefined)
+            }
+          })
+          .catch(() => undefined)
+          .finally(() => {
+            if (!cancelled) setOrdersLoading(false)
+          })
+      })()
     }, 12000)
 
     return () => {
       cancelled = true
       window.clearInterval(interval)
     }
-  }, [providerId, providerToken, refreshProfile])
+  }, [activeProviderId, activeProviderToken, ensureProviderSession, refreshProfile])
 
   useEffect(() => {
     if (!profile || editing) return
@@ -161,13 +251,19 @@ export default function ProviderCabinet({
   }
 
   const handleSave = async () => {
+    const nameValidation = validatePersonName(form.name)
     const phoneValidation = validateUkraineMobilePhone(form.phone)
-    if (!form.name.trim()) {
-      setSaveError("Введіть ім'я")
+    const cityValidation = validateServiceCity(form.city || DEFAULT_SERVICE_CITY)
+    if (!nameValidation.valid) {
+      setSaveError(nameValidation.error || "Введіть ім'я")
       return
     }
     if (!phoneValidation.valid) {
       setPhoneError(phoneValidation.error)
+      return
+    }
+    if (!cityValidation.valid) {
+      setSaveError(cityValidation.error || "Оберіть місто")
       return
     }
     if (!form.vehicle.trim()) {
@@ -183,12 +279,13 @@ export default function ProviderCabinet({
     setSaveError(undefined)
     setPhoneError(undefined)
     try {
+      const session = await ensureProviderSession()
       const saved = await updateProviderProfile(
-        providerId,
+        session.providerId,
         {
-          name: form.name.trim(),
+          name: nameValidation.value,
           phone: phoneValidation.e164,
-          city: form.city.trim(),
+          city: cityValidation.value,
           vehicle: form.vehicle.trim(),
           telegram: profile?.telegram,
           plate: profile?.plate,
@@ -196,12 +293,20 @@ export default function ProviderCabinet({
           serviceRadiusKm: form.serviceRadiusKm,
           location: profile?.location,
         },
-        providerToken,
+        session.token,
       )
       setProfile((prev) => ({ ...(prev ?? saved), ...saved, specialties: toServiceKeys(saved.specialties) }))
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem("pomichPreferredCity", cityValidation.value)
+      }
       setEditing(false)
     } catch (err) {
-      setSaveError(messageFromFetchError(err, "Не вдалося зберегти профіль. Спробуйте ще раз."))
+      const message = messageFromFetchError(err, "Не вдалося зберегти профіль. Спробуйте ще раз.")
+      if (message.includes("номер") || message.includes("phone_already")) {
+        setPhoneError(message)
+      } else {
+        setSaveError(message)
+      }
     } finally {
       setSaving(false)
     }
@@ -216,24 +321,25 @@ export default function ProviderCabinet({
     setDutySaving(true)
     setDutyError(undefined)
     try {
+      const session = await ensureProviderSession()
       const updated = await updateProviderPresence(
-        providerId,
+        session.providerId,
         {
           status: isOnline ? "offline" : "online",
           location: profile?.location,
           etaMinutes: profile?.etaMinutes,
         },
-        providerToken,
+        session.token,
       )
       setProfile((prev) => ({ ...(prev ?? updated), ...updated }))
     } catch (err) {
       const detail = (err as { detail?: string }).detail
       setDutyError(
-        detail === "provider verification must be approved before going online"
-          ? "Підтвердіть телефон у Telegram, щоб вийти на лінію."
-          : detail === "provider profile must be registered before going online"
-            ? "Спочатку заповніть профіль партнера."
-            : messageFromFetchError(err, "Не вдалося оновити статус. Перевірте з'єднання."),
+        typeof detail === "string"
+          ? presenceErrorMessage(detail)
+          : err instanceof Error
+            ? presenceErrorMessage(err.message)
+            : presenceErrorMessage(undefined),
       )
     } finally {
       setDutySaving(false)
@@ -301,15 +407,11 @@ export default function ProviderCabinet({
                         error={phoneError}
                       />
                     </label>
-                    <label className="pomich-cabinet-field">
-                      <span className="pomich-form-label">Місто</span>
-                      <input
-                        value={form.city}
-                        onChange={(event) => setForm((prev) => ({ ...prev, city: event.target.value }))}
-                        placeholder="Ужгород"
-                        className="pomich-form-input"
-                      />
-                    </label>
+                    <CitySelect
+                      value={form.city || DEFAULT_SERVICE_CITY}
+                      onChange={(city) => setForm((prev) => ({ ...prev, city }))}
+                      label="Оберіть місто"
+                    />
                     <label className="pomich-cabinet-field">
                       <span className="pomich-form-label">Авто *</span>
                       <input
@@ -457,6 +559,45 @@ export default function ProviderCabinet({
                   ))
                 )}
               </div>
+
+              <div className="pomich-cabinet-card">
+                <div className="pomich-cabinet-section-title">Історія заявок</div>
+                {ordersLoading && orderHistory.length === 0 ? (
+                  <div className="pomich-cabinet-empty">Завантажуємо історію…</div>
+                ) : ordersError && orderHistory.length === 0 ? (
+                  <div className="pomich-form-error">{ordersError}</div>
+                ) : orderHistory.length === 0 ? (
+                  <div className="pomich-cabinet-empty">
+                    Ще немає виконаних або скасованих заявок у вашій історії.
+                  </div>
+                ) : (
+                  orderHistory.map((order) => {
+                    const ownReview = formatCabinetReviewStars(order.partnerReview?.rating)
+                    const clientReview = formatCabinetReviewStars(order.customerReview?.rating)
+                    const clientName = order.customerName
+                    return (
+                      <div key={order.id || `${order.createdAt}-${order.status}`} className="pomich-cabinet-order-item">
+                        <div className="pomich-cabinet-order-title">
+                          {getServiceLabel(order.service)} · #{order.id || "—"}
+                        </div>
+                        <div className="pomich-cabinet-order-status">{formatCabinetOrderStatus(order.status)}</div>
+                        {typeof order.partnerProposedPrice === "number" ? (
+                          <div className="pomich-cabinet-order-meta">{order.partnerProposedPrice.toLocaleString("uk-UA")} ₴</div>
+                        ) : null}
+                        {clientName ? (
+                          <div className="pomich-cabinet-order-meta">Клієнт: {clientName}</div>
+                        ) : null}
+                        {ownReview ? (
+                          <div className="pomich-cabinet-order-meta">Ваша оцінка клієнта: {ownReview}</div>
+                        ) : null}
+                        {clientReview ? (
+                          <div className="pomich-cabinet-order-meta">Оцінка від клієнта: {clientReview}</div>
+                        ) : null}
+                      </div>
+                    )
+                  })
+                )}
+              </div>
             </>
           )}
         </div>
@@ -466,7 +607,15 @@ export default function ProviderCabinet({
         <div className="pomich-cabinet-footer-inner">
           {dutyError ? <div className="pomich-form-error" style={{ marginBottom: 10 }}>{dutyError}</div> : null}
           <PrimaryButton
-            label={dutySaving ? "Оновлюємо статус…" : isOnline ? "Піти з лінії" : "Вийти на лінію"}
+            label={
+              dutySaving
+                ? "Оновлюємо статус…"
+                : isOnline
+                  ? "Піти з лінії"
+                  : !profileVerified
+                    ? "Підтвердити телефон"
+                    : "Вийти на лінію"
+            }
             onClick={toggleDuty}
             disabled={dutySaving || loading}
           />

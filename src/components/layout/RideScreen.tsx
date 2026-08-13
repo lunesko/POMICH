@@ -8,6 +8,7 @@ import { useMobileSheetSnap } from "../../hooks/useMobileSheetSnap"
 import type { Point } from "../../lib/constants"
 import { getTelegramContext } from "../../telegram"
 import RouteMap from "../map/RouteMap"
+import { useSuppressMapAtmosphere } from "./PomichMapShell"
 
 function isolatePanelWheel(event: WheelEvent<HTMLElement>) {
   event.stopPropagation()
@@ -44,6 +45,7 @@ interface RideScreenProps {
   mapFocus?: boolean
   onRetryGeo?: () => void
   geoLoading?: boolean
+  geoError?: string
   recenterTrigger?: number
   children: ReactNode
 }
@@ -66,16 +68,30 @@ export function RideScreen({
   mapFocus = false,
   onRetryGeo,
   geoLoading = false,
+  geoError,
   recenterTrigger = 0,
   children,
 }: RideScreenProps) {
+  /* Interactive ride map owns the viewport — don't stack decorative shell map underneath. */
+  useSuppressMapAtmosphere()
   const isMobile = useMediaQuery(mediaQueries.mobile)
   const isTablet = useMediaQuery(mediaQueries.tablet)
   const isDesktop = useMediaQuery(mediaQueries.desktop)
   const isTelegram = useMemo(() => getTelegramContext().isTelegram, [])
-  const sheetCompact = isTelegram || isMobile
-  const splitView = isTablet || isDesktop
-  const mobileSheet = sheetCompact && !splitView
+  const compactChrome = useMemo(() => {
+    if (typeof document === "undefined") return isTelegram || isMobile
+    const root = document.documentElement
+    return (
+      isTelegram ||
+      isMobile ||
+      root.classList.contains("tg-compact") ||
+      root.classList.contains("mobile-compact")
+    )
+  }, [isTelegram, isMobile])
+  /* Telegram / compact chrome always use bottom-sheet overlay (never side split). */
+  const splitView = (isTablet || isDesktop) && !compactChrome
+  const mobileSheet = compactChrome && !splitView
+  const sheetCompact = compactChrome
 
   const { snap, heightVh, isDragging, handleProps, sheetStyle } = useMobileSheetSnap({
     enabled: mobileSheet,
@@ -98,6 +114,7 @@ export function RideScreen({
     requestPins,
     subtitle: mapSubtitle,
     showAllProviders,
+    /* Always expose a user point so the pulsing blue marker + sheet-aware flyTo work. */
     userLocation: userLocation ?? pickup,
     onUserLocationChange,
     onPick,
@@ -106,9 +123,11 @@ export function RideScreen({
     onRequestPinSelect,
     onRetryGeo,
     geoLoading,
+    geoError,
     recenterTrigger,
     full: true as const,
     overlayMode: mobileSheet,
+    /* Snap must reach the map so locate/flyTo can pad above the bottom sheet (incl. TG). */
     sheetSnap: mobileSheet ? snap : undefined,
   }), [
     pickup,
@@ -126,6 +145,7 @@ export function RideScreen({
     onRequestPinSelect,
     onRetryGeo,
     geoLoading,
+    geoError,
     recenterTrigger,
     mobileSheet,
     snap,
@@ -133,21 +153,19 @@ export function RideScreen({
 
   if (splitView) {
     return (
-      <div className="flex h-full min-h-0 w-full overflow-hidden pomich-ride-map-bg">
-        <div className="relative min-w-0 flex-1">
+      <div className="pomich-ride-screen pomich-ride-screen--split flex flex-row h-full min-h-0 w-full overflow-hidden pomich-ride-map-bg">
+        <div className="pomich-ride-screen__map relative min-h-0 min-w-0 flex-1 self-stretch">
           <RouteMap key="pomich-ride-map" {...mapProps} />
-          <div className="pointer-events-none absolute top-5 left-6 right-6 z-[1200] flex items-center justify-between gap-3">
+          {/* Desktop only: live badge beside zoom. Hidden on TG/mobile — avoids covering +/- */}
+          <div className="pomich-ride-screen__chrome pomich-ride-screen__chrome--desktop pointer-events-none absolute">
             <div className="pomich-map-chip pomich-map-chip--brand px-3 py-2">
-              <span className="h-2 w-2 rounded-full bg-brand" />
+              <span className="h-2 w-2 shrink-0 rounded-full bg-brand" aria-hidden="true" />
               POMICH
-            </div>
-            <div className="pomich-map-chip pomich-map-chip--muted px-3 py-2">
-              Допомога поруч
             </div>
           </div>
         </div>
         <div
-          className={`pomich-sheet-panel pomich-sheet-panel--side z-[1300] flex h-full min-h-0 shrink-0 flex-col overflow-hidden border-l border-border shadow-2xl ${
+          className={`pomich-sheet-panel pomich-sheet-panel--side z-[5] flex h-full min-h-0 shrink-0 flex-col self-stretch overflow-hidden border-l border-border shadow-2xl ${
             isDesktop ? "w-[420px] max-w-[38vw]" : "w-[360px] max-w-[44vw]"
           }`}
         >
@@ -169,15 +187,6 @@ export function RideScreen({
     >
       <div className="pomich-ride-screen__map">
         <RouteMap key="pomich-ride-map" {...mapProps} />
-        <div className="pomich-ride-screen__chrome pointer-events-none absolute top-3 left-3 right-3 flex items-center justify-between gap-3">
-          <div className="pomich-map-chip pomich-map-chip--brand px-3 py-2">
-            <span className="h-2 w-2 rounded-full bg-brand" />
-            POMICH
-          </div>
-          <div className="pomich-map-chip pomich-map-chip--muted px-3 py-2">
-            Допомога поруч
-          </div>
-        </div>
       </div>
       <div
         className={`pomich-sheet-panel pomich-sheet-panel--bottom shadow-2xl ${sheetCompact ? "tg-sheet-compact rounded-t-2xl" : "rounded-t-3xl"}`}
@@ -190,17 +199,6 @@ export function RideScreen({
       >
         <div className="pomich-sheet-handle" {...(mobileSheet ? handleProps : {})}>
           <span className="pomich-sheet-handle__bar" aria-hidden="true" />
-          {mobileSheet ? (
-            <span className="pomich-sheet-handle__hint">
-              {isDragging
-                ? "Тримайте і перетягніть"
-                : snap === "collapsed"
-                  ? "Проведіть вгору"
-                  : snap === "expanded"
-                    ? "Проведіть вниз"
-                    : "Панель · перетягніть"}
-            </span>
-          ) : null}
         </div>
         <div className="pomich-sheet-panel__scroll pomich-sheet-panel__scroll--bottom" onWheel={isolatePanelWheel}>
           <div className="pomich-sheet-panel__body">{sheetChildren}</div>

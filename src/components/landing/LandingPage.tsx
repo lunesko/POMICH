@@ -67,7 +67,7 @@ const landingThemes = {
     text: "#FFFFFF",
     muted: "#B9C2D0",
     subtle: "#AAB4C3",
-    navText: "#9CA3AF",
+    navText: "#F1F5F9",
     badgeBg: "rgba(22,163,106,0.12)",
     badgeBorder: "rgba(22,163,106,0.38)",
     badgeText: "#8EF0BE",
@@ -106,7 +106,8 @@ const landingThemes = {
     text: "#0F172A",
     muted: "#475569",
     subtle: "#64748B",
-    navText: "#475569",
+    /* Header is dark glass over the map in both themes. */
+    navText: "#F8FAFC",
     badgeBg: "#EAFBF2",
     badgeBorder: "#A8EBC7",
     badgeText: "#0B7A4D",
@@ -131,7 +132,7 @@ const landingThemes = {
     heroGradientText: "linear-gradient(90deg, #0B7A4D 0%, #1D6FD4 52%, #B8860B 100%)",
     statDivider: "rgba(15,23,42,0.12)",
     statValue: "#16A36A",
-    mapOverlay: "linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.16))",
+    mapOverlay: "linear-gradient(180deg, rgba(255,255,255,0.0), rgba(245,248,251,0.06))",
     toggleTrack: "#E2E8F0",
     toggleBorder: "#CBD5E1",
     toggleKnob: "#FFFFFF",
@@ -223,7 +224,8 @@ function LandingThemeToggle({ mode, theme, compact, onToggle }: { mode: LandingT
   )
 }
 
-function LandingInterfacePreview({ compact, theme }: { compact: boolean; theme: LandingTheme }) {
+function LandingInterfacePreview({ compact, theme, themeMode }: { compact: boolean; theme: LandingTheme; themeMode: LandingThemeMode }) {
+  const isLight = themeMode === "light"
   return (
     <div style={{ maxWidth: 1120, margin: "0 auto", display: "grid", gridTemplateColumns: compact ? "1fr" : "300px minmax(0, 1fr) 300px", gap: compact ? 16 : 22, alignItems: "stretch" }}>
       <div style={{ order: compact ? 2 : 1, border: `1px solid ${theme.cardBorder}`, borderRadius: 8, background: theme.clientCard, boxShadow: theme.cardShadow, padding: 16, color: theme.text, alignSelf: "center" }}>
@@ -239,7 +241,7 @@ function LandingInterfacePreview({ compact, theme }: { compact: boolean; theme: 
         </div>
       </div>
 
-      <div style={{ order: compact ? 1 : 2, position: "relative", height: compact ? 360 : 500, borderRadius: 24, overflow: "hidden", border: "1px solid rgba(255,255,255,0.14)", boxShadow: "0 28px 90px rgba(0,0,0,0.38)", background: "#14181D", minWidth: 0 }}>
+      <div style={{ order: compact ? 1 : 2, position: "relative", height: compact ? 360 : 500, borderRadius: 24, overflow: "hidden", border: `1px solid ${theme.cardBorder}`, boxShadow: isLight ? "0 18px 48px rgba(15,23,42,0.12)" : "0 28px 90px rgba(0,0,0,0.38)", background: isLight ? "#E8EEF2" : "#14181D", minWidth: 0 }}>
         <RouteMap pickup={LANDING_PICKUP} destination={LANDING_DESTINATION} providers={landingProviders} subtitle="Київ · live dispatch" full />
         <div style={{ position: "absolute", inset: 0, background: theme.mapOverlay, pointerEvents: "none", zIndex: 1150 }} />
       </div>
@@ -310,7 +312,7 @@ export default function LandingPage({ onSelect, onHiddenAdmin }: { onSelect: (ro
 
   return (
     <div style={{ minHeight: "100vh", background: theme.page, color: theme.text, overflowX: "hidden", transition: "background 0.2s ease, color 0.2s ease" }}>
-      <header className="pomich-landing-header" style={{ height: 66, borderBottom: `1px solid ${theme.navBorder}`, background: theme.nav, padding: compact ? "0 16px" : "0 28px" }}>
+      <header className="pomich-landing-header" style={{ height: 66, padding: compact ? "0 16px" : "0 28px" }}>
         <div style={{ width: "100%", maxWidth: 1070, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 18 }}>
           <a
             href="#home"
@@ -385,7 +387,7 @@ export default function LandingPage({ onSelect, onHiddenAdmin }: { onSelect: (ro
 
         <section id="interface" style={{ padding: compact ? "54px 16px 72px" : "76px 24px 96px", background: theme.section }}>
           <LandingSectionTitle eyebrow="Інтерфейс" title="Як виглядає POMICH" subtitle="Карта, заявка і статуси залишаються на одному екрані: клієнт бачить допомогу, партнер бачить роботу, диспетчер бачить процес." theme={theme} />
-          <LandingInterfacePreview compact={compact} theme={theme} />
+          <LandingInterfacePreview compact={compact} theme={theme} themeMode={themeMode} />
         </section>
 
         <section id="features" style={{ padding: compact ? "48px 16px 64px" : "74px 24px 90px", background: theme.sectionAlt }}>

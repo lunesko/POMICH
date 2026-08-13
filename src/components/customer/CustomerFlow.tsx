@@ -73,14 +73,6 @@ import { LocationRow } from "../layout/LocationRow"
 import { SheetDivider } from "../layout/SheetDivider"
 import { OrderErrorStep, OrderFinalStep } from "./OrderTerminalStep"
 
-function interpolate(from: Point, to: Point, progress: number): Point {
-  const ratio = Math.max(0, Math.min(100, progress)) / 100
-  return {
-    lat: from.lat + (to.lat - from.lat) * ratio,
-    lng: from.lng + (to.lng - from.lng) * ratio,
-  }
-}
-
 function normalizeOrderStatus(status?: string): OrderStatus {
   if (status === "searching" || status === "accepted" || status === "price_confirmed" || status === "assigned" || status === "en_route" || status === "arrived" || status === "in_progress" || status === "completed" || status === "cancelled" || status === "draft") {
     return status
@@ -277,7 +269,7 @@ function LocationStep({
   const geoStatusHint = geoError ? undefined : geoLoading ? "Визначаємо ваше місцезнаходження…" : geoMessage
 
   return (
-    <RideScreen pickup={pickup} mapSubtitle="Ваше місцезнаходження · перетягніть маркер" onPick={onPick} mapFocus onRetryGeo={onRetryGeo} geoLoading={geoLoading}>
+    <RideScreen pickup={pickup} mapSubtitle="Ваше місцезнаходження · перетягніть маркер" onPick={onPick} mapFocus onRetryGeo={onRetryGeo} geoLoading={geoLoading} geoError={geoError}>
       <div data-sheet-peek>
         <SheetHeading title="Де ви зараз?" subtitle={geoLoading ? "Визначаємо адресу…" : addressLabel} />
       </div>
@@ -308,18 +300,18 @@ function LocationStep({
 
 function DestinationStep({ pickup, destination, value, onPick, onChange, onNext, onBack }: { pickup: Point; destination: Point; value: string; onPick: (point: Point) => void; onChange: (value: string) => void; onNext: () => void; onBack: () => void }) {
   return (
-    <RideScreen pickup={pickup} destination={destination} mapSubtitle="Маршрут до призначення">
+    <RideScreen pickup={pickup} destination={destination} mapSubtitle="Оберіть точку на карті" onPick={onPick} mapFocus>
       <button onClick={onBack} style={{ border: "none", background: "#F3F4F6", color: DARK, borderRadius: 999, padding: "8px 11px", fontWeight: 900, cursor: "pointer", fontFamily: "inherit", marginBottom: 14 }}>← Назад</button>
-      <SheetHeading title="Куди доставити авто?" subtitle="Введіть СТО, адресу або точку, куди має їхати виконавець." />
+      <SheetHeading title="Куди везти або де ремонтувати?" subtitle="Натисніть на карті або введіть адресу — після вибору послуги." />
 
       <div style={{ marginTop: 16, border: `1px solid ${BORDER}`, borderRadius: 18, padding: "4px 14px", background: "#F9FAFB" }}>
         <LocationRow icon="●" title="Звідки" subtitle="Поточне місце клієнта" active />
         <SheetDivider />
-        <LocationRow icon="🏁" title="Куди" subtitle={value || "Оберіть призначення"} />
+        <LocationRow icon="🏁" title="Куди" subtitle={value || "Оберіть на карті або введіть адресу"} />
       </div>
 
       <label style={{ display: "grid", gap: 8, marginTop: 16 }}>
-        <span style={{ fontWeight: 900, color: DARK }}>Адреса доставки</span>
+        <span style={{ fontWeight: 900, color: DARK }}>Адреса</span>
         <input value={value} onChange={(event) => onChange(event.target.value)} placeholder="Наприклад: СТО «Авторемонт»" style={{ width: "100%", minHeight: 50, padding: "0 14px", borderRadius: 16, border: `1px solid ${BORDER}`, fontSize: 15, fontWeight: 750, fontFamily: "inherit" }} />
       </label>
       <div style={{ color: "#6B7280", fontSize: 12, fontWeight: 750, marginTop: 8 }}>Точка: {destination.lat.toFixed(5)}, {destination.lng.toFixed(5)}</div>
@@ -461,29 +453,47 @@ function AssignedStep({ orderId, status, order, pickup, destination, onTrack, on
   )
 }
 
-function TrackingStep({ orderId, status, order, pickup, destination, progress, onCancel }: { orderId?: string; status: OrderStatus; order?: OrderResponse; pickup: Point; destination: Point; progress: number; onCancel: () => void }) {
-  const start = order?.assignedProvider?.location ?? PROVIDER_START
-  const providerPosition = interpolate(start, pickup, Math.min(progress, 92))
-  const eta = Math.max(1, Math.ceil((100 - progress) / 12))
+function TrackingStep({ orderId, status, order, pickup, destination, onCancel }: { orderId?: string; status: OrderStatus; order?: OrderResponse; pickup: Point; destination: Point; onCancel: () => void }) {
+  const liveProviderLocation = order?.assignedProvider?.location
+  const hasLiveLocation = Boolean(liveProviderLocation && Number.isFinite(liveProviderLocation.lat) && Number.isFinite(liveProviderLocation.lng))
+  const providerPosition = hasLiveLocation
+    ? { lat: liveProviderLocation!.lat, lng: liveProviderLocation!.lng }
+    : undefined
+  const distanceKm = typeof order?.assignedProvider?.distanceKm === "number" ? order.assignedProvider.distanceKm : undefined
+  const eta = typeof order?.assignedProvider?.etaMinutes === "number"
+    ? order.assignedProvider.etaMinutes
+    : typeof distanceKm === "number"
+      ? Math.max(1, Math.ceil(distanceKm * 4))
+      : undefined
+  const distanceLabel =
+    typeof distanceKm === "number"
+      ? distanceKm < 0.15
+        ? "Поруч із вами"
+        : `${distanceKm.toFixed(1)} км від вас`
+      : null
+  const mapSubtitle = hasLiveLocation
+    ? [eta ? `ETA ${eta} хв` : null, distanceLabel].filter(Boolean).join(" · ") || "Партнер у дорозі"
+    : "Партнер прийняв · очікуємо геолокацію"
 
   return (
-    <RideScreen pickup={pickup} destination={destination} providerPosition={providerPosition} mapSubtitle={`ETA ${eta} хв · ${Math.round(progress)}% маршруту`}>
+    <RideScreen pickup={pickup} destination={destination} providerPosition={providerPosition} mapSubtitle={mapSubtitle}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
         <SheetHeading title="Виконавець у дорозі" subtitle={orderId ? `Замовлення #${orderId}` : undefined} />
-        <div style={{ background: "#111315", color: "#fff", borderRadius: 999, padding: "9px 12px", fontWeight: 950 }}>{eta} хв</div>
+        {eta ? <div style={{ background: "#111315", color: "#fff", borderRadius: 999, padding: "9px 12px", fontWeight: 950 }}>{eta} хв</div> : null}
       </div>
       <div style={{ marginTop: 16, display: "grid", gap: 12 }}>
         <ProviderCard orderId={orderId} eta={eta} assignedProvider={order?.assignedProvider} />
         <div style={{ background: "#fff", borderRadius: 18, padding: 14, border: `1px solid ${BORDER}` }}>
           <Timeline status={status} />
-          <div style={{ height: 9, background: "#EDF2F7", borderRadius: 999, marginTop: 14 }}>
-            <div style={{ width: `${Math.max(8, progress)}%`, height: "100%", borderRadius: 999, background: BRAND }} />
+          <div style={{ color: "#6B7280", fontSize: 13, fontWeight: 700, marginTop: 12 }}>
+            {hasLiveLocation
+              ? (typeof distanceKm === "number" && distanceKm < 0.15 ? "Партнер майже на місці." : "Партнер їде до точки подачі. Позиція оновлюється з GPS.")
+              : "Партнер прийняв заявку. Карта покаже рух, щойно з’явиться його геолокація."}
           </div>
-          <div style={{ color: "#6B7280", fontSize: 13, fontWeight: 700, marginTop: 8 }}>{progress > 82 ? "Виконавець поруч із вами." : "Виконавець рухається до точки подачі."}</div>
         </div>
       </div>
       <div style={{ display: "grid", gap: 10, marginTop: 16 }}>
-        <PrimaryButton label={`Очікувати · ${eta} хв`} disabled />
+        <PrimaryButton label={eta ? `Очікувати · ${eta} хв` : "Очікуємо партнера"} disabled />
         <SecondaryButton label="Скасувати заявку" danger onClick={onCancel} />
       </div>
     </RideScreen>
@@ -566,7 +576,6 @@ function CustomerFlow() {
   const [geoMessage, setGeoMessage] = useState("Визначаємо ваше місцезнаходження…")
   const [pickup, setPickup] = useState<Point>(PICKUP)
   const [destinationPoint, setDestinationPoint] = useState<Point>(DEFAULT_DESTINATION)
-  const [trackingProgress, setTrackingProgress] = useState(12)
   const [nearbyProviders, setNearbyProviders] = useState<ProviderAvailability[]>([])
   const [providersLoading, setProvidersLoading] = useState(true)
   const [customerProfile, setCustomerProfile] = useState<CustomerProfile>({
@@ -738,14 +747,6 @@ function CustomerFlow() {
     }
   }, [orderId])
 
-  useEffect(() => {
-    if (screen !== "tracking") return
-    const interval = window.setInterval(() => {
-      setTrackingProgress((value) => Math.min(100, value + 7))
-    }, 1200)
-    return () => window.clearInterval(interval)
-  }, [screen])
-
   const serviceLabel = useMemo(() => services.find((item) => item.key === selectedService)?.label ?? "Евакуатор", [selectedService])
   const distanceKm = useMemo(() => calculateDistanceKm(pickup, destinationPoint), [pickup, destinationPoint])
 
@@ -865,7 +866,6 @@ function CustomerFlow() {
   }
 
   const startTracking = () => {
-    setTrackingProgress(12)
     setScreen("tracking")
   }
 
@@ -879,7 +879,6 @@ function CustomerFlow() {
     setStatus("draft")
     setOrderId(undefined)
     setCurrentOrder(undefined)
-    setTrackingProgress(12)
     clearActiveOrder()
   }
 
@@ -917,7 +916,7 @@ function CustomerFlow() {
     case "assigned":
       return <AssignedStep orderId={orderId} status={status} order={currentOrder} pickup={pickup} destination={destinationPoint} onTrack={startTracking} onCancel={cancelOrder} />
     case "tracking":
-      return <TrackingStep orderId={orderId} status={status} order={currentOrder} pickup={pickup} destination={destinationPoint} progress={trackingProgress} onCancel={cancelOrder} />
+      return <TrackingStep orderId={orderId} status={status} order={currentOrder} pickup={pickup} destination={destinationPoint} onCancel={cancelOrder} />
     case "arrived":
       return <ArrivedStep orderId={orderId} status={status} order={currentOrder} pickup={pickup} destination={destinationPoint} onComplete={completeOrder} onCancel={cancelOrder} />
     case "in_progress":

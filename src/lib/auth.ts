@@ -19,6 +19,22 @@ export function isAuthSessionToken(token?: string) {
   return Boolean(token?.startsWith(AUTH_SESSION_PREFIX))
 }
 
+/** Decode `sub` from a pomich_auth_v1 token body (no signature check — client-side routing only). */
+export function readAuthSessionSubject(token?: string): string | undefined {
+  if (!isAuthSessionToken(token) || !token) return undefined
+  const parts = token.split(".")
+  if (parts.length !== 3) return undefined
+  try {
+    const padded = parts[1] + "=".repeat((4 - (parts[1].length % 4)) % 4)
+    const normalized = padded.replace(/-/g, "+").replace(/_/g, "/")
+    const payload = JSON.parse(atob(normalized)) as { sub?: unknown; role?: unknown }
+    const subject = String(payload.sub || "").trim()
+    return subject || undefined
+  } catch {
+    return undefined
+  }
+}
+
 export function authSessionStorageKey(role: "admin" | "provider" | "customer", subjectId: string) {
   return `pomichAuthSession:${role}:${subjectId}`
 }
@@ -45,6 +61,13 @@ export function readStoredAuthSession(storageKey: string, expectedRole: "admin" 
 
 export const CUSTOMER_ID_STORAGE_KEY = "pomichCustomerId"
 export const EXPLICIT_LOGOUT_STORAGE_KEY = "pomichExplicitLogout"
+/** One-shot notice after an actual guest↔Telegram conflict was detected/purged. */
+export const SESSION_MISMATCH_NOTICE_KEY = "pomichSessionMismatchNotice"
+/** Persists dismiss («Зрозуміло») for the current customer id on this device. */
+export const SESSION_MISMATCH_DISMISS_KEY = "pomichSessionMismatchDismissed"
+
+export const TELEGRAM_STALE_WEB_MISMATCH_MESSAGE =
+  "Знайдено застарілу web-сесію іншого користувача. Профіль оновлено через Telegram."
 
 /** Set after user clicks «Вийти» — blocks Telegram initData auto-login until next explicit sign-in. */
 export function markExplicitLogout(telegramChatId?: string) {
@@ -134,6 +157,51 @@ export function detectStoredCustomerMismatch(telegramChatId?: string): boolean {
   return Boolean((persistedLocal && persistedLocal !== expected) || (persistedSession && persistedSession !== expected))
 }
 
+export function markSessionMismatchNotice(kind: "telegram-stale-web" = "telegram-stale-web") {
+  if (typeof window === "undefined") return
+  window.sessionStorage.setItem(SESSION_MISMATCH_NOTICE_KEY, kind)
+}
+
+export function clearSessionMismatchNotice() {
+  if (typeof window === "undefined") return
+  window.sessionStorage.removeItem(SESSION_MISMATCH_NOTICE_KEY)
+}
+
+export function dismissSessionMismatchNotice(customerId: string) {
+  if (typeof window === "undefined" || !customerId) return
+  clearSessionMismatchNotice()
+  window.localStorage.setItem(SESSION_MISMATCH_DISMISS_KEY, customerId)
+}
+
+export function clearSessionMismatchDismiss() {
+  if (typeof window === "undefined") return
+  window.localStorage.removeItem(SESSION_MISMATCH_DISMISS_KEY)
+}
+
+export function isSessionMismatchDismissed(customerId: string): boolean {
+  if (typeof window === "undefined" || !customerId) return false
+  return window.localStorage.getItem(SESSION_MISMATCH_DISMISS_KEY) === customerId
+}
+
+/**
+ * Banner text only for a real guest↔Telegram conflict (or a one-shot notice after purge).
+ * Never show the old forever web “previous profile” warning after a normal login.
+ */
+export function resolveSessionMismatchWarning(customerId: string, telegramChatId?: string): string | undefined {
+  if (!customerId || typeof window === "undefined") return undefined
+  if (isSessionMismatchDismissed(customerId)) return undefined
+
+  if (detectStoredCustomerMismatch(telegramChatId)) {
+    return TELEGRAM_STALE_WEB_MISMATCH_MESSAGE
+  }
+
+  if (window.sessionStorage.getItem(SESSION_MISMATCH_NOTICE_KEY) === "telegram-stale-web") {
+    return TELEGRAM_STALE_WEB_MISMATCH_MESSAGE
+  }
+
+  return undefined
+}
+
 /** Clear all customer auth state (e.g. when switching role or logging out). */
 export function clearCustomerAuthStorage() {
   if (typeof window === "undefined") return
@@ -152,14 +220,45 @@ export function clearCustomerAuthStorage() {
   keysToRemove.forEach((key) => window.sessionStorage.removeItem(key))
 }
 
-/** Clear every auth token and persisted session (logout / role switch). */
+/**
+ * Drop provider (and optional admin) session tokens without touching the customer identity.
+ * Used when switching role so the same account can reopen a linked partner profile.
+ */
+export function clearProviderAuthStorage(options?: { includeAdmin?: boolean }) {
+  if (typeof window === "undefined") return
+
+  window.sessionStorage.removeItem("pomichProviderToken")
+  if (options?.includeAdmin) {
+    window.sessionStorage.removeItem("pomichAdminToken")
+  }
+
+  const keysToRemove: string[] = []
+  for (let index = 0; index < window.sessionStorage.length; index += 1) {
+    const key = window.sessionStorage.key(index)
+    if (!key?.startsWith("pomichAuthSession:")) continue
+    if (key.startsWith("pomichAuthSession:provider:")) {
+      keysToRemove.push(key)
+      continue
+    }
+    if (options?.includeAdmin && key.startsWith("pomichAuthSession:admin:")) {
+      keysToRemove.push(key)
+    }
+  }
+  keysToRemove.forEach((key) => window.sessionStorage.removeItem(key))
+}
+
+/** Clear every auth token and persisted session (logout only — not role switch). */
 export function clearAllAuthStorage() {
   if (typeof window === "undefined") return
 
   clearCustomerAuthStorage()
+  clearSessionMismatchNotice()
+  clearSessionMismatchDismiss()
   window.sessionStorage.removeItem("pomichProviderToken")
   window.sessionStorage.removeItem("pomichAdminToken")
   window.sessionStorage.removeItem("pomichLinkedProviderId")
+  // Leave active ride so logout from completion/review never restores the order UI.
+  window.sessionStorage.removeItem("pomichActiveOrder")
 
   const keysToRemove: string[] = []
   for (let index = 0; index < window.sessionStorage.length; index += 1) {

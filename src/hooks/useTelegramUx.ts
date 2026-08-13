@@ -1,5 +1,5 @@
 import { useCallback, useEffect } from "react"
-import { applyTelegramTheme, enableTelegramPageScroll, initTelegramApp, telegramHaptic, type TelegramWebApp } from "../telegram"
+import { applyTelegramTheme, enableTelegramPageScroll, syncAppViewportHeight, telegramHaptic, type TelegramWebApp } from "../telegram"
 import { useMobileCompact } from "./useMobileCompact"
 import { useTelegram } from "./useTelegram"
 
@@ -26,6 +26,20 @@ export function useTelegramUx() {
     return () => document.documentElement.classList.remove("tg-compact")
   }, [ctx.isTelegram])
 
+  /* Always track visual viewport — mobile Safari chrome clips 100dvh sheets. */
+  useEffect(() => {
+    const sync = () => syncAppViewportHeight(ctx.webApp)
+    sync()
+    window.addEventListener("resize", sync)
+    window.visualViewport?.addEventListener("resize", sync)
+    window.visualViewport?.addEventListener("scroll", sync)
+    return () => {
+      window.removeEventListener("resize", sync)
+      window.visualViewport?.removeEventListener("resize", sync)
+      window.visualViewport?.removeEventListener("scroll", sync)
+    }
+  }, [ctx.webApp])
+
   useEffect(() => {
     if (!ctx.webApp) return
 
@@ -46,11 +60,15 @@ export function useTelegramUx() {
       offEvent?: (event: string, handler: () => void) => void
     }
     viewportHandler.onEvent?.("viewportChanged", syncViewport)
+    viewportHandler.onEvent?.("safeAreaChanged", syncViewport)
+    viewportHandler.onEvent?.("contentSafeAreaChanged", syncViewport)
     viewportHandler.onEvent?.("themeChanged", onThemeChanged)
 
     return () => {
       window.removeEventListener("resize", syncViewport)
       viewportHandler.offEvent?.("viewportChanged", syncViewport)
+      viewportHandler.offEvent?.("safeAreaChanged", syncViewport)
+      viewportHandler.offEvent?.("contentSafeAreaChanged", syncViewport)
       viewportHandler.offEvent?.("themeChanged", onThemeChanged)
     }
   }, [ctx.webApp])

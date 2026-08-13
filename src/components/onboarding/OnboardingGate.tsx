@@ -17,10 +17,12 @@ import {
   clearExplicitLogout,
   guestSessionCustomerIdForRestore,
   isExplicitLogout,
+  markSessionMismatchNotice,
   persistCustomerId,
   purgeStaleCustomerSessions,
   readPersistedCustomerId,
   readStoredAuthSession,
+  readStoredCustomerAuthSession,
   storeAuthSession,
 } from "../../lib/auth"
 import { DEFAULT_CUSTOMER_NAME, isCustomerProfileComplete, isCustomerVerified } from "../../lib/customerProfile"
@@ -93,9 +95,7 @@ export default function OnboardingGate({ skip, startAtRoleSelect, loginMode = fa
   const telegramContext = useMemo(() => getTelegramContext(), [])
   const onReadyRef = useRef(onReady)
   onReadyRef.current = onReady
-  const [phase, setPhase] = useState<OnboardingPhase>(
-    skip ? "ready" : startAtRoleSelect && !initialRole && !loginMode ? "role-select" : "boot",
-  )
+  const [phase, setPhase] = useState<OnboardingPhase>(skip ? "ready" : "boot")
   const [account, setAccount] = useState<UserAccountStatus | null>(null)
   const [customerId, setCustomerId] = useState<string>(() => readPersistedCustomerId(telegramContext.chatId))
   const [customerToken, setCustomerToken] = useState<string | undefined>()
@@ -103,13 +103,8 @@ export default function OnboardingGate({ skip, startAtRoleSelect, loginMode = fa
   const initialPreferredRole = initialRole === "customer" || initialRole === "provider" ? initialRole : null
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string>()
-
   useEffect(() => {
     if (skip) return
-    if (startAtRoleSelect && !initialPreferredRole && !loginMode) {
-      setPhase("role-select")
-      return
-    }
     let cancelled = false
 
     function finishFromAccount(status: UserAccountStatus, token: string | undefined, preferred: Extract<Role, "customer" | "provider"> | null) {
@@ -122,27 +117,30 @@ export default function OnboardingGate({ skip, startAtRoleSelect, loginMode = fa
         preferred,
         effectivePreferred,
         clientRegistered: status.clientRegistered,
+        providerRegistered: status.providerRegistered,
         needsOnboarding: status.needsOnboarding,
         returning: isReturningClient(status),
         customerId: status.customerId,
       })
 
-      if (isReturningClient(status) && effectivePreferred !== "provider") {
-        if (needsClientOtpVerification(status.profile)) {
-          if (status.profile) setProfile(status.profile)
-          setPhase("verify-client")
-          return
-        }
-        onReadyRef.current({ role: "customer", account: status, customerToken: token })
-        setPhase("ready")
-        return
-      }
-
+      // Role switch / explicit role picker: keep the restored session and let the user choose.
       if (startAtRoleSelect && !initialPreferredRole && !loginMode) {
         setAccount(status)
         if (token) setCustomerToken(token)
         if (status.profile) setProfile(status.profile)
         setPhase("role-select")
+        return
+      }
+
+      if (isReturningClient(status) && effectivePreferred !== "provider") {
+        if (needsClientOtpVerification(status.profile)) {
+          if (status.profile) setProfile(status.profile)
+          // Returning / WebApp reopen: show OTP UI; user must tap «Надіслати код».
+          setPhase("verify-client")
+          return
+        }
+        onReadyRef.current({ role: "customer", account: status, customerToken: token })
+        setPhase("ready")
         return
       }
 
@@ -181,7 +179,7 @@ export default function OnboardingGate({ skip, startAtRoleSelect, loginMode = fa
 
     async function boot() {
       try {
-        if (isExplicitLogout(telegramContext.chatId) && !loginMode) {
+        if (isExplicitLogout(telegramContext.chatId) && !loginMode && !startAtRoleSelect) {
           onShowLanding()
           return
         }
@@ -189,6 +187,7 @@ export default function OnboardingGate({ skip, startAtRoleSelect, loginMode = fa
         const activeCustomerId = readPersistedCustomerId(telegramContext.chatId)
         if (telegramContext.chatId && detectStoredCustomerMismatch(telegramContext.chatId)) {
           clearCustomerAuthStorage()
+          markSessionMismatchNotice("telegram-stale-web")
         }
         purgeStaleCustomerSessions(activeCustomerId)
 
@@ -219,7 +218,9 @@ export default function OnboardingGate({ skip, startAtRoleSelect, loginMode = fa
       } catch (err) {
         logOnboarding("boot.failed", { error: err instanceof Error ? err.message : String(err) })
         if (!cancelled) {
-          if (loginMode) {
+          if (startAtRoleSelect && !loginMode) {
+            setPhase("role-select")
+          } else if (loginMode) {
             setPhase("login-client")
           } else {
             setPhase("role-select")
@@ -242,6 +243,15 @@ export default function OnboardingGate({ skip, startAtRoleSelect, loginMode = fa
       clearExplicitLogout()
       let token = customerToken
       let activeCustomerId = customerId
+      if (!token) {
+        const stored = readStoredCustomerAuthSession({ telegramChatId: telegramContext.chatId })
+        if (stored?.token) {
+          token = stored.token
+          activeCustomerId = stored.customerId
+          setCustomerId(activeCustomerId)
+          setCustomerToken(token)
+        }
+      }
       if (!token) {
         try {
           const session = telegramContext.initData
@@ -341,7 +351,7 @@ export default function OnboardingGate({ skip, startAtRoleSelect, loginMode = fa
     return { activeCustomerId, token }
   }
 
-  const handleClientRegister = async (payload: { name: string; phone: string }) => {
+  const handleClientRegister = async (payload: { name: string; phone: string; city: string }) => {
     setSaving(true)
     setError(undefined)
     try {
@@ -368,11 +378,13 @@ export default function OnboardingGate({ skip, startAtRoleSelect, loginMode = fa
       setProfile(updated)
       if (typeof window !== "undefined") {
         window.sessionStorage.setItem("pomichBootstrapProfile", JSON.stringify(updated))
+        if (updated.city) window.localStorage.setItem("pomichPreferredCity", updated.city)
       }
       const status = await getUserAccount(activeCustomerId, token, telegramContext.initData)
       const merged = mergeAccountProfile({ ...status, profile: updated }, updated)
       setAccount(merged)
       if (needsClientOtpVerification(updated)) {
+        // Post-registration OTP step — user must tap «Надіслати код».
         setPhase("verify-client")
         return
       }
@@ -464,10 +476,14 @@ export default function OnboardingGate({ skip, startAtRoleSelect, loginMode = fa
 
   if (phase === "verify-client" && profile) {
     return (
-      <div className="pomich-themed-shell">
+      <div className="pomich-themed-shell pomich-map-shell-surface">
         <FormHeader>
-          <div className="pomich-header-title">Підтвердження профілю</div>
-          <div className="pomich-header-subtitle">Код діє 10 хвилин</div>
+          <div className="pomich-header-title">Підтвердження телефону</div>
+          <div className="pomich-header-subtitle">
+            {telegramContext.isTelegram
+              ? "Профіль уже є — лише код з цього чату, без нової реєстрації"
+              : "Профіль уже є — код один раз з @pomich_ua_bot, не реєстрація"}
+          </div>
         </FormHeader>
         <div style={{ flex: 1, overflow: "auto" }} className="pomich-form-scroll">
           <FormContainer>
@@ -476,7 +492,14 @@ export default function OnboardingGate({ skip, startAtRoleSelect, loginMode = fa
                 profile={profile}
                 customerToken={customerToken}
                 isTelegram={telegramContext.isTelegram}
-                autoSendChannel={telegramContext.isTelegram ? "telegram" : undefined}
+                phone={profile.phone}
+                onPhoneSaved={(savedPhone, savedProfile) => {
+                  setProfile((prev) => {
+                    if (savedProfile) return { ...prev, ...savedProfile } as CustomerProfile
+                    if (!prev) return { id: profile.id, name: profile.name, phone: savedPhone, verificationStatus: profile.verificationStatus }
+                    return { ...prev, phone: savedPhone }
+                  })
+                }}
                 onVerified={async (saved) => {
                   setProfile(saved)
                   if (!customerToken) return
@@ -497,6 +520,7 @@ export default function OnboardingGate({ skip, startAtRoleSelect, loginMode = fa
     <ClientRegistrationScreen
       initialName={profile?.name && profile.name !== DEFAULT_CUSTOMER_NAME ? profile.name : telegramContext.user?.first_name || ""}
       initialPhone={profile?.phone || ""}
+      initialCity={profile?.city || (typeof window !== "undefined" ? window.localStorage.getItem("pomichPreferredCity") || undefined : undefined)}
       loggedInAs={registrationLoggedInAs}
       saving={saving}
       error={error}

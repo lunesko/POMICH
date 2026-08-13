@@ -165,7 +165,7 @@ def test_fastapi_updates_provider_presence(monkeypatch, tmp_path) -> None:
         "/api/providers/provider-oleksandr/profile",
         headers=provider_headers,
         json={
-            "name": "Олександр",
+            "name": "?????????",
             "phone": "+380671112233",
             "vehicle": "Volkswagen Transporter",
             "plate": "AO 1248 CH",
@@ -194,7 +194,7 @@ def test_fastapi_registers_provider_profile(monkeypatch, tmp_path) -> None:
         "/api/providers/provider-oleksandr/profile",
         headers=provider_headers,
         json={
-            "name": "Олександр",
+            "name": "?????????",
             "phone": "+380671112233",
             "vehicle": "Volkswagen Transporter",
             "plate": "AO 1248 CH",
@@ -219,7 +219,7 @@ def test_fastapi_customer_profile_and_verification_review(monkeypatch, tmp_path)
 
     profile = client.patch(
         f"/api/customers/{customer_id}/profile",
-        json={"name": "Марія", "phone": "+380501112233", "city": "Київ", "telegram": "maria_road"},
+        json={"name": "?????", "phone": "+380501112233", "city": "????", "telegram": "maria_road"},
         headers=customer_headers,
     )
     submitted = client.post(
@@ -229,17 +229,17 @@ def test_fastapi_customer_profile_and_verification_review(monkeypatch, tmp_path)
     )
     reviewed = client.patch(
         f"/api/customers/{customer_id}/verification/review",
-        json={"status": "verified", "reviewNote": "Документи збігаються"},
+        json={"status": "verified", "reviewNote": "????????? ??????????"},
         headers=admin_headers,
     )
 
     assert profile.status_code == 200
-    assert profile.json()["name"] == "Марія"
+    assert profile.json()["name"] == "?????"
     assert submitted.status_code == 200
     assert submitted.json()["verificationStatus"] == "pending"
     assert reviewed.status_code == 200
     assert reviewed.json()["verificationStatus"] == "verified"
-    assert "Профіль заповнено" in reviewed.json()["trustedBadges"]
+    assert "??????? ?????????" in reviewed.json()["trustedBadges"]
 
 
 def test_fastapi_customer_profile_requires_matching_session(monkeypatch, tmp_path) -> None:
@@ -267,7 +267,7 @@ def test_fastapi_provider_verification_submit_and_admin_review(monkeypatch, tmp_
     provider_headers = _provider_session_headers(client, "provider-new")
     admin_headers = _admin_session_headers(client)
     payload = {
-        "name": "Новий партнер",
+        "name": "????? ???????",
         "phone": "+380501112233",
         "vehicle": "Iveco Daily",
         "plate": "AA 1122 BB",
@@ -324,7 +324,7 @@ def test_fastapi_requires_provider_token_when_configured(monkeypatch, tmp_path) 
     monkeypatch.setenv("POMICH_PROVIDER_TOKEN", PROVIDER_TOKEN)
     client = TestClient(app)
     payload = {
-        "name": "Олександр",
+        "name": "?????????",
         "phone": "+380671112233",
         "vehicle": "Volkswagen Transporter",
         "plate": "AO 1248 CH",
@@ -531,13 +531,13 @@ def test_fastapi_create_order_persists_customer_comment(monkeypatch, tmp_path) -
         json={
             "service": "tow",
             "status": "searching",
-            "customerComment": "Ключі в бардачку",
+            "customerComment": "????? ? ????????",
         },
     )
 
     assert created.status_code == 201
     payload = created.json()
-    assert payload["customerComment"] == "Ключі в бардачку"
+    assert payload["customerComment"] == "????? ? ????????"
 
 
 def test_fastapi_rejects_invalid_order_transition(monkeypatch) -> None:
@@ -662,7 +662,7 @@ def test_fastapi_assigned_provider_can_drive_lifecycle(monkeypatch, tmp_path) ->
     client.post(
         f"/api/providers/p1/offers/{offer['id']}/accept",
         headers=provider_headers,
-        json={"proposedPrice": 1500, "priceNote": "Евакуатор + подача"},
+        json={"proposedPrice": 1500, "priceNote": "????????? + ??????"},
     )
     client.post(f"/api/orders/{created_order['id']}/confirm-price")
 
@@ -683,7 +683,7 @@ def test_admin_endpoints_require_session_and_expose_ops_data(monkeypatch, tmp_pa
     monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", CUSTOMER_SESSION_SECRET)
     _use_temp_store(monkeypatch, tmp_path)
     order_store.save_providers([_api_provider("p1", 48.6218, 22.2879)])
-    order_store.update_customer_profile("guest-1", {"name": "Test Client", "phone": "+380501234567", "city": "Ужгород"})
+    order_store.update_customer_profile("guest-1", {"name": "Test Client", "phone": "+380501234567", "city": "???????"})
     order_store.save_order({"service": "tow", "status": "searching", "customerLocation": "Test", "destination": "Garage"})
     client = TestClient(app)
     admin_headers = _admin_session_headers(client)
@@ -700,10 +700,10 @@ def test_admin_endpoints_require_session_and_expose_ops_data(monkeypatch, tmp_pa
     providers = client.get("/api/admin/providers", headers=admin_headers).json()
     assert any(item["id"] == "p1" for item in providers)
 
-    updated = client.patch("/api/admin/clients/guest-1", headers=admin_headers, json={"city": "Київ"}).json()
-    assert updated["city"] == "Київ"
+    updated = client.patch("/api/admin/clients/guest-1", headers=admin_headers, json={"city": "????"}).json()
+    assert updated["city"] == "????"
 
-    provider_updated = client.patch("/api/admin/providers/p1", headers=admin_headers, json={"status": "offline", "city": "Ужгород"}).json()
+    provider_updated = client.patch("/api/admin/providers/p1", headers=admin_headers, json={"status": "offline", "city": "???????"}).json()
     assert provider_updated["status"] == "offline"
 
     settings = client.get("/api/admin/settings", headers=admin_headers).json()
@@ -726,9 +726,9 @@ def test_admin_clients_decrypt_filter_and_purge_guests(monkeypatch, tmp_path) ->
     monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", CUSTOMER_SESSION_SECRET)
     _use_temp_store(monkeypatch, tmp_path)
 
-    order_store.update_customer_profile("tg-99", {"name": "Олексій", "phone": "+380671112233", "telegram": "alex"})
-    order_store.update_customer_profile("guest-empty", {"name": "Клієнт POMICH"})
-    order_store.update_customer_profile("guest-real", {"name": "Марія", "phone": "+380501112233"})
+    order_store.update_customer_profile("tg-99", {"name": "???????", "phone": "+380671112233", "telegram": "alex"})
+    order_store.update_customer_profile("guest-empty", {"name": "?????? POMICH"})
+    order_store.update_customer_profile("guest-real", {"name": "?????", "phone": "+380501112233"})
 
     profiles = order_store.load_customer_profiles()
     for profile in profiles:
@@ -747,8 +747,8 @@ def test_admin_clients_decrypt_filter_and_purge_guests(monkeypatch, tmp_path) ->
     assert "guest-empty" not in default_ids
 
     telegram_client = next(item for item in default_clients if item["id"] == "tg-99")
-    assert telegram_client["name"] == "Олексій"
-    assert telegram_client["displayName"] == "Олексій"
+    assert telegram_client["name"] == "???????"
+    assert telegram_client["displayName"] == "???????"
     assert not str(telegram_client["name"]).startswith("enc:v1:")
 
     all_clients = client.get("/api/admin/clients?includeGuests=true", headers=admin_headers).json()
@@ -824,3 +824,70 @@ def test_customer_phone_login_send_and_confirm(monkeypatch, tmp_path) -> None:
     assert body["customerId"] == "tg-829741830"
     assert body["profile"]["name"] == "Vitaliy"
     assert body["account"]["clientRegistered"] is True
+
+
+def test_customer_phone_login_send_allows_duplicate_registered_phone(monkeypatch, tmp_path) -> None:
+    """Login OTP must not 500 when guest + tg rows share the same phone."""
+    _use_temp_store(monkeypatch, tmp_path)
+    otp_path = tmp_path / "otp_codes.json"
+    monkeypatch.setattr("bot.otp_verification._default_otp_store_path", lambda: otp_path)
+    monkeypatch.setattr("bot.otp_verification._generate_otp_code", lambda: "778899")
+    monkeypatch.setattr("bot.otp_verification._send_telegram_otp", lambda chat_id, code: 654)
+    monkeypatch.setenv("POMICH_OTP_SECRET", "test-otp-secret")
+
+    now = "2026-08-12T12:00:00Z"
+    order_store.save_customer_profiles(
+        [
+            {
+                "id": "tg-829741830",
+                "name": "Vitaliy",
+                "phone": "+380661007434",
+                "createdAt": now,
+                "updatedAt": now,
+            },
+            {
+                "id": "guest-dup-vitaliy",
+                "name": "Vitaliy Guest",
+                "phone": "+380661007434",
+                "createdAt": now,
+                "updatedAt": now,
+            },
+        ]
+    )
+
+    client = TestClient(app)
+    # Old bug: login send re-patched phone and hit phone_already_registered ? 500.
+    send_response = client.post("/api/auth/customer/phone/login/send", json={"phone": "+380661007434"})
+    assert send_response.status_code == 200
+    assert send_response.json()["channel"] == "telegram"
+
+    # Registration/profile update still rejects taking an already-registered phone.
+    headers = _customer_session_headers(client, "guest-new-other")
+    conflict = client.patch(
+        "/api/customers/guest-new-other/profile",
+        headers=headers,
+        json={"name": "Other", "phone": "+380661007434", "city": "Uzhhorod"},
+    )
+    assert conflict.status_code == 409
+    assert conflict.json()["detail"] == "phone_already_registered"
+
+
+def test_fastapi_rejects_duplicate_customer_phone(monkeypatch, tmp_path) -> None:
+    customer_path = tmp_path / "customers.json"
+    monkeypatch.setattr(order_store, "_default_customer_store_path", lambda: customer_path)
+    monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", CUSTOMER_SESSION_SECRET)
+    order_store.update_customer_profile(
+        "tg-100",
+        {"name": "Maria", "phone": "+380501112233", "city": "Uzhhorod"},
+        customer_path,
+    )
+
+    client = TestClient(app)
+    headers = _customer_session_headers(client, "guest-dup-1")
+    response = client.patch(
+        "/api/customers/guest-dup-1/profile",
+        headers=headers,
+        json={"name": "Oleg", "phone": "+380501112233", "city": "Lviv"},
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"] == "phone_already_registered"

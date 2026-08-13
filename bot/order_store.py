@@ -25,7 +25,8 @@ PROVIDER_SPECIALTIES = {"tow", "battery", "wheel", "fuel", "lockout", "mechanic"
 VERIFICATION_STATUSES = {"unverified", "pending", "verified", "rejected"}
 DISPATCH_SEARCH_RADIUS_STEPS_KM = [int(value) for value in os.getenv("SEARCH_RADIUS_STEPS_KM", "5,10,20,40").split(",") if value.strip().isdigit()]
 MAX_PROVIDER_OFFERS = int(os.getenv("MAX_PROVIDER_OFFERS", "5"))
-OFFER_TIMEOUT_SECONDS = int(os.getenv("OFFER_TIMEOUT_SECONDS", "20"))
+# Partners need time to read details, enter a price, and accept. 20s was too short in production.
+OFFER_TIMEOUT_SECONDS = int(os.getenv("OFFER_TIMEOUT_SECONDS", "90"))
 OFFER_STATUSES = {"pending", "accepted", "declined", "expired", "lost", "cancelled"}
 STORE_LOCK = threading.RLock()
 
@@ -652,7 +653,11 @@ def partner_telegram_user_ids_for_order(
     return telegram_ids
 
 
-def enrich_order_for_client(order: Dict[str, Any], provider_store_path: Optional[Path] = None) -> Dict[str, Any]:
+def enrich_order_for_client(
+    order: Dict[str, Any],
+    provider_store_path: Optional[Path] = None,
+    customer_store_path: Optional[Path] = None,
+) -> Dict[str, Any]:
     payload = dict(order)
     try:
         payload["status"] = normalize_order_status(payload.get("status"))
@@ -660,35 +665,52 @@ def enrich_order_for_client(order: Dict[str, Any], provider_store_path: Optional
         payload["status"] = "searching"
 
     provider_id = str(payload.get("assignedProviderId") or payload.get("partnerId") or "").strip()
-    assigned_provider = payload.get("assignedProvider") if isinstance(payload.get("assignedProvider"), dict) else {}
+    assigned_provider = dict(payload.get("assignedProvider")) if isinstance(payload.get("assignedProvider"), dict) else {}
 
-    if provider_id and not assigned_provider.get("name"):
+    if provider_id:
         provider = get_provider_profile(provider_id, provider_store_path)
         if provider:
+            live_location = _valid_point(provider.get("location")) or _valid_point(assigned_provider.get("location"))
+            pickup = _valid_point(payload.get("customerCoordinates"))
+            distance_km = assigned_provider.get("distanceKm")
+            eta_minutes = assigned_provider.get("etaMinutes") or provider.get("etaMinutes")
+            if live_location and pickup:
+                distance_km = round(haversine_distance_km(live_location, pickup), 2)
+                eta_minutes = max(1, math.ceil(float(distance_km) * 4))
             assigned_provider = {
-                "id": provider.get("id"),
-                "name": provider.get("name"),
-                "rating": provider.get("rating"),
-                "vehicle": provider.get("vehicle"),
-                "plate": provider.get("plate"),
-                "phone": provider.get("phone"),
-                "telegram": provider.get("telegram"),
-                "location": provider.get("location"),
-                "verificationStatus": provider.get("verificationStatus"),
-                "trustedBadges": provider.get("trustedBadges"),
-                "distanceKm": assigned_provider.get("distanceKm"),
-                "etaMinutes": assigned_provider.get("etaMinutes") or provider.get("etaMinutes"),
+                "id": provider.get("id") or assigned_provider.get("id"),
+                "name": provider.get("name") or assigned_provider.get("name"),
+                "rating": provider.get("rating") if provider.get("rating") is not None else assigned_provider.get("rating"),
+                "vehicle": provider.get("vehicle") or assigned_provider.get("vehicle"),
+                "plate": provider.get("plate") or assigned_provider.get("plate"),
+                "phone": provider.get("phone") or assigned_provider.get("phone"),
+                "telegram": provider.get("telegram") or assigned_provider.get("telegram"),
+                "location": live_location,
+                "verificationStatus": provider.get("verificationStatus") or assigned_provider.get("verificationStatus"),
+                "trustedBadges": provider.get("trustedBadges") or assigned_provider.get("trustedBadges"),
+                "distanceKm": distance_km,
+                "etaMinutes": eta_minutes,
             }
 
     if assigned_provider:
         payload["assignedProvider"] = assigned_provider
         if assigned_provider.get("name"):
             payload["providerName"] = assigned_provider.get("name")
-        if assigned_provider.get("etaMinutes") is not None and payload.get("etaMinutes") is None:
+        if assigned_provider.get("etaMinutes") is not None:
             payload["etaMinutes"] = assigned_provider.get("etaMinutes")
 
     if payload.get("partnerProposedPrice") is None and payload.get("proposedPrice") is not None:
         payload["partnerProposedPrice"] = payload.get("proposedPrice")
+
+    customer_id = str(payload.get("customerId") or "").strip()
+    if customer_id and not str(payload.get("customerName") or "").strip():
+        try:
+            customer = get_customer_profile(customer_id, customer_store_path)
+            name = str(customer.get("name") or customer.get("displayName") or "").strip()
+            if name:
+                payload["customerName"] = name
+        except Exception:
+            pass
 
     return payload
 
@@ -744,7 +766,12 @@ def update_order_status(
             if updated_order.get("assignedProviderId"):
                 _set_provider_status(str(updated_order.get("assignedProviderId")), "online", provider_store_path=provider_store_path)
         elif next_status == "completed" and updated_order.get("assignedProviderId"):
-            _set_provider_status(str(updated_order.get("assignedProviderId")), "online", provider_store_path=provider_store_path)
+            provider_id = str(updated_order.get("assignedProviderId"))
+            _set_provider_status(provider_id, "online", provider_store_path=provider_store_path)
+            _increment_provider_orders_completed(provider_id, provider_store_path=provider_store_path)
+            customer_id = str(updated_order.get("customerId") or "").strip()
+            if customer_id:
+                _increment_customer_orders_completed(customer_id)
         if updated_order is not None:
             updated_order = enrich_order_for_client(updated_order, provider_store_path)
         return updated_order
@@ -1062,6 +1089,8 @@ def update_customer_profile(customer_id: str, data: Dict[str, Any], store_path: 
                         payload[field] = [str(item).strip() for item in data.get(field) if str(item).strip()]
                     else:
                         payload[field] = str(data.get(field) or "").strip()
+            if data.get("phone") is not None:
+                _ensure_customer_phone_available(customer_id, str(payload.get("phone") or ""), profiles)
             payload["updatedAt"] = now
             payload["profileCompleteness"] = _customer_profile_completeness(payload)
             profiles[index] = payload
@@ -1076,6 +1105,8 @@ def update_customer_profile(customer_id: str, data: Dict[str, Any], store_path: 
                         payload[field] = [str(item).strip() for item in data.get(field) if str(item).strip()]
                     else:
                         payload[field] = str(data.get(field) or "").strip()
+            if data.get("phone") is not None:
+                _ensure_customer_phone_available(customer_id, str(payload.get("phone") or ""), profiles)
             payload["profileCompleteness"] = _customer_profile_completeness(payload)
             profiles.append(payload)
             updated = payload
@@ -1285,7 +1316,7 @@ def _customer_profile_phone_digits(profile: Dict[str, Any]) -> str:
 
 
 def find_telegram_user_id_by_phone(phone: str, store_path: Optional[Path] = None) -> Optional[str]:
-    """Resolve Telegram user id from a tg-{id} profile that shares the same phone."""
+    """Resolve Telegram user id from a tg-{id} profile or registered provider with the same phone."""
     target = _normalize_ukraine_phone_digits(phone)
     if not target or len(target) != 12:
         return None
@@ -1298,6 +1329,13 @@ def find_telegram_user_id_by_phone(phone: str, store_path: Optional[Path] = None
         verification = profile.get("verification") if isinstance(profile.get("verification"), dict) else {}
         telegram_user_id = str(verification.get("telegramUserId") or customer_id[3:]).strip()
         return telegram_user_id or None
+    # Partner cabinet may hold the working phone while the tg-* row keeps another number.
+    provider = find_registered_provider_by_phone(phone)
+    if provider:
+        return resolve_provider_telegram_user_id(
+            str(provider.get("id") or ""),
+            customer_store_path=store_path,
+        )
     return None
 
 
@@ -1328,18 +1366,24 @@ def find_verified_customer_by_phone(
     return tg_candidates[0] if tg_candidates else candidates[0]
 
 
+PHONE_ALREADY_REGISTERED = "phone_already_registered"
+PHONE_ALREADY_REGISTERED_UA = "Цей номер уже зареєстровано"
+
+
 def find_registered_customer_by_phone(
     phone: str,
     *,
     exclude_id: str | None = None,
     store_path: Optional[Path] = None,
+    profiles: Optional[List[Dict[str, Any]]] = None,
 ) -> Optional[Dict[str, Any]]:
     """Find a registered customer profile with the same phone (prefers tg-* canonical rows)."""
     target = _normalize_ukraine_phone_digits(phone)
     if not target or len(target) != 12:
         return None
     candidates: List[Dict[str, Any]] = []
-    for profile in load_customer_profiles(store_path):
+    source = profiles if profiles is not None else load_customer_profiles(store_path)
+    for profile in source:
         customer_id = str(profile.get("id") or "")
         if exclude_id and customer_id == exclude_id:
             continue
@@ -1349,38 +1393,158 @@ def find_registered_customer_by_phone(
         if not is_customer_client_registered(normalized):
             continue
         candidates.append(normalized)
+    # Prefer the Telegram owner of a partner cabinet that uses this phone
+    # (guest web rows often hold the same number without a chat_id).
+    provider = find_registered_provider_by_phone(phone)
+    if provider is not None:
+        telegram_user_id = resolve_provider_telegram_user_id(
+            str(provider.get("id") or ""),
+            customer_store_path=store_path,
+        )
+        if telegram_user_id:
+            preferred_id = f"tg-{telegram_user_id}"
+            if not exclude_id or preferred_id != str(exclude_id):
+                for profile in source:
+                    if str(profile.get("id") or "") != preferred_id:
+                        continue
+                    normalized = _normalize_customer_profile(profile)
+                    if is_customer_client_registered(normalized) or str(normalized.get("phone") or "").strip():
+                        return normalized
+                    break
     if not candidates:
         return None
     tg_candidates = [item for item in candidates if str(item.get("id") or "").startswith("tg-")]
     return tg_candidates[0] if tg_candidates else candidates[0]
 
 
+def find_registered_provider_by_phone(
+    phone: str,
+    *,
+    exclude_id: str | None = None,
+    store_path: Optional[Path] = None,
+    providers: Optional[List[Dict[str, Any]]] = None,
+) -> Optional[Dict[str, Any]]:
+    """Find another registered provider that already uses this phone."""
+    target = _normalize_ukraine_phone_digits(phone)
+    if not target or len(target) != 12:
+        return None
+    source = providers if providers is not None else load_providers(store_path)
+    for provider in source:
+        provider_id = str(provider.get("id") or "")
+        if exclude_id and provider_id == exclude_id:
+            continue
+        if not provider.get("registeredAt"):
+            continue
+        provider_phone = _normalize_ukraine_phone_digits(str(provider.get("phone") or ""))
+        if provider_phone != target:
+            continue
+        name = str(provider.get("name") or "").strip()
+        if not name:
+            continue
+        return dict(provider)
+    return None
+
+
+def _ensure_customer_phone_available(
+    customer_id: str,
+    phone: str,
+    profiles: List[Dict[str, Any]],
+) -> None:
+    phone_value = str(phone or "").strip()
+    if not phone_value:
+        return
+    existing = find_registered_customer_by_phone(
+        phone_value,
+        exclude_id=str(customer_id),
+        profiles=profiles,
+    )
+    if existing is not None:
+        raise ValueError(PHONE_ALREADY_REGISTERED)
+
+
+def _ensure_provider_phone_available(
+    provider_id: str,
+    phone: str,
+    providers: List[Dict[str, Any]],
+) -> None:
+    phone_value = str(phone or "").strip()
+    if not phone_value:
+        return
+    existing = find_registered_provider_by_phone(
+        phone_value,
+        exclude_id=str(provider_id),
+        providers=providers,
+    )
+    if existing is not None:
+        raise ValueError(PHONE_ALREADY_REGISTERED)
+
+
+def _mark_profile_phone_verified(
+    profile: Dict[str, Any],
+    *,
+    source_verification: Optional[Dict[str, Any]] = None,
+    linked_provider_id: str = "",
+) -> Dict[str, Any]:
+    payload = dict(profile)
+    existing = payload.get("verification") if isinstance(payload.get("verification"), dict) else {}
+    linked_verification = source_verification if isinstance(source_verification, dict) else {}
+    merged_verification = {**existing, **linked_verification, "phone": True}
+    payload["verification"] = merged_verification
+    payload["verificationStatus"] = "verified"
+    payload["trustedBadges"] = payload.get("trustedBadges") or _verification_badges("verified", "customer")
+    if linked_provider_id and not str(payload.get("linkedProviderId") or "").strip():
+        payload["linkedProviderId"] = linked_provider_id
+    payload["updatedAt"] = _now_iso()
+    return payload
+
+
 def _sync_phone_linked_verification(
     profile: Dict[str, Any],
     store_path: Optional[Path] = None,
 ) -> Dict[str, Any]:
-    """Inherit verified status from another profile with the same phone (e.g. tg-* after WebApp OTP)."""
+    """Inherit verified status from another profile/provider with the same phone or linked cabinet."""
     if normalize_verification_status(profile.get("verificationStatus"), "unverified") == "verified":
         return profile
+
+    customer_id = str(profile.get("id") or "").strip()
+    linked_provider_id = str(profile.get("linkedProviderId") or "").strip()
+    if not linked_provider_id and customer_id.startswith("tg-"):
+        linked_provider_id = f"provider-{customer_id}"
+    if linked_provider_id:
+        # Provider rows live in the provider store; never reuse the customer store_path here.
+        linked_provider = get_provider_profile(linked_provider_id)
+        if linked_provider and is_provider_verified(linked_provider):
+            return _mark_profile_phone_verified(
+                profile,
+                source_verification=linked_provider.get("verification")
+                if isinstance(linked_provider.get("verification"), dict)
+                else None,
+                linked_provider_id=linked_provider_id,
+            )
+
     phone = str(profile.get("phone") or "").strip()
     if not phone:
         return profile
     linked = find_verified_customer_by_phone(
         phone,
-        exclude_id=str(profile.get("id") or ""),
+        exclude_id=customer_id,
         store_path=store_path,
     )
-    if linked is None:
-        return profile
-    payload = dict(profile)
-    payload["verificationStatus"] = "verified"
-    linked_verification = linked.get("verification") if isinstance(linked.get("verification"), dict) else {}
-    existing = payload.get("verification") if isinstance(payload.get("verification"), dict) else {}
-    merged_verification = {**existing, **linked_verification, "phone": True}
-    payload["verification"] = merged_verification
-    payload["trustedBadges"] = linked.get("trustedBadges") or _verification_badges("verified", "customer")
-    payload["updatedAt"] = _now_iso()
-    return payload
+    if linked is not None:
+        return _mark_profile_phone_verified(
+            profile,
+            source_verification=linked.get("verification") if isinstance(linked.get("verification"), dict) else None,
+            linked_provider_id=str(linked.get("linkedProviderId") or "").strip(),
+        )
+
+    provider = find_registered_provider_by_phone(phone)
+    if provider is not None and is_provider_verified(provider):
+        return _mark_profile_phone_verified(
+            profile,
+            source_verification=provider.get("verification") if isinstance(provider.get("verification"), dict) else None,
+            linked_provider_id=str(provider.get("id") or "").strip(),
+        )
+    return profile
 
 
 def _maybe_persist_phone_linked_verification(
@@ -1592,7 +1756,9 @@ def update_provider_profile(provider_id: str, data: Dict[str, Any], store_path: 
         provider.pop("stale", None)
         provider = _normalize_provider_trust(provider)
         provider["name"] = str(data.get("name") or provider.get("name") or "Партнер POMICH").strip()
-        provider["phone"] = str(data.get("phone") or provider.get("phone") or "").strip()
+        next_phone = str(data.get("phone") or provider.get("phone") or "").strip()
+        _ensure_provider_phone_available(provider_id, next_phone, providers)
+        provider["phone"] = next_phone
         provider["telegram"] = str(data.get("telegram") or provider.get("telegram") or "pomich_help_bot").strip()
         provider["vehicle"] = str(data.get("vehicle") or provider.get("vehicle") or "Автодопомога").strip()
         if data.get("vehicleMake") is not None:
@@ -1620,6 +1786,8 @@ def update_provider_profile(provider_id: str, data: Dict[str, Any], store_path: 
             raise ValueError("provider status must be online, busy or offline")
         if status in PROVIDER_ACTIVE_STATUSES and not data.get("registeredAt"):
             raise ValueError("provider profile must be registered before going online")
+        next_phone = str(data.get("phone") or "").strip()
+        _ensure_provider_phone_available(provider_id, next_phone, providers)
         updated = _normalize_provider_trust({
             "id": str(provider_id),
             "name": str(data.get("name") or "Партнер POMICH").strip(),
@@ -1627,7 +1795,7 @@ def update_provider_profile(provider_id: str, data: Dict[str, Any], store_path: 
             "vehicle": str(data.get("vehicle") or "Автодопомога").strip(),
             "plate": str(data.get("plate") or "").strip(),
             "city": str(data.get("city") or "Ужгород").strip(),
-            "phone": str(data.get("phone") or "").strip(),
+            "phone": next_phone,
             "telegram": str(data.get("telegram") or "pomich_help_bot").strip(),
             "status": "offline",
             "etaMinutes": data.get("etaMinutes") or 15,
@@ -2157,6 +2325,8 @@ def accept_offer(
             "distanceKm": offer.get("distanceKm"),
             "etaMinutes": max(2, math.ceil(float(offer.get("distanceKm") or 0) * 4)),
         }
+        if provider.get("name"):
+            order["providerName"] = provider.get("name")
         order["dispatchState"] = "ACCEPTED"
         order["updatedAt"] = now
         history = order.get("statusHistory") if isinstance(order.get("statusHistory"), list) else []
@@ -2386,3 +2556,216 @@ def admin_delete_provider(provider_id: str, store_path: Optional[Path] = None) -
             raise ValueError("provider profile not found")
         save_providers(remaining, path)
         return {"deleted": True, "providerId": str(provider_id)}
+
+
+def _order_belongs_to_customer(order: Dict[str, Any], customer_id: str) -> bool:
+    needle = str(customer_id or "").strip()
+    if not needle:
+        return False
+    if str(order.get("customerId") or "").strip() == needle:
+        return True
+    identity = order.get("customerIdentity") if isinstance(order.get("customerIdentity"), dict) else {}
+    if str(identity.get("customerId") or "").strip() == needle:
+        return True
+    if needle.startswith("tg-"):
+        telegram_user_id = needle[3:]
+        if str(order.get("chatId") or "").strip() == telegram_user_id:
+            return True
+        if str(order.get("telegramUserId") or "").strip() == telegram_user_id:
+            return True
+        if str(identity.get("telegramUserId") or "").strip() == telegram_user_id:
+            return True
+    return False
+
+
+def _order_belongs_to_provider(order: Dict[str, Any], provider_id: str) -> bool:
+    needle = str(provider_id or "").strip()
+    if not needle:
+        return False
+    if str(order.get("assignedProviderId") or "").strip() == needle:
+        return True
+    if str(order.get("partnerId") or "").strip() == needle:
+        return True
+    assigned = order.get("assignedProvider") if isinstance(order.get("assignedProvider"), dict) else {}
+    return str(assigned.get("id") or "").strip() == needle
+
+
+def _customer_ids_for_order_history(
+    customer_id: str,
+    store_path: Optional[Path] = None,
+) -> set[str]:
+    """Include phone-linked guest/tg aliases so cabinet history is not empty after re-login."""
+    needle = str(customer_id or "").strip()
+    ids: set[str] = {needle} if needle else set()
+    if not needle:
+        return ids
+    profile = get_customer_profile(needle, store_path) or {}
+    phone_digits = _customer_profile_phone_digits(profile)
+    if not phone_digits or len(phone_digits) != 12:
+        return ids
+    for other in load_customer_profiles(store_path):
+        other_id = str(other.get("id") or "").strip()
+        if not other_id or other_id in ids:
+            continue
+        if _customer_profile_phone_digits(other) == phone_digits:
+            ids.add(other_id)
+    return ids
+
+
+def list_orders_for_customer(
+    customer_id: str,
+    store_path: Optional[Path] = None,
+    provider_store_path: Optional[Path] = None,
+    limit: int = 50,
+) -> List[Dict[str, Any]]:
+    needles = _customer_ids_for_order_history(customer_id, store_path)
+    seen: set[str] = set()
+    orders: List[Dict[str, Any]] = []
+    for order in load_orders(store_path):
+        if not any(_order_belongs_to_customer(order, needle) for needle in needles):
+            continue
+        order_id = str(order.get("id") or "").strip()
+        if order_id and order_id in seen:
+            continue
+        if order_id:
+            seen.add(order_id)
+        orders.append(enrich_order_for_client(order, provider_store_path))
+    orders.sort(key=lambda item: str(item.get("updatedAt") or item.get("createdAt") or ""), reverse=True)
+    return orders[: max(1, min(int(limit or 50), 200))]
+
+
+def list_orders_for_provider(
+    provider_id: str,
+    store_path: Optional[Path] = None,
+    provider_store_path: Optional[Path] = None,
+    limit: int = 50,
+) -> List[Dict[str, Any]]:
+    orders = [
+        enrich_order_for_client(order, provider_store_path)
+        for order in load_orders(store_path)
+        if _order_belongs_to_provider(order, provider_id)
+    ]
+    orders.sort(key=lambda item: str(item.get("updatedAt") or item.get("createdAt") or ""), reverse=True)
+    return orders[: max(1, min(int(limit or 50), 200))]
+
+
+def _increment_provider_orders_completed(provider_id: str, provider_store_path: Optional[Path] = None) -> None:
+    providers = load_providers(provider_store_path)
+    changed = False
+    for provider in providers:
+        if str(provider.get("id")) != str(provider_id):
+            continue
+        provider["ordersCompleted"] = int(provider.get("ordersCompleted") or 0) + 1
+        provider["updatedAt"] = _now_iso()
+        changed = True
+        break
+    if changed:
+        save_providers(providers, provider_store_path)
+
+
+def _increment_customer_orders_completed(customer_id: str, customer_store_path: Optional[Path] = None) -> None:
+    path = customer_store_path
+    profiles = load_customer_profiles(path)
+    changed = False
+    for profile in profiles:
+        if str(profile.get("id")) != str(customer_id):
+            continue
+        profile["ordersCompleted"] = int(profile.get("ordersCompleted") or 0) + 1
+        profile["updatedAt"] = _now_iso()
+        changed = True
+        break
+    if changed:
+        save_customer_profiles(profiles, path)
+
+
+def _apply_star_rating(target: Dict[str, Any], stars: int) -> None:
+    rating_count = int(target.get("ratingCount") or 0)
+    current = float(target.get("rating") or 0)
+    if rating_count <= 0:
+        target["rating"] = float(stars)
+        target["ratingCount"] = 1
+    else:
+        target["rating"] = round(((current * rating_count) + float(stars)) / (rating_count + 1), 2)
+        target["ratingCount"] = rating_count + 1
+
+
+def submit_order_review(
+    order_id: str,
+    *,
+    author_role: str,
+    rating: int,
+    comment: str = "",
+    author_id: str = "",
+    store_path: Optional[Path] = None,
+    provider_store_path: Optional[Path] = None,
+    customer_store_path: Optional[Path] = None,
+) -> Dict[str, Any]:
+    role = str(author_role or "").strip().lower()
+    if role not in {"customer", "partner"}:
+        raise ValueError("invalid_review_role")
+    try:
+        stars = int(rating)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("invalid_review_rating") from exc
+    if stars < 1 or stars > 5:
+        raise ValueError("invalid_review_rating")
+    note = str(comment or "").strip()[:500]
+
+    with STORE_LOCK:
+        path = store_path or _default_store_path()
+        orders = load_orders(path)
+        order = next((item for item in orders if str(item.get("id")) == str(order_id)), None)
+        if order is None:
+            raise DispatchConflict("ORDER_NOT_FOUND", "Order was not found.")
+        if normalize_order_status(order.get("status")) != "completed":
+            raise DispatchConflict("ORDER_NOT_COMPLETED", "Reviews are available only for completed orders.")
+
+        review_key = "customerReview" if role == "customer" else "partnerReview"
+        if isinstance(order.get(review_key), dict) and order[review_key].get("rating") is not None:
+            raise DispatchConflict("REVIEW_ALREADY_SUBMITTED", "Review already submitted for this order.")
+
+        if role == "customer":
+            customer_id = str(order.get("customerId") or "").strip()
+            if author_id and customer_id and str(author_id) != customer_id and not _order_belongs_to_customer(order, str(author_id)):
+                raise DispatchConflict("REVIEW_FORBIDDEN", "Customer cannot review this order.")
+        else:
+            provider_id = str(order.get("assignedProviderId") or order.get("partnerId") or "").strip()
+            if author_id and provider_id and str(author_id) != provider_id:
+                raise DispatchConflict("REVIEW_FORBIDDEN", "Partner cannot review this order.")
+
+        now = _now_iso()
+        order[review_key] = {
+            "rating": stars,
+            "comment": note,
+            "at": now,
+            "authorId": str(author_id or "").strip() or None,
+            "authorRole": role,
+        }
+        order["updatedAt"] = now
+        _append_order_event(order, "REVIEW_SUBMITTED", now, {"role": role, "rating": stars})
+        _write_json_atomic(path, orders)
+
+        if role == "customer":
+            provider_id = str(order.get("assignedProviderId") or order.get("partnerId") or "").strip()
+            if provider_id:
+                providers = load_providers(provider_store_path)
+                for provider in providers:
+                    if str(provider.get("id")) != provider_id:
+                        continue
+                    _apply_star_rating(provider, stars)
+                    provider["updatedAt"] = now
+                    break
+                save_providers(providers, provider_store_path)
+        else:
+            customer_id = str(order.get("customerId") or "").strip()
+            if customer_id:
+                profiles = load_customer_profiles(customer_store_path)
+                for profile in profiles:
+                    if str(profile.get("id")) != customer_id:
+                        continue
+                    _apply_star_rating(profile, stars)
+                    profile["updatedAt"] = now
+                    break
+                save_customer_profiles(profiles, customer_store_path)
+
+        return enrich_order_for_client(order, provider_store_path, customer_store_path)

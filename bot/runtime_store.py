@@ -608,6 +608,8 @@ def sql_accept_offer(
             "distanceKm": accepted_offer.get("distanceKm"),
             "etaMinutes": max(2, math.ceil(float(accepted_offer.get("distanceKm") or 0) * 4)),
         }
+        if provider.get("name"):
+            order["providerName"] = provider.get("name")
         order["dispatchState"] = "ACCEPTED"
         order["updatedAt"] = now_iso
         history = order.get("statusHistory") if isinstance(order.get("statusHistory"), list) else []

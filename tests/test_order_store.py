@@ -8,12 +8,14 @@ from bot.order_store import (
     DispatchConflict,
     InvalidStatusTransition,
     MAX_PROVIDER_OFFERS,
+    OFFER_TIMEOUT_SECONDS,
     accept_offer,
     apply_provider_presence_ttl,
     confirm_order_price,
     decline_offer,
     dispatch_order,
     enrich_order_for_client,
+    get_order,
     get_provider_offers,
     get_telegram_session,
     load_offers,
@@ -393,6 +395,35 @@ def test_customer_can_confirm_partner_price(tmp_path):
     assert confirmed["priceConfirmedAt"]
 
 
+def test_accept_offer_exposes_partner_price_and_identity_for_customer(tmp_path):
+    order_path = tmp_path / "orders.json"
+    provider_path = tmp_path / "providers.json"
+    offer_path = tmp_path / "offers.json"
+
+    partner = _provider("p1", 48.6218, 22.2879)
+    partner["name"] = "Віталій"
+    save_providers([partner], provider_path)
+    order = save_order({"service": "tow", "customerCoordinates": {"lat": 48.6208, "lng": 22.2879}}, store_path=order_path)
+    dispatch_order(order["id"], order_path, provider_path, offer_path)
+    offer = load_offers(offer_path)[0]
+
+    accepted = accept_offer(offer["id"], "p1", order_path, provider_path, offer_path, proposed_price=1500)
+    polled = get_order(order["id"], order_path, provider_path)
+
+    assert accepted["order"]["status"] == "accepted"
+    assert accepted["order"]["partnerProposedPrice"] == 1500
+    assert accepted["order"]["assignedProvider"]["name"] == "Віталій"
+    assert polled is not None
+    assert polled["status"] == "accepted"
+    assert polled["partnerProposedPrice"] == 1500
+    assert polled["providerName"] == "Віталій"
+    assert polled["assignedProvider"]["name"] == "Віталій"
+
+
+def test_offer_timeout_default_allows_partner_to_enter_price():
+    assert OFFER_TIMEOUT_SECONDS >= 60
+
+
 def test_provider_can_decline_offer_and_cannot_accept_it_later(tmp_path):
     order_path = tmp_path / "orders.json"
     provider_path = tmp_path / "providers.json"
@@ -504,8 +535,61 @@ def test_customer_profile_does_not_auto_verify_on_save(tmp_path):
     assert created["verification"]["phone"] is False
 
 
+def test_duplicate_phone_registration_rejected(tmp_path):
+    store_path = tmp_path / "customers.json"
+    update_customer_profile(
+        "tg-829741830",
+        {"name": "Vitaliy", "phone": "+380661007434", "city": "Ужгород"},
+        store_path=store_path,
+    )
+
+    with pytest.raises(ValueError, match="phone_already_registered"):
+        update_customer_profile(
+            "guest-browser-1",
+            {"name": "Інший", "phone": "+380661007434", "city": "Київ"},
+            store_path=store_path,
+        )
+
+
+def test_duplicate_provider_phone_registration_rejected(tmp_path):
+    from bot.order_store import update_provider_profile
+
+    provider_path = tmp_path / "providers.json"
+    update_provider_profile(
+        "provider-a",
+        {
+            "name": "Партнер А",
+            "phone": "+380671112233",
+            "city": "Ужгород",
+            "vehicle": "Ford Transit",
+            "plate": "АА1234ВВ",
+            "specialties": ["tow"],
+            "serviceRadiusKm": 15,
+            "registeredAt": "2026-08-12T12:00:00Z",
+        },
+        store_path=provider_path,
+    )
+
+    with pytest.raises(ValueError, match="phone_already_registered"):
+        update_provider_profile(
+            "provider-b",
+            {
+                "name": "Партнер Б",
+                "phone": "+380671112233",
+                "city": "Львів",
+                "vehicle": "Mercedes Sprinter",
+                "plate": "ВС5678АА",
+                "specialties": ["battery"],
+                "serviceRadiusKm": 10,
+                "registeredAt": "2026-08-12T12:05:00Z",
+            },
+            store_path=provider_path,
+        )
+
+
 def test_guest_inherits_verification_from_tg_profile_by_phone(tmp_path, monkeypatch):
     from bot import otp_verification
+    from bot.order_store import get_customer_profile
 
     store_path = tmp_path / "customers.json"
     otp_path = tmp_path / "otp_codes.json"
@@ -516,6 +600,12 @@ def test_guest_inherits_verification_from_tg_profile_by_phone(tmp_path, monkeypa
     monkeypatch.setattr(otp_verification, "_generate_otp_code", lambda: "654321")
     monkeypatch.setattr(otp_verification, "_send_telegram_otp", lambda chat_id, code: None)
 
+    # Guest may hold the same phone before becoming a registered client (placeholder name).
+    update_customer_profile(
+        "guest-browser-1",
+        {"phone": "+380661007434"},
+        store_path=store_path,
+    )
     update_customer_profile(
         "tg-829741830",
         {"name": "Vitaliy", "phone": "+380661007434"},
@@ -524,18 +614,9 @@ def test_guest_inherits_verification_from_tg_profile_by_phone(tmp_path, monkeypa
     otp_verification.send_customer_verification_code("tg-829741830", "telegram", customer_store_path=store_path)
     otp_verification.confirm_customer_verification_code("tg-829741830", "654321", customer_store_path=store_path)
 
-    guest = update_customer_profile(
-        "guest-browser-1",
-        {"name": "Vitaliy", "phone": "+380661007434"},
-        store_path=store_path,
-    )
-    assert guest["verificationStatus"] == "verified"
-    assert guest["verification"]["phone"] is True
-
-    from bot.order_store import get_customer_profile
-
     loaded = get_customer_profile("guest-browser-1", store_path=store_path)
     assert loaded["verificationStatus"] == "verified"
+    assert loaded["verification"]["phone"] is True
 
 
 def test_default_customer_profile_has_empty_city(tmp_path):

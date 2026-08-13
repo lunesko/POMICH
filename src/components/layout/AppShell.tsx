@@ -24,7 +24,7 @@ export function AppShell({ children, compact, role, onRoleChange, onOpenCabinet,
     return (
       <div className="pomich-tg-app flex flex-col">
         {role ? (
-          <header className="pomich-tg-header flex h-11 shrink-0 items-center justify-between px-3 gap-2">
+          <header className="pomich-tg-header flex h-11 shrink-0 items-center justify-between px-3 gap-2 w-full">
             <button type="button" onClick={() => onRoleChange(null)} className="pomich-app-header-menu-btn">
               ← Меню
             </button>
@@ -57,7 +57,7 @@ export function AppShell({ children, compact, role, onRoleChange, onOpenCabinet,
   return (
     <div className="pomich-themed-shell min-h-dvh">
       {role ? (
-        <header className="pomich-tg-header relative z-[1400] flex h-[62px] shrink-0 items-center justify-center px-6">
+        <header className="pomich-tg-header flex h-[62px] shrink-0 items-center justify-center px-6 w-full">
           <div className="flex w-full max-w-7xl items-center justify-between gap-4">
             <a href="/" className="pomich-app-header-brand text-xl">POMICH</a>
             <div className="flex items-center gap-2 overflow-x-auto">

@@ -21,6 +21,13 @@ describe("dispatchOffer helpers", () => {
     expect(offerSecondsLeft({ ...baseOffer, expiresAt: new Date(Date.now() - 1000).toISOString() })).toBe(0)
   })
 
+  it("keeps offers without expiresAt acceptible (not auto-expired)", () => {
+    const openEnded = { ...baseOffer, expiresAt: undefined }
+    expect(isOfferActive(openEnded)).toBe(true)
+    expect(offerSecondsLeft(openEnded)).toBeGreaterThan(0)
+    expect(offerSecondsLeft({ ...baseOffer, expiresAt: "not-a-date" })).toBeGreaterThan(0)
+  })
+
   it("builds a map pin from an offer", () => {
     expect(pinFromOffer(baseOffer)).toMatchObject({
       id: "ORD-1",

@@ -4,13 +4,27 @@ const providerErrorMessages: Record<string, string> = {
   provider_credentials_invalid: 'Невірний логін або пароль партнера.',
   provider_token_invalid: 'Недійсний токен партнера.',
   provider_session_required: 'Потрібен вхід партнера.',
+  provider_session_invalid: 'Сесію партнера не відкрито. Оновіть сторінку або увійдіть знову.',
+  provider_session_expired: 'Сесія партнера закінчилась. Оновіть сторінку або увійдіть знову.',
+  provider_session_missing: 'Сесію не відкрито. Оновіть сторінку або увійдіть знову.',
+  provider_not_linked: 'Сесію не відкрито. Оновіть сторінку або увійдіть знову.',
+  customer_session_required: 'Сесію не відкрито. Оновіть сторінку або увійдіть знову.',
+  customer_session_invalid: 'Сесію не відкрито. Оновіть сторінку або увійдіть знову.',
+  customer_session_expired: 'Сесію не відкрито. Оновіть сторінку або увійдіть знову.',
+  customer_session_missing: 'Сесію не відкрито. Оновіть сторінку або увійдіть знову.',
+  bearer_token_invalid: 'Сесію не відкрито. Оновіть сторінку або увійдіть знову.',
+  role_forbidden: 'Сесію не відкрито. Оновіть сторінку або увійдіть знову.',
   customer_identity_mismatch: 'Сесія застаріла. Закрийте та відкрийте застосунок знову.',
-  provider_identity_mismatch: 'Акаунт партнера не збігається.',
+  provider_identity_mismatch: 'Акаунт партнера не збігається. Оновіть сторінку та спробуйте ще раз.',
+  'provider verification must be approved before going online':
+    'Підтвердіть телефон у Telegram, щоб вийти на лінію.',
+  'provider profile must be registered before going online': 'Спочатку заповніть профіль партнера.',
   rate_limit_exceeded: 'Забагато спроб. Спробуйте через 10 хвилин.',
+  send_cooldown: 'Код уже надіслано нещодавно. Зачекайте близько хвилини й спробуйте знову.',
   invalid_channel: 'Невірний канал підтвердження.',
   telegram_unavailable: 'Telegram недоступний. Спробуйте email.',
   telegram_not_linked:
-    'Спочатку відкрийте @pomich_ua_bot у Telegram і надішліть /start. Номер телефону в профілі має збігатися з номером у боті. Або надішліть код на email.',
+    'Відкрийте @pomich_ua_bot у Telegram, надішліть /start. Код прийде в бот — це підтвердження телефону, не нова реєстрація.',
   email_missing: 'Введіть email для підтвердження.',
   invalid_phone: 'Невірний номер телефону.',
   customer_not_found: 'Акаунт з цим номером не знайдено. Зареєструйтеся або перевірте номер.',
@@ -18,24 +32,100 @@ const providerErrorMessages: Record<string, string> = {
   code_expired: 'Код прострочено. Надішліть новий.',
   code_invalid: 'Невірний код. Перевірте та спробуйте ще раз.',
   invalid_code_format: 'Код має містити 6 цифр.',
-  telegram_send_failed: 'Не вдалося надіслати код у Telegram.',
+  telegram_send_failed: 'Не вдалося надіслати код у Telegram. Спробуйте ще раз або напишіть у @pomich_ua_bot.',
+  phone_already_registered: 'Цей номер уже зареєстровано. Увійдіть за номером або використайте інший.',
+  REVIEW_ALREADY_SUBMITTED: 'Оцінку вже збережено.',
+  ORDER_NOT_COMPLETED: 'Оцінку можна залишити лише після завершення заявки.',
+  REVIEW_FORBIDDEN: 'Немає доступу до оцінки цієї заявки.',
+  ORDER_NOT_FOUND: 'Заявку не знайдено.',
+  'Internal Server Error': 'Помилка сервера. Спробуйте ще раз через хвилину.',
+}
+
+export function formatOtpRetryWait(seconds: number, code?: string): string {
+  const safe = Math.max(1, Math.floor(seconds))
+  if (code === 'rate_limit_exceeded' || safe >= 60) {
+    const mins = Math.max(1, Math.ceil(safe / 60))
+    return `Забагато спроб. Спробуйте через ${mins} хв.`
+  }
+  return `Код уже надіслано. Зачекайте ${safe} с і спробуйте знову.`
+}
+
+export class ApiRequestError extends Error {
+  status: number
+  code?: string
+  retryAfterSeconds?: number
+
+  constructor(message: string, options?: { status?: number; code?: string; retryAfterSeconds?: number }) {
+    super(message)
+    this.name = 'ApiRequestError'
+    this.status = options?.status ?? 0
+    this.code = options?.code
+    this.retryAfterSeconds = options?.retryAfterSeconds
+  }
+}
+
+function messageForErrorCode(code: string, retryAfterSeconds?: number): string {
+  if (typeof retryAfterSeconds === 'number' && (code === 'rate_limit_exceeded' || code === 'send_cooldown')) {
+    return formatOtpRetryWait(retryAfterSeconds, code)
+  }
+  return providerErrorMessages[code] ?? code
 }
 
 /** Parse FastAPI error JSON with UTF-8 detail field. */
 export async function parseApiError(response: Response, fallback: string): Promise<string> {
+  const parsed = await parseApiErrorDetails(response, fallback)
+  return parsed.message
+}
+
+export async function parseApiErrorDetails(
+  response: Response,
+  fallback: string,
+): Promise<{ message: string; code?: string; retryAfterSeconds?: number }> {
   try {
     const body = await response.json()
     const detail = body?.detail
     if (typeof detail === 'string') {
-      return providerErrorMessages[detail] ?? detail
+      return { message: messageForErrorCode(detail), code: detail }
     }
-    if (detail && typeof detail === 'object' && typeof detail.message === 'string') {
-      return detail.message
+    if (detail && typeof detail === 'object' && !Array.isArray(detail)) {
+      const code = typeof detail.code === 'string' ? detail.code : undefined
+      const retryAfterSeconds =
+        typeof detail.retryAfterSeconds === 'number'
+          ? detail.retryAfterSeconds
+          : typeof detail.retry_after_seconds === 'number'
+            ? detail.retry_after_seconds
+            : undefined
+      if (code) {
+        return {
+          message: messageForErrorCode(code, retryAfterSeconds),
+          code,
+          retryAfterSeconds,
+        }
+      }
+      if (typeof detail.message === 'string') {
+        return { message: detail.message, retryAfterSeconds }
+      }
+    }
+    if (Array.isArray(detail) && detail.length > 0) {
+      const first = detail[0]
+      if (typeof first === 'string') {
+        return { message: messageForErrorCode(first), code: first }
+      }
+      if (first && typeof first === 'object') {
+        const msg = typeof first.msg === 'string' ? first.msg : typeof first.message === 'string' ? first.message : null
+        if (msg) return { message: msg }
+      }
     }
   } catch {
     // Response body is not JSON.
   }
-  return fallback
+  if (response.status === 429) {
+    return { message: providerErrorMessages.send_cooldown, code: 'send_cooldown' }
+  }
+  if (response.status >= 500) {
+    return { message: providerErrorMessages['Internal Server Error'], code: 'Internal Server Error' }
+  }
+  return { message: fallback }
 }
 
 export const FETCH_NETWORK_ERROR_UA = "Не вдалося з'єднатися з сервером. Спробуйте ще раз."
@@ -72,6 +162,8 @@ export interface OrderResponse {
   telegramUsername?: string
   vehicleState?: string
   customerComment?: string
+  customerId?: string
+  customerName?: string
   customerCoordinates?: {
     lat: number
     lng: number
@@ -92,6 +184,8 @@ export interface OrderResponse {
     distanceKm?: number
     etaMinutes?: number
   }
+  customerReview?: OrderReview
+  partnerReview?: OrderReview
   dispatchState?: string
   dispatchInfo?: {
     eligibleProviders?: number
@@ -102,6 +196,14 @@ export interface OrderResponse {
   }
   offers?: DispatchOffer[]
   statusHistory?: Array<{ status: string; at: string }>
+}
+
+export interface OrderReview {
+  rating: number
+  comment?: string
+  at?: string
+  authorId?: string | null
+  authorRole?: 'customer' | 'partner'
 }
 
 export interface TelegramSessionResponse {
@@ -412,6 +514,59 @@ export async function getOrder(orderId: string) {
   return response.json() as Promise<OrderResponse>
 }
 
+export async function getCustomerOrders(customerId: string, customerToken?: string, limit = 50) {
+  const response = await fetch(
+    `${getBaseUrl()}/customers/${encodeURIComponent(customerId)}/orders?limit=${encodeURIComponent(String(limit))}`,
+    {
+      cache: 'no-store',
+      headers: authHeaders(customerToken) ?? {},
+    },
+  )
+
+  if (!response.ok) {
+    throw new Error(await parseApiError(response, `Customer orders failed with ${response.status}`))
+  }
+
+  return response.json() as Promise<OrderResponse[]>
+}
+
+export async function getProviderOrders(providerId: string, providerToken?: string, limit = 50) {
+  const response = await fetch(
+    `${getBaseUrl()}/providers/${encodeURIComponent(providerId)}/orders?limit=${encodeURIComponent(String(limit))}`,
+    {
+      cache: 'no-store',
+      headers: authHeaders(providerToken) ?? {},
+    },
+  )
+
+  if (!response.ok) {
+    throw new Error(await parseApiError(response, `Provider orders failed with ${response.status}`))
+  }
+
+  return response.json() as Promise<OrderResponse[]>
+}
+
+export async function submitOrderReview(
+  orderId: string,
+  payload: { role: 'customer' | 'partner'; rating: number; comment?: string; authorId?: string; providerId?: string },
+  token?: string,
+) {
+  const response = await fetch(`${getBaseUrl()}/orders/${encodeURIComponent(orderId)}/reviews`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(authHeaders(token) ?? {}),
+    },
+    body: JSON.stringify(payload),
+  })
+
+  if (!response.ok) {
+    throw new Error(await parseApiError(response, `Order review failed with ${response.status}`))
+  }
+
+  return response.json() as Promise<OrderResponse>
+}
+
 export async function cancelOrder(orderId: string) {
   const response = await fetch(`${getBaseUrl()}/orders/${encodeURIComponent(orderId)}/cancel`, {
     method: 'POST',
@@ -537,6 +692,8 @@ export interface CustomerVerifySendResponse {
   channel: 'telegram' | 'email'
   expiresAt: string
   expiresInSeconds: number
+  cooldownSeconds?: number
+  alreadySent?: boolean
   devCode?: string
 }
 
@@ -556,7 +713,12 @@ export async function sendCustomerVerificationCode(
   })
 
   if (!response.ok) {
-    throw new Error(await parseApiError(response, 'Не вдалося надіслати код підтвердження.'))
+    const details = await parseApiErrorDetails(response, 'Не вдалося надіслати код підтвердження.')
+    throw new ApiRequestError(details.message, {
+      status: response.status,
+      code: details.code,
+      retryAfterSeconds: details.retryAfterSeconds,
+    })
   }
 
   return response.json() as Promise<CustomerVerifySendResponse>
@@ -584,7 +746,12 @@ export async function sendCustomerPhoneLoginCode(phone: string) {
   })
 
   if (!response.ok) {
-    throw new Error(await parseApiError(response, 'Не вдалося надіслати код для входу.'))
+    const details = await parseApiErrorDetails(response, 'Не вдалося надіслати код для входу.')
+    throw new ApiRequestError(details.message, {
+      status: response.status,
+      code: details.code,
+      retryAfterSeconds: details.retryAfterSeconds,
+    })
   }
 
   return response.json() as Promise<CustomerVerifySendResponse>
@@ -715,8 +882,18 @@ export async function updateProviderPresence(providerId: string, payload: { stat
   })
 
   if (!response.ok) {
-    const error = await response.json().catch(() => undefined)
-    throw Object.assign(new Error(`Provider presence request failed with ${response.status}`), { status: response.status, detail: error?.detail })
+    let detail: string | undefined
+    try {
+      const error = await response.json()
+      detail = typeof error?.detail === 'string' ? error.detail : undefined
+    } catch {
+      detail = undefined
+    }
+    const message =
+      (detail && providerErrorMessages[detail]) ||
+      (detail && /[А-Яа-яІіЇїЄєҐґ]/.test(detail) ? detail : undefined) ||
+      "Не вдалося оновити статус. Перевірте з'єднання."
+    throw Object.assign(new Error(message), { status: response.status, detail })
   }
 
   return response.json() as Promise<ProviderAvailability>
@@ -757,7 +934,7 @@ export async function updateProviderProfile(providerId: string, payload: {
   })
 
   if (!response.ok) {
-    throw new Error(`Provider profile request failed with ${response.status}`)
+    throw new Error(await parseApiError(response, "Не вдалося зберегти профіль партнера."))
   }
 
   return response.json() as Promise<ProviderAvailability>
@@ -827,7 +1004,11 @@ export async function createSelfProviderSession(customerId: string, customerToke
   })
 
   if (!response.ok) {
-    throw new Error(`Self provider session request failed with ${response.status}`)
+    const parsed = await parseApiErrorDetails(response, 'Не вдалося відкрити сесію партнера.')
+    throw Object.assign(new Error(parsed.message), {
+      status: response.status,
+      detail: parsed.code || parsed.message,
+    })
   }
 
   return response.json() as Promise<AuthSession>

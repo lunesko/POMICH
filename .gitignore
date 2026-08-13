@@ -18,3 +18,15 @@ data/
 .benchmarks/
 __pycache__/
 *.py[cod]
+
+# Secrets / credentials / local junk
+*.pem
+*.key
+*credentials*
+*secret*
+!.env.example
+!.env.production.example
+cloudflared*.json
+.cloudflared/
+*_tmp_*.py
+_tmp_*.py

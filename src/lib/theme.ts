@@ -1,3 +1,5 @@
+import { telegramSupportsVersion } from "../telegram"
+
 export type PomichThemeMode = "light" | "dark"
 
 export const POMICH_THEME_STORAGE_KEY = "pomichLandingTheme"
@@ -31,9 +33,9 @@ export const pomichThemeColors = {
       "radial-gradient(ellipse 120% 80% at 20% 0%, rgba(22, 163, 106, 0.14), transparent 55%), radial-gradient(ellipse 90% 70% at 85% 15%, rgba(47, 128, 237, 0.1), transparent 50%), linear-gradient(165deg, #FAFCFB 0%, #F0F7F3 48%, #E3EFE8 100%)",
     heroPattern: "radial-gradient(circle at center, rgba(22, 163, 106, 0.09) 1px, transparent 1px)",
     heroGradientText: "linear-gradient(90deg, #0B7A4D 0%, #1D6FD4 52%, #B8860B 100%)",
-    heroFadeBottom: "linear-gradient(180deg, transparent, #F4F9F7)",
-    section: "#F4F9F7",
-    sectionAlt: "#EAF2EF",
+    heroFadeBottom: "linear-gradient(180deg, transparent 55%, rgba(244,249,247,0.18) 100%)",
+    section: "rgba(244, 249, 247, 0.62)",
+    sectionAlt: "rgba(234, 242, 239, 0.68)",
     toggleTrack: "#E2E8F0",
     toggleBorder: "#CBD5E1",
     toggleKnob: "#FFFFFF",
@@ -72,16 +74,17 @@ export const pomichThemeColors = {
       "radial-gradient(circle at 50% 26%, rgba(22, 163, 106, 0.18), rgba(9, 11, 14, 0.18) 34%, #090B0E 78%), linear-gradient(180deg, rgba(9, 11, 14, 0.58), rgba(9, 11, 14, 0.96))",
     heroPattern: "radial-gradient(circle at center, rgba(22, 163, 106, 0.07) 1px, transparent 1px)",
     heroGradientText: "linear-gradient(90deg, #8EF0BE 0%, #69A7FF 52%, #FACC15 100%)",
-    heroFadeBottom: "linear-gradient(180deg, transparent, #090B0E)",
-    section: "#090B0E",
-    sectionAlt: "#0D1015",
+    heroFadeBottom: "linear-gradient(180deg, transparent 55%, rgba(8,12,14,0.22) 100%)",
+    section: "rgba(9, 11, 14, 0.58)",
+    sectionAlt: "rgba(13, 16, 21, 0.64)",
     toggleTrack: "rgba(255, 255, 255, 0.08)",
     toggleBorder: "rgba(255, 255, 255, 0.14)",
     toggleKnob: "#FFFFFF",
-    glassCard: "linear-gradient(180deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0.035))",
-    glassCardBorder: "rgba(255, 255, 255, 0.13)",
-    roleCardBg: "linear-gradient(180deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0.035))",
-    roleCardBorder: "rgba(255, 255, 255, 0.13)",
+    /* Solid plates over the fixed map — never see-through glass on forms */
+    glassCard: "#12151A",
+    glassCardBorder: "rgba(255, 255, 255, 0.2)",
+    roleCardBg: "#161A21",
+    roleCardBorder: "rgba(255, 255, 255, 0.2)",
     roleCardText: "#FFFFFF",
     roleCardMuted: "#B9C2D0",
   },
@@ -135,7 +138,8 @@ export function clearPomichTelegramThemeOverrides() {
 export function syncPomichThemeToTelegramWebApp(mode: PomichThemeMode) {
   if (typeof window === "undefined") return
   const webApp = window.Telegram?.WebApp
-  if (!webApp) return
+  // setHeaderColor / setBackgroundColor: Bot API 6.1+ (CSS theme still applies without these)
+  if (!telegramSupportsVersion(webApp, "6.1")) return
   const colors = pomichThemeColors[mode]
   webApp.setHeaderColor?.(mode === "dark" ? "#090B0E" : "#FFFFFF")
   webApp.setBackgroundColor?.(colors.bg)

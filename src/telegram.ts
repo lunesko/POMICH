@@ -55,6 +55,13 @@ export interface TelegramHapticFeedback {
   selectionChanged: () => void
 }
 
+export interface TelegramSafeAreaInset {
+  top?: number
+  bottom?: number
+  left?: number
+  right?: number
+}
+
 export interface TelegramWebApp {
   initData?: string
   initDataUnsafe?: {
@@ -68,6 +75,10 @@ export interface TelegramWebApp {
   isExpanded?: boolean
   viewportHeight?: number
   viewportStableHeight?: number
+  /** Bot API 7.0+ — system safe area (notch / home indicator). */
+  safeAreaInset?: TelegramSafeAreaInset
+  /** Bot API 8.0+ — content safe area inside Telegram chrome. */
+  contentSafeAreaInset?: TelegramSafeAreaInset
   headerColor?: string
   backgroundColor?: string
   isClosingConfirmationEnabled?: boolean
@@ -77,6 +88,7 @@ export interface TelegramWebApp {
   ready?: () => void
   expand?: () => void
   close?: () => void
+  isVersionAtLeast?: (version: string) => boolean
   setHeaderColor?: (color: string) => void
   setBackgroundColor?: (color: string) => void
   enableClosingConfirmation?: () => void
@@ -84,6 +96,11 @@ export interface TelegramWebApp {
   isVerticalSwipesEnabled?: boolean
   enableVerticalSwipes?: () => void
   disableVerticalSwipes?: () => void
+}
+
+/** True when WebApp reports Bot API >= required (no-op / false if helper missing). */
+export function telegramSupportsVersion(webApp: TelegramWebApp | undefined, version: string): boolean {
+  return Boolean(webApp?.isVersionAtLeast?.(version))
 }
 
 export interface TelegramContext {
@@ -166,6 +183,46 @@ const DEFAULT_THEME: Record<string, string> = {
   "--tg-theme-destructive-text-color": "#EF4444",
 }
 
+function setInsetCssVar(root: HTMLElement, name: string, value: number | undefined) {
+  if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+    root.style.setProperty(name, `${value}px`)
+  }
+}
+
+/**
+ * Keep app shell height aligned with the *visible* viewport (Telegram WebApp
+ * stable height, or browser visualViewport). Prevents bottom-sheet clipping
+ * under mobile browser chrome / Telegram UI.
+ */
+export function syncAppViewportHeight(webApp?: TelegramWebApp) {
+  if (typeof document === "undefined" || typeof window === "undefined") return
+
+  const root = document.documentElement
+  const tgHeight = webApp?.viewportStableHeight ?? webApp?.viewportHeight
+  const visualHeight = window.visualViewport?.height
+  const innerHeight = window.innerHeight
+  const candidates = [tgHeight, visualHeight, innerHeight].filter(
+    (value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0,
+  )
+  if (candidates.length === 0) return
+
+  /* Prefer the smallest positive height — that matches what the user can see. */
+  const height = Math.round(Math.min(...candidates))
+  root.style.setProperty("--tg-viewport-stable-height", `${height}px`)
+
+  const safe = webApp?.safeAreaInset
+  setInsetCssVar(root, "--tg-safe-area-inset-top", safe?.top)
+  setInsetCssVar(root, "--tg-safe-area-inset-right", safe?.right)
+  setInsetCssVar(root, "--tg-safe-area-inset-bottom", safe?.bottom)
+  setInsetCssVar(root, "--tg-safe-area-inset-left", safe?.left)
+
+  const content = webApp?.contentSafeAreaInset
+  setInsetCssVar(root, "--tg-content-safe-area-inset-top", content?.top)
+  setInsetCssVar(root, "--tg-content-safe-area-inset-right", content?.right)
+  setInsetCssVar(root, "--tg-content-safe-area-inset-bottom", content?.bottom)
+  setInsetCssVar(root, "--tg-content-safe-area-inset-left", content?.left)
+}
+
 export function applyTelegramTheme(webApp?: TelegramWebApp) {
   if (typeof document === "undefined") return
 
@@ -188,14 +245,14 @@ export function applyTelegramTheme(webApp?: TelegramWebApp) {
     }
   }
 
-  const stableHeight = webApp?.viewportStableHeight ?? webApp?.viewportHeight
-  if (stableHeight && stableHeight > 0) {
-    root.style.setProperty("--tg-viewport-stable-height", `${stableHeight}px`)
-  }
+  syncAppViewportHeight(webApp)
 
   if (usesPomichTheme) {
     return
   }
+
+  // setHeaderColor / setBackgroundColor: Bot API 6.1+
+  if (!telegramSupportsVersion(webApp, "6.1")) return
 
   const headerColor = params.header_bg_color ?? params.bg_color
   const backgroundColor = params.bg_color
@@ -205,6 +262,7 @@ export function applyTelegramTheme(webApp?: TelegramWebApp) {
 
 /** Allow finger scroll inside the Mini App (Bot API 7.7+). */
 export function enableTelegramPageScroll(webApp?: TelegramWebApp) {
+  if (!telegramSupportsVersion(webApp, "7.7")) return
   webApp?.disableVerticalSwipes?.()
 }
 

@@ -356,6 +356,33 @@ def notify_order_created(chat_id: str | None, order: dict[str, Any]) -> dict[str
         return {"ok": False, "error": str(exc)}
 
 
+def notify_order_accepted(order: dict[str, Any]) -> dict[str, Any] | None:
+    chat_id = str(order.get("chatId") or "").strip()
+    if not chat_id:
+        return None
+
+    order_id = str(order.get("id") or "").strip() or "—"
+    assigned = order.get("assignedProvider") if isinstance(order.get("assignedProvider"), dict) else {}
+    partner_name = str(assigned.get("name") or order.get("providerName") or "Партнер").strip() or "Партнер"
+    price = order.get("partnerProposedPrice")
+    try:
+        price_label = f"{float(price):.0f} ₴" if price is not None and str(price).strip() != "" else "ціну"
+    except (TypeError, ValueError):
+        price_label = "ціну"
+
+    text = (
+        f"✅ Партнер прийняв вашу заявку #{order_id}\n\n"
+        f"Хто: {partner_name}\n"
+        f"Запропонована ціна: {price_label}\n\n"
+        "Відкрийте POMICH, щоб підтвердити ціну або зв'язатися з партнером."
+    )
+    try:
+        return TelegramBotClient().send_message(chat_id, text)
+    except TelegramApiError as exc:
+        print(f"Telegram API error while notifying accept: {exc}", flush=True)
+        return {"ok": False, "error": str(exc)}
+
+
 def notify_order_cancelled(order: dict[str, Any]) -> list[dict[str, Any]]:
     from bot.order_store import partner_telegram_user_ids_for_order
 

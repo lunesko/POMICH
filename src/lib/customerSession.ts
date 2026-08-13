@@ -9,8 +9,10 @@ import { getTelegramContext, type TelegramContext } from "../telegram"
 import {
   authSessionStorageKey,
   clearCustomerAuthStorage,
+  clearSessionMismatchNotice,
   detectStoredCustomerMismatch,
   isExplicitLogout,
+  markSessionMismatchNotice,
   persistCustomerId,
   purgeStaleCustomerSessions,
   readPersistedCustomerId,
@@ -140,8 +142,15 @@ export async function resolveCustomerAuthSession(
   const ctx = coalesceTelegramContext(telegramContext)
   const expectedCustomerId = readPersistedCustomerId(ctx.chatId)
 
+  if (options?.explicitSignIn) {
+    // Successful intentional login must not keep a stale mismatch banner around.
+    clearSessionMismatchNotice()
+  }
+
   if (ctx.chatId && detectStoredCustomerMismatch(ctx.chatId)) {
     clearCustomerAuthStorage()
+    // Keep a one-shot notice so cabinet can explain the purge (not forever).
+    markSessionMismatchNotice("telegram-stale-web")
   }
 
   purgeStaleCustomerSessions(expectedCustomerId)

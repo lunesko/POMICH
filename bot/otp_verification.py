@@ -31,6 +31,8 @@ OTP_LOCK = threading.RLock()
 OTP_TTL_SECONDS = 600
 OTP_RATE_LIMIT_WINDOW_SECONDS = 600
 OTP_RATE_LIMIT_MAX_SENDS = 3
+# Cross-customer debounce: same phone / Telegram chat must not get two codes within this window.
+OTP_SEND_COOLDOWN_SECONDS = 45
 OTP_CODE_LENGTH = 6
 
 UK_OTP_EMAIL_MESSAGE = "Ваш код підтвердження POMICH: {code}. Дійсний 10 хв."
@@ -39,9 +41,16 @@ UK_EMAIL_SUBJECT = "Код підтвердження POMICH"
 
 
 class OtpVerificationError(Exception):
-    def __init__(self, code: str, message: str) -> None:
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        retry_after_seconds: Optional[int] = None,
+    ) -> None:
         self.code = code
         self.message = message
+        self.retry_after_seconds = retry_after_seconds
         super().__init__(message)
 
 
@@ -203,6 +212,107 @@ def _send_email_otp(email: str, code: str) -> None:
         smtp.sendmail(sender, [email], message.as_string())
 
 
+def _record_last_sent_at(record: Dict[str, Any]) -> Optional[datetime]:
+    send_history = record.get("sendHistory") if isinstance(record.get("sendHistory"), list) else []
+    last_iso = None
+    for item in send_history:
+        if isinstance(item, str):
+            last_iso = item
+    if not last_iso and isinstance(record.get("lastSentAt"), str):
+        last_iso = record.get("lastSentAt")
+    return _parse_iso(last_iso) if last_iso else None
+
+
+def _retry_after_from_send_history(
+    recent_sends: list,
+    now: datetime,
+    *,
+    window_seconds: int = OTP_RATE_LIMIT_WINDOW_SECONDS,
+) -> int:
+    """Seconds until the oldest send leaves the rate-limit window (at least 1)."""
+    oldest: Optional[datetime] = None
+    for item in recent_sends:
+        sent_at = _parse_iso(item) if isinstance(item, str) else None
+        if sent_at is None:
+            continue
+        if oldest is None or sent_at < oldest:
+            oldest = sent_at
+    if oldest is None:
+        return max(1, int(window_seconds))
+    remaining = int((oldest + timedelta(seconds=window_seconds) - now).total_seconds())
+    return max(1, remaining)
+
+
+def _record_has_valid_code(record: Dict[str, Any], now: datetime) -> bool:
+    expires_at = _parse_iso(record.get("expiresAt"))
+    return bool(expires_at and expires_at > now and record.get("codeHash"))
+
+
+def _already_sent_response(record: Dict[str, Any], now: datetime, retry_after: int) -> Dict[str, Any]:
+    expires_at = _parse_iso(record.get("expiresAt"))
+    expires_in = max(1, int((expires_at - now).total_seconds())) if expires_at else OTP_TTL_SECONDS
+    channel = str(record.get("channel") or "telegram").strip().lower() or "telegram"
+    return {
+        "ok": True,
+        "channel": channel,
+        "expiresAt": record.get("expiresAt"),
+        "expiresInSeconds": expires_in,
+        "cooldownSeconds": retry_after,
+        "alreadySent": True,
+    }
+
+
+def _delete_otp_messages_for_chat(store: Dict[str, Any], telegram_chat_id: str) -> None:
+    """Remove previous OTP Telegram messages for this chat across all customer rows."""
+    chat_key = str(telegram_chat_id)
+    for record in store.values():
+        if not isinstance(record, dict):
+            continue
+        if str(record.get("telegramChatId") or "") != chat_key:
+            continue
+        _delete_stored_otp_telegram_message(record)
+        record.pop("telegramMessageId", None)
+
+
+def _enforce_delivery_cooldown(
+    store: Dict[str, Any],
+    *,
+    now: datetime,
+    telegram_chat_id: Optional[str] = None,
+    phone: Optional[str] = None,
+    email: Optional[str] = None,
+) -> None:
+    """Block duplicate OTP delivery to the same phone / Telegram chat / email within cooldown."""
+    phone_key = str(phone or "").strip()
+    chat_key = str(telegram_chat_id or "").strip()
+    email_key = str(email or "").strip().lower()
+    for record in store.values():
+        if not isinstance(record, dict):
+            continue
+        last_sent = _record_last_sent_at(record)
+        if last_sent is None or now - last_sent > timedelta(seconds=OTP_SEND_COOLDOWN_SECONDS):
+            continue
+        record_chat = str(record.get("telegramChatId") or "").strip()
+        record_phone = str(record.get("phone") or "").strip()
+        record_target = str(record.get("target") or "").strip()
+        record_email = str(record.get("email") or "").strip().lower()
+        same_chat = bool(chat_key) and (record_chat == chat_key or record_target == chat_key)
+        same_phone = bool(phone_key) and record_phone == phone_key
+        same_email = bool(email_key) and (record_email == email_key or record_target.lower() == email_key)
+        if same_chat or same_phone or same_email:
+            remaining = OTP_SEND_COOLDOWN_SECONDS
+            if last_sent is not None:
+                remaining = max(
+                    1,
+                    int((last_sent + timedelta(seconds=OTP_SEND_COOLDOWN_SECONDS) - now).total_seconds()),
+                )
+            raise OtpVerificationError(
+                "send_cooldown",
+                f"verification code already sent recently; retry after {remaining}s",
+                retry_after_seconds=remaining,
+            )
+
+
 def send_customer_verification_code(
     customer_id: str,
     channel: str,
@@ -211,6 +321,7 @@ def send_customer_verification_code(
     email: Optional[str] = None,
     store_path: Optional[Path] = None,
     customer_store_path: Optional[Path] = None,
+    send_reason: str = "unspecified",
 ) -> Dict[str, Any]:
     normalized_channel = str(channel or "").strip().lower()
     if normalized_channel not in {"telegram", "email"}:
@@ -225,17 +336,29 @@ def send_customer_verification_code(
         phone_value = str(phone).strip()
         if phone_value and not _is_valid_ukraine_mobile_phone(phone_value):
             raise OtpVerificationError("invalid_phone", "invalid ukraine mobile phone")
-        if phone_value:
+        # Do not re-patch an unchanged phone: legacy guest+tg duplicates would raise
+        # phone_already_registered and block OTP delivery.
+        existing_phone = str(profile.get("phone") or "").strip()
+        if phone_value and phone_value != existing_phone:
             patch["phone"] = phone_value
     if email is not None:
-        patch["email"] = str(email).strip()
+        email_value = str(email).strip()
+        existing_email = str(profile.get("email") or "").strip()
+        if email_value and email_value != existing_email:
+            patch["email"] = email_value
 
     if patch:
-        profile = update_customer_profile(customer_id, patch, customer_store_path)
+        try:
+            profile = update_customer_profile(customer_id, patch, customer_store_path)
+        except ValueError as exc:
+            if str(exc) == "phone_already_registered":
+                raise OtpVerificationError("phone_already_registered", "phone already registered") from exc
+            raise
 
     now = datetime.utcnow()
     now_iso = _now_iso()
     expires_at = now + timedelta(seconds=OTP_TTL_SECONDS)
+    profile_phone = str(profile.get("phone") or phone or "").strip() or None
 
     with OTP_LOCK:
         otp_path = store_path or _default_otp_store_path()
@@ -248,7 +371,23 @@ def send_customer_verification_code(
             if sent_at and now - sent_at <= timedelta(seconds=OTP_RATE_LIMIT_WINDOW_SECONDS):
                 recent_sends.append(item)
         if len(recent_sends) >= OTP_RATE_LIMIT_MAX_SENDS:
-            raise OtpVerificationError("rate_limit_exceeded", "too many verification codes sent, try again later")
+            retry_after = _retry_after_from_send_history(recent_sends, now)
+            # Soft-lock fix: if a valid code is still live, tell the client to use it
+            # instead of a generic failure. If the code already expired but history is
+            # still full (cleanup keeps sendHistory), free one slot so login is not stuck.
+            if _record_has_valid_code(record, now):
+                return _already_sent_response(record, now, retry_after)
+            recent_sends = recent_sends[-(OTP_RATE_LIMIT_MAX_SENDS - 1) :]
+
+        # Resend within delivery cooldown while OTP is still valid → reuse, don't 429.
+        if _record_has_valid_code(record, now):
+            last_sent = _record_last_sent_at(record)
+            if last_sent and now - last_sent <= timedelta(seconds=OTP_SEND_COOLDOWN_SECONDS):
+                remaining = max(
+                    1,
+                    int((last_sent + timedelta(seconds=OTP_SEND_COOLDOWN_SECONDS) - now).total_seconds()),
+                )
+                return _already_sent_response(record, now, remaining)
 
         code = _generate_otp_code()
         code_hash = _hash_otp_code(customer_id, normalized_channel, code)
@@ -259,7 +398,7 @@ def send_customer_verification_code(
             telegram_chat_id = _telegram_chat_id_for_customer(
                 customer_id,
                 profile,
-                phone=str(profile.get("phone") or phone or "").strip() or None,
+                phone=profile_phone,
                 customer_store_path=customer_store_path,
             )
             if not telegram_chat_id:
@@ -267,22 +406,44 @@ def send_customer_verification_code(
                     "telegram_not_linked",
                     "telegram user id not linked; start @pomich_ua_bot with the same phone",
                 )
+            _enforce_delivery_cooldown(
+                store,
+                now=now,
+                telegram_chat_id=telegram_chat_id,
+                phone=profile_phone,
+            )
+            # Drop previous OTP bubbles for this chat (any customer id) before sending a new one.
+            _delete_otp_messages_for_chat(store, telegram_chat_id)
             telegram_message_id = _send_telegram_otp(telegram_chat_id, code)
             target = telegram_chat_id
         else:
             target_email = str(email or profile.get("email") or "").strip()
             if not target_email or "@" not in target_email:
                 raise OtpVerificationError("email_missing", "email is required for email verification")
+            _enforce_delivery_cooldown(store, now=now, phone=profile_phone, email=target_email)
             _send_email_otp(target_email, code)
             target = target_email
 
+        print(
+            "[POMICH OTP] sent "
+            f"reason={send_reason} endpoint={send_reason} customer_id={customer_id} "
+            f"channel={normalized_channel} phone={profile_phone or '-'} "
+            f"target={target} chat_id={telegram_chat_id or '-'}",
+            flush=True,
+        )
+
         recent_sends.append(now_iso)
-        record: Dict[str, Any] = {
+        record = {
             "codeHash": code_hash,
             "channel": normalized_channel,
             "target": target,
+            "phone": profile_phone,
+            "email": target if normalized_channel == "email" else None,
             "expiresAt": f"{expires_at.isoformat(timespec='seconds')}Z",
             "sendHistory": recent_sends,
+            "lastSentAt": now_iso,
+            "sendReason": send_reason,
+            "customerId": customer_id,
         }
         if normalized_channel == "telegram" and telegram_chat_id and telegram_message_id is not None:
             record["telegramChatId"] = str(telegram_chat_id)
@@ -296,6 +457,7 @@ def send_customer_verification_code(
         "channel": normalized_channel,
         "expiresAt": store[customer_id]["expiresAt"],
         "expiresInSeconds": OTP_TTL_SECONDS,
+        "cooldownSeconds": OTP_SEND_COOLDOWN_SECONDS,
     }
     if not _is_production_runtime() and (normalized_channel == "email" and not _smtp_configured()):
         response["devCode"] = code

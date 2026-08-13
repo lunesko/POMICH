@@ -5,7 +5,8 @@ import {
   partnerVehicleMakes,
 } from "./partnerVehicleCatalog"
 import { calculateDistanceKm, type ServiceKey } from "./pomichDomain"
-import { resolveProviderIdForCustomer } from "./userAccount"
+import { DEFAULT_SERVICE_CITY } from "./ukraineCities"
+import { resolveProviderIdForCustomer, storeLinkedProviderId } from "./userAccount"
 
 export { PARTNER_VEHICLE_MAKE_OTHER, partnerVehicleMakes } from "./partnerVehicleCatalog"
 
@@ -87,7 +88,7 @@ export function emptyPartnerRegistrationForm(): PartnerRegistrationForm {
     vehicleMakeOther: "",
     vehicleModel: "",
     plate: "",
-    city: "",
+    city: DEFAULT_SERVICE_CITY,
     specialties: [],
     serviceRadiusKm: DEFAULT_SERVICE_RADIUS_KM,
     identityDocumentRef: "",
@@ -263,13 +264,18 @@ export function getActiveProviderId(): string {
   if (typeof window === "undefined") return provider.id
   const fromQuery = new URLSearchParams(window.location.search).get("providerId")
   if (fromQuery) return fromQuery
-  const linked = window.sessionStorage.getItem("pomichLinkedProviderId")
-  if (linked) return linked
-  const customerId = window.sessionStorage.getItem("pomichCustomerId")
-  if (customerId) {
-    const derived = resolveProviderIdForCustomer(customerId)
-    if (derived) return derived
+  const customerId =
+    window.sessionStorage.getItem("pomichCustomerId") ||
+    window.localStorage.getItem("pomichCustomerId")
+  const derived = customerId ? resolveProviderIdForCustomer(customerId) : ""
+  const linked = window.sessionStorage.getItem("pomichLinkedProviderId") || ""
+  // Drop stale seed link (provider-oleksandr) when the signed-in customer maps elsewhere.
+  if (derived && linked && linked !== derived && linked === provider.id) {
+    storeLinkedProviderId(derived)
+    return derived
   }
+  if (linked) return linked
+  if (derived) return derived
   return provider.id
 }
 

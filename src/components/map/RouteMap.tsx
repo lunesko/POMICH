@@ -62,10 +62,30 @@ import {
   MAP_GEO_DEBOUNCE_MS,
   MAP_RECENTER_THRESHOLD_M,
   moveMapToPoint,
+  requestCurrentPosition,
+  resolveSheetBottomPaddingPx,
   shouldRecenterMap,
 } from "../../lib/mapGeo"
 
-import type { SheetSnap } from "../../hooks/useMobileSheetSnap"
+import { readSheetHeights, type SheetSnap } from "../../hooks/useMobileSheetSnap"
+
+function sheetPaddingBottomPx(
+  map: { getSize: () => { x: number; y: number } },
+  sheetSnap?: SheetSnap,
+  overlayMode = false,
+): number {
+  const heights = readSheetHeights()
+  return resolveSheetBottomPaddingPx(sheetSnap, map.getSize().y, heights, { overlayMode })
+}
+
+function afterLayout(cb: () => void): () => void {
+  if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+    const id = window.requestAnimationFrame(cb)
+    return () => window.cancelAnimationFrame(id)
+  }
+  const id = window.setTimeout(cb, 0)
+  return () => window.clearTimeout(id)
+}
 
 
 
@@ -121,7 +141,17 @@ function FitRouteBounds({ coords }: { coords: LatLngTuple[] }) {
   return null
 }
 
-function MapExplicitRecenter({ point, trigger }: { point: LatLngTuple; trigger: number }) {
+function MapExplicitRecenter({
+  point,
+  trigger,
+  sheetSnap,
+  overlayMode = false,
+}: {
+  point: LatLngTuple
+  trigger: number
+  sheetSnap?: SheetSnap
+  overlayMode?: boolean
+}) {
   const map = useMap()
   const pointRef = useRef(point)
   const lastTriggerRef = useRef(0)
@@ -131,8 +161,14 @@ function MapExplicitRecenter({ point, trigger }: { point: LatLngTuple; trigger: 
   useEffect(() => {
     if (trigger <= 0 || trigger === lastTriggerRef.current) return
     lastTriggerRef.current = trigger
-    moveMapToPoint(map, pointRef.current, { animateLarge: true })
-  }, [trigger, map])
+    // Wait a frame so overlay sheet layout / map size are settled (Telegram WebApp).
+    return afterLayout(() => {
+      moveMapToPoint(map, pointRef.current, {
+        animateLarge: true,
+        paddingBottom: sheetPaddingBottomPx(map, sheetSnap, overlayMode),
+      })
+    })
+  }, [trigger, map, sheetSnap, overlayMode])
 
   return null
 }
@@ -141,10 +177,14 @@ function MapDebouncedFollow({
   point,
   enabled,
   recenterTrigger = 0,
+  sheetSnap,
+  overlayMode = false,
 }: {
   point: LatLngTuple
   enabled: boolean
   recenterTrigger?: number
+  sheetSnap?: SheetSnap
+  overlayMode?: boolean
 }) {
   const map = useMap()
   const lastCenterRef = useRef<LatLngTuple | null>(null)
@@ -170,12 +210,44 @@ function MapDebouncedFollow({
       const fromPoint = { lat: from[0], lng: from[1] }
       if (!shouldRecenterMap(fromPoint, nextPoint, MAP_RECENTER_THRESHOLD_M)) return
 
-      moveMapToPoint(map, point, { animateLarge: false })
+      moveMapToPoint(map, point, {
+        animateLarge: false,
+        paddingBottom: sheetPaddingBottomPx(map, sheetSnap, overlayMode),
+      })
       lastCenterRef.current = point
     }, MAP_GEO_DEBOUNCE_MS)
 
     return () => window.clearTimeout(timeoutId)
-  }, [enabled, map, point])
+  }, [enabled, map, point, sheetSnap, overlayMode])
+
+  return null
+}
+
+/** After locate / while following — re-pad when the bottom sheet snap changes. */
+function MapKeepVisibleAboveSheet({
+  point,
+  sheetSnap,
+  overlayMode = false,
+  active,
+}: {
+  point: LatLngTuple
+  sheetSnap?: SheetSnap
+  overlayMode?: boolean
+  active: boolean
+}) {
+  const map = useMap()
+  const pointRef = useRef(point)
+  pointRef.current = point
+
+  useEffect(() => {
+    if (!active || (!sheetSnap && !overlayMode)) return
+    return afterLayout(() => {
+      moveMapToPoint(map, pointRef.current, {
+        animateLarge: false,
+        paddingBottom: sheetPaddingBottomPx(map, sheetSnap, overlayMode),
+      })
+    })
+  }, [active, map, sheetSnap, overlayMode])
 
   return null
 }
@@ -239,15 +311,15 @@ const liveProviderIcon = L.divIcon({
 
 
 const userLocationIcon = L.divIcon({
-
   className: "pomich-user-location-marker",
-
-  html: '<div style="width:20px;height:20px;border-radius:999px;background:#6366F1;border:3px solid white;box-shadow:0 8px 24px rgba(99,102,241,0.35)"></div>',
-
-  iconSize: [20, 20],
-
-  iconAnchor: [10, 10],
-
+  html:
+    '<div class="pomich-user-loc" aria-hidden="true">' +
+    '<span class="pomich-user-loc__pulse"></span>' +
+    '<span class="pomich-user-loc__pulse pomich-user-loc__pulse--delayed"></span>' +
+    '<span class="pomich-user-loc__dot"></span>' +
+    "</div>",
+  iconSize: [72, 72],
+  iconAnchor: [36, 36],
 })
 
 
@@ -603,6 +675,52 @@ function MapLegend({ directoryOnly, hasDestination, hasPartner, overlayMode }: {
 
 
 
+
+function LocateCrosshairIcon({ spinning = false }: { spinning?: boolean }) {
+  return (
+    <svg
+      width="22"
+      height="22"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+      style={spinning ? { animation: "pomich-locate-spin 0.9s linear infinite" } : undefined}
+    >
+      <circle cx="12" cy="12" r="3.2" fill="currentColor" />
+      <circle cx="12" cy="12" r="7.2" stroke="currentColor" strokeWidth="2" />
+      <path d="M12 2.5v3.2M12 18.3v3.2M2.5 12h3.2M18.3 12h3.2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function MapLocateFlyTo({
+  point,
+  trigger,
+  sheetSnap,
+  overlayMode = false,
+}: {
+  point: LatLngTuple | null
+  trigger: number
+  sheetSnap?: SheetSnap
+  overlayMode?: boolean
+}) {
+  const map = useMap()
+  const lastTriggerRef = useRef(0)
+
+  useEffect(() => {
+    if (!point || trigger <= 0 || trigger === lastTriggerRef.current) return
+    lastTriggerRef.current = trigger
+    return afterLayout(() => {
+      moveMapToPoint(map, point, {
+        animateLarge: true,
+        paddingBottom: sheetPaddingBottomPx(map, sheetSnap, overlayMode),
+      })
+    })
+  }, [map, point, trigger, sheetSnap, overlayMode])
+
+  return null
+}
+
 interface RouteMapProps {
 
   pickup: Point
@@ -648,6 +766,10 @@ interface RouteMapProps {
   onRetryGeo?: () => void
 
   geoLoading?: boolean
+
+  geoError?: string
+
+  showLocateControl?: boolean
 
 }
 
@@ -699,11 +821,23 @@ export function RouteMap({
 
   geoLoading = false,
 
+  geoError,
+
+  showLocateControl = true,
+
 }: RouteMapProps) {
   const mapInteractive = !decorative
   const locationPickMode = Boolean(onPick) && !destination && !directoryOnly && !providerPosition
   const initialCenterRef = useRef<LatLngTuple>(toTuple(providerPosition ?? userLocation ?? pickup))
   const [markerDragging, setMarkerDragging] = useState(false)
+
+  const [localGeoLoading, setLocalGeoLoading] = useState(false)
+
+  const [localGeoError, setLocalGeoError] = useState<string | undefined>()
+
+  const [localLocatePoint, setLocalLocatePoint] = useState<LatLngTuple | null>(null)
+
+  const [localLocateTrigger, setLocalLocateTrigger] = useState(0)
 
   const [categoryFilter, setCategoryFilter] = useState<DirectoryCategoryKey>("all")
 
@@ -1022,10 +1156,41 @@ export function RouteMap({
 
   const hideMapChrome = sheetSnap === "expanded"
 
-  const compactMapTools = overlayMode && !hideMapChrome
+  /* Always chip ↔ panel — never a stuck-open static filter covering the map. */
+  const showMapTools = showBadges && directoryProviders.length > 0 && !hideMapChrome
 
+  const locateLoading = geoLoading || localGeoLoading
+  const locateError = localGeoError || geoError
+  const showLocate = showLocateControl && mapInteractive && !hideMapChrome
 
+  const handleLocateClick = () => {
+    setLocalGeoError(undefined)
+    if (onRetryGeo) {
+      onRetryGeo()
+      // Also resolve locally so flyTo+sheet padding runs even if parent state is slow.
+    }
+    if (typeof navigator === "undefined" || !("geolocation" in navigator)) {
+      if (!onRetryGeo) setLocalGeoError("Геолокація недоступна у цьому браузері.")
+      return
+    }
+    setLocalGeoLoading(true)
+    requestCurrentPosition(
+      (point) => {
+        const tuple: LatLngTuple = [point.lat, point.lng]
+        setLocalGeoLoading(false)
+        setLocalLocatePoint(tuple)
+        setLocalLocateTrigger((value) => value + 1)
+        onUserLocationChange?.(point)
+        if (locationPickMode) onPick?.(point)
+      },
+      (message) => {
+        setLocalGeoLoading(false)
+        if (!onRetryGeo) setLocalGeoError(message)
+      },
+    )
+  }
 
+  
   const routeLabel = routeInfo
 
     ? `${formatRouteDistance(routeInfo.distanceMeters)} · ${formatRouteDuration(routeInfo.durationSeconds)}`
@@ -1068,8 +1233,29 @@ export function RouteMap({
 
         <MapSizeController />
 
-        {recenterTrigger > 0 ? <MapExplicitRecenter point={center} trigger={recenterTrigger} /> : null}
-        {followMapCenter ? <MapDebouncedFollow point={center} enabled={followMapCenter} recenterTrigger={recenterTrigger} /> : null}
+        {recenterTrigger > 0 ? (
+          <MapExplicitRecenter point={center} trigger={recenterTrigger} sheetSnap={sheetSnap} overlayMode={overlayMode} />
+        ) : null}
+        {localLocateTrigger > 0 && localLocatePoint ? (
+          <MapLocateFlyTo point={localLocatePoint} trigger={localLocateTrigger} sheetSnap={sheetSnap} overlayMode={overlayMode} />
+        ) : null}
+        {followMapCenter ? (
+          <MapDebouncedFollow
+            point={center}
+            enabled={followMapCenter}
+            recenterTrigger={recenterTrigger}
+            sheetSnap={sheetSnap}
+            overlayMode={overlayMode}
+          />
+        ) : null}
+        {(followMapCenter || recenterTrigger > 0 || localLocateTrigger > 0) && (overlayMode || sheetSnap) ? (
+          <MapKeepVisibleAboveSheet
+            point={localLocatePoint ?? center}
+            sheetSnap={sheetSnap}
+            overlayMode={overlayMode}
+            active
+          />
+        ) : null}
 
         {decorative ? <DisableMapInteractions /> : mapInteractive ? <MapPointerScrollZoom /> : null}
 
@@ -1345,7 +1531,7 @@ export function RouteMap({
 
       {showBadges && displaySubtitle && !hideMapChrome ? (
 
-        <div style={{ position: "absolute", zIndex: 1100, left: 12, bottom: typeof overlayBottom === "string" ? overlayBottom : onRetryGeo ? (overlayMode ? 96 : 52) : overlayMode ? 56 : 12, background: "rgba(255,255,255,0.94)", borderRadius: 999, padding: "8px 12px", fontSize: 12, fontWeight: 800, color: DARK, maxWidth: onRetryGeo ? "calc(100% - 170px)" : "calc(100% - 24px)", pointerEvents: "none" }}>
+        <div style={{ position: "absolute", zIndex: 1100, left: 12, bottom: typeof overlayBottom === "string" ? overlayBottom : overlayMode ? 56 : 12, background: "rgba(255,255,255,0.94)", borderRadius: 999, padding: "8px 12px", fontSize: 12, fontWeight: 800, color: DARK, maxWidth: "calc(100% - 24px)", pointerEvents: "none" }}>
 
           {displaySubtitle}
 
@@ -1353,166 +1539,97 @@ export function RouteMap({
 
       ) : null}
 
-      {onRetryGeo && !hideMapChrome ? (
-        <button
-          type="button"
-          aria-label="Оновити геолокацію"
-          onClick={onRetryGeo}
-          disabled={geoLoading}
-          style={{
-            position: "absolute",
-            zIndex: 1100,
-            right: 12,
-            bottom: typeof overlayBottom === "string" ? overlayBottom : overlayMode ? 56 : 12,
-            border: `1px solid ${BORDER}`,
-            borderRadius: 999,
-            background: geoLoading ? "rgba(243,244,246,0.96)" : "rgba(255,255,255,0.96)",
-            color: geoLoading ? "#9CA3AF" : DARK,
-            padding: "8px 12px",
-            fontSize: 12,
-            fontWeight: 900,
-            cursor: geoLoading ? "not-allowed" : "pointer",
-            fontFamily: "inherit",
-            boxShadow: "0 4px 14px rgba(0,0,0,0.08)",
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 6,
-            whiteSpace: "nowrap",
-            touchAction: "manipulation",
-          }}
-        >
-          <span aria-hidden="true">{geoLoading ? "…" : "↻"}</span>
-          {geoLoading ? "Оновлюємо…" : "Оновити геолокацію"}
-        </button>
+      {showLocate ? (
+        <div className="pomich-map-locate">
+          <button
+            type="button"
+            className={`pomich-map-locate__btn${locateLoading ? " is-loading" : ""}${locateError ? " is-error" : ""}`}
+            aria-label="Моє місцезнаходження"
+            title="Моє місцезнаходження"
+            onClick={handleLocateClick}
+            disabled={locateLoading}
+          >
+            <LocateCrosshairIcon spinning={locateLoading} />
+          </button>
+          {locateError ? (
+            <div className="pomich-map-locate__hint" role="status">
+              {locateError}
+            </div>
+          ) : locateLoading ? (
+            <div className="pomich-map-locate__hint pomich-map-locate__hint--muted" role="status">
+              Визначаємо місцезнаходження…
+            </div>
+          ) : null}
+        </div>
       ) : null}
 
-      {showBadges && directoryProviders.length > 0 && compactMapTools ? (
-        <>
+      {showMapTools ? (
+        mapToolsOpen ? (
+          <div className="pomich-map-tools-panel" role="dialog" aria-label="Допомога поруч">
+            <div className="pomich-map-tools-panel__head">
+              <div>
+                <div className="pomich-map-tools-panel__brand">Допомога поруч</div>
+                <div className="pomich-map-tools-panel__title">Фільтр сервісів</div>
+              </div>
+              <button
+                type="button"
+                className="pomich-map-tools-panel__close"
+                aria-label="Закрити фільтр сервісів"
+                onClick={() => setMapToolsOpen(false)}
+              >
+                ✕
+              </button>
+            </div>
+            {directoryCategoryFilters.map((filter) => {
+              const count = categoryCounts[filter.key] ?? 0
+              if (filter.key !== "all" && count === 0) return null
+              const active = categoryFilter === filter.key
+              return (
+                <button
+                  key={filter.key}
+                  type="button"
+                  className="pomich-map-tools-filter-btn"
+                  onClick={() => setCategoryFilter(filter.key)}
+                  style={{
+                    borderColor: active ? filter.color : undefined,
+                    background: active ? `${filter.color}18` : undefined,
+                    fontWeight: active ? 900 : 700,
+                  }}
+                >
+                  {filter.emoji} {filter.label}{count > 0 ? ` (${count})` : ""}
+                </button>
+              )
+            })}
+            <div className="pomich-map-tools-panel__title">Легенда</div>
+            {directoryOnly ? (
+              <>
+                <span className="pomich-map-tools-legend-item">🔧 Сервіс / СТО</span>
+                <span className="pomich-map-tools-legend-item">🟣 Ваше місце</span>
+                <span className="pomich-map-tools-legend-item">🔵 Маршрут</span>
+              </>
+            ) : (
+              <>
+                <span className="pomich-map-tools-legend-item">🟢 Клієнт</span>
+                {providerPosition ? <span className="pomich-map-tools-legend-item">🟠 Партнер</span> : <span className="pomich-map-tools-legend-item">🚛 Партнер на лінії</span>}
+                {destination ? <span className="pomich-map-tools-legend-item">🔵 Пункт призначення</span> : null}
+                <span className="pomich-map-tools-legend-item">🔧 Сервіс</span>
+                <span className="pomich-map-tools-legend-item">🔴 Заявка</span>
+              </>
+            )}
+          </div>
+        ) : (
           <button
             type="button"
             className="pomich-map-tools-toggle"
-            aria-expanded={mapToolsOpen}
-            aria-label="Фільтр і легенда карти"
-            onClick={() => setMapToolsOpen((value) => !value)}
+            aria-expanded={false}
+            aria-label="Допомога поруч — фільтр сервісів"
+            onClick={() => setMapToolsOpen(true)}
           >
-            {mapToolsOpen ? "✕ Закрити" : "🗺️ Карта"}
+            Допомога поруч
           </button>
-          {mapToolsOpen ? (
-            <div className="pomich-map-tools-panel">
-              <div className="pomich-map-tools-panel__title">Фільтр сервісів</div>
-              {directoryCategoryFilters.map((filter) => {
-                const count = categoryCounts[filter.key] ?? 0
-                if (filter.key !== "all" && count === 0) return null
-                const active = categoryFilter === filter.key
-                return (
-                  <button
-                    key={filter.key}
-                    type="button"
-                    className="pomich-map-tools-filter-btn"
-                    onClick={() => setCategoryFilter(filter.key)}
-                    style={{
-                      borderColor: active ? filter.color : undefined,
-                      background: active ? `${filter.color}18` : undefined,
-                      fontWeight: active ? 900 : 700,
-                    }}
-                  >
-                    {filter.emoji} {filter.label}{count > 0 ? ` (${count})` : ""}
-                  </button>
-                )
-              })}
-              <div className="pomich-map-tools-panel__title">Легенда</div>
-              {directoryOnly ? (
-                <>
-                  <span style={{ fontSize: 10, fontWeight: 900, color: DARK }}>🔧 Сервіс / СТО</span>
-                  <span style={{ fontSize: 10, fontWeight: 900, color: DARK }}>🟣 Ваше місце</span>
-                  <span style={{ fontSize: 10, fontWeight: 900, color: DARK }}>🔵 Маршрут</span>
-                </>
-              ) : (
-                <>
-                  <span style={{ fontSize: 10, fontWeight: 900, color: DARK }}>🟢 Клієнт</span>
-                  {providerPosition ? <span style={{ fontSize: 10, fontWeight: 900, color: DARK }}>🟠 Партнер</span> : <span style={{ fontSize: 10, fontWeight: 900, color: DARK }}>🚛 Партнер на лінії</span>}
-                  {destination ? <span style={{ fontSize: 10, fontWeight: 900, color: DARK }}>🔵 Пункт призначення</span> : null}
-                  <span style={{ fontSize: 10, fontWeight: 900, color: DARK }}>🔧 Сервіс</span>
-                  <span style={{ fontSize: 10, fontWeight: 900, color: DARK }}>🔴 Заявка</span>
-                </>
-              )}
-            </div>
-          ) : null}
-        </>
-      ) : showBadges && directoryProviders.length > 0 ? (
-
-        <div style={{ position: "absolute", zIndex: 1100, right: 12, top: overlayMode ? 8 : 12, background: "rgba(255,255,255,0.96)", borderRadius: 12, padding: "8px 10px", fontSize: 10, fontWeight: 900, color: DARK, boxShadow: "0 4px 14px rgba(0,0,0,0.08)", display: "grid", gap: 4, maxWidth: 150, maxHeight: overlayMode ? "38%" : undefined, overflowY: overlayMode ? "auto" : undefined }}>
-
-          <span style={{ marginBottom: 2, fontSize: 9, color: "#6B7280" }}>Фільтр сервісів</span>
-
-          {directoryCategoryFilters.map((filter) => {
-
-            const count = categoryCounts[filter.key] ?? 0
-
-            if (filter.key !== "all" && count === 0) return null
-
-            const active = categoryFilter === filter.key
-
-            return (
-
-              <button
-
-                key={filter.key}
-
-                type="button"
-
-                onClick={() => setCategoryFilter(filter.key)}
-
-                style={{
-
-                  border: active ? `1px solid ${filter.color}` : `1px solid ${BORDER}`,
-
-                  borderRadius: 8,
-
-                  background: active ? `${filter.color}18` : "#fff",
-
-                  color: DARK,
-
-                  padding: "4px 6px",
-
-                  fontWeight: active ? 900 : 700,
-
-                  cursor: "pointer",
-
-                  textAlign: "left",
-
-                  fontFamily: "inherit",
-
-                  fontSize: 10,
-
-                }}
-
-              >
-
-                {filter.emoji} {filter.label}{count > 0 ? ` (${count})` : ""}
-
-              </button>
-
-            )
-
-          })}
-
-          {directoryOnly ? (
-
-            <span style={{ marginTop: 4, fontSize: 9, color: "#9CA3AF" }}>🔧 Сервіс · 🟣 Ви</span>
-
-          ) : (
-
-            <span style={{ marginTop: 4, fontSize: 9, color: "#9CA3AF" }}>🟢 Клієнт · 🟠 Партнер · 🔵 Куди</span>
-
-          )}
-
-        </div>
-
-      ) : showBadges && !hideMapChrome && !compactMapTools ? (
-
+        )
+      ) : showBadges && !hideMapChrome && directoryProviders.length === 0 ? (
         <MapLegend directoryOnly={directoryOnly} hasDestination={Boolean(destination)} hasPartner={Boolean(providerPosition)} overlayMode={overlayMode} />
-
       ) : null}
 
     </div>
