@@ -289,7 +289,7 @@ describe('POMICH role-based flows', () => {
     expect(await screen.findByText('Що сталося?')).toBeInTheDocument()
     expect(screen.getByText(/Ви увійшли як:.*Roman/i)).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: /← Меню|Меню/i }))
+    await user.click(screen.getByRole('button', { name: /^POMICH$/i }))
     expect(await screen.findByText(/Допомога на дорозі — поруч/i)).toBeInTheDocument()
     expect(window.localStorage.getItem('pomichCustomerId')).toBe('guest-roman')
     expect(window.sessionStorage.getItem(authSessionStorageKey('customer', 'guest-roman'))).not.toBeNull()
