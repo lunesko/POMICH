@@ -2506,6 +2506,8 @@ html:not([data-pomich-theme]) .landing-hero-eyebrow {
 @media (max-width: 760px) {
   .landing-hero-content {
     text-align: center;
+    max-width: min(100%, 420px);
+    box-sizing: border-box;
   }
   .landing-hero-content::before {
     left: -6%;
@@ -2536,6 +2538,16 @@ html:not([data-pomich-theme]) .landing-hero-eyebrow {
     padding: 14px 14px 16px;
     border-radius: 16px;
   }
+  /* Keep brand wordmark fully inside the padded viewport (no right-edge clip). */
+  .pomich-landing .landing-hero-brand {
+    max-width: 100%;
+    box-sizing: border-box;
+    font-size: clamp(44px, calc((100vw - 40px) / 5.4), 80px) !important;
+    letter-spacing: -0.045em !important;
+  }
+  .pomich-landing .landing-hero-brand-word {
+    max-width: 100%;
+  }
   .landing-hero-brand-underline {
     left: 4%;
     right: 4%;
@@ -2549,6 +2561,17 @@ html:not([data-pomich-theme]) .landing-hero-eyebrow {
     font-size: 20px !important;
     line-height: 1.25 !important;
   }
+}
+@media (max-width: 360px) {
+  .pomich-landing .landing-hero-brand {
+    font-size: clamp(40px, calc((100vw - 32px) / 5.5), 72px) !important;
+    letter-spacing: -0.05em !important;
+  }
+}
+html.tg-compact .pomich-landing .landing-hero-brand,
+html.mobile-compact .pomich-landing .landing-hero-brand {
+  font-size: clamp(42px, calc((100vw - 32px) / 5.5), 72px) !important;
+  letter-spacing: -0.05em !important;
 }
 html.tg-compact .pomich-landing .landing-hero-title,
 html.mobile-compact .pomich-landing .landing-hero-title {

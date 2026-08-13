@@ -29,6 +29,7 @@ Current behavior:
 - `Зареєструватися` starts role selection.
 - `/#admin` and `?role=admin` open admin mode (working).
 - Long-press POMICH logo (~3s) is documented/intended but **not wired** in `LandingPage` (`onHiddenAdmin` / `ADMIN_LOGO_HOLD_MS` unused) — use URL/hash entry instead.
+- Mobile hero brand `POMICH` uses a viewport-based `clamp` / tighter letter-spacing so the wordmark stays fully visible on narrow phones (no right-edge clip under `overflow-x: hidden`).
 
 ### Role selection
 

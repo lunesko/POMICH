@@ -437,10 +437,15 @@ export default function LandingPage({
               style={{
                 margin: layoutCompact ? "14px 0 0" : "18px 0 0",
                 fontFamily: "'Outfit', 'Manrope', sans-serif",
-                fontSize: layoutCompact ? "clamp(64px, 18vw, 88px)" : "clamp(92px, 11vw, 132px)",
+                /* Narrow phones: size from viewport so "POMICH" never clips (html overflow-x:hidden). */
+                fontSize: layoutCompact
+                  ? "clamp(44px, calc((100vw - 40px) / 5.4), 80px)"
+                  : "clamp(92px, 11vw, 132px)",
                 lineHeight: 0.92,
                 fontWeight: 800,
-                letterSpacing: "-0.03em",
+                letterSpacing: layoutCompact ? "-0.045em" : "-0.03em",
+                maxWidth: "100%",
+                overflow: "visible",
               }}
             >
               <span className="landing-hero-brand-word">
