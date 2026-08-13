@@ -158,7 +158,41 @@ def test_provider_start_uses_partner_menu(two_bots):
                 bot_kind="provider",
             )
     assert result["botKind"] == "provider"
-    assert "Кабінет партнера" in json.dumps(client.messages[0]["reply_markup"], ensure_ascii=False)
+    markup = json.dumps(client.messages[0]["reply_markup"], ensure_ascii=False)
+    assert "Кабінет партнера" in markup
+    assert "screen=cabinet" in markup
+    assert "Вийти на лінію" in markup
+    assert "screen=duty" in markup
+    assert "Активні офери" in markup
+    assert "screen=offers" in markup
+    assert "Підтвердити профіль" in markup
+    assert "screen=verify" in markup
+
+
+def test_customer_start_buttons_include_screen_deep_links(two_bots):
+    client = FakeTelegramClient(kind="customer")
+    with patch("bot.telegram_bot.upsert_telegram_customer_profile", return_value={"id": "tg-42", "name": "Аня", "phone": "+380501112233"}):
+        with patch("bot.telegram_bot._check_customer_registered", return_value=True):
+            result = handle_update(
+                {
+                    "update_id": 1,
+                    "message": {
+                        "chat": {"id": 42},
+                        "from": {"id": 42, "first_name": "Аня"},
+                        "text": "/start",
+                    },
+                },
+                client,
+                bot_kind="customer",
+            )
+    assert result["botKind"] == "customer"
+    markup = json.dumps(client.messages[0]["reply_markup"], ensure_ascii=False)
+    assert "Викликати допомогу" in markup
+    assert "screen=order" in markup
+    assert "Мій профіль" in markup
+    assert "screen=profile" in markup
+    assert "Історія" in markup
+    assert "screen=history" in markup
 
 
 def test_webhook_routes_by_kind(two_bots, monkeypatch, tmp_path):

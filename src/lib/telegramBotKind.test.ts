@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach, afterEach } from "vitest"
 
-import { resolveEntryRole, resolveTelegramBotKind, getTelegramContext } from "../telegram"
+import { resolveEntryRole, resolveEntryScreen, resolveTelegramBotKind, getTelegramContext } from "../telegram"
 
 describe("telegram two-bot hints", () => {
   const originalLocation = window.location
@@ -44,5 +44,35 @@ describe("telegram two-bot hints", () => {
     // @ts-expect-error test override
     window.location = new URL("https://pomich.help/?role=provider")
     expect(resolveTelegramBotKind()).toBe("provider")
+  })
+
+  it("resolves Mini App screen from ?screen= deep links", () => {
+    // @ts-expect-error test override
+    window.location = new URL("https://pomich.help/?role=provider&tgBot=provider&screen=duty")
+    expect(resolveEntryScreen()).toBe("duty")
+
+    // @ts-expect-error test override
+    window.location = new URL("https://pomich.help/?role=provider&screen=cabinet")
+    expect(resolveEntryScreen()).toBe("cabinet")
+
+    // @ts-expect-error test override
+    window.location = new URL("https://pomich.help/?role=customer&screen=history")
+    expect(resolveEntryScreen()).toBe("history")
+
+    // @ts-expect-error test override
+    window.location = new URL("https://pomich.help/?role=customer&screen=order")
+    expect(resolveEntryScreen()).toBe("order")
+  })
+
+  it("resolves screen aliases from start_param", () => {
+    // @ts-expect-error test override
+    window.location = new URL("https://pomich.help/")
+    window.Telegram = {
+      WebApp: {
+        initData: "x",
+        initDataUnsafe: { start_param: "partner_online", user: { id: 1 } },
+      },
+    }
+    expect(resolveEntryScreen()).toBe("duty")
   })
 })

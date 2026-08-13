@@ -1180,6 +1180,150 @@ describe('POMICH role-based flows', () => {
     expect(screen.getByDisplayValue('66 100 74 34')).toBeInTheDocument()
   })
 
+  it('opens partner duty go-online UI from ?screen=duty deep link', async () => {
+    const user = userEvent.setup()
+    const providerRecord = {
+      id: 'provider-guest-test',
+      name: 'Партнер Тест',
+      phone: '+380671112233',
+      city: 'Ужгород',
+      vehicle: 'Volkswagen Crafter',
+      plate: 'BX5874HX',
+      registeredAt: '2026-08-09T00:00:00',
+      verificationStatus: 'verified',
+      verification: { phone: true },
+      specialties: ['tow', 'fuel'],
+      serviceRadiusKm: 15,
+      status: 'offline',
+    }
+
+    vi.stubGlobal('fetch', mockRegisteredCustomerFetch((url) => {
+      if (url.includes('/users/') && url.includes('/account')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            customerId: 'guest-test',
+            preferredRole: 'provider',
+            linkedProviderId: 'provider-guest-test',
+            rolesRegistered: ['customer', 'provider'],
+            clientRegistered: true,
+            providerRegistered: true,
+            needsOnboarding: false,
+            profile: verifiedTestProfile,
+          }),
+        })
+      }
+      if (url.includes('/auth/provider/self/session')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            role: 'provider',
+            subjectId: 'provider-guest-test',
+            providerId: 'provider-guest-test',
+            tokenType: 'Bearer',
+            accessToken: 'pomich_auth_v1.provider-self',
+            expiresAt: Math.floor(Date.now() / 1000) + 3600,
+          }),
+        })
+      }
+      if (url.includes('/providers/provider-guest-test/')) {
+        return Promise.resolve({ ok: true, json: async () => providerRecord })
+      }
+      if (url.endsWith('/providers') || url.includes('/map/providers')) {
+        return Promise.resolve({ ok: true, json: async () => [providerRecord] })
+      }
+      return undefined
+    }))
+
+    window.localStorage.setItem('pomichCustomerId', 'guest-test')
+    window.sessionStorage.setItem('pomichCustomerId', 'guest-test')
+    window.sessionStorage.setItem('pomichLinkedProviderId', 'provider-guest-test')
+    window.localStorage.setItem('pomichPartnerRegistered:provider-guest-test', '1')
+    storeAuthSession(authSessionStorageKey('customer', 'guest-test'), {
+      role: 'customer',
+      subjectId: 'guest-test',
+      customerId: 'guest-test',
+      tokenType: 'Bearer',
+      accessToken: TEST_CUSTOMER_TOKEN,
+      expiresAt: Math.floor(Date.now() / 1000) + 3600,
+      profile: verifiedTestProfile,
+    })
+
+    window.history.pushState({}, '', '/?role=provider&tgBot=provider&screen=duty')
+    renderApp()
+
+    expect(await screen.findByText('Партнер POMICH', {}, { timeout: 8000 })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: /Вийти на лінію/i })).toBeInTheDocument()
+    expect(screen.queryByText(/Реєстрація партнера/i)).not.toBeInTheDocument()
+  })
+
+  it('opens partner cabinet from ?screen=cabinet deep link', async () => {
+    vi.stubGlobal('fetch', mockRegisteredCustomerFetch((url) => {
+      if (url.includes('/users/') && url.includes('/account')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            customerId: 'guest-test',
+            preferredRole: 'provider',
+            linkedProviderId: 'provider-guest-test',
+            rolesRegistered: ['customer', 'provider'],
+            clientRegistered: true,
+            providerRegistered: true,
+            needsOnboarding: false,
+            profile: verifiedTestProfile,
+          }),
+        })
+      }
+      if (url.includes('/auth/provider/self/session')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            role: 'provider',
+            subjectId: 'provider-guest-test',
+            providerId: 'provider-guest-test',
+            tokenType: 'Bearer',
+            accessToken: 'pomich_auth_v1.provider-self',
+            expiresAt: Math.floor(Date.now() / 1000) + 3600,
+          }),
+        })
+      }
+      if (url.includes('/providers/provider-guest-test/')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: 'provider-guest-test',
+            name: 'Партнер Тест',
+            phone: '+380671112233',
+            registeredAt: '2026-08-09T00:00:00',
+            verificationStatus: 'verified',
+            verification: { phone: true },
+            specialties: ['tow'],
+            status: 'offline',
+          }),
+        })
+      }
+      return undefined
+    }))
+
+    window.localStorage.setItem('pomichCustomerId', 'guest-test')
+    window.sessionStorage.setItem('pomichCustomerId', 'guest-test')
+    window.sessionStorage.setItem('pomichLinkedProviderId', 'provider-guest-test')
+    storeAuthSession(authSessionStorageKey('customer', 'guest-test'), {
+      role: 'customer',
+      subjectId: 'guest-test',
+      customerId: 'guest-test',
+      tokenType: 'Bearer',
+      accessToken: TEST_CUSTOMER_TOKEN,
+      expiresAt: Math.floor(Date.now() / 1000) + 3600,
+      profile: verifiedTestProfile,
+    })
+
+    window.history.pushState({}, '', '/?role=provider&tgBot=provider&screen=cabinet')
+    renderApp()
+
+    expect(await screen.findByText('Кабінет партнера', {}, { timeout: 8000 })).toBeInTheDocument()
+  })
+
   it('after logout, choosing partner opens phone login and restores registered partner', async () => {
     const user = userEvent.setup()
     const partnerProfile = {

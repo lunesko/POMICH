@@ -185,6 +185,62 @@ export function resolveEntryRole(): "customer" | "provider" | null {
   return null
 }
 
+/** Mini App deep-link screens from bot WebApp buttons (?screen= / start_param). */
+export type PomichEntryScreen =
+  | "order"
+  | "profile"
+  | "history"
+  | "cabinet"
+  | "duty"
+  | "offers"
+  | "verify"
+  | "orders"
+
+const ENTRY_SCREEN_ALIASES: Record<string, PomichEntryScreen> = {
+  order: "order",
+  help: "order",
+  call: "order",
+  profile: "profile",
+  cabinet: "cabinet",
+  dashboard: "cabinet",
+  history: "history",
+  duty: "duty",
+  online: "duty",
+  go_online: "duty",
+  offers: "offers",
+  verify: "verify",
+  verification: "verify",
+  orders: "orders",
+}
+
+/** Read the screen named on the Telegram inline button (not just role/home). */
+export function resolveEntryScreen(): PomichEntryScreen | null {
+  if (typeof window === "undefined") return null
+
+  const queryScreen = new URLSearchParams(window.location.search).get("screen")?.trim().toLowerCase()
+  if (queryScreen && ENTRY_SCREEN_ALIASES[queryScreen]) {
+    return ENTRY_SCREEN_ALIASES[queryScreen]
+  }
+
+  const startParam = window.Telegram?.WebApp?.initDataUnsafe?.start_param?.trim().toLowerCase()
+  if (!startParam) return null
+  // start_param may be "duty", "partner_duty", "customer_history", etc.
+  const parts = startParam.split(/[_\-:]+/).filter(Boolean)
+  for (const part of [startParam, ...parts].reverse()) {
+    if (ENTRY_SCREEN_ALIASES[part]) return ENTRY_SCREEN_ALIASES[part]
+  }
+  return null
+}
+
+/** Clear consumed screen param so refresh does not re-open a one-shot deep link forever. */
+export function clearEntryScreenParam() {
+  if (typeof window === "undefined") return
+  const url = new URL(window.location.href)
+  if (!url.searchParams.has("screen")) return
+  url.searchParams.delete("screen")
+  window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`)
+}
+
 const THEME_PARAM_MAP: Record<string, string> = {
   bg_color: "--tg-theme-bg-color",
   text_color: "--tg-theme-text-color",

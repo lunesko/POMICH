@@ -5,7 +5,7 @@ import AppShell from "./components/layout/AppShell"
 import LandingPage from "./components/landing/LandingPage"
 import CustomerAppFallback from "./components/CustomerAppFallback"
 import OnboardingGate from "./components/onboarding/OnboardingGate"
-import { getTelegramContext, resolveEntryRole } from "./telegram"
+import { getTelegramContext, resolveEntryRole, resolveEntryScreen, clearEntryScreenParam, type PomichEntryScreen } from "./telegram"
 import { DEFAULT_CUSTOMER_NAME, isCustomerProfileComplete, isCustomerVerified } from "./lib/customerProfile"
 import { getActiveProviderId, type Role } from "./lib/constants"
 import { readCachedProviderProfile } from "./lib/providerProfileCache"
@@ -108,6 +108,13 @@ export default function CustomerApp() {
   const [forceRolePicker, setForceRolePicker] = useState(false)
   const [rolePickerKey, setRolePickerKey] = useState(0)
   const [onboardingSessionKey, setOnboardingSessionKey] = useState(0)
+  const [entryScreen, setEntryScreen] = useState<PomichEntryScreen | null>(() => resolveEntryScreen())
+  const [cabinetFocus, setCabinetFocus] = useState<"profile" | "history">("profile")
+  const [providerEntryScreen, setProviderEntryScreen] = useState<"duty" | "offers" | "verify" | undefined>(() => {
+    const screen = resolveEntryScreen()
+    if (screen === "duty" || screen === "offers" || screen === "verify") return screen
+    return undefined
+  })
   const compact = telegramContext.isTelegram || isMobile
   const skipOnboarding = initialRole === "admin" || Boolean(providerToken)
 
@@ -119,6 +126,39 @@ export default function CustomerApp() {
       void import("./components/customer/CustomerFlow")
     }
   }, [role, initialRole])
+
+  // Telegram inline buttons pass ?screen= — open that named UI, not a generic map/home.
+  useEffect(() => {
+    if (!entryScreen || showOnboarding || showLanding) return
+    if (role !== "customer" && role !== "provider") return
+
+    if (role === "customer") {
+      if (entryScreen === "profile" || entryScreen === "cabinet") {
+        setCabinetFocus("profile")
+        setShowCabinet(true)
+      } else if (entryScreen === "history") {
+        setCabinetFocus("history")
+        setShowCabinet(true)
+      } else {
+        // order / help → customer ride flow
+        setShowCabinet(false)
+      }
+    } else if (role === "provider") {
+      if (entryScreen === "cabinet" || entryScreen === "profile" || entryScreen === "orders") {
+        setCabinetInitialEditing(entryScreen === "profile")
+        setShowCabinet(true)
+        setProviderEntryScreen(undefined)
+      } else if (entryScreen === "duty" || entryScreen === "offers" || entryScreen === "verify") {
+        setShowCabinet(false)
+        setProviderEntryScreen(entryScreen)
+      } else {
+        setShowCabinet(false)
+      }
+    }
+
+    clearEntryScreenParam()
+    setEntryScreen(null)
+  }, [entryScreen, role, showOnboarding, showLanding])
 
   const applyRoleToUrl = useCallback((nextRole: Role | null) => {
     setRole(nextRole)
@@ -562,6 +602,7 @@ export default function CustomerApp() {
         customerId={cabinetCustomerId}
         customerToken={cabinetCustomerToken}
         currentRole="customer"
+        initialFocus={cabinetFocus}
         sessionMismatchWarning={sessionMismatchWarning}
         onDismissSessionMismatch={() => dismissSessionMismatchNotice(cabinetCustomerId)}
         onBack={() => setShowCabinet(false)}
@@ -656,6 +697,7 @@ export default function CustomerApp() {
             <ProviderFlow
               providerToken={providerToken}
               providerRegistered={account ? isReturningPartner(account) : false}
+              initialScreen={providerEntryScreen}
               onLogout={handleLogout}
               onRestoreAccount={restorePartnerAccount}
             />

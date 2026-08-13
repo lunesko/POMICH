@@ -19,6 +19,7 @@ from bot.api_deps import (
 )
 from bot.order_store import (
     build_user_account_status,
+    ensure_linked_provider_profile,
     find_registered_customer_by_phone,
     get_customer_profile,
     get_provider_profile,
@@ -91,6 +92,8 @@ def create_self_provider_session(payload: dict, authorization: str | None = Head
     profile = get_customer_profile(customer_id)
     if profile is not None and not str(profile.get("linkedProviderId") or "").strip():
         update_customer_profile(customer_id, {"linkedProviderId": provider_id})
+    # Missing SQL provider rows otherwise force blank registration / empty map in Mini App.
+    ensure_linked_provider_profile(customer_id)
     sync_linked_provider_phone_verification_from_customer(provider_id)
     session = issue_role_session("provider", provider_id, configured_provider_secret())
     session["providerId"] = provider_id

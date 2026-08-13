@@ -33,6 +33,7 @@ interface ClientCabinetProps {
   customerToken?: string
   orders?: OrderResponse[]
   currentRole: UserRole
+  initialFocus?: "profile" | "history"
   sessionMismatchWarning?: string
   onDismissSessionMismatch?: () => void
   onBack: () => void
@@ -55,6 +56,7 @@ export default function ClientCabinet({
   customerToken,
   orders = [],
   currentRole,
+  initialFocus = "profile",
   onBack,
   onStartOrder,
   onSwitchRole,
@@ -82,6 +84,12 @@ export default function ClientCabinet({
     vehicle: profile.vehicle || "",
     telegram: profile.telegram || "",
   })
+
+  useEffect(() => {
+    if (initialFocus !== "history") return
+    const node = document.getElementById("pomich-client-history")
+    node?.scrollIntoView({ behavior: "smooth", block: "start" })
+  }, [initialFocus])
 
   const sessionCustomerId = resolveCabinetHistoryCustomerId(customerId, customerToken)
 
@@ -447,7 +455,7 @@ export default function ClientCabinet({
               </div>
             ) : null}
 
-            <div className="pomich-cabinet-card pomich-cabinet-card--history">
+            <div id="pomich-client-history" className="pomich-cabinet-card pomich-cabinet-card--history">
               <div className="pomich-cabinet-section-head">
                 <div className="pomich-cabinet-section-title">Історія заявок</div>
                 {orderHistory.length > 0 ? (

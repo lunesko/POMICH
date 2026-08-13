@@ -283,11 +283,14 @@ function Header({ title, subtitle, onBack, status }: { title: string; subtitle?:
 export default function ProviderFlow({
   providerToken,
   providerRegistered = false,
+  initialScreen,
   onLogout,
   onRestoreAccount,
 }: {
   providerToken?: string
   providerRegistered?: boolean
+  /** Deep link from Telegram bot buttons: duty / offers / verify. */
+  initialScreen?: "duty" | "offers" | "verify"
   onLogout?: () => void
   onRestoreAccount?: () => void
 }) {
@@ -306,6 +309,7 @@ export default function ProviderFlow({
   })
   const providerAuthToken = providerAccessToken
   const [authError, setAuthError] = useState<string | undefined>()
+  const [entryScreenApplied, setEntryScreenApplied] = useState(false)
 
   const applyProviderSession = (session: AuthSession) => {
     const resolvedId = resolveSessionProviderId(session, providerId)
@@ -324,9 +328,13 @@ export default function ProviderFlow({
   const [loginView, setLoginView] = useState<"login" | "register">(() => (effectiveProviderRegistered ? "login" : "register"))
   const [step, setStep] = useState<"register" | "verify" | "duty" | "offer" | "awaiting_price" | "navigation" | "arrived" | "completed">(() => {
     if (typeof window === "undefined") return "register"
+    if (initialScreen === "verify") return "verify"
     if (effectiveProviderRegistered || window.localStorage.getItem(`pomichPartnerRegistered:${getActiveProviderId()}`)) return "duty"
     return "register"
   })
+  const [dutySheetSnap, setDutySheetSnap] = useState<"half" | "expanded">(() =>
+    initialScreen === "offers" ? "expanded" : "half",
+  )
   const [onDuty, setOnDuty] = useState(false)
   const [presenceSaving, setPresenceSaving] = useState(false)
   const [presenceToast, setPresenceToast] = useState<string | undefined>()
@@ -665,6 +673,24 @@ export default function ProviderFlow({
     setStep("duty")
   }, [step, providerCanGoOnline, markProviderPhoneVerified])
 
+  // Deep link from Telegram «Вийти на лінію» / «Активні офери» / «Підтвердити профіль».
+  useEffect(() => {
+    if (entryScreenApplied || !providerAuthToken || !initialScreen) return
+    if (initialScreen === "verify") {
+      setStep(providerProfile.registeredAt || effectiveProviderRegistered ? "verify" : "register")
+    } else {
+      setStep("duty")
+      if (initialScreen === "offers") setDutySheetSnap("expanded")
+    }
+    setEntryScreenApplied(true)
+  }, [
+    entryScreenApplied,
+    providerAuthToken,
+    initialScreen,
+    providerProfile.registeredAt,
+    effectiveProviderRegistered,
+  ])
+
   useEffect(() => {
     if (!providerId || !providerProfile.name?.trim()) return
     writeCachedProviderProfile({
@@ -890,6 +916,13 @@ export default function ProviderFlow({
     ? incomingOffers.find((item) => item.id === selectedRequestPin.offerId || item.orderId === selectedRequestPin.id)
     : undefined
   const secondsLeft = offerSecondsLeft(selectedOffer ?? activeOffer, offerClock)
+
+  // Never leave partner UI on offer-without-offer (blank map with no go-online controls).
+  useEffect(() => {
+    if (step === "offer" && !activeOffer) {
+      setStep("duty")
+    }
+  }, [step, activeOffer])
 
   useEffect(() => {
     if (!activeOffer) {
@@ -1441,8 +1474,9 @@ export default function ProviderFlow({
   }
 
   if (!providerAuthToken && !providerToken) {
-    // Already-registered partner: wait for customer→provider self-session instead of flashing login/register.
-    if (effectiveProviderRegistered && customerIdForOtp && customerTokenForOtp) {
+    // Returning partner (server/account flag): wait for customer→provider self-session.
+    // Do not use localStorage alone — that stuck first-time Mini App opens on an endless boot screen.
+    if (providerRegistered && customerIdForOtp && customerTokenForOtp) {
       return <div className="pomich-boot-screen">Завантажуємо кабінет партнера…</div>
     }
     if (loginView === "register") {
@@ -1545,8 +1579,8 @@ export default function ProviderFlow({
         mapSubtitle={onDuty ? `На лінії · ${mapRequestPins.length} заявок поруч` : "Україна · партнер"}
         showAllProviders={false}
         showDirectoryProviders={false}
-        expandedSheet={onDuty}
-        defaultSnap="half"
+        expandedSheet={onDuty || dutySheetSnap === "expanded"}
+        defaultSnap={dutySheetSnap}
         onAcceptRequest={acceptFromMapPin}
         onContactRequest={contactFromMapPin}
         onRequestPinSelect={openRequestPin}
@@ -1828,57 +1862,69 @@ export default function ProviderFlow({
     )
   }
 
+  // Fallback: always restore duty controls (never a map-only shell without «Вийти на лінію»).
   return (
     <>
-    <RideScreen
-      pickup={mapRequestPins[0]?.customerCoordinates ?? providerLocation}
-      providers={[providerPresence]}
-      requestPins={mapRequestPins}
-      mapSubtitle="Заявки поруч на карті"
-      showAllProviders={false}
-      showDirectoryProviders={false}
-      onAcceptRequest={acceptFromMapPin}
-      onContactRequest={contactFromMapPin}
-      onRequestPinSelect={openRequestPin}
-    >
-      <button onClick={() => setStep("duty")} style={{ border: "none", background: GHOST, color: DARK, borderRadius: 999, padding: "8px 11px", fontWeight: 900, cursor: "pointer", fontFamily: "inherit", marginBottom: 14 }}>← Назад до карти</button>
-      <SheetHeading title="Заявки на карті" subtitle={`${mapRequestPins.length} активних · натисніть маркер`} />
-      <div style={{ marginTop: 14, display: "grid", gap: 10 }}>
-        {mapRequestPins.length === 0 ? (
-          <div style={{ background: BG, borderRadius: 14, padding: 12, fontWeight: 800, color: MUTED }}>Поки немає заявок у вашому радіусі.</div>
-        ) : (
-          mapRequestPins.map((pin) => (
-            <div key={pin.offerId ?? pin.id} style={{ background: CARD, borderRadius: 18, padding: 14, border: `1px solid ${BORDER}` }}>
-              <div style={{ fontWeight: 950, color: DARK }}>{getServiceEmoji(pin.service)} {getProviderCapabilityLabel(pin.service)}</div>
-              <div style={{ color: MUTED, fontWeight: 700, marginTop: 4, fontSize: 13 }}>{pin.customerLocation ?? "Поруч"} · {pin.distanceKm?.toFixed(1) ?? "?"} км</div>
-              {pin.customerComment ? <div style={{ color: MUTED, fontWeight: 700, marginTop: 6, fontSize: 12, lineHeight: 1.35 }}>{pin.customerComment}</div> : null}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 12 }}>
-                <PrimaryButton label="Деталі" onClick={() => openRequestPin(pin)} disabled={offerSaving} />
-                <SecondaryButton label="Зв'язатися" onClick={() => contactFromMapPin(pin)} />
-              </div>
+      <RideScreen
+        pickup={providerLocation}
+        providers={onDuty ? [providerPresence] : []}
+        requestPins={mapRequestPins}
+        mapSubtitle={onDuty ? `На лінії · ${mapRequestPins.length} заявок поруч` : "Україна · партнер"}
+        showAllProviders={false}
+        showDirectoryProviders={false}
+        expandedSheet={onDuty || dutySheetSnap === "expanded"}
+        defaultSnap={dutySheetSnap}
+        onAcceptRequest={acceptFromMapPin}
+        onContactRequest={contactFromMapPin}
+        onRequestPinSelect={openRequestPin}
+        onRetryGeo={retryProviderGeolocation}
+        geoLoading={providerGeoLoading}
+        geoError={providerGeoError}
+        recenterTrigger={providerRecenterTrigger}
+      >
+        <div data-sheet-peek>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+            <div>
+              <div style={{ color: MUTED, fontWeight: 800, fontSize: 12 }}>Партнер POMICH</div>
+              <div style={{ color: DARK, fontWeight: 950, fontSize: 18, marginTop: 2 }}>{onDuty ? "На лінії" : "Поза лінією"}</div>
             </div>
-          ))
-        )}
-        {offerError && offerError !== "Вкажіть вартість послуги в гривнях." ? <div style={{ background: "var(--pomich-warn-bg)", color: "var(--pomich-warn-text)", borderRadius: 14, padding: 12, fontWeight: 850 }}>{offerError}</div> : null}
-      </div>
-    </RideScreen>
-    {selectedRequestPin ? (
-      <OrderRequestSheet
-        pin={selectedRequestPin}
-        proposedPrice={sheetProposedPrice}
-        saving={offerSaving}
-        error={offerError}
-        secondsLeft={secondsLeft}
-        onProposedPriceChange={syncProposedPrice}
-        onAccept={(price) => void acceptFromSheet(price)}
-        onDecline={() => void declineFromSheet()}
-        onClose={() => {
-          setSelectedRequestPin(undefined)
-          setOfferError(undefined)
-        }}
-        onAcceptBlocked={handleOfferAcceptBlocked}
-      />
-    ) : null}
+            <DutyStatusToggle onDuty={onDuty} saving={presenceSaving} disabled={presenceSaving} onToggle={handleDutyToggle} />
+          </div>
+          <div style={{ marginTop: 10 }}>
+            <PrimaryButton
+              label={
+                !providerProfile.registeredAt
+                  ? "Завершити профіль"
+                  : !providerCanGoOnline
+                    ? "Підтвердити телефон"
+                    : presenceSaving
+                      ? "Оновлюємо статус…"
+                      : "Вийти на лінію"
+              }
+              onClick={() => (providerCanGoOnline ? setDuty(true) : openPhoneOrProfileGate())}
+              disabled={presenceSaving}
+            />
+          </div>
+        </div>
+        <div data-sheet-full>
+          <SheetHeading title="Партнер POMICH" subtitle={onDuty ? "Ви на лінії — заявки на карті" : "Вийдіть на лінію, щоб бачити заявки"} />
+          <div style={{ marginTop: 14 }}>
+            <PrimaryButton
+              label={
+                !providerProfile.registeredAt
+                  ? "Завершити профіль"
+                  : !providerCanGoOnline
+                    ? "Підтвердити телефон"
+                    : presenceSaving
+                      ? "Оновлюємо статус…"
+                      : "Вийти на лінію"
+              }
+              onClick={() => (providerCanGoOnline ? setDuty(true) : openPhoneOrProfileGate())}
+              disabled={presenceSaving}
+            />
+          </div>
+        </div>
+      </RideScreen>
     </>
   )
 }

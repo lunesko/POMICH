@@ -961,6 +961,7 @@ def build_empty_provider_profile_shell(provider_id: str, store_path: Optional[Pa
     verification_status = (
         normalize_verification_status(customer.get("verificationStatus"), "unverified") if customer else "unverified"
     )
+    verification = {"phone": verification_status == "verified"} if customer else {}
     return _normalize_provider_trust({
         "id": str(provider_id),
         "name": name,
@@ -971,12 +972,100 @@ def build_empty_provider_profile_shell(provider_id: str, store_path: Optional[Pa
         "telegram": "pomich_help_bot",
         "status": "offline",
         "verificationStatus": verification_status,
+        "verification": verification,
         "etaMinutes": 15,
         "location": {"lat": 48.6208, "lng": 22.2879},
         "specialties": [],
         "serviceRadiusKm": 15,
         "providerKind": "dispatch",
     })
+
+
+def ensure_linked_provider_profile(
+    customer_id: str,
+    store_path: Optional[Path] = None,
+    customer_store_path: Optional[Path] = None,
+) -> Optional[Dict[str, Any]]:
+    """Persist a linked partner row from the customer account so Mini App duty/go-online works.
+
+    Returning verified customers often have linkedProviderId but a missing SQL provider row.
+    Without a persisted profile, the UI falls into empty registration or a blank map.
+    """
+    profile = get_customer_profile(customer_id, customer_store_path)
+    provider_id = resolve_linked_provider_id(customer_id, profile)
+    if not provider_id:
+        return None
+
+    existing = get_provider_profile(provider_id, store_path)
+    if existing and existing.get("registeredAt"):
+        synced = sync_linked_provider_phone_verification_from_customer(provider_id, store_path, customer_store_path)
+        return synced or existing
+
+    shell = build_empty_provider_profile_shell(provider_id, customer_store_path or store_path)
+    if existing:
+        shell = {**shell, **existing, "id": provider_id}
+        for key in ("name", "phone", "city"):
+            if not str(shell.get(key) or "").strip() and str(existing.get(key) or "").strip():
+                shell[key] = existing.get(key)
+
+    name = str(shell.get("name") or "").strip()
+    phone = str(shell.get("phone") or "").strip()
+    verification = profile.get("verification") if isinstance(profile.get("verification"), dict) else {}
+    customer_verified = (
+        normalize_verification_status(profile.get("verificationStatus"), "unverified") == "verified"
+        or bool(verification.get("phone"))
+    )
+    roles = [str(item).strip() for item in (profile.get("rolesRegistered") or []) if str(item).strip()]
+    returning_partner = "provider" in roles or bool(str(profile.get("linkedProviderId") or "").strip())
+    preferred_provider = str(profile.get("preferredRole") or "").strip() == "provider"
+
+    # Promote a verified linked customer into a usable duty profile (defaults for vehicle/services).
+    if customer_verified and name and phone and (returning_partner or preferred_provider):
+        now = _now_iso()
+        if not str(shell.get("vehicle") or "").strip():
+            shell["vehicle"] = "Автодопомога"
+        specialties = shell.get("specialties") if isinstance(shell.get("specialties"), list) else []
+        if not specialties:
+            shell["specialties"] = ["tow"]
+        shell["registeredAt"] = shell.get("registeredAt") or now
+        shell["verificationStatus"] = "verified"
+        verification = shell.get("verification") if isinstance(shell.get("verification"), dict) else {}
+        shell["verification"] = {**verification, "phone": True}
+        shell["profileUpdatedAt"] = now
+        shell["updatedAt"] = now
+
+    shell["status"] = "offline"
+    shell.pop("stale", None)
+    shell = _normalize_provider_trust(shell)
+
+    if _should_use_sql_store(store_path, _default_provider_store_path):
+        persisted = sql_upsert_provider(dict(shell))
+        persisted.pop("stale", None)
+    else:
+        providers = load_providers(store_path)
+        replaced = False
+        for index, provider in enumerate(providers):
+            if str(provider.get("id")) != str(provider_id):
+                continue
+            providers[index] = shell
+            replaced = True
+            break
+        if not replaced:
+            providers.append(shell)
+        save_providers(providers, store_path)
+        persisted = dict(shell)
+
+    if not str(profile.get("linkedProviderId") or "").strip():
+        try:
+            update_customer_profile(customer_id, {"linkedProviderId": provider_id}, customer_store_path)
+        except ValueError:
+            pass
+    if persisted.get("registeredAt"):
+        try:
+            mark_user_role_registered(customer_id, "provider", customer_store_path)
+        except ValueError:
+            pass
+    return persisted
 
 
 def submit_provider_verification(provider_id: str, data: Dict[str, Any], store_path: Optional[Path] = None) -> Dict[str, Any]:

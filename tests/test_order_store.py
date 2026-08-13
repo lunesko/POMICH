@@ -952,6 +952,58 @@ def test_provider_registration_links_customer_for_phone_login_restore(tmp_path, 
     assert status["linkedProviderId"] == "provider-guest-vitaliy"
 
 
+def test_ensure_linked_provider_profile_creates_registered_row_for_verified_customer(tmp_path, monkeypatch):
+    from bot.order_store import (
+        ensure_linked_provider_profile,
+        get_provider_profile,
+        build_user_account_status,
+    )
+
+    customer_path = tmp_path / "customers.json"
+    provider_path = tmp_path / "providers.json"
+    monkeypatch.setattr("bot.order_store._default_customer_store_path", lambda: customer_path)
+    monkeypatch.setattr("bot.order_store._default_provider_store_path", lambda: provider_path)
+    monkeypatch.setenv("POMICH_STORAGE_BACKEND", "json")
+
+    update_customer_profile(
+        "tg-829741830",
+        {
+            "name": "Віталій",
+            "phone": "+380661007434",
+            "city": "Ужгород",
+            "preferredRole": "provider",
+            "linkedProviderId": "provider-tg-829741830",
+            "rolesRegistered": ["customer", "provider"],
+        },
+        store_path=customer_path,
+    )
+    from bot.order_store import load_customer_profiles, save_customer_profiles
+
+    profiles = load_customer_profiles(customer_path)
+    for profile in profiles:
+        if str(profile.get("id")) == "tg-829741830":
+            profile["verificationStatus"] = "verified"
+            profile["verification"] = {"phone": True}
+    save_customer_profiles(profiles, customer_path)
+    assert get_provider_profile("provider-tg-829741830", provider_path) is None
+
+    ensured = ensure_linked_provider_profile("tg-829741830", provider_path, customer_path)
+    assert ensured is not None
+    assert ensured["id"] == "provider-tg-829741830"
+    assert ensured.get("registeredAt")
+    assert ensured["name"] == "Віталій"
+    assert ensured["phone"] == "+380661007434"
+    assert ensured["verificationStatus"] == "verified"
+
+    loaded = get_provider_profile("provider-tg-829741830", provider_path)
+    assert loaded is not None
+    assert loaded.get("registeredAt")
+    # Defaults are monkeypatched — status must see the same provider JSON store.
+    status = build_user_account_status("tg-829741830")
+    assert status["providerRegistered"] is True
+    assert status["linkedProviderId"] == "provider-tg-829741830"
+
+
 def test_guest_inherits_verification_from_tg_profile_by_phone(tmp_path, monkeypatch):
     from bot import otp_verification
     from bot.order_store import get_customer_profile

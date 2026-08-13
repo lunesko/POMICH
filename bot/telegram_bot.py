@@ -271,7 +271,9 @@ def _url_button(text: str, url: str) -> dict[str, Any]:
 
 def _build_webapp_keyboard(*, role: str | None = None, kind: TelegramBotKind | None = None, screen: str | None = None) -> dict[str, Any] | None:
     bot_kind = normalize_telegram_bot_kind(role) or kind or "customer"
-    url = _screen_url(bot_kind, screen)
+    # Default Mini App target matches the primary menu button for that bot.
+    default_screen = "order" if bot_kind == "customer" else "cabinet"
+    url = _screen_url(bot_kind, screen or default_screen)
     label = CUSTOMER_MENU_TEXT if bot_kind == "customer" else PROVIDER_MENU_TEXT
     button = _webapp_button(label, url)
     if not button:
@@ -281,7 +283,8 @@ def _build_webapp_keyboard(*, role: str | None = None, kind: TelegramBotKind | N
 
 def _build_customer_start_keyboard() -> dict[str, Any]:
     rows: list[list[dict[str, Any]]] = []
-    open_btn = _webapp_button(CUSTOMER_MENU_TEXT, _screen_url("customer"))
+    # Button label must match the Mini App screen (?screen=) opened by the WebApp URL.
+    open_btn = _webapp_button(CUSTOMER_MENU_TEXT, _screen_url("customer", "order"))
     profile_btn = _webapp_button("Мій профіль", _screen_url("customer", "profile"))
     history_btn = _webapp_button("Історія", _screen_url("customer", "history"))
     if open_btn:
@@ -297,7 +300,8 @@ def _build_customer_start_keyboard() -> dict[str, Any]:
 
 def _build_provider_start_keyboard() -> dict[str, Any]:
     rows: list[list[dict[str, Any]]] = []
-    open_btn = _webapp_button(PROVIDER_MENU_TEXT, _screen_url("provider"))
+    # «Кабінет партнера» must open cabinet — not the generic duty map.
+    open_btn = _webapp_button(PROVIDER_MENU_TEXT, _screen_url("provider", "cabinet"))
     duty_btn = _webapp_button("Вийти на лінію", _screen_url("provider", "duty"))
     offers_btn = _webapp_button("Активні офери", _screen_url("provider", "offers"))
     verify_btn = _webapp_button("Підтвердити профіль", _screen_url("provider", "verify"))
