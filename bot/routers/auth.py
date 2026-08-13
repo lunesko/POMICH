@@ -164,15 +164,21 @@ def create_telegram_customer_session(
 
 
 @router.post("/auth/customer/verify/send")
-def customer_verify_send(payload: dict, authorization: str | None = Header(default=None)) -> dict:
+def customer_verify_send(
+    payload: dict,
+    authorization: str | None = Header(default=None),
+    x_pomich_telegram_bot: str | None = Header(default=None),
+) -> dict:
     principal = require_customer_auth_from_bearer(authorization)
     channel = str(payload.get("channel") or "").strip().lower()
+    preferred_bot_kind = str(payload.get("telegramBotKind") or x_pomich_telegram_bot or "").strip()
     try:
         return send_customer_verification_code(
             principal.subject_id,
             channel,
             phone=payload.get("phone"),
             email=payload.get("email"),
+            preferred_bot_kind=preferred_bot_kind or None,
             send_reason="auth/customer/verify/send",
         )
     except OtpVerificationError as exc:

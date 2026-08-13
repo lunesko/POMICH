@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import time
+from typing import Any
+
 from fastapi import APIRouter, Body, Header, HTTPException
 
-from bot.api_deps import dispatch_conflict, require_admin_auth, require_provider_auth
+from bot.api_deps import dispatch_conflict, is_production_runtime, require_admin_auth, require_provider_auth
 from bot.occupied_territories import filter_non_occupied_providers, is_occupied_coordinates, occupied_zone_name
 from bot.settlements import (
     filter_providers_by_city,
@@ -16,7 +19,6 @@ from bot.order_store import (
     accept_offer,
     build_empty_provider_profile_shell,
     decline_offer,
-    expire_offers,
     get_provider_offers,
     get_provider_profile,
     get_provider_public_card,
@@ -33,14 +35,71 @@ from bot.telegram_bot import notify_order_accepted
 
 router = APIRouter(tags=["providers"])
 
+_MAP_MARKER_KEYS = (
+    "id",
+    "name",
+    "city",
+    "phone",
+    "telegram",
+    "vehicle",
+    "rating",
+    "status",
+    "location",
+    "specialties",
+    "providerKind",
+    "contactStatus",
+    "address",
+    "openingHours",
+    "serviceRadiusKm",
+    "etaMinutes",
+    "verificationStatus",
+    "source",
+)
+
+_MAP_CACHE: dict[str, Any] = {"ts": 0.0, "key": "", "items": None}
+_MAP_CACHE_TTL_SECONDS = 15.0
+
+
+def public_map_marker(provider: dict) -> dict:
+    """Slim pin payload for the public map — omit verification blobs and documents."""
+    marker: dict[str, Any] = {}
+    for key in _MAP_MARKER_KEYS:
+        value = provider.get(key)
+        if value is not None:
+            marker[key] = value
+    return marker
+
+
+def _provider_kind(provider: dict) -> str:
+    return str(provider.get("providerKind") or "dispatch").strip().lower() or "dispatch"
+
+
+def _cached_map_markers(cache_key: str, builder) -> list[dict]:
+    now = time.monotonic()
+    if (
+        is_production_runtime()
+        and _MAP_CACHE["items"] is not None
+        and _MAP_CACHE["key"] == cache_key
+        and now - float(_MAP_CACHE["ts"]) < _MAP_CACHE_TTL_SECONDS
+    ):
+        return _MAP_CACHE["items"]
+    items = builder()
+    if is_production_runtime():
+        _MAP_CACHE["ts"] = now
+        _MAP_CACHE["key"] = cache_key
+        _MAP_CACHE["items"] = items
+    return items
+
 
 @router.get("/providers")
 def list_providers(kind: str | None = None) -> list[dict]:
-    expire_offers()
     providers = load_providers()
     if kind:
         normalized = kind.strip().lower()
-        providers = [provider for provider in providers if str(provider.get("providerKind") or "dispatch").lower() == normalized]
+        providers = [provider for provider in providers if _provider_kind(provider) == normalized]
+    else:
+        # Directory OSM rows (~thousands) belong on /map/providers, not the dispatch list.
+        providers = [provider for provider in providers if _provider_kind(provider) != "directory"]
     return providers
 
 
@@ -53,15 +112,24 @@ def map_providers(
     radius_km: float = 25.0,
 ) -> list[dict]:
     """Providers for map display; scope=all (free UA) or city/geo filter. Occupied zones excluded."""
-    providers = filter_non_occupied_providers(load_providers())
     normalized_scope = str(scope or "").strip().lower()
-    if normalized_scope == "all":
-        return providers
-    if city and city.strip():
-        providers = filter_providers_by_city(providers, city.strip())
-    elif lat is not None and lng is not None:
-        providers = filter_providers_near(providers, lat, lng, radius_km=max(1.0, min(radius_km, 100.0)))
-    return providers
+    city_key = city.strip() if city and city.strip() else ""
+    radius = max(1.0, min(radius_km, 100.0))
+    cache_key = f"{normalized_scope}|{city_key}|{lat}|{lng}|{radius}"
+
+    def build() -> list[dict]:
+        providers = filter_non_occupied_providers(load_providers())
+        if normalized_scope == "all":
+            filtered = providers
+        elif city_key:
+            filtered = filter_providers_by_city(providers, city_key)
+        elif lat is not None and lng is not None:
+            filtered = filter_providers_near(providers, lat, lng, radius_km=radius)
+        else:
+            filtered = providers
+        return [public_map_marker(provider) for provider in filtered]
+
+    return _cached_map_markers(cache_key, build)
 
 
 @router.get("/map/settlements/nearest")

@@ -23,6 +23,11 @@ interface OtpVerificationPanelProps {
   phone?: string
   email?: string
   compact?: boolean
+  /** Telegram bot that should receive the OTP (shown in help copy). */
+  telegramBotUsername?: string
+  telegramBotKind?: "customer" | "provider"
+  /** Button label after the phone is already verified (partner duty screen). */
+  verifiedActionLabel?: string
   /**
    * @deprecated Ignored — OTP is never auto-sent. Kept optional so call sites compile
    * until props are cleaned up; send only on explicit button tap.
@@ -46,6 +51,9 @@ export function OtpVerificationPanel({
   phone,
   email,
   compact = false,
+  telegramBotUsername = "pomich_ua_bot",
+  telegramBotKind,
+  verifiedActionLabel = "Продовжити",
   onVerified,
   onPhoneSaved,
 }: OtpVerificationPanelProps) {
@@ -108,18 +116,19 @@ export function OtpVerificationPanel({
     return null
   }, [sending, sentChannel, resendCooldown])
 
+  const botHandle = `@${telegramBotUsername.replace(/^@+/, "")}`
   const helpText = useMemo(() => {
     if (showPhoneGate) {
-      return "Це підтвердження телефону, не нова реєстрація. 1. Введіть номер і натисніть «Зберегти і надіслати код». 2. Введіть 6 цифр з @pomich_ua_bot."
+      return `Це підтвердження телефону, не нова реєстрація. 1. Введіть номер і натисніть «Зберегти і надіслати код». 2. Введіть 6 цифр з ${botHandle}.`
     }
     if (sentChannel) {
-      return "Код уже в @pomich_ua_bot. Введіть 6 цифр нижче. Після підтвердження цей крок більше не питатимемо."
+      return `Код уже в ${botHandle}. Введіть 6 цифр нижче. Після підтвердження цей крок більше не питатимемо.`
     }
     if (isTelegram) {
       return "Профіль уже є — потрібне лише підтвердження телефону. 1. «Надіслати код» у цей чат. 2. Введіть 6 цифр. Далі вхід без повторної реєстрації."
     }
-    return "Профіль уже є — це не реєстрація. 1. Відкрийте @pomich_ua_bot і натисніть /start. 2. «Надіслати код» на сайті. 3. Введіть 6 цифр з бота один раз — далі не питатимемо."
-  }, [showPhoneGate, sentChannel, isTelegram])
+    return `Профіль уже є — це не реєстрація. 1. Відкрийте ${botHandle} і натисніть /start. 2. «Надіслати код» на сайті. 3. Введіть 6 цифр з бота один раз — далі не питатимемо.`
+  }, [showPhoneGate, sentChannel, isTelegram, botHandle])
 
 
   const handleSend = async (channel: "telegram" | "email", phoneOverride?: string) => {
@@ -154,6 +163,7 @@ export function OtpVerificationPanel({
           channel,
           phone: effectivePhoneValidation.valid ? effectivePhoneValidation.e164 : undefined,
           email: channel === "email" ? emailValue.trim() : undefined,
+          telegramBotKind: telegramBotKind === "provider" || telegramBotKind === "customer" ? telegramBotKind : undefined,
         },
         customerToken,
       )
@@ -228,7 +238,7 @@ export function OtpVerificationPanel({
     }
     if (code.trim().length !== 6) {
       setCodeError("Введіть 6-значний код")
-      setCodeHint("Код з Telegram-бота @pomich_ua_bot — рівно 6 цифр")
+      setCodeHint(`Код з Telegram-бота ${botHandle} — рівно 6 цифр`)
       return
     }
 
@@ -257,6 +267,11 @@ export function OtpVerificationPanel({
           <span className="pomich-otp-verified-dot" aria-hidden="true" />
           Телефон підтверджено
         </div>
+        {onVerified ? (
+          <div className="pomich-otp-verified-actions">
+            <PrimaryButton label={verifiedActionLabel} onClick={() => onVerified(profile)} />
+          </div>
+        ) : null}
       </div>
     )
   }

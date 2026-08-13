@@ -723,7 +723,7 @@ def test_otp_verify_send_allows_own_provider_phone_with_tg_duplicate(tmp_path, m
     monkeypatch.setattr("bot.order_store._default_provider_store_path", lambda: provider_path)
     monkeypatch.setattr(otp_verification, "_default_otp_store_path", lambda: otp_path)
     monkeypatch.setattr(otp_verification, "_generate_otp_code", lambda: "112233")
-    monkeypatch.setattr(otp_verification, "_send_telegram_otp", lambda chat_id, code: 829741830)
+    monkeypatch.setattr(otp_verification, "_send_telegram_otp", lambda chat_id, code, **kwargs: 829741830)
     monkeypatch.setenv("POMICH_OTP_SECRET", "test-otp-secret")
 
     update_customer_profile(
@@ -816,6 +816,64 @@ def test_sync_provider_verification_from_verified_client(tmp_path, monkeypatch):
     assert is_provider_verified(synced)
 
 
+def test_go_online_inherits_verified_customer_phone(tmp_path, monkeypatch):
+    from bot.order_store import (
+        is_provider_verified,
+        load_customer_profiles,
+        save_customer_profiles,
+        update_provider_presence,
+        update_provider_profile,
+    )
+
+    customer_path = tmp_path / "customers.json"
+    provider_path = tmp_path / "providers.json"
+    monkeypatch.setattr("bot.order_store._default_customer_store_path", lambda: customer_path)
+    monkeypatch.setattr("bot.order_store._default_provider_store_path", lambda: provider_path)
+
+    update_customer_profile(
+        "tg-99",
+        {
+            "name": "Партнер",
+            "phone": "+380501112233",
+            "city": "Ужгород",
+            "linkedProviderId": "provider-tg-99",
+        },
+        store_path=customer_path,
+    )
+    profiles = load_customer_profiles(customer_path)
+    for profile in profiles:
+        if str(profile.get("id") or "") != "tg-99":
+            continue
+        profile["verificationStatus"] = "verified"
+        verification = profile.get("verification") if isinstance(profile.get("verification"), dict) else {}
+        verification["phone"] = True
+        profile["verification"] = verification
+    save_customer_profiles(profiles, customer_path)
+
+    update_provider_profile(
+        "provider-tg-99",
+        {
+            "name": "Партнер",
+            "phone": "+380501112233",
+            "city": "Ужгород",
+            "vehicle": "Ford Transit",
+            "plate": "АА1234ВВ",
+            "specialties": ["tow"],
+            "serviceRadiusKm": 15,
+            "registeredAt": "2026-08-12T12:00:00Z",
+        },
+        store_path=provider_path,
+    )
+
+    online = update_provider_presence(
+        "provider-tg-99",
+        {"status": "online", "location": {"lat": 48.63, "lng": 22.27}},
+        store_path=provider_path,
+    )
+    assert online["status"] == "online"
+    assert is_provider_verified(online)
+
+
 def test_duplicate_provider_phone_registration_rejected(tmp_path):
     from bot.order_store import update_provider_profile
 
@@ -905,7 +963,7 @@ def test_guest_inherits_verification_from_tg_profile_by_phone(tmp_path, monkeypa
     monkeypatch.setenv("POMICH_RUNTIME", "dev")
     monkeypatch.setattr(otp_verification, "_default_otp_store_path", lambda: otp_path)
     monkeypatch.setattr(otp_verification, "_generate_otp_code", lambda: "654321")
-    monkeypatch.setattr(otp_verification, "_send_telegram_otp", lambda chat_id, code: None)
+    monkeypatch.setattr(otp_verification, "_send_telegram_otp", lambda chat_id, code, **kwargs: None)
 
     # Guest may hold the same phone before becoming a registered client (placeholder name).
     update_customer_profile(

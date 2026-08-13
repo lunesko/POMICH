@@ -1645,6 +1645,20 @@ describe('POMICH role-based flows', () => {
           ],
         })
       }
+      if (url.includes('/providers/provider-oleksandr/profile')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: 'provider-oleksandr',
+            name: 'Олександр',
+            status: 'offline',
+            registeredAt: '2026-08-09T00:00:00',
+            verificationStatus: 'verified',
+            specialties: ['tow', 'fuel'],
+            serviceRadiusKm: 9,
+          }),
+        })
+      }
       if (url.includes('/map/providers')) {
         return Promise.resolve({ ok: true, json: async () => [] })
       }

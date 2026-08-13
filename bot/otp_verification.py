@@ -126,19 +126,40 @@ def _delete_stored_otp_telegram_message(record: Dict[str, Any]) -> None:
     if chat_id is None or message_id is None:
         return
     from bot.telegram_bot import delete_message
+    from bot.telegram_config import normalize_telegram_bot_kind
+
+    preferred = normalize_telegram_bot_kind(str(record.get("telegramBotKind") or ""))
+    kinds = [preferred] if preferred else ["customer", "provider"]
+    if preferred:
+        other = "provider" if preferred == "customer" else "customer"
+        kinds.append(other)
 
     try:
-        delete_message(str(chat_id), int(message_id))
+        for kind in kinds:
+            delete_message(str(chat_id), int(message_id), kind=kind)
     except (TypeError, ValueError):
         return
 
 
-def _schedule_otp_message_deletion(chat_id: str, message_id: int, delay_seconds: int) -> None:
+def _schedule_otp_message_deletion(
+    chat_id: str,
+    message_id: int,
+    delay_seconds: int,
+    *,
+    kind: str | None = None,
+) -> None:
     def _run() -> None:
         from bot.telegram_bot import delete_message
+        from bot.telegram_config import normalize_telegram_bot_kind
 
+        preferred = normalize_telegram_bot_kind(kind)
+        kinds = [preferred] if preferred else ["customer", "provider"]
+        if preferred:
+            other = "provider" if preferred == "customer" else "customer"
+            kinds.append(other)
         try:
-            delete_message(chat_id, message_id)
+            for bot_kind in kinds:
+                delete_message(chat_id, message_id, kind=bot_kind)
         except Exception:
             return
 
@@ -173,13 +194,16 @@ def _smtp_configured() -> bool:
     return bool(os.getenv("SMTP_HOST") and os.getenv("SMTP_USER") and os.getenv("SMTP_PASS"))
 
 
-def _send_telegram_otp(chat_id: str, code: str) -> int:
+def _send_telegram_otp(chat_id: str, code: str, *, kind: str | None = None) -> int:
     from bot.telegram_bot import send_message
+    from bot.telegram_config import normalize_telegram_bot_kind
 
+    bot_kind = normalize_telegram_bot_kind(kind) or "customer"
     result = send_message(
         chat_id,
         UK_OTP_TELEGRAM_MESSAGE.format(code=code),
         parse_mode="HTML",
+        kind=bot_kind,
     )
     if isinstance(result, dict) and result.get("ok") is False:
         raise OtpVerificationError("telegram_send_failed", "Не вдалося надіслати код у Telegram")
@@ -188,6 +212,40 @@ def _send_telegram_otp(chat_id: str, code: str) -> int:
     if message_id is None:
         raise OtpVerificationError("telegram_send_failed", "Не вдалося надіслати код у Telegram")
     return int(message_id)
+
+
+def _preferred_otp_bot_kind(profile: Dict[str, Any], hint: str | None = None) -> str:
+    from bot.telegram_config import normalize_telegram_bot_kind
+
+    return (
+        normalize_telegram_bot_kind(hint)
+        or normalize_telegram_bot_kind(
+            str(profile.get("telegramBotKind") or profile.get("telegramNotificationChannel") or "")
+        )
+        or "customer"
+    )
+
+
+def _deliver_telegram_otp(chat_id: str, code: str, *, preferred_kind: str | None = None) -> tuple[int, str]:
+    from bot.telegram_config import get_telegram_bot_config, normalize_telegram_bot_kind
+
+    preferred = normalize_telegram_bot_kind(preferred_kind) or "customer"
+    other = "provider" if preferred == "customer" else "customer"
+    kinds = [preferred]
+    preferred_config = get_telegram_bot_config(preferred)
+    other_config = get_telegram_bot_config(other)
+    if other_config is not None and (
+        preferred_config is None or other_config.token != preferred_config.token
+    ):
+        kinds.append(other)
+
+    last_error: Optional[OtpVerificationError] = None
+    for kind in kinds:
+        try:
+            return _send_telegram_otp(chat_id, code, kind=kind), kind
+        except OtpVerificationError as exc:
+            last_error = exc
+    raise last_error or OtpVerificationError("telegram_send_failed", "Не вдалося надіслати код у Telegram")
 
 
 def _send_email_otp(email: str, code: str) -> None:
@@ -321,6 +379,7 @@ def send_customer_verification_code(
     *,
     phone: Optional[str] = None,
     email: Optional[str] = None,
+    preferred_bot_kind: Optional[str] = None,
     store_path: Optional[Path] = None,
     customer_store_path: Optional[Path] = None,
     send_reason: str = "unspecified",
@@ -402,6 +461,7 @@ def send_customer_verification_code(
         code_hash = _hash_otp_code(customer_id, normalized_channel, code)
         telegram_message_id: Optional[int] = None
         telegram_chat_id: Optional[str] = None
+        otp_bot_kind = "customer"
 
         if normalized_channel == "telegram":
             telegram_chat_id = _telegram_chat_id_for_customer(
@@ -413,7 +473,7 @@ def send_customer_verification_code(
             if not telegram_chat_id:
                 raise OtpVerificationError(
                     "telegram_not_linked",
-                    "telegram user id not linked; start @pomich_ua_bot with the same phone",
+                    "telegram user id not linked; start @pomich_ua_bot or @pomich_help_bot with the same phone",
                 )
             _enforce_delivery_cooldown(
                 store,
@@ -423,7 +483,11 @@ def send_customer_verification_code(
             )
             # Drop previous OTP bubbles for this chat (any customer id) before sending a new one.
             _delete_otp_messages_for_chat(store, telegram_chat_id)
-            telegram_message_id = _send_telegram_otp(telegram_chat_id, code)
+            telegram_message_id, otp_bot_kind = _deliver_telegram_otp(
+                telegram_chat_id,
+                code,
+                preferred_kind=_preferred_otp_bot_kind(profile, preferred_bot_kind),
+            )
             target = telegram_chat_id
         else:
             target_email = str(email or profile.get("email") or "").strip()
@@ -457,7 +521,13 @@ def send_customer_verification_code(
         if normalized_channel == "telegram" and telegram_chat_id and telegram_message_id is not None:
             record["telegramChatId"] = str(telegram_chat_id)
             record["telegramMessageId"] = telegram_message_id
-            _schedule_otp_message_deletion(str(telegram_chat_id), telegram_message_id, OTP_TTL_SECONDS)
+            record["telegramBotKind"] = otp_bot_kind
+            _schedule_otp_message_deletion(
+                str(telegram_chat_id),
+                telegram_message_id,
+                OTP_TTL_SECONDS,
+                kind=otp_bot_kind,
+            )
         store[customer_id] = record
         _save_otp_store(store, otp_path)
 

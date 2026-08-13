@@ -11,6 +11,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.gzip import GZipMiddleware
 
 from bot.api_deps import (
     AuthPrincipal,
@@ -38,8 +39,20 @@ _get_cors_origins = get_cors_origins
 
 validate_runtime_config()
 
+class CachedStaticFiles(StaticFiles):
+    def __init__(self, *args, cache_control: str = "public, max-age=31536000, immutable", **kwargs):
+        super().__init__(*args, **kwargs)
+        self.cache_control = cache_control
+
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        response.headers.setdefault("Cache-Control", self.cache_control)
+        return response
+
+
 app = FastAPI(title="POMICH MVP", version="0.1.0")
 
+app.add_middleware(GZipMiddleware, minimum_size=400)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=get_cors_origins(),
@@ -65,7 +78,7 @@ for router in _API_ROUTERS:
     app.include_router(router, prefix="/api")
 
 if ASSETS_DIR.exists():
-    app.mount("/assets", StaticFiles(directory=ASSETS_DIR), name="assets")
+    app.mount("/assets", CachedStaticFiles(directory=ASSETS_DIR), name="assets")
 
 def _resolve_geo_file(filename: str) -> Path | None:
     for base in (GEO_DIR, DATA_GEO_DIR):
@@ -75,10 +88,12 @@ def _resolve_geo_file(filename: str) -> Path | None:
     return None
 
 
+_GEO_CACHE_CONTROL = "public, max-age=3600"
+
 if GEO_DIR.exists():
-    app.mount("/geo", StaticFiles(directory=GEO_DIR), name="geo")
+    app.mount("/geo", CachedStaticFiles(directory=GEO_DIR, cache_control=_GEO_CACHE_CONTROL), name="geo")
 elif DATA_GEO_DIR.exists():
-    app.mount("/geo", StaticFiles(directory=DATA_GEO_DIR), name="geo")
+    app.mount("/geo", CachedStaticFiles(directory=DATA_GEO_DIR, cache_control=_GEO_CACHE_CONTROL), name="geo")
 
 _INDEX_NO_CACHE_HEADERS = {
     "Cache-Control": "no-cache, no-store, must-revalidate",
@@ -112,7 +127,11 @@ def serve_frontend(full_path: str = ""):
         geo_name = normalized.removeprefix("geo/")
         geo_path = _resolve_geo_file(geo_name)
         if geo_path is not None:
-            return FileResponse(geo_path, media_type="application/geo+json")
+            return FileResponse(
+                geo_path,
+                media_type="application/geo+json",
+                headers={"Cache-Control": _GEO_CACHE_CONTROL},
+            )
         raise HTTPException(status_code=404, detail="GeoJSON file not found")
     if normalized.startswith("assets/"):
         raise HTTPException(status_code=404, detail="Asset not found")

@@ -17,4 +17,5 @@ if [ "$(echo "${TELEGRAM_MODE:-polling}" | tr '[:upper:]' '[:lower:]')" = "polli
   fi
 fi
 
-exec python3 -m uvicorn bot.fastapi_app:app --host 0.0.0.0 --port "$API_PORT"
+# Keep a single worker: realtime SSE/WS is in-process (see bot/realtime.py).
+exec python3 -m uvicorn bot.fastapi_app:app --host 0.0.0.0 --port "$API_PORT" --proxy-headers --forwarded-allow-ips='*' --timeout-keep-alive 5

@@ -436,7 +436,7 @@ export default function LandingPage({
               className="landing-hero-brand"
               style={{
                 margin: layoutCompact ? "14px 0 0" : "18px 0 0",
-                fontFamily: "'Outfit', 'Manrope', sans-serif",
+                fontFamily: "var(--font-sans)",
                 /* Narrow phones: size from viewport so "POMICH" never clips (html overflow-x:hidden). */
                 fontSize: layoutCompact
                   ? "clamp(44px, calc((100vw - 40px) / 5.4), 80px)"

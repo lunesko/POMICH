@@ -15,7 +15,7 @@ def otp_env(monkeypatch, tmp_path):
     monkeypatch.setenv("POMICH_RUNTIME", "dev")
     monkeypatch.delenv("SMTP_HOST", raising=False)
     monkeypatch.setattr(otp_verification, "_default_otp_store_path", lambda: otp_path)
-    monkeypatch.setattr(otp_verification, "_send_telegram_otp", lambda chat_id, code: 12345)
+    monkeypatch.setattr(otp_verification, "_send_telegram_otp", lambda chat_id, code, **kwargs: 12345)
     return customer_path, otp_path
 
 
@@ -165,7 +165,7 @@ def test_resend_after_cooldown_deletes_previous_telegram_message(otp_env, monkey
     monkeypatch.setattr(
         otp_verification,
         "_send_telegram_otp",
-        lambda chat_id, code: next(message_ids),
+        lambda chat_id, code, **kwargs: next(message_ids),
     )
     monkeypatch.setattr(
         otp_verification,
@@ -206,7 +206,7 @@ def test_confirm_deletes_telegram_otp_message(otp_env, monkeypatch) -> None:
     customer_path, _ = otp_env
     deleted: list[tuple[str, int]] = []
     monkeypatch.setattr(otp_verification, "_generate_otp_code", lambda: "654321")
-    monkeypatch.setattr(otp_verification, "_send_telegram_otp", lambda chat_id, code: 555)
+    monkeypatch.setattr(otp_verification, "_send_telegram_otp", lambda chat_id, code, **kwargs: 555)
     monkeypatch.setattr(
         otp_verification,
         "_delete_stored_otp_telegram_message",
@@ -225,7 +225,7 @@ def test_confirm_deletes_telegram_otp_message(otp_env, monkeypatch) -> None:
 def test_expired_cleanup_deletes_telegram_otp_message(monkeypatch, otp_env) -> None:
     customer_path, otp_path = otp_env
     deleted: list[tuple[str, int]] = []
-    monkeypatch.setattr(otp_verification, "_send_telegram_otp", lambda chat_id, code: 777)
+    monkeypatch.setattr(otp_verification, "_send_telegram_otp", lambda chat_id, code, **kwargs: 777)
     monkeypatch.setattr(
         otp_verification,
         "_delete_stored_otp_telegram_message",
@@ -432,3 +432,57 @@ def test_guest_inherits_verification_from_verified_provider_phone(otp_env, tmp_p
     assert loaded["verificationStatus"] == "verified"
     assert loaded["verification"]["phone"] is True
     assert loaded.get("linkedProviderId") == "provider-tg-6863802123"
+
+
+def test_otp_prefers_provider_bot_for_partner_mini_app(otp_env, monkeypatch) -> None:
+    customer_path, _ = otp_env
+    sent: list[str | None] = []
+
+    def fake_send(chat_id, code, *, kind=None):
+        sent.append(kind)
+        return 42
+
+    monkeypatch.setattr(otp_verification, "_send_telegram_otp", fake_send)
+    update_customer_profile(
+        "tg-42",
+        {
+            "name": "Партнер",
+            "phone": "+380501112233",
+            "telegramBotKind": "provider",
+        },
+        customer_path,
+    )
+
+    otp_verification.send_customer_verification_code("tg-42", "telegram", customer_store_path=customer_path)
+
+    assert sent == ["provider"]
+
+
+def test_otp_falls_back_to_customer_bot_when_provider_send_fails(otp_env, monkeypatch) -> None:
+    customer_path, _ = otp_env
+    sent: list[str | None] = []
+
+    def fake_send(chat_id, code, *, kind=None):
+        sent.append(kind)
+        if kind == "provider":
+            raise otp_verification.OtpVerificationError("telegram_send_failed", "fail")
+        return 99
+
+    monkeypatch.setattr(otp_verification, "_send_telegram_otp", fake_send)
+
+    from bot.telegram_config import TelegramBotConfig
+
+    def fake_config(kind):
+        token = "111:customer" if kind == "customer" else "222:provider"
+        return TelegramBotConfig(kind=kind, username="bot", token=token, web_app_url="https://pomich.help/")
+
+    monkeypatch.setattr("bot.telegram_config.get_telegram_bot_config", fake_config)
+    update_customer_profile(
+        "tg-42",
+        {"name": "Партнер", "phone": "+380501112233", "telegramBotKind": "provider"},
+        customer_path,
+    )
+
+    otp_verification.send_customer_verification_code("tg-42", "telegram", customer_store_path=customer_path)
+
+    assert sent == ["provider", "customer"]

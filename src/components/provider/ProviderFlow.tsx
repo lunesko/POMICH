@@ -10,6 +10,7 @@ import {
   getOrder,
   getProviderOffers,
   getProviderOrders,
+  getProviderProfile,
   getProviders,
   getNearbyMapOrders,
   messageFromFetchError,
@@ -400,8 +401,8 @@ export default function ProviderFlow({
     trustedBadges: providerProfile.trustedBadges,
     providerKind: "dispatch",
   }
-  const providerCanGoOnline = isProviderPhoneVerified(providerProfile)
   const telegramContext = useMemo(() => getTelegramContext(), [])
+  const otpBotUsername = telegramContext.botKind === "provider" ? "pomich_help_bot" : "pomich_ua_bot"
   const customerAuthSession = useMemo(
     () => (typeof window !== "undefined" ? readStoredCustomerAuthSession({ telegramChatId: telegramContext.chatId }) : undefined),
     [telegramContext.chatId],
@@ -415,6 +416,76 @@ export default function ProviderFlow({
       ? readStoredAuthSession(authSessionStorageKey("customer", customerIdForOtp), "customer", customerIdForOtp)
       : undefined)
   const [customerOtpProfile, setCustomerOtpProfile] = useState<CustomerProfile | undefined>()
+  const providerCanGoOnline =
+    Boolean(providerProfile.registeredAt) &&
+    (isProviderPhoneVerified(providerProfile) || Boolean(customerOtpProfile && isCustomerVerified(customerOtpProfile)))
+
+  const markProviderPhoneVerified = useCallback((currentProvider?: ProviderAvailability) => {
+    setProviderProfile((profile) => {
+      const specialties = toServiceKeys(currentProvider?.specialties ?? profile.specialties)
+      const merged: ProviderAvailability = {
+        ...profile,
+        ...(currentProvider ?? {}),
+        specialties: specialties.length > 0 ? specialties : profile.specialties,
+        verificationStatus: "verified",
+        verification: { ...(currentProvider?.verification ?? profile.verification), phone: true },
+        registeredAt: currentProvider?.registeredAt || profile.registeredAt,
+      }
+      writeCachedProviderProfile({ ...merged, id: providerId })
+      return merged
+    })
+  }, [providerId])
+
+  const applyLoadedProvider = useCallback((currentProvider: ProviderAvailability) => {
+    const currentSpecialties = toServiceKeys(currentProvider.specialties)
+    setProviderProfile((profile) => {
+      const merged = {
+        ...profile,
+        ...currentProvider,
+        specialties: currentSpecialties.length > 0 ? currentSpecialties : profile.specialties,
+      }
+      writeCachedProviderProfile({ ...merged, id: currentProvider.id || providerId })
+      return merged
+    })
+    if (currentProvider.registeredAt) {
+      const vehicleFields = hydratePartnerVehicleFromProfile(currentProvider as { vehicle?: string; vehicleMake?: string; vehicleModel?: string })
+      setRegistrationForm((form) => ({
+        name: currentProvider.name || form.name,
+        phone: currentProvider.phone || form.phone,
+        telegram: currentProvider.telegram || form.telegram,
+        ...vehicleFields,
+        plate: currentProvider.plate || form.plate,
+        city: (currentProvider as { city?: string }).city || form.city || "",
+        specialties: currentSpecialties.length > 0 ? currentSpecialties : form.specialties,
+        serviceRadiusKm: currentProvider.serviceRadiusKm ?? form.serviceRadiusKm,
+        identityDocumentRef: form.identityDocumentRef,
+        driverLicenseRef: form.driverLicenseRef,
+        vehicleRegistrationRef: form.vehicleRegistrationRef,
+        serviceProofRef: form.serviceProofRef,
+        selfieRef: form.selfieRef,
+      }))
+    }
+    setOnDuty(currentProvider.status === "online" || currentProvider.status === "busy")
+    if (currentProvider.location) setProviderLocation(currentProvider.location)
+  }, [providerId])
+
+  const loadCurrentProvider = useCallback(async (): Promise<ProviderAvailability | undefined> => {
+    if (providerAuthToken) {
+      try {
+        const profile = await getProviderProfile(providerId, providerAuthToken)
+        if (profile?.id) return profile
+      } catch {
+        return undefined
+      }
+      return undefined
+    }
+    try {
+      const providers = await getProviders()
+      return Array.isArray(providers) ? providers.find((item) => item.id === providerId) : undefined
+    } catch {
+      return undefined
+    }
+  }, [providerAuthToken, providerId])
 
   useEffect(() => {
     if (providerAuthToken) return
@@ -477,17 +548,10 @@ export default function ProviderFlow({
         if (cancelled) return
         setCustomerOtpProfile(profile)
         if (!isCustomerVerified(profile)) return
-        const providers = await getProviders()
+        const currentProvider = await loadCurrentProvider()
         if (cancelled) return
-        const currentProvider = Array.isArray(providers) ? providers.find((item) => item.id === providerId) : undefined
-        if (currentProvider && isProviderPhoneVerified(currentProvider)) {
-          setProviderProfile((prev) => ({
-            ...prev,
-            ...currentProvider,
-            specialties: toServiceKeys(currentProvider.specialties),
-          }))
-          setStep("duty")
-        }
+        markProviderPhoneVerified(currentProvider)
+        setStep("duty")
       } catch {
         // OTP panel still usable if profile fetch fails.
       }
@@ -497,54 +561,40 @@ export default function ProviderFlow({
     return () => {
       cancelled = true
     }
-  }, [step, customerIdForOtp, customerTokenForOtp, providerId])
+  }, [step, customerIdForOtp, customerTokenForOtp, loadCurrentProvider, markProviderPhoneVerified])
 
   useEffect(() => {
     let cancelled = false
 
-    getProviders()
-      .then((providers) => {
-        if (cancelled || !Array.isArray(providers)) return
-        const currentProvider = providers.find((item) => item.id === providerId)
-        if (!currentProvider) return
-        const currentSpecialties = toServiceKeys(currentProvider.specialties)
-        setProviderProfile((profile) => {
-          const merged = { ...profile, ...currentProvider, specialties: currentSpecialties.length > 0 ? currentSpecialties : profile.specialties }
-          writeCachedProviderProfile({ ...merged, id: providerId })
-          return merged
+    const hydrateProvider = async () => {
+      try {
+        const currentProvider = await loadCurrentProvider()
+        if (cancelled || !currentProvider) return
+        applyLoadedProvider(currentProvider)
+        setStep((current) => {
+          if (current !== "register" && current !== "verify" && current !== "duty") return current
+          if (!currentProvider.registeredAt) return "register"
+          if (isProviderPhoneVerified(currentProvider)) {
+            return current === "register" || current === "verify" ? "duty" : current
+          }
+          return current === "register" ? "duty" : current
         })
-        if (currentProvider.registeredAt) {
-          const vehicleFields = hydratePartnerVehicleFromProfile(currentProvider as { vehicle?: string; vehicleMake?: string; vehicleModel?: string })
-          setRegistrationForm((form) => ({
-            name: currentProvider.name || form.name,
-            phone: currentProvider.phone || form.phone,
-            telegram: currentProvider.telegram || form.telegram,
-            ...vehicleFields,
-            plate: currentProvider.plate || form.plate,
-            city: (currentProvider as { city?: string }).city || form.city || "",
-            specialties: currentSpecialties.length > 0 ? currentSpecialties : form.specialties,
-            serviceRadiusKm: currentProvider.serviceRadiusKm ?? form.serviceRadiusKm,
-            identityDocumentRef: form.identityDocumentRef,
-            driverLicenseRef: form.driverLicenseRef,
-            vehicleRegistrationRef: form.vehicleRegistrationRef,
-            serviceProofRef: form.serviceProofRef,
-            selfieRef: form.selfieRef,
-          }))
-          setStep(isProviderPhoneVerified(currentProvider) ? "duty" : "verify")
-        } else if (!effectiveProviderRegistered) {
-          setStep("register")
-        }
-        setOnDuty(currentProvider.status === "online" || currentProvider.status === "busy")
-        if (currentProvider.location) setProviderLocation(currentProvider.location)
-      })
-      .catch(() => {
+      } catch {
         // Demo mode stays usable even when the backend is temporarily unavailable.
-      })
+      }
+    }
 
+    void hydrateProvider()
     return () => {
       cancelled = true
     }
-  }, [providerId])
+  }, [providerId, loadCurrentProvider, applyLoadedProvider, effectiveProviderRegistered])
+
+  useEffect(() => {
+    if (step !== "verify" || !providerCanGoOnline) return
+    markProviderPhoneVerified()
+    setStep("duty")
+  }, [step, providerCanGoOnline, markProviderPhoneVerified])
 
   useEffect(() => {
     if (!providerId || !providerProfile.name?.trim()) return
@@ -1145,6 +1195,10 @@ export default function ProviderFlow({
 
   const setDuty = async (nextDuty: boolean) => {
     if (nextDuty && !providerCanGoOnline) {
+      if (!providerProfile.registeredAt) {
+        setStep("register")
+        return
+      }
       const message = "Підтвердіть телефон кодом у Telegram, щоб вийти на лінію."
       setOfferError(message)
       setPresenceToast(message)
@@ -1179,7 +1233,7 @@ export default function ProviderFlow({
   const handleDutyToggle = () => {
     if (presenceSaving) return
     if (!onDuty && !providerCanGoOnline) {
-      setStep("verify")
+      setStep(providerProfile.registeredAt ? "verify" : "register")
       return
     }
     void setDuty(!onDuty)
@@ -1354,26 +1408,29 @@ export default function ProviderFlow({
     }
     return (
       <ScreenLayout>
-        <Header title="Підтвердження телефону" subtitle="Спочатку телефон, потім код з Telegram" />
+        <Header
+          title="Підтвердження телефону"
+          subtitle="Спочатку телефон, потім код з Telegram"
+          onBack={() => setStep("duty")}
+        />
         <FormContainer>
           <div className="pomich-form-card">
             <OtpVerificationPanel
               profile={otpProfile}
               customerToken={customerTokenForOtp}
               isTelegram={telegramContext.isTelegram}
+              telegramBotUsername={otpBotUsername}
+              telegramBotKind={telegramContext.botKind}
+              verifiedActionLabel="Вийти на лінію"
               phone={otpProfile.phone}
               onPhoneSaved={(savedPhone) => {
                 setRegistrationForm((form) => ({ ...form, phone: savedPhone }))
                 setProviderProfile((profile) => ({ ...profile, phone: savedPhone }))
               }}
-              onVerified={async () => {
-                const providers = await getProviders()
-                const currentProvider = Array.isArray(providers) ? providers.find((item) => item.id === providerId) : undefined
-                if (currentProvider) {
-                  setProviderProfile((profile) => ({ ...profile, ...currentProvider, specialties: toServiceKeys(currentProvider.specialties) }))
-                } else {
-                  setProviderProfile((profile) => ({ ...profile, verificationStatus: "verified", verification: { ...profile.verification, phone: true } }))
-                }
+              onVerified={async (saved) => {
+                if (saved) setCustomerOtpProfile(saved)
+                const currentProvider = await loadCurrentProvider()
+                markProviderPhoneVerified(currentProvider)
                 setStep("duty")
               }}
             />

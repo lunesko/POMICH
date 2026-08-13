@@ -930,6 +930,16 @@ def save_providers(providers: List[Dict[str, Any]], store_path: Optional[Path] =
 
 
 def get_provider_profile(provider_id: str, store_path: Optional[Path] = None) -> Optional[Dict[str, Any]]:
+    if _should_use_sql_store(store_path, _default_provider_store_path):
+        from bot.runtime_store import sql_get_provider
+
+        found = sql_get_provider(str(provider_id))
+        if found is None:
+            return None
+        payload = apply_provider_presence_ttl([_normalize_provider_trust(found)])[0]
+        payload.pop("stale", None)
+        return payload
+
     for provider in load_providers(store_path):
         if str(provider.get("id")) == str(provider_id):
             payload = _normalize_provider_trust(provider)
@@ -1125,6 +1135,8 @@ def update_customer_profile(customer_id: str, data: Dict[str, Any], store_path: 
             "preferredRole",
             "linkedProviderId",
             "rolesRegistered",
+            "telegramBotKind",
+            "telegramNotificationChannel",
         ]
         for index, profile in enumerate(profiles):
             if str(profile.get("id")) != str(customer_id):
@@ -1710,7 +1722,8 @@ def sync_linked_provider_phone_verification_from_customer(
         return provider
     provider_phone = _normalize_ukraine_phone_digits(str(provider.get("phone") or ""))
     customer_phone = _customer_profile_phone_digits(profile)
-    if provider_phone and customer_phone and provider_phone != customer_phone:
+    linked_by_id = str(provider_id) == f"provider-{customer_id}" or str(provider.get("id") or "") == f"provider-{customer_id}"
+    if provider_phone and customer_phone and provider_phone != customer_phone and not linked_by_id:
         return provider
     return verify_provider_phone_otp(provider_id, store_path)
 
@@ -2077,6 +2090,9 @@ def update_provider_profile(provider_id: str, data: Dict[str, Any], store_path: 
 
 
 def update_provider_presence(provider_id: str, data: Dict[str, Any], store_path: Optional[Path] = None) -> Dict[str, Any]:
+    status = str(data.get("status") or "").strip()
+    if status in PROVIDER_ACTIVE_STATUSES:
+        sync_linked_provider_phone_verification_from_customer(str(provider_id), store_path)
     providers = load_providers(store_path)
     now = _now_iso()
     updated: Optional[Dict[str, Any]] = None

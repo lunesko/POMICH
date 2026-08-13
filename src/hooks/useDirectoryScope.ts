@@ -200,7 +200,7 @@ export function useDirectoryScope(options?: { refreshMs?: number; enabled?: bool
           )
           resolve(false)
         },
-        { enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 },
+        { enableHighAccuracy: false, timeout: 8000, maximumAge: 120000 },
       )
     })
   }, [applyGeoRadiusScope, resolveNearestSettlement])

@@ -964,7 +964,7 @@ def test_customer_phone_login_send_and_confirm(monkeypatch, tmp_path) -> None:
     otp_path = tmp_path / "otp_codes.json"
     monkeypatch.setattr("bot.otp_verification._default_otp_store_path", lambda: otp_path)
     monkeypatch.setattr("bot.otp_verification._generate_otp_code", lambda: "445566")
-    monkeypatch.setattr("bot.otp_verification._send_telegram_otp", lambda chat_id, code: 321)
+    monkeypatch.setattr("bot.otp_verification._send_telegram_otp", lambda chat_id, code, **kwargs: 321)
     monkeypatch.setenv("POMICH_OTP_SECRET", "test-otp-secret")
     order_store.update_customer_profile(
         "tg-829741830",
@@ -997,7 +997,7 @@ def test_customer_phone_login_send_allows_duplicate_registered_phone(monkeypatch
     otp_path = tmp_path / "otp_codes.json"
     monkeypatch.setattr("bot.otp_verification._default_otp_store_path", lambda: otp_path)
     monkeypatch.setattr("bot.otp_verification._generate_otp_code", lambda: "778899")
-    monkeypatch.setattr("bot.otp_verification._send_telegram_otp", lambda chat_id, code: 654)
+    monkeypatch.setattr("bot.otp_verification._send_telegram_otp", lambda chat_id, code, **kwargs: 654)
     monkeypatch.setenv("POMICH_OTP_SECRET", "test-otp-secret")
 
     now = "2026-08-12T12:00:00Z"
@@ -1063,7 +1063,7 @@ def test_fastapi_update_own_phone_unchanged_succeeds(monkeypatch, tmp_path) -> N
     otp_path = tmp_path / "otp_codes.json"
     monkeypatch.setattr("bot.otp_verification._default_otp_store_path", lambda: otp_path)
     monkeypatch.setattr("bot.otp_verification._generate_otp_code", lambda: "445566")
-    monkeypatch.setattr("bot.otp_verification._send_telegram_otp", lambda chat_id, code: 321)
+    monkeypatch.setattr("bot.otp_verification._send_telegram_otp", lambda chat_id, code, **kwargs: 321)
     monkeypatch.setenv("POMICH_OTP_SECRET", "test-otp-secret")
     monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", CUSTOMER_SESSION_SECRET)
     customer_path = tmp_path / "customers.json"
@@ -1115,7 +1115,7 @@ def test_verify_send_allows_own_provider_phone_with_tg_duplicate(monkeypatch, tm
     otp_path = tmp_path / "otp_codes.json"
     monkeypatch.setattr("bot.otp_verification._default_otp_store_path", lambda: otp_path)
     monkeypatch.setattr("bot.otp_verification._generate_otp_code", lambda: "778899")
-    monkeypatch.setattr("bot.otp_verification._send_telegram_otp", lambda chat_id, code: 829741830)
+    monkeypatch.setattr("bot.otp_verification._send_telegram_otp", lambda chat_id, code, **kwargs: 829741830)
     monkeypatch.setenv("POMICH_OTP_SECRET", "test-otp-secret")
     monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", CUSTOMER_SESSION_SECRET)
     customer_path = tmp_path / "customers.json"
@@ -1293,3 +1293,33 @@ def test_dist_root_static_files_served_before_spa_fallback(tmp_path, monkeypatch
     assert index.status_code == 200
     assert "POMICH" in index.text
     assert index.headers.get("cache-control") == "no-cache, no-store, must-revalidate"
+
+
+def test_dispatch_list_excludes_directory_and_map_is_slim(monkeypatch, tmp_path) -> None:
+    _use_temp_store(monkeypatch, tmp_path)
+    dispatch = _api_provider("p-dispatch", 48.62, 22.28)
+    directory = {
+        **_api_provider("p-dir", 48.63, 22.29),
+        "providerKind": "directory",
+        "contactStatus": "directory_only",
+        "address": "вул. Тестова 1",
+        "openingHours": "09:00-18:00",
+        "city": "Ужгород",
+        "source": "osm",
+    }
+    order_store.save_providers([dispatch, directory])
+    client = TestClient(app)
+
+    listed = client.get("/api/providers").json()
+    assert {item["id"] for item in listed} == {"p-dispatch"}
+
+    directory_only = client.get("/api/providers?kind=directory").json()
+    assert {item["id"] for item in directory_only} == {"p-dir"}
+
+    mapped = client.get("/api/map/providers?scope=all").json()
+    ids = {item["id"] for item in mapped}
+    assert ids == {"p-dispatch", "p-dir"}
+    for item in mapped:
+        assert "verification" not in item
+        assert item["name"]
+        assert item["location"]["lat"]

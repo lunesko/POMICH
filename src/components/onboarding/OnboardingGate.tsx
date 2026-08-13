@@ -230,6 +230,28 @@ export default function OnboardingGate({ skip, startAtRoleSelect, loginMode = fa
           }
         }
 
+        // Role switch: parent already has the account — skip a second session restore.
+        if (startAtRoleSelect && preservedAccount && !loginMode) {
+          let token: string | undefined
+          if (preservedAccount.customerId) {
+            token = readStoredAuthSession(
+              authSessionStorageKey("customer", preservedAccount.customerId),
+              "customer",
+              preservedAccount.customerId,
+            )
+          }
+          if (!token) {
+            token = readStoredCustomerAuthSession({ telegramChatId: telegramContext.chatId })?.token
+          }
+          setAccount(preservedAccount)
+          if (preservedAccount.customerId) setCustomerId(preservedAccount.customerId)
+          if (token) setCustomerToken(token)
+          if (preservedAccount.profile) setProfile(preservedAccount.profile)
+          if (preservedAccount.linkedProviderId) storeLinkedProviderId(preservedAccount.linkedProviderId)
+          setPhase("role-select")
+          return
+        }
+
         const activeCustomerId = readPersistedCustomerId(telegramContext.chatId)
         if (telegramContext.chatId && detectStoredCustomerMismatch(telegramContext.chatId)) {
           clearCustomerAuthStorage()

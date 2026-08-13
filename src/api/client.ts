@@ -24,7 +24,7 @@ const providerErrorMessages: Record<string, string> = {
   invalid_channel: 'Невірний канал підтвердження.',
   telegram_unavailable: 'Telegram недоступний. Спробуйте email.',
   telegram_not_linked:
-    'Відкрийте @pomich_ua_bot у Telegram, надішліть /start. Код прийде в бот — це підтвердження телефону, не нова реєстрація.',
+    'Відкрийте @pomich_ua_bot або @pomich_help_bot, надішліть /start. Код прийде в той самий бот — це підтвердження телефону, не нова реєстрація.',
   email_missing: 'Введіть email для підтвердження.',
   invalid_phone: 'Невірний номер телефону.',
   customer_not_found: 'Акаунт з цим номером не знайдено. Зареєструйтеся або перевірте номер.',
@@ -32,7 +32,7 @@ const providerErrorMessages: Record<string, string> = {
   code_expired: 'Код прострочено. Надішліть новий.',
   code_invalid: 'Невірний код. Перевірте та спробуйте ще раз.',
   invalid_code_format: 'Код має містити 6 цифр.',
-  telegram_send_failed: 'Не вдалося надіслати код у Telegram. Спробуйте ще раз або напишіть у @pomich_ua_bot.',
+  telegram_send_failed: 'Не вдалося надіслати код у Telegram. Спробуйте ще раз або напишіть /start у @pomich_ua_bot чи @pomich_help_bot.',
   phone_already_registered: 'Цей номер уже зареєстровано. Увійдіть за номером або використайте інший.',
   REVIEW_ALREADY_SUBMITTED: 'Оцінку вже збережено.',
   ORDER_NOT_COMPLETED: 'Оцінку можна залишити лише після завершення заявки.',
@@ -910,7 +910,7 @@ export interface CustomerVerifyConfirmResponse {
 }
 
 export async function sendCustomerVerificationCode(
-  payload: { channel: 'telegram' | 'email'; phone?: string; email?: string },
+  payload: { channel: 'telegram' | 'email'; phone?: string; email?: string; telegramBotKind?: 'customer' | 'provider' },
   customerToken?: string,
 ) {
   const response = await fetch(`${getBaseUrl()}/auth/customer/verify/send`, {

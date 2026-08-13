@@ -111,6 +111,15 @@ export default function CustomerApp() {
   const compact = telegramContext.isTelegram || isMobile
   const skipOnboarding = initialRole === "admin" || Boolean(providerToken)
 
+  useEffect(() => {
+    const target = role ?? initialRole
+    if (target === "provider") {
+      void import("./components/provider/ProviderFlow")
+    } else if (target === "customer") {
+      void import("./components/customer/CustomerFlow")
+    }
+  }, [role, initialRole])
+
   const applyRoleToUrl = useCallback((nextRole: Role | null) => {
     setRole(nextRole)
     setShowCabinet(false)

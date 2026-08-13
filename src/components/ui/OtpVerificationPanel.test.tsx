@@ -199,4 +199,21 @@ describe("OtpVerificationPanel", () => {
     expect(onPhoneSaved).toHaveBeenCalled()
     expect(await screen.findByPlaceholderText(/6 цифр/i)).toBeInTheDocument()
   })
+
+  it("lets a verified partner continue instead of trapping them on the OTP wall", async () => {
+    const user = userEvent.setup()
+    const onVerified = vi.fn()
+    render(
+      <OtpVerificationPanel
+        profile={{ ...profile, verificationStatus: "verified" }}
+        customerToken="token"
+        verifiedActionLabel="Вийти на лінію"
+        onVerified={onVerified}
+      />,
+    )
+
+    expect(screen.getByText("Телефон підтверджено")).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: /Вийти на лінію/i }))
+    expect(onVerified).toHaveBeenCalled()
+  })
 })

@@ -423,6 +423,26 @@ def _load_providers_with_presence() -> tuple[bool, list[dict[str, Any]]]:
     ]
 
 
+def sql_get_provider(provider_id: str) -> dict[str, Any] | None:
+    """Load a single provider by id without scanning the full directory."""
+    wanted = str(provider_id or "").strip()
+    if not wanted:
+        return None
+    engine = get_engine()
+    with engine.begin() as connection:
+        row = connection.execute(
+            select(
+                providers.c.payload.label("provider_payload"),
+                provider_presence.c.payload.label("presence_payload"),
+            )
+            .select_from(providers.outerjoin(provider_presence, providers.c.id == provider_presence.c.provider_id))
+            .where(providers.c.id == wanted)
+        ).mappings().first()
+    if row is None:
+        return None
+    return _merge_provider_payload(row["provider_payload"], row["presence_payload"])
+
+
 def _load_legacy_collection(name: str) -> tuple[bool, Any]:
     engine = get_engine()
     with engine.begin() as connection:

@@ -1,4 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Outfit:wght@600;700;800&display=swap');
 @import 'tailwindcss';
 
 /* POMICH theme tokens — toggled via html[data-pomich-theme] */
@@ -226,7 +225,7 @@ html:not([data-pomich-theme]) {
   }
 }
 @theme inline {
-  --font-sans: 'Manrope', system-ui, sans-serif;
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --color-brand: var(--pomich-brand);
   --color-brand-dark: #0f7a4e;
   --color-brand-light: #d1f5e7;
@@ -261,7 +260,7 @@ html:not(.tg-compact) #root {
   overflow-y: auto;
 }
 body {
-  font-family: 'Manrope', system-ui, sans-serif;
+  font-family: var(--font-sans);
   background: var(--pomich-bg);
   color: var(--pomich-text);
   margin: 0;
@@ -678,7 +677,7 @@ html:not([data-pomich-theme]) .pomich-sheet-panel {
 }
 /* Chip row styles — header chrome is fixed glass (see .pomich-tg-header above) */
 .pomich-app-header-brand {
-  font-family: 'Outfit', sans-serif;
+  font-family: var(--font-sans);
   font-weight: 900;
   letter-spacing: -0.02em;
   color: var(--pomich-text);
@@ -4263,6 +4262,9 @@ html.mobile-compact .pomich-plate-input .pomich-plate__field {
   border-radius: 999px;
   background: currentColor;
 }
+.pomich-otp-verified-actions {
+  margin-top: 12px;
+}
 .pomich-otp-dev-hint {
   font-size: 12px;
   font-weight: 700;
@@ -5690,7 +5692,7 @@ html.tg-compact .pomich-ride-screen__map .leaflet-top.leaflet-left {
   grid-template-columns: 260px 1fr;
   background: var(--admin-bg);
   color: var(--admin-text);
-  font-family: 'Manrope', system-ui, sans-serif;
+  font-family: var(--font-sans);
 }
 .admin-sidebar {
   border-right: 1px solid var(--admin-border);
