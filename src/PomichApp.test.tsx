@@ -353,7 +353,6 @@ describe('POMICH role-based flows', () => {
     const user = userEvent.setup()
     window.localStorage.setItem('pomichCustomerId', 'guest-test')
     window.sessionStorage.setItem('pomichCustomerId', 'guest-test')
-    window.sessionStorage.setItem('pomichBootstrapProfile', JSON.stringify(verifiedTestProfile))
     storeAuthSession(authSessionStorageKey('customer', 'guest-test'), {
       role: 'customer',
       subjectId: 'guest-test',

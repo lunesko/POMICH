@@ -46,7 +46,6 @@ import { applyHiddenAdminEntry, isAdminEntryLocation, isHiddenAdminHash } from "
 import {
   clearAllAuthStorage,
   clearProviderAuthStorage,
-  clearCustomerAuthStorage,
   clearExplicitLogout,
   dismissSessionMismatchNotice,
   guestSessionCustomerIdForRestore,
@@ -4130,20 +4129,10 @@ export default function CustomerApp() {
     setCustomerToken(undefined)
     setRole(null)
     setShowCabinet(false)
-
-    // Partner phone OTP after explicit logout starts clean; do not wipe an active customer
-    // session just for browsing landing — only clear when there is no stored customer session
-    // worth restoring, or when user already logged out (storage empty / explicit flag cleared above).
-    if (!telegramContext.initData) {
-      const stored = readStoredCustomerAuthSession({ telegramChatId: telegramContext.chatId })
-      if (!stored?.token) {
-        clearCustomerAuthStorage()
-      }
-    }
-
-    // Phone OTP login restores linkedProviderId for registered partners (no blank registration).
+    // Keep customer token/customerId — only «Вийти» wipes them. Phone OTP still runs when
+    // there is no restorable registered partner session (OnboardingGate loginMode).
     beginOnboarding("provider", false, true)
-  }, [beginOnboarding, telegramContext.chatId, telegramContext.initData])
+  }, [beginOnboarding])
 
   /** phone_already_registered / «Увійти за цим номером» — same as landing partner re-entry. */
   const restorePartnerAccount = useCallback(() => {
