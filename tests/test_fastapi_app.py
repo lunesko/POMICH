@@ -667,18 +667,23 @@ def test_fastapi_dispatches_order_and_first_offer_acceptance_wins(monkeypatch, t
 def test_fastapi_cancel_order_notifies_partner(monkeypatch, tmp_path) -> None:
     _use_temp_store(monkeypatch, tmp_path)
     _use_provider_auth(monkeypatch)
+    monkeypatch.setenv("POMICH_ADMIN_TOKEN", ADMIN_TOKEN)
     order_store.save_providers([_api_provider("p1", 48.6218, 22.2879)])
     client = TestClient(app)
     provider_headers = _provider_session_headers(client, "p1")
+    customer_id = "guest-customer-cancel"
+    customer_headers = _customer_session_headers(client, customer_id)
 
     created_order = client.post(
         "/api/orders",
+        headers=customer_headers,
         json={
             "service": "tow",
             "status": "searching",
             "customerCoordinates": {"lat": 48.6208, "lng": 22.2879},
         },
     ).json()
+    assert created_order["customerId"] == customer_id
     sent_messages: list[dict[str, str]] = []
 
     def _fake_notify(order: dict) -> list[dict]:
@@ -687,7 +692,14 @@ def test_fastapi_cancel_order_notifies_partner(monkeypatch, tmp_path) -> None:
 
     monkeypatch.setattr("bot.routers.orders.notify_order_cancelled", _fake_notify)
 
-    cancelled = client.post(f"/api/orders/{created_order['id']}/cancel")
+    unauthenticated = client.post(f"/api/orders/{created_order['id']}/cancel")
+    assert unauthenticated.status_code == 401
+
+    other_headers = _customer_session_headers(client, "guest-customer-other")
+    forbidden = client.post(f"/api/orders/{created_order['id']}/cancel", headers=other_headers)
+    assert forbidden.status_code == 403
+
+    cancelled = client.post(f"/api/orders/{created_order['id']}/cancel", headers=customer_headers)
     assert cancelled.status_code == 200
     assert cancelled.json()["status"] == "cancelled"
     assert sent_messages == [{"id": created_order["id"], "status": "cancelled"}]
@@ -696,15 +708,78 @@ def test_fastapi_cancel_order_notifies_partner(monkeypatch, tmp_path) -> None:
     assert offers == []
 
 
+def test_fastapi_admin_can_cancel_order(monkeypatch, tmp_path) -> None:
+    _use_temp_store(monkeypatch, tmp_path)
+    monkeypatch.setenv("POMICH_ADMIN_TOKEN", ADMIN_TOKEN)
+    client = TestClient(app)
+    customer_headers = _customer_session_headers(client, "guest-customer-42")
+    admin_headers = _admin_session_headers(client)
+
+    created_order = client.post(
+        "/api/orders",
+        headers=customer_headers,
+        json={
+            "service": "tow",
+            "status": "searching",
+            "customerCoordinates": {"lat": 48.6208, "lng": 22.2879},
+        },
+    ).json()
+
+    cancelled = client.post(f"/api/orders/{created_order['id']}/cancel", headers=admin_headers)
+    assert cancelled.status_code == 200
+    assert cancelled.json()["status"] == "cancelled"
+
+
+def test_fastapi_confirm_price_requires_customer_owner(monkeypatch, tmp_path) -> None:
+    _use_temp_store(monkeypatch, tmp_path)
+    _use_provider_auth(monkeypatch)
+    order_store.save_providers([_api_provider("p1", 48.6218, 22.2879)])
+    client = TestClient(app)
+    provider_headers = _provider_session_headers(client, "p1")
+    customer_id = "guest-customer-price"
+    customer_headers = _customer_session_headers(client, customer_id)
+
+    created_order = client.post(
+        "/api/orders",
+        headers=customer_headers,
+        json={
+            "service": "tow",
+            "status": "searching",
+            "customerCoordinates": {"lat": 48.6208, "lng": 22.2879},
+        },
+    ).json()
+    offer = client.get("/api/providers/p1/offers", headers=provider_headers).json()[0]
+    client.post(
+        f"/api/providers/p1/offers/{offer['id']}/accept",
+        headers=provider_headers,
+        json={"proposedPrice": 1500, "priceNote": "Евакуатор"},
+    )
+
+    unauthenticated = client.post(f"/api/orders/{created_order['id']}/confirm-price")
+    assert unauthenticated.status_code == 401
+    assert unauthenticated.json()["detail"] == "customer_session_required"
+
+    other_headers = _customer_session_headers(client, "guest-customer-other")
+    forbidden = client.post(f"/api/orders/{created_order['id']}/confirm-price", headers=other_headers)
+    assert forbidden.status_code == 403
+    assert forbidden.json()["detail"] == "customer_identity_mismatch"
+
+    confirmed = client.post(f"/api/orders/{created_order['id']}/confirm-price", headers=customer_headers)
+    assert confirmed.status_code == 200
+    assert confirmed.json()["status"] == "price_confirmed"
+
+
 def test_fastapi_assigned_provider_can_drive_lifecycle(monkeypatch, tmp_path) -> None:
     _use_temp_store(monkeypatch, tmp_path)
     _use_provider_auth(monkeypatch)
     order_store.save_providers([_api_provider("p1", 48.6218, 22.2879)])
     client = TestClient(app)
     provider_headers = _provider_session_headers(client, "p1")
+    customer_headers = _customer_session_headers(client, "guest-customer-lifecycle")
 
     created_order = client.post(
         "/api/orders",
+        headers=customer_headers,
         json={
             "service": "tow",
             "status": "searching",
@@ -717,7 +792,7 @@ def test_fastapi_assigned_provider_can_drive_lifecycle(monkeypatch, tmp_path) ->
         headers=provider_headers,
         json={"proposedPrice": 1500, "priceNote": "ÐÐ²Ð°ÐºÑÐ°ÑÐ¾Ñ + Ð¿Ð¾Ð´Ð°ÑÐ°"},
     )
-    client.post(f"/api/orders/{created_order['id']}/confirm-price")
+    client.post(f"/api/orders/{created_order['id']}/confirm-price", headers=customer_headers)
 
     assert client.patch(f"/api/providers/p1/orders/{created_order['id']}/status", headers=provider_headers, json={"status": "en_route"}).json()["status"] == "en_route"
     assert client.patch(f"/api/providers/p1/orders/{created_order['id']}/status", headers=provider_headers, json={"status": "arrived"}).json()["status"] == "arrived"

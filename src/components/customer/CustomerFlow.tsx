@@ -1901,7 +1901,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
     setStatus("cancelled")
     setScreen("cancelled")
     clearActiveOrder()
-    if (orderId) cancelOrderRequest(orderId).catch(() => undefined)
+    if (orderId) cancelOrderRequest(orderId, customerAuthToken).catch(() => undefined)
   }
 
   const retryOrderDispatch = () => {

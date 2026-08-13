@@ -5,9 +5,13 @@ from fastapi import APIRouter, Body, Header, HTTPException
 from bot.api_deps import (
     apply_verified_telegram_identity,
     dispatch_conflict,
+    extract_bearer_token,
     optional_customer_auth,
     require_admin_auth,
     require_customer_auth,
+    require_customer_auth_from_bearer,
+    require_order_customer_owner,
+    require_order_owner_or_admin,
     require_provider_auth,
     verify_init_data_or_raise,
 )
@@ -172,7 +176,12 @@ def retry_order_dispatch(order_id: str) -> dict:
 
 
 @router.post("/orders/{order_id}/confirm-price")
-def confirm_order_price_endpoint(order_id: str) -> dict:
+def confirm_order_price_endpoint(order_id: str, authorization: str | None = Header(default=None)) -> dict:
+    require_customer_auth_from_bearer(authorization)
+    existing = get_order(order_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="order not found")
+    require_order_customer_owner(existing, authorization)
     try:
         order = confirm_order_price(order_id)
     except DispatchConflict as exc:
@@ -206,7 +215,17 @@ def provider_patch_order_status(
 
 
 @router.post("/orders/{order_id}/cancel")
-def cancel_order(order_id: str) -> dict:
+def cancel_order(
+    order_id: str,
+    x_pomich_admin_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+) -> dict:
+    if not extract_bearer_token(authorization):
+        raise HTTPException(status_code=401, detail="auth_session_required")
+    existing = get_order(order_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="order not found")
+    require_order_owner_or_admin(existing, authorization, x_pomich_admin_token)
     try:
         order = update_order_status(order_id, "cancelled")
     except (InvalidStatusTransition, ValueError) as exc:
