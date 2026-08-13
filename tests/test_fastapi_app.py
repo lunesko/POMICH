@@ -1141,13 +1141,14 @@ def test_geo_static_files_served_before_spa_fallback(tmp_path, monkeypatch):
     border = geo_dir / "ukraine-border.geojson"
     border.write_text('{"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[30,50],[31,50],[31,51],[30,51],[30,50]]]}}', encoding="utf-8")
 
+    from importlib import reload
+
+    reload(fastapi_app)
+    # Patch after reload so request-time geo fallback can use the temp tree when needed.
     monkeypatch.setattr(fastapi_app, "DIST_DIR", tmp_path / "dist")
     monkeypatch.setattr(fastapi_app, "ASSETS_DIR", tmp_path / "dist" / "assets")
     monkeypatch.setattr(fastapi_app, "GEO_DIR", geo_dir)
 
-    from importlib import reload
-
-    reload(fastapi_app)
     client = TestClient(fastapi_app.app)
 
     response = client.get("/geo/ukraine-border.geojson")
@@ -1161,13 +1162,14 @@ def test_dist_root_static_files_served_before_spa_fallback(tmp_path, monkeypatch
     (dist_dir / "index.html").write_text("<!doctype html><html><body>POMICH</body></html>", encoding="utf-8")
     (dist_dir / "pomich-sw.js").write_text('const TILE_CACHE = "pomich-map-tiles-v1"\n', encoding="utf-8")
 
+    from importlib import reload
+
+    reload(fastapi_app)
+    # Must patch after reload: import reassigns DIST_DIR to repo dist/, which is absent in CI.
     monkeypatch.setattr(fastapi_app, "DIST_DIR", dist_dir)
     monkeypatch.setattr(fastapi_app, "ASSETS_DIR", dist_dir / "assets")
     monkeypatch.setattr(fastapi_app, "GEO_DIR", dist_dir / "geo")
 
-    from importlib import reload
-
-    reload(fastapi_app)
     client = TestClient(fastapi_app.app)
 
     sw = client.get("/pomich-sw.js")

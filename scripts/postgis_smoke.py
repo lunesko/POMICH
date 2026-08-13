@@ -117,7 +117,13 @@ def main() -> None:
             runtime_store.save_collection(collection_name, empty_payload)
 
         versions = [migration["version"] for migration in runtime_store.applied_schema_migrations()]
-        assert versions == ["2026081101", "2026081102", "2026081103", "2026081104"], versions
+        assert versions == [
+            "2026081101",
+            "2026081102",
+            "2026081103",
+            "2026081104",
+            "2026081201",
+        ], versions
 
         save_providers(
             [

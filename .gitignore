@@ -13,7 +13,9 @@ logs/
 *.log
 .claude-replay.*
 .tmp-*
-data/
+# Keep settlements seed tracked; ignore other local data dumps
+data/*
+!data/settlements.json
 .pytest_cache/
 .benchmarks/
 __pycache__/
