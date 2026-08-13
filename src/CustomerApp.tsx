@@ -1636,7 +1636,9 @@ function ProviderRegistrationStep({
 
         {onLogin ? (
           <button type="button" onClick={onLogin} className="pomich-link-btn" style={{ width: "100%" }}>
-            Вже маєте акаунт? Увійти
+            {error && /phone_already_registered|вже зареєстровано|уже зареєстровано/i.test(error)
+              ? "Увійти за цим номером"
+              : "Вже маєте акаунт? Увійти"}
           </button>
         ) : null}
 
@@ -3600,8 +3602,17 @@ function ProviderFlow({ providerToken, providerRegistered = false, onLogout, onR
       setStep(isProviderPhoneVerified(updated) ? "duty" : "verify")
       setLoginView("login")
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Не вдалося зберегти профіль партнера. Перевірте підключення та спробуйте ще раз."
-      setRegistrationError(message)
+      const code = error instanceof ApiRequestError ? error.code : undefined
+      const message =
+        error instanceof Error ? error.message : "Не вдалося зберегти профіль партнера. Перевірте підключення та спробуйте ще раз."
+      setRegistrationError(
+        code === "phone_already_registered" || /phone_already_registered/i.test(message)
+          ? "Цей номер уже зареєстровано. Увійдіть за номером або використайте інший."
+          : message,
+      )
+      if ((code === "phone_already_registered" || /уже зареєстровано|вже зареєстровано|phone_already_registered/i.test(message)) && onRestoreAccount) {
+        // Keep the form visible with CTA; user can tap «Увійти за цим номером».
+      }
     } finally {
       setRegistrationSaving(false)
     }

@@ -165,7 +165,7 @@ def test_fastapi_updates_provider_presence(monkeypatch, tmp_path) -> None:
         "/api/providers/provider-oleksandr/profile",
         headers=provider_headers,
         json={
-            "name": "?????????",
+            "name": "Олександр",
             "phone": "+380671112233",
             "vehicle": "Volkswagen Transporter",
             "plate": "AO 1248 CH",
@@ -194,7 +194,7 @@ def test_fastapi_registers_provider_profile(monkeypatch, tmp_path) -> None:
         "/api/providers/provider-oleksandr/profile",
         headers=provider_headers,
         json={
-            "name": "?????????",
+            "name": "Олександр",
             "phone": "+380671112233",
             "vehicle": "Volkswagen Transporter",
             "plate": "AO 1248 CH",
@@ -219,7 +219,7 @@ def test_fastapi_customer_profile_and_verification_review(monkeypatch, tmp_path)
 
     profile = client.patch(
         f"/api/customers/{customer_id}/profile",
-        json={"name": "?????", "phone": "+380501112233", "city": "????", "telegram": "maria_road"},
+        json={"name": "Марія", "phone": "+380501112233", "city": "Київ", "telegram": "maria_road"},
         headers=customer_headers,
     )
     submitted = client.post(
@@ -229,17 +229,17 @@ def test_fastapi_customer_profile_and_verification_review(monkeypatch, tmp_path)
     )
     reviewed = client.patch(
         f"/api/customers/{customer_id}/verification/review",
-        json={"status": "verified", "reviewNote": "????????? ??????????"},
+        json={"status": "verified", "reviewNote": "Документи збігаються"},
         headers=admin_headers,
     )
 
     assert profile.status_code == 200
-    assert profile.json()["name"] == "?????"
+    assert profile.json()["name"] == "Марія"
     assert submitted.status_code == 200
     assert submitted.json()["verificationStatus"] == "pending"
     assert reviewed.status_code == 200
     assert reviewed.json()["verificationStatus"] == "verified"
-    assert "??????? ?????????" in reviewed.json()["trustedBadges"]
+    assert "Профіль заповнено" in reviewed.json()["trustedBadges"]
 
 
 def test_fastapi_customer_profile_requires_matching_session(monkeypatch, tmp_path) -> None:
@@ -267,7 +267,7 @@ def test_fastapi_provider_verification_submit_and_admin_review(monkeypatch, tmp_
     provider_headers = _provider_session_headers(client, "provider-new")
     admin_headers = _admin_session_headers(client)
     payload = {
-        "name": "????? ???????",
+        "name": "Новий партнер",
         "phone": "+380501112233",
         "vehicle": "Iveco Daily",
         "plate": "AA 1122 BB",
@@ -324,7 +324,7 @@ def test_fastapi_requires_provider_token_when_configured(monkeypatch, tmp_path) 
     monkeypatch.setenv("POMICH_PROVIDER_TOKEN", PROVIDER_TOKEN)
     client = TestClient(app)
     payload = {
-        "name": "?????????",
+        "name": "Олександр",
         "phone": "+380671112233",
         "vehicle": "Volkswagen Transporter",
         "plate": "AO 1248 CH",
@@ -531,13 +531,13 @@ def test_fastapi_create_order_persists_customer_comment(monkeypatch, tmp_path) -
         json={
             "service": "tow",
             "status": "searching",
-            "customerComment": "????? ? ????????",
+            "customerComment": "Ключі в бардачку",
         },
     )
 
     assert created.status_code == 201
     payload = created.json()
-    assert payload["customerComment"] == "????? ? ????????"
+    assert payload["customerComment"] == "Ключі в бардачку"
 
 
 def test_fastapi_rejects_invalid_order_transition(monkeypatch) -> None:
@@ -662,7 +662,7 @@ def test_fastapi_assigned_provider_can_drive_lifecycle(monkeypatch, tmp_path) ->
     client.post(
         f"/api/providers/p1/offers/{offer['id']}/accept",
         headers=provider_headers,
-        json={"proposedPrice": 1500, "priceNote": "????????? + ??????"},
+        json={"proposedPrice": 1500, "priceNote": "Евакуатор + подача"},
     )
     client.post(f"/api/orders/{created_order['id']}/confirm-price")
 
@@ -683,7 +683,7 @@ def test_admin_endpoints_require_session_and_expose_ops_data(monkeypatch, tmp_pa
     monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", CUSTOMER_SESSION_SECRET)
     _use_temp_store(monkeypatch, tmp_path)
     order_store.save_providers([_api_provider("p1", 48.6218, 22.2879)])
-    order_store.update_customer_profile("guest-1", {"name": "Test Client", "phone": "+380501234567", "city": "???????"})
+    order_store.update_customer_profile("guest-1", {"name": "Test Client", "phone": "+380501234567", "city": "Ужгород"})
     order_store.save_order({"service": "tow", "status": "searching", "customerLocation": "Test", "destination": "Garage"})
     client = TestClient(app)
     admin_headers = _admin_session_headers(client)
@@ -700,10 +700,10 @@ def test_admin_endpoints_require_session_and_expose_ops_data(monkeypatch, tmp_pa
     providers = client.get("/api/admin/providers", headers=admin_headers).json()
     assert any(item["id"] == "p1" for item in providers)
 
-    updated = client.patch("/api/admin/clients/guest-1", headers=admin_headers, json={"city": "????"}).json()
-    assert updated["city"] == "????"
+    updated = client.patch("/api/admin/clients/guest-1", headers=admin_headers, json={"city": "Київ"}).json()
+    assert updated["city"] == "Київ"
 
-    provider_updated = client.patch("/api/admin/providers/p1", headers=admin_headers, json={"status": "offline", "city": "???????"}).json()
+    provider_updated = client.patch("/api/admin/providers/p1", headers=admin_headers, json={"status": "offline", "city": "Ужгород"}).json()
     assert provider_updated["status"] == "offline"
 
     settings = client.get("/api/admin/settings", headers=admin_headers).json()
@@ -726,9 +726,9 @@ def test_admin_clients_decrypt_filter_and_purge_guests(monkeypatch, tmp_path) ->
     monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", CUSTOMER_SESSION_SECRET)
     _use_temp_store(monkeypatch, tmp_path)
 
-    order_store.update_customer_profile("tg-99", {"name": "???????", "phone": "+380671112233", "telegram": "alex"})
-    order_store.update_customer_profile("guest-empty", {"name": "?????? POMICH"})
-    order_store.update_customer_profile("guest-real", {"name": "?????", "phone": "+380501112233"})
+    order_store.update_customer_profile("tg-99", {"name": "Олексій", "phone": "+380671112233", "telegram": "alex"})
+    order_store.update_customer_profile("guest-empty", {"name": "Клієнт POMICH"})
+    order_store.update_customer_profile("guest-real", {"name": "Марія", "phone": "+380501112233"})
 
     profiles = order_store.load_customer_profiles()
     for profile in profiles:
@@ -747,8 +747,8 @@ def test_admin_clients_decrypt_filter_and_purge_guests(monkeypatch, tmp_path) ->
     assert "guest-empty" not in default_ids
 
     telegram_client = next(item for item in default_clients if item["id"] == "tg-99")
-    assert telegram_client["name"] == "???????"
-    assert telegram_client["displayName"] == "???????"
+    assert telegram_client["name"] == "Олексій"
+    assert telegram_client["displayName"] == "Олексій"
     assert not str(telegram_client["name"]).startswith("enc:v1:")
 
     all_clients = client.get("/api/admin/clients?includeGuests=true", headers=admin_headers).json()
