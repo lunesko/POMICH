@@ -1,53 +1,52 @@
 @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Outfit:wght@600;700;800&display=swap');
 @import 'tailwindcss';
-/* POMICH theme tokens — toggled via html[data-pomich-theme] */
-[data-pomich-theme="light"],
+/* POMICH theme tokens — toggled via html[data-pomich-theme] */[data-pomich-theme="light"],
 html:not([data-pomich-theme]) {
-  --pomich-bg: #F4F9F7;
-  --pomich-surface: #FFFFFF;
+  --pomich-bg: rgba(244, 249, 247, 0.65);
+  --pomich-surface: rgba(255, 255, 255, 0.76);
   --pomich-text: #0F172A;
-  --pomich-border: #D8E6E0;
+  --pomich-border: rgba(255, 255, 255, 0.85);
   --pomich-brand: #16A36A;
-  --pomich-muted: #64748B;
-  --pomich-label: #475569;
-  --pomich-subtle: #94A3B8;
+  --pomich-muted: #475569;
+  --pomich-label: #334155;
+  --pomich-subtle: #64748B;
   --pomich-accent: #0B7A4D;
   --pomich-accent-blue: #1D6FD4;
   --pomich-badge-text: #0B7A4D;
-  --pomich-ghost-bg: #FFFFFF;
-  --pomich-ghost-border: #D8E6E0;
-  --pomich-card-shadow: 0 18px 44px rgba(15, 23, 42, 0.08);
-  --pomich-error-bg: #FFF1F2;
+  --pomich-ghost-bg: rgba(255, 255, 255, 0.60);
+  --pomich-ghost-border: rgba(255, 255, 255, 0.80);
+  --pomich-card-shadow: 0 16px 36px rgba(15, 23, 42, 0.08), inset 0 1px 1px rgba(255, 255, 255, 0.9);
+  --pomich-error-bg: rgba(255, 241, 242, 0.85);
   --pomich-error-text: #BE123C;
-  --pomich-error-border: #FECDD3;
-  --pomich-input-bg: #FFFFFF;
-  --pomich-input-disabled-bg: #F1F5F9;
-  --pomich-prefix-bg: #EEF4F1;
-  --pomich-footer-bg: #FFFFFF;
-  --pomich-nav: rgba(255, 255, 255, 0.92);
-  --pomich-nav-border: #D8E6E0;
-  --pomich-nav-text: #475569;
-  --pomich-section: rgba(244, 249, 247, 0.62);
-  --pomich-section-alt: rgba(234, 242, 239, 0.68);
-  --pomich-glass-card: #FFFFFF;
-  --pomich-glass-border: #D8E6E0;
-  --pomich-role-card-bg: #FFFFFF;
-  --pomich-role-card-border: #D8E6E0;
-  --pomich-role-card-muted: #64748B;
-  --pomich-selected-bg: #E8F8F1;
-  --pomich-card-bg: #FFFFFF;
+  --pomich-error-border: rgba(254, 205, 211, 0.8);
+  --pomich-input-bg: rgba(255, 255, 255, 0.72);
+  --pomich-input-disabled-bg: rgba(241, 245, 249, 0.65);
+  --pomich-prefix-bg: rgba(238, 244, 241, 0.75);
+  --pomich-footer-bg: rgba(255, 255, 255, 0.78);
+  --pomich-nav: rgba(255, 255, 255, 0.78);
+  --pomich-nav-border: rgba(255, 255, 255, 0.85);
+  --pomich-nav-text: #334155;
+  --pomich-section: rgba(244, 249, 247, 0.55);
+  --pomich-section-alt: rgba(234, 242, 239, 0.60);
+  --pomich-glass-card: rgba(255, 255, 255, 0.76);
+  --pomich-glass-border: rgba(255, 255, 255, 0.85);
+  --pomich-role-card-bg: rgba(255, 255, 255, 0.76);
+  --pomich-role-card-border: rgba(255, 255, 255, 0.85);
+  --pomich-role-card-muted: #475569;
+  --pomich-selected-bg: rgba(34, 197, 94, 0.14);
+  --pomich-card-bg: rgba(255, 255, 255, 0.76);
   --pomich-map-bg: #DDE7E2;
-  --pomich-service-tone-default: #F3F7FA;
-  /* Pastel service tiles are always light hexes — ink must stay dark in both themes */
+  --pomich-service-tone-default: rgba(255, 255, 255, 0.70);
   --pomich-service-pastel-ink: #0F172A;
-  --pomich-sheet-handle: #CBD5E1;
-  --pomich-warn-bg: #FFF7ED;
+  --pomich-sheet-handle: rgba(203, 213, 225, 0.9);
+  --pomich-warn-bg: rgba(255, 247, 237, 0.85);
   --pomich-warn-text: #B45309;
-  --pomich-info-bg: #EFF6FF;
+  --pomich-info-bg: rgba(239, 246, 255, 0.85);
   --pomich-info-text: #1D4ED8;
-  --pomich-accent-panel-bg: #111315;
-  --pomich-toggle-track: #E2E8F0;
-  --pomich-toggle-border: #CBD5E1;
+  --pomich-accent-panel-bg: rgba(17, 19, 21, 0.88);
+  --pomich-toggle-track: rgba(226, 232, 240, 0.75);
+  --pomich-toggle-border: rgba(203, 213, 225, 0.85);
+}1;
   --pomich-toggle-knob: #FFFFFF;
   --pomich-toggle-icon: #94A3B8;
   --pomich-toggle-icon-active: #0F172A;
@@ -460,25 +459,52 @@ html:not([data-pomich-theme]) .pomich-tg-header .pomich-app-header-chip {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: inherit !important;
+  padding: 6px 14px 6px 10px;
+  border-radius: 9999px;
+  background: var(--pomich-selected-bg, rgba(34, 197, 94, 0.12));
+  border: 1px solid var(--pomich-border, rgba(34, 197, 94, 0.25));
+  color: var(--pomich-text) !important;
   font-size: 13px;
   font-weight: 850;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: min(42vw, 320px);
+  max-width: min(50vw, 340px);
   opacity: 1;
   text-shadow: none;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+  box-sizing: border-box;
+}
+.pomich-app-header-session:hover {
+  transform: translateY(-1px);
+  background: rgba(34, 197, 94, 0.18);
+  border-color: rgba(34, 197, 94, 0.45);
+  box-shadow: 0 4px 16px rgba(34, 197, 94, 0.22);
 }
 .pomich-app-header-session::before {
   content: "";
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
+  width: 9px;
+  height: 9px;
+  border-radius: 9999px;
   flex-shrink: 0;
   background: #22c55e;
-  box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.45);
-  animation: landingHeroPulse 2.4s ease-out infinite;
+  box-shadow: 0 0 10px #22c55e, 0 0 0 0 rgba(34, 197, 94, 0.5);
+  animation: pomichGlowPulse 2.2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+@keyframes pomichGlowPulse {
+  0% {
+    box-shadow: 0 0 6px #22c55e, 0 0 0 0 rgba(34, 197, 94, 0.6);
+    transform: scale(0.95);
+  }
+  50% {
+    box-shadow: 0 0 14px #22c55e, 0 0 0 6px rgba(34, 197, 94, 0);
+    transform: scale(1.08);
+  }
+  100% {
+    box-shadow: 0 0 6px #22c55e, 0 0 0 0 rgba(34, 197, 94, 0);
+    transform: scale(0.95);
+  }
 }
 .pomich-app-header-brand {
   font-weight: 800;
@@ -610,6 +636,10 @@ html:not([data-pomich-theme]) .pomich-tg-header .pomich-app-header-brand {
 .pomich-sheet-panel {
   background: var(--pomich-surface);
   color: var(--pomich-text);
+  backdrop-filter: blur(24px) saturate(185%);
+  -webkit-backdrop-filter: blur(24px) saturate(185%);
+  border: 1px solid var(--pomich-border);
+  box-shadow: var(--pomich-card-shadow);
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
   touch-action: pan-y;
@@ -4187,8 +4217,17 @@ html.mobile-compact .pomich-plate-input .pomich-plate__field {
   text-align: left;
   cursor: pointer;
   font-family: inherit;
-  box-shadow: 0 6px 16px rgba(17, 19, 21, 0.04);
+  box-shadow: 0 6px 20px rgba(17, 19, 21, 0.05);
   color: var(--pomich-text);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.pomich-service-row:hover:not(:disabled) {
+  transform: translateY(-2px);
+  background: color-mix(in srgb, var(--pomich-card-bg) 82%, var(--pomich-brand) 18%);
+  border-color: rgba(34, 197, 94, 0.45);
+  box-shadow: 0 12px 26px -4px rgba(34, 197, 94, 0.18), 0 4px 12px rgba(0, 0, 0, 0.04);
 }
 .pomich-service-row:disabled {
   cursor: not-allowed;
@@ -4542,19 +4581,38 @@ html.tg-compact .pomich-ride-screen__map .leaflet-top.leaflet-left {
   justify-content: center;
   background: rgba(17, 19, 21, 0.48);
   padding: 12px;
-  padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  padding-bottom: calc(
+    12px + env(safe-area-inset-bottom, 0px) + var(--tg-content-safe-area-inset-bottom, 0px)
+  );
+  /* Prefer visible viewport so browser/TG chrome does not clip the confirm CTA */
+  max-height: var(--tg-viewport-stable-height, 100dvh);
+  box-sizing: border-box;
 }
 .pomich-order-request-sheet__panel {
   width: min(100%, 420px);
-  max-height: min(88vh, calc(100% - env(safe-area-inset-top, 0px) - 24px));
-  overflow-y: auto;
+  max-height: min(
+    88dvh,
+    calc(var(--tg-viewport-stable-height, 100dvh) - env(safe-area-inset-top, 0px) - 24px)
+  );
+  overflow: hidden;
   border-radius: 20px;
   background: var(--pomich-card-bg);
   border: 1px solid var(--pomich-border);
   padding: 16px;
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.24);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  -webkit-overflow-scrolling: touch;
+}
+.pomich-order-request-sheet__scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
   display: grid;
   gap: 12px;
+  overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
 }
 .pomich-order-request-sheet__handle {
@@ -4608,14 +4666,40 @@ html.tg-compact .pomich-ride-screen__map .leaflet-top.leaflet-left {
 .pomich-order-request-sheet__actions {
   display: grid;
   gap: 10px;
-  position: sticky;
-  bottom: 0;
-  padding-top: 4px;
+  flex: 0 0 auto;
+  position: relative;
+  padding-top: 8px;
+  margin-top: 0;
   background: var(--pomich-card-bg);
+  border-top: 1px solid var(--pomich-border);
+  /* Keep CTA above home-indicator / Telegram inset */
+  padding-bottom: max(2px, env(safe-area-inset-bottom, 0px));
 }
 .pomich-offer-accept-footer {
   display: grid;
   gap: 10px;
+}
+.pomich-form-footer-bar:has(.pomich-offer-accept-footer) {
+  /* Compact offer CTA footer — price lives in scrollable body */
+  padding-top: 10px;
+  padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px) + var(--tg-content-safe-area-inset-bottom, 0px));
+  flex-shrink: 0;
+  z-index: 5;
+}
+.pomich-price-confirm-actions {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  padding-top: 12px;
+  padding-bottom: 4px;
+  background: linear-gradient(
+    to top,
+    var(--pomich-card-bg) 70%,
+    color-mix(in srgb, var(--pomich-card-bg) 70%, transparent)
+  );
 }
 .pomich-offer-price-input {
   display: block !important;

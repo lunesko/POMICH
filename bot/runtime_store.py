@@ -161,6 +161,15 @@ def _database_url() -> str:
 
 
 def sql_storage_enabled() -> bool:
+    """True when runtime should use PostgreSQL/PostGIS (or sqlite in tests).
+
+    Selection rules:
+    - POMICH_STORAGE_BACKEND=json|file → always JSON files (local/dev only)
+    - POMICH_STORAGE_BACKEND=sql|postgres → SQL when DATABASE_URL is set
+    - unset backend → SQL whenever DATABASE_URL is set (production default)
+
+    Production compose sets DATABASE_URL + POMICH_STORAGE_BACKEND=sql.
+    """
     backend = (os.getenv("POMICH_STORAGE_BACKEND") or "").strip().lower()
     if backend in {"json", "file", "files"}:
         return False

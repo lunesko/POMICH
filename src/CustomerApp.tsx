@@ -7,7 +7,9 @@ import { PomichMapBackground, useSuppressMapAtmosphere } from "./components/layo
 import {
   calculateDistanceKm,
   calculatePrice,
+  ON_SITE_DESTINATION_LABEL,
   sanitizeLocation,
+  serviceRequiresDestination,
   validateCustomerOrderInput,
   type CustomerOrderInput,
   type ServiceKey,
@@ -42,7 +44,6 @@ import { usePomichTheme } from "./context/PomichThemeProvider"
 import { type PomichThemeColors, type PomichThemeMode } from "./lib/theme"
 import { applyHiddenAdminEntry, isAdminEntryLocation, isHiddenAdminHash } from "./lib/adminAccess"
 import {
-  authSessionStorageKey,
   clearAllAuthStorage,
   clearProviderAuthStorage,
   clearCustomerAuthStorage,
@@ -54,9 +55,7 @@ import {
   purgeStaleCustomerSessions,
   readPersistedCustomerId,
   readAuthSessionSubject,
-  readStoredAuthSession,
   resolveSessionMismatchWarning,
-  storeAuthSession,
 } from "./lib/auth"
 import { clearActiveOrder, enrichProfileWithTelegram, persistActiveOrder, readActiveOrder, readBootstrapProfileForCustomer, resolveCustomerAuthSession } from "./lib/customerSession"
 import { reverseGeocodeAddress } from "./lib/reverseGeocode"
@@ -331,7 +330,7 @@ function VerificationPill({ status }: { status?: VerificationStatus }) {
   )
 }
 
-const FLOW_STEP_LABELS = ["Оберіть проблему", "Де ви зараз?", "Куди везти / ремонт", "Перевірте заявку"] as const
+const FLOW_STEP_LABELS = ["Оберіть проблему", "Де ви зараз?", "Куди / на місці", "Перевірте заявку"] as const
 
 function StepBadge({ step }: { step: 1 | 2 | 3 | 4 }) {
   return (
@@ -342,15 +341,15 @@ function StepBadge({ step }: { step: 1 | 2 | 3 | 4 }) {
 }
 
 function resolveServiceDestination(service: ServiceKey, pickup: Point): { destination: string; destinationPoint: Point } {
-  if (service === "tow") {
+  if (serviceRequiresDestination(service)) {
     return { destination: "СТО «Авторемонт»", destinationPoint: DEFAULT_DESTINATION }
   }
-  return { destination: "На місці обслуговування", destinationPoint: pickup }
+  return { destination: ON_SITE_DESTINATION_LABEL, destinationPoint: pickup }
 }
 
 function resolveOrderDistanceKm(service: ServiceKey, pickup: Point, destinationPoint: Point): number {
   const raw = calculateDistanceKm(pickup, destinationPoint)
-  return service === "tow" ? raw : Math.max(0.5, raw)
+  return serviceRequiresDestination(service) ? raw : Math.max(0.5, raw)
 }
 
 function PrimaryButton({ label, onClick, loading = false, disabled = false }: { label: string; onClick?: () => void; loading?: boolean; disabled?: boolean }) {
@@ -481,7 +480,7 @@ function AppShell({ children, compact, role, loggedInName, onRoleChange, onOpenC
         {role ? (
           <header className="pomich-tg-header flex shrink-0 items-center justify-between px-3 gap-2 w-full">
             <button type="button" onClick={() => onRoleChange(null)} className="pomich-app-header-menu-btn">← Меню</button>
-            <div className={loggedInName ? "pomich-app-header-session pomich-app-header-role-label" : "pomich-app-header-role-label"}>
+            <div className={loggedInName ? "pomich-app-header-session" : "pomich-app-header-role-label"}>
               {loggedInName ? `Ви увійшли як: ${loggedInName}` : roleLabels[role]}
             </div>
             <div className="flex items-center gap-1.5 shrink-0">
@@ -508,7 +507,7 @@ function AppShell({ children, compact, role, loggedInName, onRoleChange, onOpenC
       {role ? (
         <header className="pomich-tg-header flex h-[62px] shrink-0 items-center justify-center px-6 w-full">
           <div className="flex w-full max-w-7xl items-center justify-between gap-4">
-            <a href="/" className="pomich-app-header-brand text-xl">POMICH</a>
+            <button type="button" onClick={() => onRoleChange(null)} className="pomich-app-header-brand text-xl">POMICH</button>
             {loggedInName ? (
               <span className="pomich-app-header-session hidden md:inline">Ви увійшли як: {loggedInName}</span>
             ) : null}
@@ -1045,6 +1044,7 @@ function DestinationStep({
   onChange,
   onNext,
   onBack,
+  onSkipOnSite,
 }: {
   pickup: Point
   destination: Point
@@ -1054,22 +1054,18 @@ function DestinationStep({
   onChange: (value: string) => void
   onNext: () => void
   onBack: () => void
+  onSkipOnSite?: () => void
 }) {
-  const isTow = serviceKey === "tow"
-  const title = isTow ? "Куди доставити авто?" : "Де потрібна допомога?"
-  const subtitle = isTow
+  const needsDestination = serviceRequiresDestination(serviceKey)
+  const title = needsDestination ? "Куди доставити авто?" : "Допомога на місці"
+  const subtitle = needsDestination
     ? "Натисніть на карті або введіть адресу СТО / точки доставки."
-    : "Натисніть на карті або введіть адресу місця ремонту / зустрічі."
-  const inputLabel = isTow ? "Адреса доставки" : "Адреса або орієнтир"
-  const usePickupAsDestination = () => {
-    onPick(pickup)
-    onChange("На місці обслуговування")
-  }
+    : ON_SITE_DESTINATION_LABEL
 
   return (
-    <RideScreen pickup={pickup} destination={destination} mapSubtitle="Оберіть точку на карті" onPick={onPick} mapFocus>
+    <RideScreen pickup={pickup} destination={needsDestination ? destination : pickup} mapSubtitle={needsDestination ? "Оберіть точку на карті" : "Ваше місцезнаходження"} onPick={needsDestination ? onPick : undefined} mapFocus={needsDestination}>
       <div data-sheet-peek>
-        <SheetHeading title={title} subtitle={value.trim() || "Натисніть на карті або введіть адресу"} />
+        <SheetHeading title={title} subtitle={value.trim() || (needsDestination ? "Оберіть точку на карті" : ON_SITE_DESTINATION_LABEL)} />
       </div>
       <div data-sheet-full>
       <StepBadge step={3} />
@@ -1078,30 +1074,43 @@ function DestinationStep({
 
       <div style={{ marginTop: 16, border: `1px solid ${BORDER}`, borderRadius: 18, padding: "4px 14px", background: SURFACE_TONE }}>
         <LocationRow icon="●" title="Звідки" subtitle="Ваше місцезнаходження" active />
-        <SheetDivider />
-        <LocationRow icon="🏁" title="Куди" subtitle={value.trim() || "Оберіть на карті або введіть адресу"} />
+        {needsDestination ? (
+          <>
+            <SheetDivider />
+            <LocationRow icon="🏁" title="Куди" subtitle={value.trim() || "Оберіть на карті або введіть адресу"} />
+          </>
+        ) : (
+          <>
+            <SheetDivider />
+            <LocationRow icon="🛠️" title="Куди" subtitle={ON_SITE_DESTINATION_LABEL} />
+          </>
+        )}
       </div>
 
-      <label style={{ display: "grid", gap: 8, marginTop: 16 }}>
-        <span style={{ fontWeight: 900, color: DARK }}>{inputLabel}</span>
-        <input
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
-          placeholder={isTow ? "Наприклад: СТО «Авторемонт»" : "Наприклад: парковка біля ТРЦ"}
-          style={{ width: "100%", minHeight: 50, padding: "0 14px", borderRadius: 16, border: `1px solid ${BORDER}`, fontSize: 15, fontWeight: 750, fontFamily: "inherit", background: "var(--pomich-input-bg)", color: "var(--pomich-text)" }}
-        />
-      </label>
-      <div style={{ color: MUTED, fontSize: 12, fontWeight: 750, marginTop: 8 }}>Точка: {destination.lat.toFixed(5)}, {destination.lng.toFixed(5)}</div>
-
-      {!isTow ? (
-        <div style={{ marginTop: 12 }}>
-          <SecondaryButton label="Допомога на місці (тут)" onClick={usePickupAsDestination} />
+      {needsDestination ? (
+        <>
+          <label style={{ display: "grid", gap: 8, marginTop: 16 }}>
+            <span style={{ fontWeight: 900, color: DARK }}>Адреса доставки</span>
+            <input
+              value={value}
+              onChange={(event) => onChange(event.target.value)}
+              placeholder="Наприклад: СТО «Авторемонт»"
+              style={{ width: "100%", minHeight: 50, padding: "0 14px", borderRadius: 16, border: `1px solid ${BORDER}`, fontSize: 15, fontWeight: 750, fontFamily: "inherit", background: "var(--pomich-input-bg)", color: "var(--pomich-text)" }}
+            />
+          </label>
+          <div style={{ color: MUTED, fontSize: 12, fontWeight: 750, marginTop: 8 }}>Точка: {destination.lat.toFixed(5)}, {destination.lng.toFixed(5)}</div>
+          <div style={{ marginTop: 16 }}>
+            <PrimaryButton label="Далі" onClick={onNext} disabled={!value.trim()} />
+          </div>
+        </>
+      ) : (
+        <div style={{ marginTop: 16, display: "grid", gap: 10 }}>
+          <div style={{ background: "var(--pomich-info-bg)", color: "var(--pomich-info-text)", borderRadius: 14, padding: 12, fontSize: 13, fontWeight: 800, lineHeight: 1.45 }}>
+            Партнер приїде до вас. Окрему точку «куди везти» вказувати не потрібно.
+          </div>
+          <PrimaryButton label="Далі" onClick={() => (onSkipOnSite ? onSkipOnSite() : onNext())} />
         </div>
-      ) : null}
-
-      <div style={{ marginTop: 16 }}>
-        <PrimaryButton label="Далі" onClick={onNext} disabled={!value.trim()} />
-      </div>
+      )}
       </div>
     </RideScreen>
   )
@@ -1159,10 +1168,11 @@ function ReviewStep({
   onConfirm: () => void
   onBack: () => void
 }) {
-  const showDestination = Boolean(destination.trim())
+  const showDestination = serviceRequiresDestination(serviceKey) && Boolean(destination.trim())
+  const onSiteLabel = !serviceRequiresDestination(serviceKey)
 
   return (
-    <RideScreen pickup={pickup} destination={destinationPoint} mapSubtitle="Перевірка заявки">
+    <RideScreen pickup={pickup} destination={onSiteLabel ? pickup : destinationPoint} mapSubtitle="Перевірка заявки">
       <StepBadge step={4} />
       <button onClick={onBack} style={{ border: "none", background: GHOST, color: DARK, borderRadius: 999, padding: "8px 11px", fontWeight: 900, cursor: "pointer", fontFamily: "inherit", marginBottom: 14 }}>← Назад</button>
       <SheetHeading title="Перевірте заявку" subtitle="Ціну та час прибуття побачите після того, як партнер прийме заявку." />
@@ -1175,6 +1185,11 @@ function ReviewStep({
           <>
             <SheetDivider />
             <LocationRow icon="🏁" title="Куди" subtitle={destination} />
+          </>
+        ) : onSiteLabel ? (
+          <>
+            <SheetDivider />
+            <LocationRow icon="🛠️" title="Куди" subtitle={ON_SITE_DESTINATION_LABEL} />
           </>
         ) : null}
         <SheetDivider />
@@ -1264,9 +1279,18 @@ function AcceptedStep({
   const eta = assignedProvider?.etaMinutes
   const proposedPrice = order?.partnerProposedPrice
   const partnerName = assignedProvider?.name ?? order?.providerName
+  const priceLabel = typeof proposedPrice === "number" ? `${proposedPrice.toLocaleString("uk-UA")} ₴` : "—"
 
   return (
     <RideScreen pickup={pickup} destination={destination} providers={assignedProvider ? [assignedProvider] : undefined} mapSubtitle="Партнер запропонував ціну" expandedSheet>
+      <div data-sheet-peek>
+        <SheetHeading title="Запропонована ціна" subtitle={typeof proposedPrice === "number" ? `${priceLabel} · підтвердіть` : "Очікуємо ціну від партнера"} />
+        <div style={{ marginTop: 10, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+          <div style={{ fontSize: 28, fontWeight: 950, color: DARK }}>{priceLabel}</div>
+          <StatusPill status={status} />
+        </div>
+      </div>
+      <div data-sheet-full>
       <StepBadge step={4} />
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
         <SheetHeading title="Партнер прийняв заявку" subtitle={orderId ? `Замовлення #${orderId}` : "Обговоріть ціну з партнером"} />
@@ -1280,7 +1304,7 @@ function AcceptedStep({
         </div>
         <div style={{ background: "var(--pomich-accent-panel-bg)", color: "#fff", borderRadius: 18, padding: 16, textAlign: "center" }}>
           <div style={{ color: "#A7F3D0", fontWeight: 800, fontSize: 12 }}>Запропонована ціна</div>
-          <div style={{ fontSize: 28, fontWeight: 950, marginTop: 6 }}>{typeof proposedPrice === "number" ? `${proposedPrice.toLocaleString("uk-UA")} ₴` : "—"}</div>
+          <div style={{ fontSize: 28, fontWeight: 950, marginTop: 6 }}>{priceLabel}</div>
         </div>
       </div>
 
@@ -1295,14 +1319,15 @@ function AcceptedStep({
           <Timeline status={status} />
         </div>
         <div style={{ background: "var(--pomich-warn-bg)", borderRadius: 18, padding: 14, color: "var(--pomich-warn-text)", fontWeight: 800, lineHeight: 1.45 }}>
-          {partnerName ?? "Партнер"} запропонував {typeof proposedPrice === "number" ? `${proposedPrice.toLocaleString("uk-UA")} ₴` : "ціну"}. Підтвердіть або зв'яжіться для обговорення.
+          {partnerName ?? "Партнер"} запропонував {typeof proposedPrice === "number" ? priceLabel : "ціну"}. Підтвердіть або зв'яжіться для обговорення.
         </div>
         {confirmError ? <div style={{ background: "var(--pomich-error-bg)", color: "var(--pomich-error-text)", borderRadius: 14, padding: 12, fontWeight: 800 }}>{confirmError}</div> : null}
       </div>
-      <div style={{ display: "grid", gap: 10, marginTop: 16 }}>
+      <div className="pomich-price-confirm-actions">
         <PrimaryButton label={confirming ? "Підтверджуємо…" : "Підтвердити ціну"} onClick={onConfirmPrice} loading={confirming} disabled={confirming || typeof proposedPrice !== "number"} />
         <SecondaryButton label="Зв'язатися" onClick={onContact} />
         <SecondaryButton label="Скасувати заявку" danger onClick={onCancel} />
+      </div>
       </div>
     </RideScreen>
   )
@@ -1483,6 +1508,8 @@ function IncomingOfferStep({
   const distanceLabel = typeof offer.distanceKm === "number" ? `${offer.distanceKm.toFixed(1)} км до клієнта` : "Відстань уточнюється"
 
   useEffect(() => {
+    const coarse = typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches
+    if (coarse) return
     const timer = window.setTimeout(() => {
       priceInputRef.current?.focus()
     }, 80)
@@ -1506,35 +1533,7 @@ function IncomingOfferStep({
   return (
     <ScreenLayout
       footer={(
-        <div className="pomich-offer-accept-footer" style={{ display: "grid", gap: 10 }}>
-          <label style={{ display: "grid", gap: 6 }}>
-            <span style={{ fontWeight: 950, color: DARK, fontSize: 13 }}>Ваша ціна клієнту, грн</span>
-            <input
-              ref={priceInputRef}
-              value={proposedPrice}
-              onChange={(event) => onProposedPriceChange(event.target.value.replace(/[^\d.,]/g, ""))}
-              type="text"
-              inputMode="decimal"
-              enterKeyHint="done"
-              autoComplete="off"
-              placeholder="Наприклад: 1200"
-              aria-label="Вартість послуги в гривнях"
-              className="pomich-offer-price-input"
-              style={{
-                width: "100%",
-                minHeight: 52,
-                padding: "0 14px",
-                borderRadius: 14,
-                border: `2px solid ${error && !priceValid ? "var(--pomich-error-text)" : BRAND}`,
-                fontSize: 22,
-                fontWeight: 950,
-                fontFamily: "inherit",
-                background: "var(--pomich-input-bg)",
-                color: DARK,
-                boxSizing: "border-box",
-              }}
-            />
-          </label>
+        <div className="pomich-offer-accept-footer">
           {error ? <div style={{ background: "var(--pomich-error-bg)", color: "var(--pomich-error-text)", borderRadius: 14, padding: 12, fontWeight: 800 }}>{error}</div> : null}
           <PrimaryButton label={saving ? "Приймаємо…" : secondsLeft <= 0 ? "Час вийшов" : "ПРИЙНЯТИ З ЦІНОЮ"} onClick={handleAcceptClick} disabled={saving} />
           <SecondaryButton label="ПРОПУСТИТИ" onClick={onDecline} />
@@ -1571,6 +1570,35 @@ function IncomingOfferStep({
             ) : null}
           </div>
         </div>
+
+        <label style={{ display: "grid", gap: 6 }}>
+          <span style={{ fontWeight: 950, color: DARK, fontSize: 13 }}>Ваша ціна клієнту, грн</span>
+          <input
+            ref={priceInputRef}
+            value={proposedPrice}
+            onChange={(event) => onProposedPriceChange(event.target.value.replace(/[^\d.,]/g, ""))}
+            type="text"
+            inputMode="decimal"
+            enterKeyHint="done"
+            autoComplete="off"
+            placeholder="Наприклад: 1200"
+            aria-label="Вартість послуги в гривнях"
+            className="pomich-offer-price-input"
+            style={{
+              width: "100%",
+              minHeight: 52,
+              padding: "0 14px",
+              borderRadius: 14,
+              border: `2px solid ${error && !priceValid ? "var(--pomich-error-text)" : BRAND}`,
+              fontSize: 22,
+              fontWeight: 950,
+              fontFamily: "inherit",
+              background: "var(--pomich-input-bg)",
+              color: DARK,
+              boxSizing: "border-box",
+            }}
+          />
+        </label>
 
         <label style={{ display: "grid", gap: 8, background: CARD, border: `1px solid ${BORDER}`, borderRadius: 18, padding: 16 }}>
           <span style={{ fontWeight: 850, color: DARK, fontSize: 13 }}>Примітка до ціни (необов'язково)</span>
@@ -1763,10 +1791,12 @@ function LandingPage({
   onSelect,
   onRegister,
   onLogin,
+  onHiddenAdmin,
 }: {
   onSelect: (role: Role) => void
   onRegister: () => void
   onLogin: () => void
+  onHiddenAdmin?: () => void
 }) {
   /* Landing hero owns its own decorative map — avoid stacking the global shell map. */
   useSuppressMapAtmosphere()
@@ -2453,10 +2483,23 @@ function CustomerFlow({ onLogout }: { onLogout?: () => void } = {}) {
   }
 
   const confirmPickupLocation = () => {
-    /* Destination is chosen next — soft map seed only (tow suggests СТО point) */
-    setDestination("")
-    setDestinationPoint(selectedService === "tow" ? DEFAULT_DESTINATION : pickup)
-    setScreen("destination")
+    if (serviceRequiresDestination(selectedService)) {
+      setDestination("")
+      setDestinationPoint(DEFAULT_DESTINATION)
+      setScreen("destination")
+      return
+    }
+    const onSite = resolveServiceDestination(selectedService, pickup)
+    setDestination(onSite.destination)
+    setDestinationPoint(onSite.destinationPoint)
+    setScreen("review")
+  }
+
+  const applyOnSiteDestination = () => {
+    const onSite = resolveServiceDestination(selectedService, pickup)
+    setDestination(onSite.destination)
+    setDestinationPoint(onSite.destinationPoint)
+    setScreen("review")
   }
 
   const setDestinationFromMap = (point: Point) => {
@@ -2475,8 +2518,10 @@ function CustomerFlow({ onLogout }: { onLogout?: () => void } = {}) {
         service: selectedService,
         customerLocation: geoState === "success" || geoState === "telegram" ? sanitizeLocation(addressLabel) : sanitizeLocation(orderInput.customerLocation),
         customerCoordinates: pickup,
-        destination: sanitizeLocation(destination),
-        destinationCoordinates: destinationPoint,
+        destination: serviceRequiresDestination(selectedService)
+          ? sanitizeLocation(destination)
+          : (destination.trim() ? sanitizeLocation(destination) : ON_SITE_DESTINATION_LABEL),
+        destinationCoordinates: serviceRequiresDestination(selectedService) ? destinationPoint : pickup,
         vehicleState,
         customerComment: customerComment.trim() || undefined,
         distanceKm: breakdown.distanceKm,
@@ -2659,9 +2704,9 @@ function CustomerFlow({ onLogout }: { onLogout?: () => void } = {}) {
     haptic("light")
     if (screen === "location") setScreen("home")
     else if (screen === "destination") setScreen("location")
-    else if (screen === "review") setScreen("destination")
+    else if (screen === "review") setScreen(serviceRequiresDestination(selectedService) ? "destination" : "location")
     else setScreen("home")
-  }, [screen, haptic])
+  }, [screen, haptic, selectedService])
 
   const mainButtonOnClick = useCallback(() => {
     switch (screen) {
@@ -2675,7 +2720,11 @@ function CustomerFlow({ onLogout }: { onLogout?: () => void } = {}) {
         break
       case "destination":
         haptic("medium")
-        if (destination.trim()) setScreen("review")
+        if (serviceRequiresDestination(selectedService)) {
+          if (destination.trim()) setScreen("review")
+        } else {
+          applyOnSiteDestination()
+        }
         break
       case "review":
         haptic("medium")
@@ -2698,7 +2747,7 @@ function CustomerFlow({ onLogout }: { onLogout?: () => void } = {}) {
       default:
         break
     }
-  }, [screen, haptic, verifyCustomerProfile, confirmPickupLocation, destination, submitOrder, startTracking, restart, customerReviewSubmitted, currentOrder?.customerReview?.rating])
+  }, [screen, haptic, verifyCustomerProfile, confirmPickupLocation, applyOnSiteDestination, destination, selectedService, submitOrder, startTracking, restart, customerReviewSubmitted, currentOrder?.customerReview?.rating])
 
   const mainButtonText = useMemo(() => {
     switch (screen) {
@@ -2729,7 +2778,7 @@ function CustomerFlow({ onLogout }: { onLogout?: () => void } = {}) {
     ["location", "destination", "review", "assigned", "cancelled", "completed", "error"].includes(screen)
   const mainButtonEnabled =
     screen === "home" ? isCustomerProfileComplete(customerProfile) && !customerVerificationSaving :
-    screen === "destination" ? Boolean(destination.trim()) :
+    screen === "destination" ? (serviceRequiresDestination(selectedService) ? Boolean(destination.trim()) : true) :
     screen === "review" ? !loading :
     mainButtonVisible
 
@@ -2750,11 +2799,11 @@ function CustomerFlow({ onLogout }: { onLogout?: () => void } = {}) {
     case "location":
       return <LocationStep pickup={pickup} addressLabel={addressLabel} geoMessage={geoMessage} geoLoading={geoLoading} geoError={geoError} recenterTrigger={geoRecenterTrigger} isTelegram={isTelegram} onPick={(point) => applyPickup(point)} onRetryGeo={retryGeolocation} onBack={() => setScreen("home")} onNext={confirmPickupLocation} />
     case "destination":
-      return <DestinationStep pickup={pickup} destination={destinationPoint} value={destination} serviceKey={selectedService} onPick={setDestinationFromMap} onChange={setDestination} onBack={() => setScreen("location")} onNext={() => setScreen("review")} />
+      return <DestinationStep pickup={pickup} destination={destinationPoint} value={destination} serviceKey={selectedService} onPick={setDestinationFromMap} onChange={setDestination} onBack={() => setScreen("location")} onNext={() => setScreen("review")} onSkipOnSite={applyOnSiteDestination} />
     case "details":
-      return <DetailsStep pickup={pickup} destination={destinationPoint} value={vehicleState} onChange={setVehicleState} onBack={() => setScreen("destination")} onNext={() => setScreen("review")} />
+      return <DetailsStep pickup={pickup} destination={destinationPoint} value={vehicleState} onChange={setVehicleState} onBack={() => setScreen(serviceRequiresDestination(selectedService) ? "destination" : "location")} onNext={() => setScreen("review")} />
     case "review":
-      return <ReviewStep serviceLabel={serviceLabel} serviceKey={selectedService} addressLabel={addressLabel} destination={destination} pickup={pickup} destinationPoint={destinationPoint} vehicleState={vehicleState} customerComment={customerComment} onCustomerCommentChange={setCustomerComment} loading={loading} isTelegram={isTelegram} onConfirm={submitOrder} onBack={() => setScreen("destination")} />
+      return <ReviewStep serviceLabel={serviceLabel} serviceKey={selectedService} addressLabel={addressLabel} destination={destination} pickup={pickup} destinationPoint={destinationPoint} vehicleState={vehicleState} customerComment={customerComment} onCustomerCommentChange={setCustomerComment} loading={loading} isTelegram={isTelegram} onConfirm={submitOrder} onBack={() => setScreen(serviceRequiresDestination(selectedService) ? "destination" : "location")} />
     case "searching":
       return <SearchingStep orderId={orderId} status={status} order={currentOrder} pickup={pickup} destination={destinationPoint} onCancel={cancelOrder} onRetryDispatch={retryOrderDispatch} />
     case "accepted":
@@ -2863,7 +2912,7 @@ function ProviderFlow({ providerToken, providerRegistered = false, onLogout, onR
     serviceRadiusKm: DEFAULT_SERVICE_RADIUS_KM,
   })
   const [registrationForm, setRegistrationForm] = useState<PartnerRegistrationForm>(() => emptyPartnerRegistrationForm())
-  const dismissedOfferIdRef = useRef<string | undefined>()
+  const dismissedOfferIdRef = useRef<string | undefined>(undefined)
   const pickup = PICKUP
   const destination = DEFAULT_DESTINATION
   const providerSpecialties = toServiceKeys(providerProfile.specialties)
@@ -2904,7 +2953,7 @@ function ProviderFlow({ providerToken, providerRegistered = false, onLogout, onR
         subjectId: subject,
         providerId: subject,
         tokenType: "Bearer",
-        accessToken: providerToken,
+        accessToken: providerToken!,
         expiresAt: Math.floor(Date.now() / 1000) + 3600,
       })
       setProviderAccessToken(providerToken)
@@ -4013,13 +4062,11 @@ export default function CustomerApp() {
       return
     }
     clearExplicitLogout()
+    // Login must keep a valid stored customer session (menu/landing → «Увійти»).
+    // Only purge tokens for other customer ids — never wipe the active session here.
     if (isLogin) {
-      if (!telegramContext.initData) {
-        clearCustomerAuthStorage()
-      } else {
-        const activeCustomerId = readPersistedCustomerId(telegramContext.chatId)
-        purgeStaleCustomerSessions(activeCustomerId)
-      }
+      const activeCustomerId = readPersistedCustomerId(telegramContext.chatId)
+      purgeStaleCustomerSessions(activeCustomerId)
     }
     setPendingRole(nextRole)
     setStartAtRoleSelect(openRolePicker)
@@ -4027,16 +4074,16 @@ export default function CustomerApp() {
     setShowOnboarding(true)
     setShowLanding(false)
     setShowCabinet(false)
-  }, [skipOnboarding, telegramContext.chatId, telegramContext.initData, applyRoleToUrl])
+  }, [skipOnboarding, telegramContext.chatId, applyRoleToUrl])
 
   const enterCustomerFlow = useCallback(async () => {
     clearExplicitLogout()
     setAccount(null)
     setCustomerToken(undefined)
 
-    if (!telegramContext.initData) {
-      clearCustomerAuthStorage()
-    }
+    // Do not clearCustomerAuthStorage here — returning users keep token/customerId across Меню/landing.
+    const activeCustomerId = readPersistedCustomerId(telegramContext.chatId)
+    purgeStaleCustomerSessions(activeCustomerId)
 
     try {
       const resolved = await resolveCustomerAuthSession(telegramContext, { explicitSignIn: true })
@@ -4044,9 +4091,11 @@ export default function CustomerApp() {
         await getUserAccount(resolved.customerId, resolved.token, telegramContext.initData),
         resolved.profile,
       )
+      // Web guest-* sessions are valid returning clients when registered/complete (phone OTP already done).
       const canonicalSession =
         resolved.customerId.startsWith("tg-") ||
-        (status.clientRegistered && !resolved.customerId.startsWith("guest-") && resolved.customerId !== "customer-web")
+        resolved.customerId.startsWith("guest-") ||
+        (status.clientRegistered && resolved.customerId !== "customer-web")
 
       if (canonicalSession && isReturningClient(status)) {
         if (status.profile && isCustomerProfileComplete(status.profile) && !isCustomerVerified(status.profile)) {
@@ -4082,18 +4131,36 @@ export default function CustomerApp() {
     setRole(null)
     setShowCabinet(false)
 
+    // Partner phone OTP after explicit logout starts clean; do not wipe an active customer
+    // session just for browsing landing — only clear when there is no stored customer session
+    // worth restoring, or when user already logged out (storage empty / explicit flag cleared above).
     if (!telegramContext.initData) {
-      clearCustomerAuthStorage()
+      const stored = readStoredCustomerAuthSession({ telegramChatId: telegramContext.chatId })
+      if (!stored?.token) {
+        clearCustomerAuthStorage()
+      }
     }
 
     // Phone OTP login restores linkedProviderId for registered partners (no blank registration).
     beginOnboarding("provider", false, true)
-  }, [beginOnboarding, telegramContext.initData])
+  }, [beginOnboarding, telegramContext.chatId, telegramContext.initData])
 
   /** phone_already_registered / «Увійти за цим номером» — same as landing partner re-entry. */
   const restorePartnerAccount = useCallback(() => {
     enterPartnerFlow()
   }, [enterPartnerFlow])
+
+  const goToLanding = useCallback(() => {
+    // «Меню» / logo / home — show landing but keep customer token + customerId in storage.
+    setShowLanding(true)
+    setShowOnboarding(false)
+    setShowCabinet(false)
+    setForceRolePicker(false)
+    setPendingRole(null)
+    setStartAtRoleSelect(false)
+    setLoginMode(false)
+    applyRoleToUrl(null)
+  }, [applyRoleToUrl])
 
   const handleRoleChange = useCallback((nextRole: Role | null) => {
     if (nextRole === "customer") {
@@ -4104,9 +4171,8 @@ export default function CustomerApp() {
       void enterPartnerFlow()
       return
     }
-    applyRoleToUrl(nextRole)
-  }, [applyRoleToUrl, enterCustomerFlow, enterPartnerFlow])
-
+    goToLanding()
+  }, [enterCustomerFlow, enterPartnerFlow, goToLanding])
   const handleLogout = () => {
     // Block Telegram auto-relogin AND web session restore after explicit logout.
     markExplicitLogout(telegramContext.isTelegram ? telegramContext.chatId : undefined)
@@ -4406,8 +4472,7 @@ export default function CustomerApp() {
             message="Потрібно завершити реєстрацію клієнта."
             onRetry={() => beginOnboarding("customer", false, true)}
             onLanding={() => {
-              setShowLanding(true)
-              setRole(null)
+              goToLanding()
             }}
           />
         ) : (

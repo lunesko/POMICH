@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react"
 
 import type { MapRequestPin } from "../../api/client"
-import { BORDER, BRAND, DARK, getProviderCapabilityLabel, getServiceEmoji } from "../../lib/constants"
+import { BRAND, DARK, getProviderCapabilityLabel, getServiceEmoji } from "../../lib/constants"
 import { PrimaryButton } from "../ui/PrimaryButton"
 import { SecondaryButton } from "../ui/SecondaryButton"
 
@@ -27,6 +27,7 @@ export function OrderRequestSheet({
   onAcceptBlocked?: (reason: "expired" | "price") => void
 }) {
   const priceInputRef = useRef<HTMLInputElement>(null)
+  const actionsRef = useRef<HTMLDivElement>(null)
   const parsedPrice = Number(proposedPrice.replace(",", "."))
   const priceValid = Number.isFinite(parsedPrice) && parsedPrice > 0
   const offerExpired = typeof secondsLeft === "number" && secondsLeft <= 0
@@ -34,11 +35,20 @@ export function OrderRequestSheet({
   const distanceLabel = typeof pin.distanceKm === "number" ? `${pin.distanceKm.toFixed(1)} км` : "—"
 
   useEffect(() => {
+    /* Avoid auto-focus on coarse pointers — mobile keyboard clips the confirm button. */
+    const coarse = typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches
+    if (coarse) return
     const timer = window.setTimeout(() => {
       priceInputRef.current?.focus()
     }, 80)
     return () => window.clearTimeout(timer)
   }, [pin.id, pin.offerId])
+
+  const ensureActionsVisible = () => {
+    window.setTimeout(() => {
+      actionsRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" })
+    }, 120)
+  }
 
   const handleAcceptClick = () => {
     if (saving) return
@@ -49,6 +59,7 @@ export function OrderRequestSheet({
     if (!priceValid) {
       onAcceptBlocked?.("price")
       priceInputRef.current?.focus()
+      ensureActionsVisible()
       return
     }
     onAccept()
@@ -63,34 +74,35 @@ export function OrderRequestSheet({
       onClick={onClose}
     >
       <div className="pomich-order-request-sheet__panel" onClick={(event) => event.stopPropagation()}>
-        <div className="pomich-order-request-sheet__handle" aria-hidden="true" />
-        <div className="pomich-order-request-sheet__title">
-          {getServiceEmoji(pin.service)} {getProviderCapabilityLabel(pin.service)}
-        </div>
-        <div className="pomich-order-request-sheet__meta">
-          {distanceLabel}
-          {eta ? ` · ~${eta} хв` : ""}
-          {typeof secondsLeft === "number" ? ` · ${secondsLeft > 0 ? `${secondsLeft} сек` : "час вийшов"}` : ""}
-        </div>
+        <div className="pomich-order-request-sheet__scroll">
+          <div className="pomich-order-request-sheet__handle" aria-hidden="true" />
+          <div className="pomich-order-request-sheet__title">
+            {getServiceEmoji(pin.service)} {getProviderCapabilityLabel(pin.service)}
+          </div>
+          <div className="pomich-order-request-sheet__meta">
+            {distanceLabel}
+            {eta ? ` · ~${eta} хв` : ""}
+            {typeof secondsLeft === "number" ? ` · ${secondsLeft > 0 ? `${secondsLeft} сек` : "час вийшов"}` : ""}
+          </div>
 
-        <div className="pomich-order-request-sheet__details">
-          <div><strong>Адреса:</strong> {pin.customerLocation ?? "Поруч із вами"}</div>
-          {pin.vehicleState ? <div><strong>Авто:</strong> {pin.vehicleState}</div> : null}
-          {pin.customerComment ? (
-            <div className="pomich-order-request-sheet__comment">
-              <strong>Коментар клієнта:</strong>
-              <p>{pin.customerComment}</p>
-            </div>
-          ) : null}
-        </div>
+          <div className="pomich-order-request-sheet__details">
+            <div><strong>Адреса:</strong> {pin.customerLocation ?? "Поруч із вами"}</div>
+            {pin.vehicleState ? <div><strong>Авто:</strong> {pin.vehicleState}</div> : null}
+            {pin.customerComment ? (
+              <div className="pomich-order-request-sheet__comment">
+                <strong>Коментар клієнта:</strong>
+                <p>{pin.customerComment}</p>
+              </div>
+            ) : null}
+          </div>
 
-        <div className="pomich-order-request-sheet__actions">
           <label className="pomich-order-request-sheet__price-label">
             <span>Ваша ціна клієнту, грн</span>
             <input
               ref={priceInputRef}
               value={proposedPrice}
               onChange={(event) => onProposedPriceChange(event.target.value.replace(/[^\d.,]/g, ""))}
+              onFocus={ensureActionsVisible}
               type="text"
               inputMode="decimal"
               enterKeyHint="done"
@@ -107,11 +119,11 @@ export function OrderRequestSheet({
               {error}
             </div>
           ) : null}
+        </div>
 
-          <div style={{ display: "grid", gap: 10 }}>
-            <PrimaryButton label={saving ? "Приймаємо…" : offerExpired ? "Час вийшов" : "ПРИЙНЯТИ З ЦІНОЮ"} onClick={handleAcceptClick} disabled={saving} />
-            <SecondaryButton label="Закрити" onClick={onClose} disabled={saving} />
-          </div>
+        <div ref={actionsRef} className="pomich-order-request-sheet__actions">
+          <PrimaryButton label={saving ? "Приймаємо…" : offerExpired ? "Час вийшов" : "ПРИЙНЯТИ З ЦІНОЮ"} onClick={handleAcceptClick} disabled={saving} />
+          <SecondaryButton label="Закрити" onClick={onClose} disabled={saving} />
         </div>
       </div>
     </div>

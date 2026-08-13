@@ -242,6 +242,21 @@ def test_sql_runtime_store_preserves_explicit_empty_provider_collection(sql_runt
     assert _table_count(runtime_store.provider_presence) == 0
 
 
+def test_sql_storage_enabled_respects_backend_and_database_url(monkeypatch):
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("POMICH_STORAGE_BACKEND", raising=False)
+    assert runtime_store.sql_storage_enabled() is False
+
+    monkeypatch.setenv("DATABASE_URL", "postgresql://pomich:x@localhost:5432/pomich")
+    assert runtime_store.sql_storage_enabled() is True
+
+    monkeypatch.setenv("POMICH_STORAGE_BACKEND", "json")
+    assert runtime_store.sql_storage_enabled() is False
+
+    monkeypatch.setenv("POMICH_STORAGE_BACKEND", "sql")
+    assert runtime_store.sql_storage_enabled() is True
+
+
 def _table_names():
     return set(inspect(runtime_store.get_engine()).get_table_names())
 

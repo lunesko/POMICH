@@ -58,6 +58,7 @@ import type { CustomerProfile } from "../../api/client"
 import { validatePersonName } from "../../lib/personName"
 import { DEFAULT_SERVICE_CITY, validateServiceCity } from "../../lib/ukraineCities"
 import { validateUkraineMobilePhone } from "../../lib/ukrainePhone"
+import { subscribeOrderEvents, subscribeProviderEvents } from "../../lib/realtime"
 import { isValidUkrainePlate, validateUkrainePlate } from "../../lib/ukrainePlate"
 import { getTelegramContext } from "../../telegram"
 import ScreenLayout from "../layout/ScreenLayout"
@@ -309,6 +310,8 @@ function IncomingOfferStep({
   const distanceLabel = typeof offer.distanceKm === "number" ? `${offer.distanceKm.toFixed(1)} км до клієнта` : "Відстань уточнюється"
 
   useEffect(() => {
+    const coarse = typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches
+    if (coarse) return
     const timer = window.setTimeout(() => priceInputRef.current?.focus(), 80)
     return () => window.clearTimeout(timer)
   }, [offer.id])
@@ -331,34 +334,6 @@ function IncomingOfferStep({
     <ScreenLayout
       footer={(
         <div className="pomich-offer-accept-footer" style={{ display: "grid", gap: 10 }}>
-          <label style={{ display: "grid", gap: 6 }}>
-            <span style={{ fontWeight: 950, color: DARK, fontSize: 13 }}>Ваша ціна клієнту, грн</span>
-            <input
-              ref={priceInputRef}
-              value={proposedPrice}
-              onChange={(event) => onProposedPriceChange(event.target.value.replace(/[^\d.,]/g, ""))}
-              type="text"
-              inputMode="decimal"
-              enterKeyHint="done"
-              autoComplete="off"
-              placeholder="Наприклад: 1200"
-              aria-label="Вартість послуги в гривнях"
-              className="pomich-offer-price-input"
-              style={{
-                width: "100%",
-                minHeight: 52,
-                padding: "0 14px",
-                borderRadius: 14,
-                border: `2px solid ${error && !priceValid ? "#BE123C" : BRAND}`,
-                fontSize: 22,
-                fontWeight: 950,
-                fontFamily: "inherit",
-                background: "#fff",
-                color: DARK,
-                boxSizing: "border-box",
-              }}
-            />
-          </label>
           {error ? <div style={{ background: "#FFF1F2", color: "#BE123C", borderRadius: 14, padding: 12, fontWeight: 800 }}>{error}</div> : null}
           <PrimaryButton label={saving ? "Приймаємо…" : secondsLeft <= 0 ? "Час вийшов" : "ПРИЙНЯТИ З ЦІНОЮ"} onClick={handleAcceptClick} disabled={saving} />
           <SecondaryButton label="ПРОПУСТИТИ" onClick={onDecline} />
@@ -395,6 +370,34 @@ function IncomingOfferStep({
             ) : null}
           </div>
         </div>
+        <label style={{ display: "grid", gap: 6 }}>
+          <span style={{ fontWeight: 950, color: DARK, fontSize: 13 }}>Ваша ціна клієнту, грн</span>
+          <input
+            ref={priceInputRef}
+            value={proposedPrice}
+            onChange={(event) => onProposedPriceChange(event.target.value.replace(/[^\d.,]/g, ""))}
+            type="text"
+            inputMode="decimal"
+            enterKeyHint="done"
+            autoComplete="off"
+            placeholder="Наприклад: 1200"
+            aria-label="Вартість послуги в гривнях"
+            className="pomich-offer-price-input"
+            style={{
+              width: "100%",
+              minHeight: 52,
+              padding: "0 14px",
+              borderRadius: 14,
+              border: `2px solid ${error && !priceValid ? "#BE123C" : BRAND}`,
+              fontSize: 22,
+              fontWeight: 950,
+              fontFamily: "inherit",
+              background: "#fff",
+              color: DARK,
+              boxSizing: "border-box",
+            }}
+          />
+        </label>
         <input value={priceNote} onChange={(event) => onPriceNoteChange(event.target.value)} placeholder="Примітка до ціни (необов'язково)" style={{ width: "100%", minHeight: 46, padding: "0 14px", borderRadius: 16, border: `1px solid ${BORDER}`, fontSize: 14, fontWeight: 700, fontFamily: "inherit" }} />
       </div>
     </ScreenLayout>
@@ -615,10 +618,35 @@ export default function ProviderFlow({ providerToken }: { providerToken?: string
     }
 
     refreshOffers()
-    const interval = window.setInterval(refreshOffers, 4000)
+    let pollMs = 4000
+    let interval = window.setInterval(refreshOffers, pollMs)
+
+    const setPollInterval = (ms: number) => {
+      pollMs = ms
+      window.clearInterval(interval)
+      interval = window.setInterval(refreshOffers, pollMs)
+    }
+
+    const stopSse = subscribeProviderEvents(
+      providerId,
+      providerAuthToken,
+      () => {
+        if (!cancelled) refreshOffers()
+      },
+      {
+        onConnected: () => {
+          if (!cancelled) setPollInterval(20000)
+        },
+        onDisconnected: () => {
+          if (!cancelled) setPollInterval(4000)
+        },
+      },
+    )
+
     return () => {
       cancelled = true
       window.clearInterval(interval)
+      stopSse()
     }
   }, [activeOrder, onDuty, providerAuthToken, providerId, step, offerClock])
 
@@ -650,10 +678,34 @@ export default function ProviderFlow({ providerToken }: { providerToken?: string
     }
 
     refreshActiveOrder()
-    const interval = window.setInterval(refreshActiveOrder, 2500)
+    let pollMs = 2500
+    let interval = window.setInterval(refreshActiveOrder, pollMs)
+
+    const setPollInterval = (ms: number) => {
+      pollMs = ms
+      window.clearInterval(interval)
+      interval = window.setInterval(refreshActiveOrder, pollMs)
+    }
+
+    const stopSse = subscribeOrderEvents(
+      activeOrder.id,
+      () => {
+        if (!cancelled) refreshActiveOrder()
+      },
+      {
+        onConnected: () => {
+          if (!cancelled) setPollInterval(20000)
+        },
+        onDisconnected: () => {
+          if (!cancelled) setPollInterval(2500)
+        },
+      },
+    )
+
     return () => {
       cancelled = true
       window.clearInterval(interval)
+      stopSse()
     }
   }, [activeOrder?.id])
 

@@ -1811,7 +1811,24 @@ describe('POMICH role-based flows', () => {
     expect(screen.getByText('Де ви зараз?')).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: /Підтвердити місце/i }))
+    expect(screen.getByText('Куди доставити авто?')).toBeInTheDocument()
+
+    await user.type(screen.getByPlaceholderText(/СТО/i), 'СТО «Авторемонт»')
+    await user.click(screen.getByRole('button', { name: /^Далі$/i }))
     expect(screen.getByText('Перевірте заявку')).toBeInTheDocument()
+  })
+
+  it('skips destination for on-site battery help', async () => {
+    const user = userEvent.setup()
+    await openCustomerHome(user)
+
+    await user.click(screen.getByRole('button', { name: /Акумулятор/i }))
+    expect(screen.getByText('Де ви зараз?')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /Підтвердити місце/i }))
+    expect(screen.getByText('Перевірте заявку')).toBeInTheDocument()
+    expect(screen.getByText(/По місцю, нікуди їхати не потрібно/i)).toBeInTheDocument()
+    expect(screen.queryByText('Куди доставити авто?')).not.toBeInTheDocument()
   })
 
   it('submits an order and shows the success state', async () => {
@@ -1835,7 +1852,7 @@ describe('POMICH role-based flows', () => {
 
     await openCustomerHome(user)
 
-    await user.click(screen.getByRole('button', { name: /Евакуатор/i }))
+    await user.click(screen.getByRole('button', { name: /Акумулятор/i }))
     await user.click(screen.getByRole('button', { name: /Підтвердити місце/i }))
     await user.click(screen.getByRole('button', { name: /Надіслати заявку/i }))
 

@@ -63,6 +63,13 @@ export function calculatePrice(service: ServiceKey, distanceKm: number): PriceBr
   }
 }
 
+/** Tow needs a drop-off; on-site help (battery/fuel/wheel/etc.) stays at pickup. */
+export function serviceRequiresDestination(service: ServiceKey | ''): boolean {
+  return service === 'tow'
+}
+
+export const ON_SITE_DESTINATION_LABEL = 'По місцю, нікуди їхати не потрібно'
+
 export function validateCustomerOrderInput(input: CustomerOrderInput): string[] {
   const errors: string[] = []
 
@@ -74,8 +81,10 @@ export function validateCustomerOrderInput(input: CustomerOrderInput): string[] 
     errors.push('customerLocation')
   }
 
-  if (!input.destination || input.destination.trim().length < 3) {
-    errors.push('destination')
+  if (serviceRequiresDestination(input.service)) {
+    if (!input.destination || input.destination.trim().length < 3) {
+      errors.push('destination')
+    }
   }
 
   if (!Number.isFinite(input.distanceKm) || input.distanceKm <= 0) {

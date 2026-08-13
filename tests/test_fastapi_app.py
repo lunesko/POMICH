@@ -133,12 +133,29 @@ def test_production_runtime_config_accepts_release_settings(monkeypatch) -> None
     monkeypatch.setenv("POMICH_ADMIN_TOKEN", "admin-secret-1234567890-release")
     monkeypatch.setenv("POMICH_PROVIDER_TOKEN", "provider-secret-1234567890-release")
     monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", "customer-secret-1234567890-release")
-    monkeypatch.setenv("DATABASE_URL", "sqlite:///release.db")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@localhost:5432/pomich_prod")
+    monkeypatch.setenv("POMICH_STORAGE_BACKEND", "sql")
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     monkeypatch.delenv("VITE_TELEGRAM_BOT_TOKEN", raising=False)
     monkeypatch.setenv("WEB_APP_URL", "https://app.pomich.example")
 
     assert fastapi_app._runtime_config_errors() == []
+
+
+def test_production_runtime_config_rejects_sqlite_and_json_backend(monkeypatch) -> None:
+    monkeypatch.setenv("POMICH_RUNTIME", "production")
+    monkeypatch.setenv("POMICH_CORS_ORIGINS", "https://app.pomich.example")
+    monkeypatch.setenv("POMICH_ADMIN_TOKEN", "admin-secret-1234567890-release")
+    monkeypatch.setenv("POMICH_PROVIDER_TOKEN", "provider-secret-1234567890-release")
+    monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", "customer-secret-1234567890-release")
+    monkeypatch.setenv("DATABASE_URL", "sqlite:///release.db")
+    monkeypatch.setenv("POMICH_STORAGE_BACKEND", "json")
+    monkeypatch.delenv("POMICH_ALLOW_JSON_STORE_IN_PRODUCTION", raising=False)
+
+    errors = fastapi_app._runtime_config_errors()
+
+    assert any("PostgreSQL" in error or "PostGIS" in error for error in errors)
+    assert any("POMICH_STORAGE_BACKEND=json" in error for error in errors)
 
 
 def test_production_runtime_config_requires_telegram_public_url(monkeypatch) -> None:
@@ -147,7 +164,8 @@ def test_production_runtime_config_requires_telegram_public_url(monkeypatch) -> 
     monkeypatch.setenv("POMICH_ADMIN_TOKEN", "admin-secret-1234567890-release")
     monkeypatch.setenv("POMICH_PROVIDER_TOKEN", "provider-secret-1234567890-release")
     monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", "customer-secret-1234567890-release")
-    monkeypatch.setenv("DATABASE_URL", "sqlite:///release.db")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@localhost:5432/pomich_prod")
+    monkeypatch.setenv("POMICH_STORAGE_BACKEND", "sql")
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123456:telegram-token")
     monkeypatch.delenv("WEB_APP_URL", raising=False)
 
@@ -632,7 +650,7 @@ def test_fastapi_cancel_order_notifies_partner(monkeypatch, tmp_path) -> None:
         sent_messages.append({"id": str(order.get("id")), "status": str(order.get("status"))})
         return [{"ok": True}]
 
-    monkeypatch.setattr("bot.fastapi_app.notify_order_cancelled", _fake_notify)
+    monkeypatch.setattr("bot.routers.orders.notify_order_cancelled", _fake_notify)
 
     cancelled = client.post(f"/api/orders/{created_order['id']}/cancel")
     assert cancelled.status_code == 200
@@ -891,3 +909,18 @@ def test_fastapi_rejects_duplicate_customer_phone(monkeypatch, tmp_path) -> None
     )
     assert response.status_code == 409
     assert response.json()["detail"] == "phone_already_registered"
+
+
+def test_sse_order_events_not_found(monkeypatch, tmp_path) -> None:
+    _use_temp_store(monkeypatch, tmp_path)
+    client = TestClient(app)
+    response = client.get("/api/events/orders/missing-order")
+    assert response.status_code == 404
+
+
+def test_sse_provider_events_require_auth(monkeypatch, tmp_path) -> None:
+    _use_temp_store(monkeypatch, tmp_path)
+    _use_provider_auth(monkeypatch)
+    client = TestClient(app)
+    denied = client.get("/api/events/providers/provider-oleksandr")
+    assert denied.status_code == 401

@@ -59,7 +59,9 @@ export function AppShell({ children, compact, role, onRoleChange, onOpenCabinet,
       {role ? (
         <header className="pomich-tg-header flex h-[62px] shrink-0 items-center justify-center px-6 w-full">
           <div className="flex w-full max-w-7xl items-center justify-between gap-4">
-            <a href="/" className="pomich-app-header-brand text-xl">POMICH</a>
+            <button type="button" onClick={() => onRoleChange(null)} className="pomich-app-header-brand text-xl">
+              POMICH
+            </button>
             <div className="flex items-center gap-2 overflow-x-auto">
               {[
                 { key: "customer" as const, label: "Клієнт" },

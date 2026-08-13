@@ -35,7 +35,9 @@ import {
 } from "../../lib/auth"
 import {
   calculateDistanceKm,
+  ON_SITE_DESTINATION_LABEL,
   sanitizeLocation,
+  serviceRequiresDestination,
   validateCustomerOrderInput,
   type CustomerOrderInput,
 } from "../../lib/pomichDomain"
@@ -57,6 +59,7 @@ import {
   type DispatchOffer,
 } from "../../api/client"
 import { clearActiveOrder, persistActiveOrder, readActiveOrder } from "../../lib/customerSession"
+import { subscribeOrderEvents } from "../../lib/realtime"
 import { getTelegramContext } from "../../telegram"
 import { useMediaQuery } from "../../hooks/useMediaQuery"
 import { PrimaryButton } from "../ui/PrimaryButton"
@@ -405,9 +408,15 @@ function AcceptedStep({ orderId, status, order, pickup, destination, confirming,
   const assignedProvider = order?.assignedProvider
   const eta = assignedProvider?.etaMinutes ?? provider.etaMinutes
   const proposedPrice = order?.partnerProposedPrice
+  const priceLabel = typeof proposedPrice === "number" ? `${proposedPrice.toLocaleString("uk-UA")} ₴` : "—"
 
   return (
-    <RideScreen pickup={pickup} destination={destination} providers={assignedProvider ? [assignedProvider] : undefined} mapSubtitle="Партнер запропонував ціну">
+    <RideScreen pickup={pickup} destination={destination} providers={assignedProvider ? [assignedProvider] : undefined} mapSubtitle="Партнер запропонував ціну" expandedSheet>
+      <div data-sheet-peek>
+        <SheetHeading title="Запропонована ціна" subtitle={typeof proposedPrice === "number" ? `${priceLabel} · підтвердіть` : "Очікуємо ціну"} />
+        <div style={{ marginTop: 10, fontSize: 28, fontWeight: 950, color: DARK }}>{priceLabel}</div>
+      </div>
+      <div data-sheet-full>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
         <SheetHeading title="Партнер прийняв заявку" subtitle={orderId ? `Замовлення #${orderId}` : undefined} />
         <StatusPill status={status} />
@@ -416,15 +425,16 @@ function AcceptedStep({ orderId, status, order, pickup, destination, confirming,
         <ProviderCard orderId={orderId} eta={eta} assignedProvider={assignedProvider} />
         <div style={{ background: "#111315", color: "#fff", borderRadius: 18, padding: 16, textAlign: "center" }}>
           <div style={{ color: "#A7F3D0", fontWeight: 800, fontSize: 12 }}>Запропонована ціна</div>
-          <div style={{ fontSize: 32, fontWeight: 950, marginTop: 6 }}>{typeof proposedPrice === "number" ? `${proposedPrice.toLocaleString("uk-UA")} ₴` : "—"}</div>
+          <div style={{ fontSize: 32, fontWeight: 950, marginTop: 6 }}>{priceLabel}</div>
           <div style={{ color: "#CBD5E1", marginTop: 6, fontWeight: 700 }}>ETA ~{eta} хв</div>
         </div>
         {confirmError ? <div style={{ background: "#FFF1F2", color: "#BE123C", borderRadius: 14, padding: 12, fontWeight: 800 }}>{confirmError}</div> : null}
       </div>
-      <div style={{ display: "grid", gap: 10, marginTop: 16 }}>
+      <div className="pomich-price-confirm-actions">
         <PrimaryButton label={confirming ? "Підтверджуємо…" : "Підтвердити ціну"} onClick={onConfirmPrice} loading={confirming} disabled={confirming || typeof proposedPrice !== "number"} />
         <SecondaryButton label="Зв'язатися" onClick={onContact} />
         <SecondaryButton label="Скасувати заявку" danger onClick={onCancel} />
+      </div>
       </div>
     </RideScreen>
   )
@@ -740,10 +750,34 @@ function CustomerFlow() {
     }
 
     refreshOrder()
-    const interval = window.setInterval(refreshOrder, 2500)
+    let pollMs = 2500
+    let interval = window.setInterval(refreshOrder, pollMs)
+
+    const setPollInterval = (ms: number) => {
+      pollMs = ms
+      window.clearInterval(interval)
+      interval = window.setInterval(refreshOrder, pollMs)
+    }
+
+    const stopSse = subscribeOrderEvents(
+      orderId,
+      () => {
+        if (!cancelled) refreshOrder()
+      },
+      {
+        onConnected: () => {
+          if (!cancelled) setPollInterval(20000)
+        },
+        onDisconnected: () => {
+          if (!cancelled) setPollInterval(2500)
+        },
+      },
+    )
+
     return () => {
       cancelled = true
       window.clearInterval(interval)
+      stopSse()
     }
   }, [orderId])
 
@@ -766,10 +800,12 @@ function CustomerFlow() {
         service: selectedService,
         customerLocation: geoState === "success" || geoState === "telegram" ? "Поточна геолокація клієнта" : sanitizeLocation(orderInput.customerLocation),
         customerCoordinates: pickup,
-        destination: sanitizeLocation(destination),
-        destinationCoordinates: destinationPoint,
+        destination: serviceRequiresDestination(selectedService)
+          ? sanitizeLocation(destination)
+          : (destination.trim() ? sanitizeLocation(destination) : ON_SITE_DESTINATION_LABEL),
+        destinationCoordinates: serviceRequiresDestination(selectedService) ? destinationPoint : pickup,
         vehicleState,
-        distanceKm,
+        distanceKm: serviceRequiresDestination(selectedService) ? distanceKm : Math.max(0.5, distanceKm),
         notify: Boolean(telegramContext.chatId && telegramContext.initData),
         chatId: telegramContext.chatId,
         telegramInitData: telegramContext.initData,
@@ -900,13 +936,23 @@ function CustomerFlow() {
             setGeoMessage("Визначаємо ваше місцезнаходження…")
           }}
           onBack={() => setScreen("home")}
-          onNext={() => setScreen("destination")}
+          onNext={() => {
+            if (serviceRequiresDestination(selectedService)) {
+              setDestination("")
+              setDestinationPoint(DEFAULT_DESTINATION)
+              setScreen("destination")
+              return
+            }
+            setDestination(ON_SITE_DESTINATION_LABEL)
+            setDestinationPoint(pickup)
+            setScreen("details")
+          }}
         />
       )
     case "destination":
       return <DestinationStep pickup={pickup} destination={destinationPoint} value={destination} onPick={setDestinationFromMap} onChange={setDestination} onBack={() => setScreen("location")} onNext={() => setScreen("details")} />
     case "details":
-      return <DetailsStep pickup={pickup} destination={destinationPoint} value={vehicleState} onChange={setVehicleState} onBack={() => setScreen("destination")} onNext={() => setScreen("review")} />
+      return <DetailsStep pickup={pickup} destination={destinationPoint} value={vehicleState} onChange={setVehicleState} onBack={() => setScreen(serviceRequiresDestination(selectedService) ? "destination" : "location")} onNext={() => setScreen("review")} />
     case "review":
       return <ReviewStep serviceLabel={serviceLabel} pickup={pickup} destination={destinationPoint} vehicleState={vehicleState} loading={loading} onConfirm={submitOrder} onBack={() => setScreen("details")} />
     case "searching":

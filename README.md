@@ -28,7 +28,9 @@ Current beta foundation work is tracked in [docs/BETA_FOUNDATION.md](docs/BETA_F
 
 - Frontend: React, Vite, Tailwind CSS, Leaflet/OpenStreetMap
 - Backend: FastAPI
-- Runtime storage: JSON dev adapter, SQL/PostgreSQL-ready storage with SQL/PostGIS dispatch for staging/production
+- Runtime storage: **PostgreSQL + PostGIS in production** (`DATABASE_URL`, `POMICH_STORAGE_BACKEND=sql`). JSON file store is local/dev (and pytest) fallback only — not for production unless `POMICH_ALLOW_JSON_STORE_IN_PRODUCTION=true`
+- HTTP API: FastAPI routers under `bot/routers/` (auth, orders, providers, admin, customers, events)
+- Realtime: SSE at `/api/events/orders/{id}` and `/api/events/providers/{id}` with polling fallback in the UI
 - SQL schema: explicit runtime migrations recorded in `pomich_schema_migrations`
 - CI: backend tests, frontend tests, TypeScript, production build, and PostGIS runtime smoke
 - Auth: bearer sessions for customers, providers, and admins; provider/admin beta account login via backend account config

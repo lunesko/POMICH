@@ -114,6 +114,13 @@ def _write_json_atomic(path: Path, data: Any) -> None:
 
 
 def _should_use_sql_store(path: Optional[Path], default_path_factory) -> bool:
+    """Prefer SQL/PostGIS when DATABASE_URL is set (production path).
+
+    JSON file paths are the local/dev and pytest fallback: they are used when
+    DATABASE_URL is unset, POMICH_STORAGE_BACKEND=json, or an explicit non-default
+    store path is passed (tests). Production rejects JSON backend unless
+    POMICH_ALLOW_JSON_STORE_IN_PRODUCTION=true.
+    """
     if not sql_storage_enabled():
         return False
     if path is None:

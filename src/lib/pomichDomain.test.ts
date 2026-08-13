@@ -34,6 +34,29 @@ describe('pomichDomain', () => {
     )
   })
 
+  it('does not require destination for on-site services', () => {
+    const valid = validateCustomerOrderInput({
+      service: 'battery',
+      customerLocation: 'вул. Собранецька, Ужгород',
+      destination: '',
+      distanceKm: 0.5,
+    })
+
+    expect(valid).not.toContain('destination')
+    expect(valid).toEqual([])
+  })
+
+  it('still requires destination for tow', () => {
+    const invalid = validateCustomerOrderInput({
+      service: 'tow',
+      customerLocation: 'вул. Собранецька, Ужгород',
+      destination: '',
+      distanceKm: 2.4,
+    })
+
+    expect(invalid).toEqual(['destination'])
+  })
+
   it('prevents a partner from accepting an order twice in the same state', () => {
     const transition = getStateTransition('assigned', 'accept')
     expect(transition).toBe('assigned')
