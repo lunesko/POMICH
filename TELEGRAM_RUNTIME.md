@@ -1,5 +1,9 @@
 # POMICH Telegram Runtime
 
+For the planned split into `@pomich_ua_bot` for customers and
+`@pomich_help_bot` for partners, see
+[`docs/TELEGRAM_TWO_BOTS_SPEC.md`](docs/TELEGRAM_TWO_BOTS_SPEC.md).
+
 Local development uses long polling. Do not point Telegram webhooks at
 `localhost`, `127.0.0.1`, or the local Vite port.
 
@@ -10,7 +14,7 @@ Use backend-only variables:
 ```bash
 TELEGRAM_BOT_TOKEN=123456:replace-me
 TELEGRAM_MODE=polling
-WEB_APP_URL=
+WEB_APP_URL=https://pomich.help
 POMICH_CUSTOMER_SESSION_SECRET=local-customer-session-secret
 ```
 
