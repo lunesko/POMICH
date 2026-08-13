@@ -726,7 +726,7 @@ def test_admin_clients_decrypt_filter_and_purge_guests(monkeypatch, tmp_path) ->
     monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", CUSTOMER_SESSION_SECRET)
     _use_temp_store(monkeypatch, tmp_path)
 
-    order_store.update_customer_profile("tg-99", {"name": "Олексій", "phone": "+380671112233", "telegram": "alex"})
+    order_store.update_customer_profile("tg-99", {"name": "Олексій", "phone": "+380679998877", "telegram": "alex"})
     order_store.update_customer_profile("guest-empty", {"name": "Клієнт POMICH"})
     order_store.update_customer_profile("guest-real", {"name": "Марія", "phone": "+380501112233"})
 

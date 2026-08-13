@@ -3610,9 +3610,7 @@ function ProviderFlow({ providerToken, providerRegistered = false, onLogout, onR
           ? "Цей номер уже зареєстровано. Увійдіть за номером або використайте інший."
           : message,
       )
-      if ((code === "phone_already_registered" || /уже зареєстровано|вже зареєстровано|phone_already_registered/i.test(message)) && onRestoreAccount) {
-        // Keep the form visible with CTA; user can tap «Увійти за цим номером».
-      }
+      // phone_already_registered: keep form + «Увійти за цим номером» CTA (onRestoreAccount).
     } finally {
       setRegistrationSaving(false)
     }
@@ -3766,8 +3764,6 @@ function ProviderFlow({ providerToken, providerRegistered = false, onLogout, onR
       setPartnerReviewSaving(false)
     }
   }, [activeOrder?.id, activeOrder?.assignedProviderId, activeOrder?.partnerId, providerId, providerAuthToken])
-
-  const phoneConflict = Boolean(registrationError && /phone_already_registered|вже зареєстровано|уже зареєстровано/i.test(registrationError))
 
   const openPartnerRestoreOrLogin = () => {
     // Prefer phone OTP restore (linked provider) over password login dead-end.

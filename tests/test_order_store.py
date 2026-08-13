@@ -722,7 +722,7 @@ def test_resolve_provider_telegram_user_id_from_linked_customer(tmp_path):
     customer_store = tmp_path / "customers.json"
     update_customer_profile(
         "tg-998877",
-        {"name": "Partner", "phone": "+380671112233", "linkedProviderId": "provider-tg-998877"},
+        {"name": "Partner", "phone": "+380679998877", "linkedProviderId": "provider-tg-998877"},
         store_path=customer_store,
     )
 

@@ -371,7 +371,7 @@ def test_telegram_otp_resolves_chat_id_via_provider_phone(otp_env, tmp_path, mon
 
     update_customer_profile(
         "tg-6863802123",
-        {"name": "Owner", "phone": "+380671112233", "linkedProviderId": "provider-tg-6863802123"},
+        {"name": "Owner", "phone": "+380679998877", "linkedProviderId": "provider-tg-6863802123"},
         customer_path,
     )
     update_customer_profile(
