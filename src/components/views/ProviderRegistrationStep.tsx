@@ -23,6 +23,8 @@ interface ProviderRegistrationStepProps {
   form: PartnerRegistrationForm
   saving: boolean
   error?: string
+  /** Linked customer completing partner cabinet — not a brand-new account. */
+  completingProfile?: boolean
   onChange: (patch: Partial<PartnerRegistrationForm>) => void
   onToggleSpecialty: (specialty: ServiceKey) => void
   onSubmit: () => void
@@ -33,6 +35,7 @@ export function ProviderRegistrationStep({
   form,
   saving,
   error,
+  completingProfile = false,
   onChange,
   onToggleSpecialty,
   onSubmit,
@@ -81,9 +84,19 @@ export function ProviderRegistrationStep({
     onSubmit()
   }
 
+  const title = completingProfile ? "Профіль партнера" : "Реєстрація партнера"
+  const subtitle = completingProfile
+    ? "Підтвердіть дані з акаунту клієнта та додайте авто й послуги"
+    : "Заповніть профіль і оберіть послуги, які надаєте"
+  const submitLabel = saving
+    ? "Зберігаємо профіль…"
+    : completingProfile
+      ? "Зберегти профіль"
+      : "Зареєструватись"
+
   return (
-    <ScreenLayout footer={<PrimaryButton label={saving ? "Зберігаємо профіль…" : "Зареєструватись"} onClick={handleSubmit} disabled={!canSubmit || saving} />}>
-      <Header title="Реєстрація партнера" subtitle="Заповніть профіль і оберіть послуги, які надаєте" />
+    <ScreenLayout footer={<PrimaryButton label={submitLabel} onClick={handleSubmit} disabled={!canSubmit || saving} />}>
+      <Header title={title} subtitle={subtitle} />
       <FormContainer>
         <div className="pomich-form-card">
           <label style={{ display: "grid", gap: 6 }}>

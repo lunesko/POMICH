@@ -1070,6 +1070,116 @@ describe('POMICH role-based flows', () => {
     expect(screen.queryByText(/Реєстрація партнера/i)).not.toBeInTheDocument()
   })
 
+  it('role switch with linked provider and missing SQL row stays on duty and prefills completion form', async () => {
+    const user = userEvent.setup()
+    const linkedProfile = {
+      ...verifiedTestProfile,
+      name: 'Віталій',
+      phone: '+380661007434',
+      city: 'Ужгород',
+    }
+    const emptyProviderShell = {
+      id: 'provider-guest-test',
+      name: 'Віталій',
+      phone: '+380661007434',
+      city: 'Ужгород',
+      vehicle: '',
+      plate: '',
+      status: 'offline',
+      verificationStatus: 'verified',
+      verification: { phone: true },
+      specialties: [],
+      serviceRadiusKm: 15,
+    }
+
+    vi.stubGlobal('fetch', mockRegisteredCustomerFetch((url, init) => {
+      if (url.includes('/users/') && url.includes('/account/role')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            customerId: 'guest-test',
+            preferredRole: 'provider',
+            linkedProviderId: 'provider-guest-test',
+            rolesRegistered: ['customer'],
+            clientRegistered: true,
+            // SQL provider row missing → API reports not registered.
+            providerRegistered: false,
+            needsOnboarding: false,
+            profile: linkedProfile,
+          }),
+        })
+      }
+      if (url.includes('/users/') && url.includes('/account')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            customerId: 'guest-test',
+            preferredRole: 'customer',
+            linkedProviderId: 'provider-guest-test',
+            rolesRegistered: ['customer'],
+            clientRegistered: true,
+            providerRegistered: false,
+            needsOnboarding: false,
+            profile: linkedProfile,
+          }),
+        })
+      }
+      if (url.includes('/auth/provider/self/session')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            role: 'provider',
+            subjectId: 'provider-guest-test',
+            providerId: 'provider-guest-test',
+            tokenType: 'Bearer',
+            accessToken: 'pomich_auth_v1.provider-self',
+            expiresAt: Math.floor(Date.now() / 1000) + 3600,
+          }),
+        })
+      }
+      if (url.includes('/providers/provider-guest-test/')) {
+        return Promise.resolve({ ok: true, json: async () => emptyProviderShell })
+      }
+      if (url.includes('/customers/') && url.includes('/profile')) {
+        return Promise.resolve({ ok: true, json: async () => linkedProfile })
+      }
+      if (url.endsWith('/providers') || url.includes('/map/providers')) {
+        return Promise.resolve({ ok: true, json: async () => [] })
+      }
+      return undefined
+    }))
+
+    window.localStorage.setItem('pomichCustomerId', 'guest-test')
+    window.sessionStorage.setItem('pomichCustomerId', 'guest-test')
+    window.sessionStorage.setItem('pomichLinkedProviderId', 'provider-guest-test')
+    window.sessionStorage.setItem('pomichBootstrapProfile', JSON.stringify(linkedProfile))
+    storeAuthSession(authSessionStorageKey('customer', 'guest-test'), {
+      role: 'customer',
+      subjectId: 'guest-test',
+      customerId: 'guest-test',
+      tokenType: 'Bearer',
+      accessToken: TEST_CUSTOMER_TOKEN,
+      expiresAt: Math.floor(Date.now() / 1000) + 3600,
+      profile: linkedProfile,
+    })
+
+    await openCustomerHome(user)
+    expect(await screen.findByText('Що сталося?')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /Змінити роль/i }))
+    expect(await screen.findByText(/Оберіть вашу роль/i)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /Надаю послуги/i }))
+
+    // Linked returning partner must not land on blank first-time registration.
+    expect(await screen.findByText('Партнер POMICH', {}, { timeout: 8000 })).toBeInTheDocument()
+    expect(screen.queryByText(/Реєстрація партнера/i)).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /Завершити профіль/i }))
+    expect(await screen.findByText(/Профіль партнера/i)).toBeInTheDocument()
+    expect(screen.getByDisplayValue('Віталій')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('66 100 74 34')).toBeInTheDocument()
+  })
+
   it('after logout, choosing partner opens phone login and restores registered partner', async () => {
     const user = userEvent.setup()
     const partnerProfile = {

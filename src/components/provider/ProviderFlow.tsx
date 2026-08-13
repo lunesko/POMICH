@@ -57,8 +57,8 @@ import {
   type Point,
   type OrderStatus,
 } from "../../lib/constants"
-import { resolveProviderIdForCustomer, storeLinkedProviderId } from "../../lib/userAccount"
-import { writeCachedProviderProfile } from "../../lib/providerProfileCache"
+import { readBootstrapProfile, resolveProviderIdForCustomer, storeLinkedProviderId } from "../../lib/userAccount"
+import { readCachedProviderProfile, writeCachedProviderProfile } from "../../lib/providerProfileCache"
 import { clearActiveOrder, persistActiveOrder, pickLatestActiveOrder, readActiveOrder } from "../../lib/customerSession"
 import { requestCurrentPosition } from "../../lib/mapGeo"
 import { validateUkraineMobilePhone } from "../../lib/ukrainePhone"
@@ -436,6 +436,50 @@ export default function ProviderFlow({
     })
   }, [providerId])
 
+  const mergeRegistrationFormFromSources = useCallback((
+    sources: Array<Partial<ProviderAvailability> | CustomerProfile | undefined | null>,
+    options?: { overwrite?: boolean },
+  ) => {
+    const overwrite = Boolean(options?.overwrite)
+    setRegistrationForm((form) => {
+      let next = { ...form }
+      for (const source of sources) {
+        if (!source) continue
+        const vehicleFields = hydratePartnerVehicleFromProfile(source as { vehicle?: string; vehicleMake?: string; vehicleModel?: string })
+        const specialties = toServiceKeys((source as ProviderAvailability).specialties)
+        const city = String((source as { city?: string }).city || "").trim()
+        const pick = (current: string, incoming: string) => {
+          const value = incoming.trim()
+          if (overwrite && value) return value
+          return current.trim() || value
+        }
+        const currentCity = next.city.trim()
+        const cityIsPlaceholder = !currentCity || currentCity === DEFAULT_SERVICE_CITY
+        next = {
+          ...next,
+          name: pick(next.name, String(source.name || "")),
+          phone: pick(next.phone, String(source.phone || "")),
+          telegram: pick(next.telegram, String((source as ProviderAvailability).telegram || "")),
+          vehicleMake: pick(next.vehicleMake, vehicleFields.vehicleMake || ""),
+          vehicleMakeOther: pick(next.vehicleMakeOther, vehicleFields.vehicleMakeOther || ""),
+          vehicleModel: pick(next.vehicleModel, vehicleFields.vehicleModel || ""),
+          vehicle: pick(next.vehicle, vehicleFields.vehicle || ""),
+          plate: pick(next.plate, String((source as ProviderAvailability).plate || "")),
+          city: overwrite && city ? city : cityIsPlaceholder && city ? city : currentCity || city || next.city,
+          specialties: overwrite && specialties.length > 0
+            ? specialties
+            : next.specialties.length > 0
+              ? next.specialties
+              : specialties,
+          serviceRadiusKm: overwrite
+            ? ((source as ProviderAvailability).serviceRadiusKm ?? next.serviceRadiusKm)
+            : next.serviceRadiusKm || (source as ProviderAvailability).serviceRadiusKm || next.serviceRadiusKm,
+        }
+      }
+      return next
+    })
+  }, [])
+
   const applyLoadedProvider = useCallback((currentProvider: ProviderAvailability) => {
     const currentSpecialties = toServiceKeys(currentProvider.specialties)
     setProviderProfile((profile) => {
@@ -443,31 +487,17 @@ export default function ProviderFlow({
         ...profile,
         ...currentProvider,
         specialties: currentSpecialties.length > 0 ? currentSpecialties : profile.specialties,
+        // Keep a previously cached registeredAt when API returns an empty linked shell.
+        registeredAt: currentProvider.registeredAt || profile.registeredAt,
       }
       writeCachedProviderProfile({ ...merged, id: currentProvider.id || providerId })
       return merged
     })
-    if (currentProvider.registeredAt) {
-      const vehicleFields = hydratePartnerVehicleFromProfile(currentProvider as { vehicle?: string; vehicleMake?: string; vehicleModel?: string })
-      setRegistrationForm((form) => ({
-        name: currentProvider.name || form.name,
-        phone: currentProvider.phone || form.phone,
-        telegram: currentProvider.telegram || form.telegram,
-        ...vehicleFields,
-        plate: currentProvider.plate || form.plate,
-        city: (currentProvider as { city?: string }).city || form.city || "",
-        specialties: currentSpecialties.length > 0 ? currentSpecialties : form.specialties,
-        serviceRadiusKm: currentProvider.serviceRadiusKm ?? form.serviceRadiusKm,
-        identityDocumentRef: form.identityDocumentRef,
-        driverLicenseRef: form.driverLicenseRef,
-        vehicleRegistrationRef: form.vehicleRegistrationRef,
-        serviceProofRef: form.serviceProofRef,
-        selfieRef: form.selfieRef,
-      }))
-    }
+    // Always prefill (including empty shells without registeredAt) so role switch is not blank.
+    mergeRegistrationFormFromSources([currentProvider], { overwrite: Boolean(currentProvider.registeredAt) })
     setOnDuty(currentProvider.status === "online" || currentProvider.status === "busy")
     if (currentProvider.location) setProviderLocation(currentProvider.location)
-  }, [providerId])
+  }, [providerId, mergeRegistrationFormFromSources])
 
   const loadCurrentProvider = useCallback(async (): Promise<ProviderAvailability | undefined> => {
     if (providerAuthToken) {
@@ -568,15 +598,34 @@ export default function ProviderFlow({
 
     const hydrateProvider = async () => {
       try {
+        const cached = readCachedProviderProfile(providerId)
         const currentProvider = await loadCurrentProvider()
-        if (cancelled || !currentProvider) return
-        applyLoadedProvider(currentProvider)
+        if (cancelled) return
+
+        // API empty shell (no registeredAt) for a linked partner: restore from session cache when possible.
+        const resolved =
+          currentProvider && currentProvider.registeredAt
+            ? currentProvider
+            : cached?.registeredAt
+              ? { ...cached, ...(currentProvider || {}), registeredAt: cached.registeredAt, id: providerId }
+              : currentProvider
+
+        if (resolved) {
+          applyLoadedProvider(resolved)
+        } else if (cached) {
+          applyLoadedProvider(cached)
+        }
+
+        const registered = Boolean(resolved?.registeredAt || cached?.registeredAt)
         setStep((current) => {
           if (current !== "register" && current !== "verify" && current !== "duty") return current
-          if (!currentProvider.registeredAt) return "register"
-          if (isProviderPhoneVerified(currentProvider)) {
+          // Returning / linked partners stay on duty; go-online opens prefilled completion if needed.
+          // Only first-time partners without a linked account are forced into blank registration.
+          if (!registered && !effectiveProviderRegistered) return "register"
+          if (registered && isProviderPhoneVerified(resolved || cached || {})) {
             return current === "register" || current === "verify" ? "duty" : current
           }
+          if (registered) return current === "register" ? "duty" : current
           return current === "register" ? "duty" : current
         })
       } catch {
@@ -589,6 +638,26 @@ export default function ProviderFlow({
       cancelled = true
     }
   }, [providerId, loadCurrentProvider, applyLoadedProvider, effectiveProviderRegistered])
+
+  // Prefill partner form from the signed-in customer (role switch / missing provider SQL row).
+  useEffect(() => {
+    let cancelled = false
+    const bootstrap = readBootstrapProfile()
+    if (bootstrap) mergeRegistrationFormFromSources([bootstrap])
+
+    if (!customerIdForOtp || !customerTokenForOtp) return
+    getCustomerProfile(customerIdForOtp, customerTokenForOtp)
+      .then((profile) => {
+        if (cancelled || !profile) return
+        setCustomerOtpProfile(profile)
+        mergeRegistrationFormFromSources([profile])
+      })
+      .catch(() => undefined)
+
+    return () => {
+      cancelled = true
+    }
+  }, [customerIdForOtp, customerTokenForOtp, mergeRegistrationFormFromSources])
 
   useEffect(() => {
     if (step !== "verify" || !providerCanGoOnline) return
@@ -1239,6 +1308,16 @@ export default function ProviderFlow({
     void setDuty(!onDuty)
   }
 
+  const openPhoneOrProfileGate = () => {
+    if (providerProfile.registeredAt) {
+      setStep("verify")
+      return
+    }
+    setStep("register")
+  }
+
+  const completingPartnerProfile = effectiveProviderRegistered
+
   const submitProviderAccountLogin = async () => {
     setAuthSaving(true)
     setAuthError(undefined)
@@ -1372,6 +1451,7 @@ export default function ProviderFlow({
           form={registrationForm}
           saving={registrationSaving}
           error={registrationError}
+          completingProfile={completingPartnerProfile}
           onChange={updateRegistrationForm}
           onToggleSpecialty={toggleRegistrationSpecialty}
           onSubmit={saveRegistration}
@@ -1446,6 +1526,7 @@ export default function ProviderFlow({
         form={registrationForm}
         saving={registrationSaving}
         error={registrationError}
+        completingProfile={completingPartnerProfile}
         onChange={updateRegistrationForm}
         onToggleSpecialty={toggleRegistrationSpecialty}
         onSubmit={saveRegistration}
@@ -1501,8 +1582,16 @@ export default function ProviderFlow({
           ) : (
             <div style={{ marginTop: 10 }}>
               <PrimaryButton
-                label={!providerCanGoOnline ? "Підтвердити телефон" : presenceSaving ? "Оновлюємо статус…" : "Вийти на лінію"}
-                onClick={() => (providerCanGoOnline ? setDuty(true) : setStep("verify"))}
+                label={
+                  !providerProfile.registeredAt
+                    ? "Завершити профіль"
+                    : !providerCanGoOnline
+                      ? "Підтвердити телефон"
+                      : presenceSaving
+                        ? "Оновлюємо статус…"
+                        : "Вийти на лінію"
+                }
+                onClick={() => (providerCanGoOnline ? setDuty(true) : openPhoneOrProfileGate())}
                 disabled={presenceSaving}
               />
             </div>
@@ -1566,7 +1655,19 @@ export default function ProviderFlow({
                 <SecondaryButton label="Піти з лінії" onClick={() => setDuty(false)} disabled={!providerAuthToken} />
               </>
             ) : (
-              <PrimaryButton label={!providerCanGoOnline ? "Підтвердити телефон" : presenceSaving ? "Оновлюємо статус…" : "Вийти на лінію"} onClick={() => (providerCanGoOnline ? setDuty(true) : setStep("verify"))} disabled={presenceSaving} />
+              <PrimaryButton
+                label={
+                  !providerProfile.registeredAt
+                    ? "Завершити профіль"
+                    : !providerCanGoOnline
+                      ? "Підтвердити телефон"
+                      : presenceSaving
+                        ? "Оновлюємо статус…"
+                        : "Вийти на лінію"
+                }
+                onClick={() => (providerCanGoOnline ? setDuty(true) : openPhoneOrProfileGate())}
+                disabled={presenceSaving}
+              />
             )}
           </div>
           {offerError && offerError !== "Вкажіть вартість послуги в гривнях." ? <div style={{ background: "var(--pomich-warn-bg)", color: "var(--pomich-warn-text)", borderRadius: 14, padding: 12, fontWeight: 850 }}>{offerError}</div> : null}
