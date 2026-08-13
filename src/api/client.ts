@@ -628,9 +628,10 @@ export async function submitOrderReview(
   return response.json() as Promise<OrderResponse>
 }
 
-export async function cancelOrder(orderId: string) {
+export async function cancelOrder(orderId: string, authToken?: string) {
   const response = await fetch(`${getBaseUrl()}/orders/${encodeURIComponent(orderId)}/cancel`, {
     method: 'POST',
+    headers: authHeaders(authToken) ?? {},
   })
 
   if (!response.ok) {

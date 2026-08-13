@@ -392,6 +392,54 @@ def require_customer_auth_from_bearer(authorization: str | None = None) -> AuthP
     return verify_role_session(bearer_token, "customer", configured_customer_secret())
 
 
+def _session_role_hint(token: str) -> str | None:
+    """Unsigned role peek used only to route verification to the correct secret."""
+    parts = token.split(".")
+    if len(parts) != 3 or parts[0] != _AUTH_SESSION_PREFIX:
+        return None
+    try:
+        payload = json.loads(b64_decode(parts[1]).decode("utf-8"))
+    except (binascii.Error, TypeError, ValueError, UnicodeDecodeError):
+        return None
+    role = str(payload.get("role") or "").strip()
+    return role or None
+
+
+def order_customer_id(order: dict | None) -> str:
+    if not isinstance(order, dict):
+        return ""
+    customer_id = str(order.get("customerId") or order.get("customer_id") or "").strip()
+    if customer_id:
+        return customer_id
+    identity = order.get("customerIdentity") if isinstance(order.get("customerIdentity"), dict) else {}
+    return str(identity.get("customerId") or "").strip()
+
+
+def require_order_customer_owner(order: dict, authorization: str | None = None) -> AuthPrincipal:
+    principal = require_customer_auth_from_bearer(authorization)
+    customer_id = order_customer_id(order)
+    if not customer_id or principal.subject_id != customer_id:
+        raise HTTPException(status_code=403, detail="customer_identity_mismatch")
+    return principal
+
+
+def require_order_owner_or_admin(
+    order: dict,
+    authorization: str | None = None,
+    x_pomich_admin_token: str | None = None,
+) -> AuthPrincipal:
+    bearer_token = extract_bearer_token(authorization)
+    if not bearer_token:
+        raise HTTPException(status_code=401, detail="auth_session_required")
+
+    role = _session_role_hint(bearer_token)
+    if role == "admin":
+        return require_admin_auth(x_pomich_admin_token, authorization)
+    if role == "customer":
+        return require_order_customer_owner(order, authorization)
+    raise HTTPException(status_code=401, detail="auth_session_required")
+
+
 def apply_verified_telegram_identity(payload: dict, verified_telegram: dict | None) -> None:
     user = (verified_telegram or {}).get("user") or {}
     telegram_user_id = str(user.get("id") or "").strip()
