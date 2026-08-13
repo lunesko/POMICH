@@ -36,3 +36,8 @@ export function pinFromOffer(offer: DispatchOffer): MapRequestPin {
 export function filterActiveOffers(offers: DispatchOffer[], nowMs = Date.now()): DispatchOffer[] {
   return offers.filter((offer) => isOfferActive(offer, nowMs))
 }
+
+/** Partner duty map: only active offers become request pins (expired/closed never appear). */
+export function pinsFromActiveOffers(offers: DispatchOffer[], nowMs = Date.now()): MapRequestPin[] {
+  return filterActiveOffers(offers, nowMs).map(pinFromOffer)
+}

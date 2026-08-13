@@ -753,6 +753,8 @@ interface RouteMapProps {
 
   showAllProviders?: boolean
 
+  showDirectoryProviders?: boolean
+
   directoryOnly?: boolean
 
   userLocation?: Point
@@ -806,6 +808,8 @@ export function RouteMap({
   showBadges = true,
 
   showAllProviders = false,
+
+  showDirectoryProviders = true,
 
   directoryOnly = false,
 
@@ -1114,7 +1118,11 @@ export function RouteMap({
 
     const items = providers ?? []
 
-    const directory = items.filter((item) => item.providerKind === "directory" && providerPoint(item))
+    const directory = showDirectoryProviders
+
+      ? items.filter((item) => item.providerKind === "directory" && providerPoint(item))
+
+      : []
 
     const live = showAllProviders
 
@@ -1124,7 +1132,7 @@ export function RouteMap({
 
     return { directoryProviders: directory, liveProviders: live }
 
-  }, [providers, showAllProviders])
+  }, [providers, showAllProviders, showDirectoryProviders])
 
 
 

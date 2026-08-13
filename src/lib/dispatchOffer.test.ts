@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import type { DispatchOffer } from "../api/client"
-import { filterActiveOffers, isOfferActive, offerSecondsLeft, pinFromOffer } from "./dispatchOffer"
+import { filterActiveOffers, isOfferActive, offerSecondsLeft, pinFromOffer, pinsFromActiveOffers } from "./dispatchOffer"
 
 const baseOffer: DispatchOffer = {
   id: "OF-TEST",
@@ -44,5 +44,16 @@ describe("dispatchOffer helpers", () => {
     ]
     expect(filterActiveOffers(offers)).toHaveLength(1)
     expect(filterActiveOffers(offers)[0]?.id).toBe("OF-TEST")
+  })
+
+  it("builds map pins only from active offers", () => {
+    const offers = [
+      baseOffer,
+      { ...baseOffer, id: "OF-OLD", orderId: "ORD-OLD", expiresAt: new Date(Date.now() - 1000).toISOString() },
+    ]
+    const pins = pinsFromActiveOffers(offers)
+    expect(pins).toHaveLength(1)
+    expect(pins[0]?.offerId).toBe("OF-TEST")
+    expect(pins[0]?.id).toBe("ORD-1")
   })
 })

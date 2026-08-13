@@ -76,4 +76,29 @@ describe("OrderRequestSheet", () => {
     expect(onAccept).not.toHaveBeenCalled()
     expect(onAcceptBlocked).toHaveBeenCalledWith("price")
   })
+
+  it("auto-blocks when offer already expired", () => {
+    const onAcceptBlocked = vi.fn()
+    render(
+      <OrderRequestSheet
+        pin={{
+          id: "ord-3",
+          offerId: "of-3",
+          service: "fuel",
+          customerLocation: "Ужгород",
+          distanceKm: 2,
+        }}
+        proposedPrice="500"
+        saving={false}
+        secondsLeft={0}
+        onProposedPriceChange={vi.fn()}
+        onAccept={vi.fn()}
+        onClose={vi.fn()}
+        onAcceptBlocked={onAcceptBlocked}
+      />,
+    )
+
+    expect(screen.getByRole("button", { name: /Час вийшов/i })).toBeInTheDocument()
+    expect(onAcceptBlocked).toHaveBeenCalledWith("expired")
+  })
 })

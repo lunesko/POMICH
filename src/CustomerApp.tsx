@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 
-import { acceptProviderOffer, cancelOrder as cancelOrderRequest, confirmOrderPrice, createGuestCustomerSession, createOrder, createProviderAccountSession, createProviderSession, createSelfProviderSession, createTelegramCustomerSession, declineProviderOffer, getMapProviders, getNearbyMapOrders, getOrder, getProviderOffers, getProviders, getTelegramSession, getUserAccount, messageFromFetchError, retryDispatch, setUserPreferredRole, submitOrderReview, updateCustomerProfile, updateProviderOrderStatus, updateProviderPresence, updateProviderProfile, ApiRequestError, type AuthSession, type CustomerProfile, type DispatchOffer, type MapRequestPin, type OrderResponse, type ProviderAvailability, type UserAccountStatus, type VerificationStatus } from "./api/client"
+import { acceptProviderOffer, cancelOrder as cancelOrderRequest, confirmOrderPrice, createGuestCustomerSession, createOrder, createProviderAccountSession, createProviderSession, createSelfProviderSession, createTelegramCustomerSession, declineProviderOffer, getMapProviders, getOrder, getProviderOffers, getProviders, getTelegramSession, getUserAccount, messageFromFetchError, retryDispatch, setUserPreferredRole, submitOrderReview, updateCustomerProfile, updateProviderOrderStatus, updateProviderPresence, updateProviderProfile, ApiRequestError, type AuthSession, type CustomerProfile, type DispatchOffer, type MapRequestPin, type OrderResponse, type ProviderAvailability, type UserAccountStatus, type VerificationStatus } from "./api/client"
 import RouteMap from "./components/map/RouteMap"
 import { RideScreen } from "./components/layout/RideScreen"
 import { PomichMapBackground, useSuppressMapAtmosphere } from "./components/layout/PomichMapShell"
@@ -63,7 +63,7 @@ import { syncProfileCityFromGeo } from "./lib/syncProfileCityFromGeo"
 import { OrderErrorStep, OrderFinalStep } from "./components/customer/OrderTerminalStep"
 import { DutyStatusToggle, PresenceToast, presenceErrorMessage } from "./components/ui/DutyStatusToggle"
 import { OrderRequestSheet } from "./components/provider/OrderRequestSheet"
-import { filterActiveOffers, isOfferActive, offerSecondsLeft, pinFromOffer } from "./lib/dispatchOffer"
+import { filterActiveOffers, isOfferActive, offerSecondsLeft, pinFromOffer, pinsFromActiveOffers } from "./lib/dispatchOffer"
 
 type Role = "customer" | "provider" | "admin"
 type Screen =
@@ -2879,7 +2879,6 @@ function ProviderFlow({ providerToken, providerRegistered = false, onLogout, onR
   const [registrationSaving, setRegistrationSaving] = useState(false)
   const [registrationError, setRegistrationError] = useState<string | undefined>()
   const [incomingOffers, setIncomingOffers] = useState<DispatchOffer[]>([])
-  const [mapProviders, setMapProviders] = useState<ProviderAvailability[]>([])
   const [mapRequestPins, setMapRequestPins] = useState<MapRequestPin[]>([])
   const [selectedRequestPin, setSelectedRequestPin] = useState<MapRequestPin | undefined>()
   const [sheetProposedPrice, setSheetProposedPrice] = useState("")
@@ -3094,7 +3093,7 @@ function ProviderFlow({ providerToken, providerRegistered = false, onLogout, onR
       getProviderOffers(providerId, providerAuthToken)
         .then((offers) => {
           if (!cancelled) {
-            const activeOffers = filterActiveOffers(Array.isArray(offers) ? offers : [], offerClock)
+            const activeOffers = filterActiveOffers(Array.isArray(offers) ? offers : [])
             setIncomingOffers(activeOffers)
             if (activeOffers.length > 0) setOfferError(undefined)
           }
@@ -3110,52 +3109,38 @@ function ProviderFlow({ providerToken, providerRegistered = false, onLogout, onR
       cancelled = true
       window.clearInterval(interval)
     }
-  }, [activeOrder, onDuty, providerAuthToken, providerId, step, offerClock])
+  }, [activeOrder, onDuty, providerAuthToken, providerId, step])
+
+  /* Duty map: pins = active offers only. Expired/closed never stay on the map. */
+  useEffect(() => {
+    if (!onDuty || (step !== "duty" && step !== "offer")) {
+      setMapRequestPins((pins) => (pins.length === 0 ? pins : []))
+      return
+    }
+    const active = filterActiveOffers(incomingOffers, offerClock)
+    if (active.length !== incomingOffers.length) {
+      setIncomingOffers(active)
+      return
+    }
+    setMapRequestPins(pinsFromActiveOffers(active, offerClock))
+  }, [incomingOffers, offerClock, onDuty, step])
 
   useEffect(() => {
-    if (!onDuty || (step !== "duty" && step !== "offer")) return
-    let cancelled = false
-
-    const refreshMapData = () => {
-      getMapProviders()
-        .then((items) => {
-          if (!cancelled) setMapProviders(Array.isArray(items) ? items : [])
-        })
-        .catch(() => {
-          if (!cancelled) setMapProviders([])
-        })
-
-      getNearbyMapOrders(providerLocation.lat, providerLocation.lng, providerProfile.serviceRadiusKm ?? 20)
-        .then((orders) => {
-          if (cancelled) return
-          const offerByOrder = new Map(incomingOffers.map((offer) => [offer.orderId, offer]))
-          const pins: MapRequestPin[] = (orders ?? []).map((order) => {
-            const offer = offerByOrder.get(order.id)
-            return {
-              ...order,
-              offerId: offer?.id,
-              customerComment: offer?.customerComment ?? order.customerComment,
-              etaMinutes: offer?.etaMinutes ?? order.etaMinutes,
-              distanceKm: offer?.distanceKm ?? order.distanceKm,
-            }
-          })
-          setMapRequestPins(pins)
-        })
-        .catch(() => {
-          if (!cancelled) setMapRequestPins([])
-        })
-    }
-
-    refreshMapData()
-    const interval = window.setInterval(refreshMapData, 5000)
-    return () => {
-      cancelled = true
-      window.clearInterval(interval)
-    }
-  }, [onDuty, providerLocation.lat, providerLocation.lng, providerProfile.serviceRadiusKm, step, incomingOffers])
+    if (!selectedRequestPin) return
+    const stillOpen = mapRequestPins.some(
+      (pin) => pin.id === selectedRequestPin.id || (pin.offerId && pin.offerId === selectedRequestPin.offerId),
+    )
+    if (stillOpen) return
+    setSelectedRequestPin(undefined)
+    setSheetProposedPrice("")
+    if (step === "offer") setStep("duty")
+  }, [mapRequestPins, selectedRequestPin, step])
 
   const activeOffer = incomingOffers.find((offer) => isOfferActive(offer, offerClock))
-  const secondsLeft = offerSecondsLeft(activeOffer, offerClock)
+  const selectedOffer = selectedRequestPin
+    ? incomingOffers.find((item) => item.id === selectedRequestPin.offerId || item.orderId === selectedRequestPin.id)
+    : undefined
+  const secondsLeft = offerSecondsLeft(selectedOffer ?? activeOffer, offerClock)
 
   useEffect(() => {
     if (!activeOffer) {
@@ -3275,13 +3260,17 @@ function ProviderFlow({ providerToken, providerRegistered = false, onLogout, onR
   }
 
   const openRequestPin = (pin: MapRequestPin) => {
+    const matchedOffer = incomingOffers.find((item) => item.id === pin.offerId || item.orderId === pin.id)
+    if (!matchedOffer || !isOfferActive(matchedOffer, offerClock)) {
+      setOfferError("Пропозиція вже завершилась. Очікуйте нову заявку.")
+      setSelectedRequestPin(undefined)
+      setMapRequestPins((pins) => pins.filter((item) => item.id !== pin.id && item.offerId !== pin.offerId))
+      return
+    }
     setSelectedRequestPin(pin)
     setSheetProposedPrice(proposedPrice)
     setOfferError(undefined)
-    const matchedOffer = incomingOffers.find((item) => item.id === pin.offerId || item.orderId === pin.id)
-    if (matchedOffer) {
-      setStep("offer")
-    }
+    setStep("offer")
   }
 
   const acceptFromMapPin = (pin: MapRequestPin) => {
@@ -3718,10 +3707,11 @@ function ProviderFlow({ providerToken, providerRegistered = false, onLogout, onR
       <>
       <RideScreen
         pickup={providerLocation}
-        providers={onDuty ? [providerPresence, ...mapProviders] : mapProviders}
+        providers={onDuty ? [providerPresence] : []}
         requestPins={mapRequestPins}
         mapSubtitle={onDuty ? `На лінії · ${mapRequestPins.length} заявок поруч` : "Ужгород · партнер"}
-        showAllProviders={onDuty}
+        showAllProviders={false}
+        showDirectoryProviders={false}
         mapFocus={Boolean(activeOffer)}
         onAcceptRequest={acceptFromMapPin}
         onContactRequest={contactFromMapPin}
@@ -3753,8 +3743,8 @@ function ProviderFlow({ providerToken, providerRegistered = false, onLogout, onR
                 <div style={{ color: DARK, fontWeight: 950, marginTop: 4 }}>{mapRequestPins.length}</div>
               </div>
               <div style={{ background: BG, borderRadius: 14, padding: 12 }}>
-                <div style={{ color: MUTED, fontSize: 12, fontWeight: 800 }}>Сервісів Ужгорода</div>
-                <div style={{ color: DARK, fontWeight: 950, marginTop: 4 }}>{mapProviders.filter((item) => item.providerKind === "directory").length}</div>
+                <div style={{ color: MUTED, fontSize: 12, fontWeight: 800 }}>Активних пропозицій</div>
+                <div style={{ color: DARK, fontWeight: 950, marginTop: 4 }}>{incomingOffers.filter((offer) => isOfferActive(offer, offerClock)).length}</div>
               </div>
             </div>
           </div>
@@ -3935,10 +3925,11 @@ function ProviderFlow({ providerToken, providerRegistered = false, onLogout, onR
     <>
     <RideScreen
       pickup={mapRequestPins[0]?.customerCoordinates ?? providerLocation}
-      providers={[providerPresence, ...mapProviders]}
+      providers={[providerPresence]}
       requestPins={mapRequestPins}
       mapSubtitle="Заявки поруч на карті"
-      showAllProviders
+      showAllProviders={false}
+      showDirectoryProviders={false}
       onAcceptRequest={acceptFromMapPin}
       onContactRequest={contactFromMapPin}
       onRequestPinSelect={openRequestPin}

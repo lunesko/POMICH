@@ -102,7 +102,7 @@ describe("RouteMap recenter behavior", () => {
     expect(flyTo).toHaveBeenCalledTimes(1)
   })
 
-  it("renders my-location control under zoom and requests geolocation", async () => {
+  it("renders my-location control beside zoom and requests geolocation", async () => {
     vi.useRealTimers()
     const getCurrentPosition = vi.fn((success: PositionCallback) => {
       success({
@@ -140,6 +140,31 @@ describe("RouteMap recenter behavior", () => {
       expect(onUserLocationChange).toHaveBeenCalledWith({ lat: 48.63, lng: 22.3 })
       expect(flyTo).toHaveBeenCalled()
     })
+  })
+
+  it("hides directory markers when showDirectoryProviders is false", () => {
+    const providers = [
+      {
+        id: "p1",
+        name: "СТО",
+        status: "online" as const,
+        providerKind: "directory" as const,
+        vehicle: "Van",
+        rating: 4.9,
+        etaMinutes: 10,
+        location: { lat: 48.621, lng: 22.29 },
+        specialties: ["tow"],
+      },
+    ]
+    const { queryByRole } = render(
+      <RouteMap
+        pickup={{ lat: 48.6208, lng: 22.2879 }}
+        providers={providers}
+        showDirectoryProviders={false}
+      />,
+    )
+
+    expect(queryByRole("button", { name: /Допомога поруч/i })).toBeNull()
   })
 
   it("collapses directory tools to a chip so the panel does not cover pins by default", () => {

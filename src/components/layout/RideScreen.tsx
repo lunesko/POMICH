@@ -35,6 +35,7 @@ interface RideScreenProps {
   requestPins?: MapRequestPin[]
   mapSubtitle?: string
   showAllProviders?: boolean
+  showDirectoryProviders?: boolean
   userLocation?: Point
   onUserLocationChange?: (point: Point) => void
   onPick?: (point: Point) => void
@@ -58,6 +59,7 @@ export function RideScreen({
   requestPins,
   mapSubtitle,
   showAllProviders = false,
+  showDirectoryProviders = true,
   userLocation,
   onUserLocationChange,
   onPick,
@@ -114,6 +116,7 @@ export function RideScreen({
     requestPins,
     subtitle: mapSubtitle,
     showAllProviders,
+    showDirectoryProviders,
     /* Always expose a user point so the pulsing blue marker + sheet-aware flyTo work. */
     userLocation: userLocation ?? pickup,
     onUserLocationChange,
@@ -137,6 +140,7 @@ export function RideScreen({
     requestPins,
     mapSubtitle,
     showAllProviders,
+    showDirectoryProviders,
     userLocation,
     onUserLocationChange,
     onPick,
@@ -153,8 +157,8 @@ export function RideScreen({
 
   if (splitView) {
     return (
-      <div className="pomich-ride-screen pomich-ride-screen--split flex flex-row h-full min-h-0 w-full overflow-hidden pomich-ride-map-bg">
-        <div className="pomich-ride-screen__map relative min-h-0 min-w-0 flex-1 self-stretch">
+      <div className="pomich-ride-screen pomich-ride-screen--split relative h-full min-h-0 w-full overflow-hidden pomich-ride-map-bg">
+        <div className="pomich-ride-screen__map absolute inset-0 h-full w-full">
           <RouteMap key="pomich-ride-map" {...mapProps} />
           {/* Desktop only: live badge beside zoom. Hidden on TG/mobile — avoids covering +/- */}
           <div className="pomich-ride-screen__chrome pomich-ride-screen__chrome--desktop pointer-events-none absolute">
@@ -165,9 +169,16 @@ export function RideScreen({
           </div>
         </div>
         <div
-          className={`pomich-sheet-panel pomich-sheet-panel--side z-[5] flex h-full min-h-0 shrink-0 flex-col self-stretch overflow-hidden border-l border-border shadow-2xl ${
+          className={`pomich-sheet-panel pomich-sheet-panel--side z-[10] flex min-h-0 shrink-0 flex-col overflow-hidden border border-white/20 shadow-2xl rounded-3xl ${
             isDesktop ? "w-[420px] max-w-[38vw]" : "w-[360px] max-w-[44vw]"
           }`}
+          style={{
+            position: 'absolute',
+            right: '16px',
+            top: 'calc(var(--pomich-app-header-height, 62px) + 12px)',
+            bottom: '16px',
+            height: 'auto',
+          }}
         >
           <div className="pomich-sheet-panel__scroll" onWheel={isolatePanelWheel}>
             <div className="p-4 pb-[calc(16px+env(safe-area-inset-bottom,0px))]">{children}</div>

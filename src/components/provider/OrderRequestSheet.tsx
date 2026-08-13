@@ -44,6 +44,13 @@ export function OrderRequestSheet({
     return () => window.clearTimeout(timer)
   }, [pin.id, pin.offerId])
 
+  useEffect(() => {
+    if (!offerExpired) return
+    onAcceptBlocked?.("expired")
+    // Intentionally omit onAcceptBlocked — parent handlers are often inline.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [offerExpired, pin.id, pin.offerId])
+
   const ensureActionsVisible = () => {
     window.setTimeout(() => {
       actionsRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" })
