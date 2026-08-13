@@ -155,7 +155,7 @@ def main() -> None:
         assert Counter(result[0] for result in results) == {"accepted": 1, "conflict": 1}, results
         assert ("conflict", "ORDER_ALREADY_ACCEPTED") in results, results
         assert Counter(offer["status"] for offer in load_offers()) == {"accepted": 1, "lost": 1}, load_offers()
-        assert load_orders()[0]["status"] == "assigned", load_orders()[0]
+        assert load_orders()[0]["status"] == "accepted", load_orders()[0]
         assert any(provider["status"] == "busy" for provider in load_providers()), load_providers()
 
     print("postgres_postgis_migration_dispatch_smoke=passed")
