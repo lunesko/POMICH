@@ -519,7 +519,56 @@ export default function OnboardingGate({ skip, startAtRoleSelect, loginMode = fa
         saving={saving}
         error={error}
         onSubmit={(session) => void handleClientLogin(session)}
-        onRegister={() => setPhase("register-client")}
+        onRegister={() => {
+          // Returning partner login: «Немає акаунту?» → fresh partner registration (guest session).
+          if (initialPreferredRole === "provider" || pendingLoginRole === "provider") {
+            void (async () => {
+              setSaving(true)
+              setError(undefined)
+              try {
+                clearExplicitLogout()
+                const session = telegramContext.initData
+                  ? await createTelegramCustomerSession(telegramContext.initData)
+                  : await createGuestCustomerSession()
+                const activeCustomerId = applySession(session) ?? session.customerId ?? session.subjectId
+                const token = session.accessToken
+                if (!activeCustomerId || !token) throw new Error("customer_session_missing")
+                let status: UserAccountStatus
+                try {
+                  status = await setUserPreferredRole(activeCustomerId, "provider", token)
+                } catch {
+                  status = {
+                    customerId: activeCustomerId,
+                    preferredRole: "provider",
+                    linkedProviderId: resolveProviderIdForCustomer(activeCustomerId),
+                    rolesRegistered: [],
+                    clientRegistered: false,
+                    providerRegistered: false,
+                    needsOnboarding: true,
+                    profile: session.profile,
+                  }
+                }
+                if (status.linkedProviderId) storeLinkedProviderId(status.linkedProviderId)
+                else {
+                  const linkedId = resolveProviderIdForCustomer(activeCustomerId)
+                  if (linkedId) storeLinkedProviderId(linkedId)
+                }
+                setCustomerId(activeCustomerId)
+                setCustomerToken(token)
+                setAccount(status)
+                setPendingLoginRole(null)
+                onReadyRef.current({ role: "provider", account: status, customerToken: token })
+                setPhase("ready")
+              } catch (err) {
+                setError(messageFromFetchError(err, "Не вдалося почати реєстрацію партнера."))
+              } finally {
+                setSaving(false)
+              }
+            })()
+            return
+          }
+          setPhase("register-client")
+        }}
         onBack={onShowLanding}
       />
     )

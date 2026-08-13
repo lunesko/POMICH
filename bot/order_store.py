@@ -1395,7 +1395,7 @@ def find_registered_customer_by_phone(
         candidates.append(normalized)
     # Prefer the Telegram owner of a partner cabinet that uses this phone
     # (guest web rows often hold the same number without a chat_id).
-    provider = find_registered_provider_by_phone(phone)
+    provider = find_registered_provider_by_phone(phone, store_path=store_path)
     if provider is not None:
         telegram_user_id = resolve_provider_telegram_user_id(
             str(provider.get("id") or ""),

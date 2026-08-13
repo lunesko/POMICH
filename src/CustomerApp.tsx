@@ -3770,7 +3770,8 @@ function ProviderFlow({ providerToken, providerRegistered = false, onLogout, onR
   const phoneConflict = Boolean(registrationError && /phone_already_registered|вже зареєстровано|уже зареєстровано/i.test(registrationError))
 
   const openPartnerRestoreOrLogin = () => {
-    if (phoneConflict && onRestoreAccount) {
+    // Prefer phone OTP restore (linked provider) over password login dead-end.
+    if (onRestoreAccount) {
       onRestoreAccount()
       return
     }
@@ -4279,29 +4280,24 @@ export default function CustomerApp() {
 
   const enterPartnerFlow = useCallback(() => {
     clearExplicitLogout()
-    setAccount(null)
-    setCustomerToken(undefined)
-
-    if (!telegramContext.initData) {
-      clearCustomerAuthStorage()
-    }
-
-    beginOnboarding("provider", false, true)
-  }, [beginOnboarding, telegramContext.initData])
-
-  const restorePartnerAccount = useCallback(() => {
     clearProviderAuthStorage({ includeAdmin: true })
-    if (!telegramContext.initData) {
-      clearCustomerAuthStorage()
-    }
     setAccount(null)
     setCustomerToken(undefined)
     setRole(null)
-    setShowOnboarding(true)
-    setShowLanding(false)
     setShowCabinet(false)
+
+    if (!telegramContext.initData) {
+      clearCustomerAuthStorage()
+    }
+
+    // Phone OTP login restores linkedProviderId for registered partners (no blank registration).
     beginOnboarding("provider", false, true)
   }, [beginOnboarding, telegramContext.initData])
+
+  /** phone_already_registered / «Увійти за цим номером» — same as landing partner re-entry. */
+  const restorePartnerAccount = useCallback(() => {
+    enterPartnerFlow()
+  }, [enterPartnerFlow])
 
   const handleRoleChange = useCallback((nextRole: Role | null) => {
     if (nextRole === "customer") {
@@ -4589,8 +4585,7 @@ export default function CustomerApp() {
             void enterCustomerFlow()
             return
           }
-          // Partner re-entry after logout: phone login restores linked provider (no blank registration).
-          beginOnboarding("provider", false, true)
+          enterPartnerFlow()
         }}
         onRegister={() => beginOnboarding(null, true, false)}
         onLogin={() => void enterCustomerFlow()}

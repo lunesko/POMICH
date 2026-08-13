@@ -523,6 +523,56 @@ def test_assigned_provider_drives_order_lifecycle_and_returns_online(tmp_path):
     assert "assignedOrderId" not in provider
 
 
+def test_phone_login_finds_guest_partner_via_provider_phone(tmp_path):
+    """After partner registration, phone login must resolve guest-{id} via provider-{id}."""
+    from bot.order_store import (
+        find_registered_customer_by_phone,
+        resolve_customer_id_for_provider,
+        update_provider_profile,
+    )
+
+    customer_path = tmp_path / "customers.json"
+    provider_path = tmp_path / "providers.json"
+
+    update_customer_profile(
+        "guest-vitaliy",
+        {"name": "Віталій", "phone": "", "preferredRole": "provider"},
+        store_path=customer_path,
+    )
+    update_provider_profile(
+        "provider-guest-vitaliy",
+        {
+            "name": "Віталій",
+            "phone": "+380661007434",
+            "city": "Ужгород",
+            "vehicle": "Volkswagen Crafter",
+            "plate": "BX5874HX",
+            "specialties": ["tow"],
+            "serviceRadiusKm": 15,
+        },
+        store_path=provider_path,
+    )
+
+    # Provider save syncs customer on the default customer store; mirror that link here.
+    update_customer_profile(
+        "guest-vitaliy",
+        {
+            "name": "Віталій",
+            "phone": "+380661007434",
+            "linkedProviderId": "provider-guest-vitaliy",
+            "preferredRole": "provider",
+        },
+        store_path=customer_path,
+    )
+
+    assert resolve_customer_id_for_provider("provider-guest-vitaliy", customer_path) == "guest-vitaliy"
+
+    found = find_registered_customer_by_phone("+380661007434", store_path=customer_path)
+    assert found is not None
+    assert found["id"] == "guest-vitaliy"
+    assert found.get("linkedProviderId") == "provider-guest-vitaliy"
+
+
 def test_customer_profile_does_not_auto_verify_on_save(tmp_path):
     store_path = tmp_path / "customers.json"
     created = update_customer_profile(
@@ -620,11 +670,11 @@ def test_provider_registration_links_customer_for_phone_login_restore(tmp_path, 
         store_path=provider_path,
     )
 
-    restored = find_registered_customer_by_phone("+380661007434", store_path=customer_path)
+    restored = find_registered_customer_by_phone("+380661007434")
     assert restored is not None
     assert restored["id"] == "guest-vitaliy"
 
-    status = build_user_account_status("guest-vitaliy", store_path=customer_path)
+    status = build_user_account_status("guest-vitaliy")
     assert status["providerRegistered"] is True
     assert status["linkedProviderId"] == "provider-guest-vitaliy"
 
