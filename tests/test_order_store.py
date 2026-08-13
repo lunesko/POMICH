@@ -555,11 +555,13 @@ def test_duplicate_provider_phone_registration_rejected(tmp_path):
     from bot.order_store import update_provider_profile
 
     provider_path = tmp_path / "providers.json"
+    # Empty file so load_providers does not fall back to seeded demo partners.
+    provider_path.write_text("[]", encoding="utf-8")
     update_provider_profile(
         "provider-a",
         {
             "name": "Партнер А",
-            "phone": "+380671112233",
+            "phone": "+380931112233",
             "city": "Ужгород",
             "vehicle": "Ford Transit",
             "plate": "АА1234ВВ",
@@ -575,7 +577,7 @@ def test_duplicate_provider_phone_registration_rejected(tmp_path):
             "provider-b",
             {
                 "name": "Партнер Б",
-                "phone": "+380671112233",
+                "phone": "+380931112233",
                 "city": "Львів",
                 "vehicle": "Mercedes Sprinter",
                 "plate": "ВС5678АА",
