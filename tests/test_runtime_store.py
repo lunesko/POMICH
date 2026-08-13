@@ -2,7 +2,7 @@ import json
 import sqlite3
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import func, inspect, select
@@ -48,7 +48,7 @@ def _provider(
     assigned_order_id=None,
     last_seen_at=None,
 ):
-    now = datetime.utcnow().isoformat(timespec="seconds")
+    now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat(timespec="seconds")
     payload = {
         "id": provider_id,
         "name": provider_id,
@@ -160,7 +160,7 @@ def test_sql_runtime_store_supports_dispatch_and_offer_acceptance(sql_runtime):
 
 
 def test_sql_dispatch_filters_candidates_in_database(sql_runtime):
-    stale_time = (datetime.utcnow() - timedelta(seconds=120)).isoformat(timespec="seconds")
+    stale_time = (datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=120)).isoformat(timespec="seconds")
     save_providers(
         [
             _provider("eligible", 50.4501, 30.5234),

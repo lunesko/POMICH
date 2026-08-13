@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -53,7 +53,7 @@ def test_expired_code_is_rejected(monkeypatch, otp_env) -> None:
     sent = otp_verification.send_customer_verification_code("tg-7", "telegram", customer_store_path=customer_path)
 
     store = otp_verification._load_otp_store(otp_path)
-    expired_at = (datetime.utcnow() - timedelta(minutes=1)).isoformat(timespec="seconds") + "Z"
+    expired_at = (datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=1)).isoformat(timespec="seconds") + "Z"
     store["tg-7"]["expiresAt"] = expired_at
     otp_verification._save_otp_store(store, otp_path)
 
@@ -237,7 +237,7 @@ def test_expired_cleanup_deletes_telegram_otp_message(monkeypatch, otp_env) -> N
     otp_verification.send_customer_verification_code("tg-7", "telegram", customer_store_path=customer_path)
 
     store = otp_verification._load_otp_store(otp_path)
-    expired_at = (datetime.utcnow() - timedelta(minutes=1)).isoformat(timespec="seconds") + "Z"
+    expired_at = (datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=1)).isoformat(timespec="seconds") + "Z"
     store["tg-7"]["expiresAt"] = expired_at
     otp_verification._save_otp_store(store, otp_path)
 

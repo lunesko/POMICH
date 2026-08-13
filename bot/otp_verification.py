@@ -8,7 +8,7 @@ import random
 import smtplib
 import threading
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from email.mime.text import MIMEText
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -94,7 +94,7 @@ def _save_otp_store(data: Dict[str, Any], path: Optional[Path] = None) -> None:
 
 
 def _cleanup_expired_otp_records(store: Dict[str, Any], now: Optional[datetime] = None) -> Dict[str, Any]:
-    checked_at = now or datetime.utcnow()
+    checked_at = now or datetime.now(timezone.utc).replace(tzinfo=None)
     cleaned: Dict[str, Any] = {}
     for customer_id, record in store.items():
         if not isinstance(record, dict):
@@ -355,7 +355,7 @@ def send_customer_verification_code(
                 raise OtpVerificationError("phone_already_registered", "phone already registered") from exc
             raise
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     now_iso = _now_iso()
     expires_at = now + timedelta(seconds=OTP_TTL_SECONDS)
     profile_phone = str(profile.get("phone") or phone or "").strip() or None
@@ -475,7 +475,7 @@ def confirm_customer_verification_code(
     if not normalized_code.isdigit() or len(normalized_code) != OTP_CODE_LENGTH:
         raise OtpVerificationError("invalid_code_format", "code must be a 6-digit number")
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     with OTP_LOCK:
         otp_path = store_path or _default_otp_store_path()
         store = _cleanup_expired_otp_records(_load_otp_store(otp_path), now)

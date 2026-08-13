@@ -436,7 +436,14 @@ export default function OnboardingGate({ skip, startAtRoleSelect, loginMode = fa
         session.account ?? (await getUserAccount(activeCustomerId, token, telegramContext.initData)),
         session.profile,
       )
-      const targetRole = initialPreferredRole === "provider" || pendingLoginRole === "provider" ? "provider" : "customer"
+      const targetRole =
+        initialPreferredRole === "provider" || pendingLoginRole === "provider"
+          ? "provider"
+          : initialPreferredRole === "customer"
+            ? "customer"
+            : status.providerRegistered || status.preferredRole === "provider"
+              ? "provider"
+              : "customer"
 
       if (targetRole === "provider") {
         try {

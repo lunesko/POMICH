@@ -2,7 +2,7 @@ import hashlib
 import hmac
 import json
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from urllib.parse import urlencode
 
 from fastapi.testclient import TestClient
@@ -19,7 +19,7 @@ CUSTOMER_SESSION_SECRET = "customer-session-secret-for-tests"
 
 
 def _api_provider(provider_id: str, lat: float, lng: float) -> dict:
-    now = datetime.utcnow().isoformat(timespec="seconds")
+    now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat(timespec="seconds")
     return {
         "id": provider_id,
         "name": provider_id,

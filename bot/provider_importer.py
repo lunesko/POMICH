@@ -7,7 +7,7 @@ import re
 import urllib.error
 import urllib.request
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 UZHGOROD_CENTER = {"lat": 48.6208, "lng": 22.2879}
@@ -62,7 +62,7 @@ KNOWN_CONTACTS: dict[str, dict[str, str]] = {
 
 
 def _now_iso() -> str:
-    return f"{datetime.utcnow().isoformat(timespec='seconds')}Z"
+    return f"{datetime.now(timezone.utc).replace(tzinfo=None).isoformat(timespec='seconds')}Z"
 
 
 def _slug(value: str) -> str:

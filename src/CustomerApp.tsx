@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 
-import { acceptProviderOffer, cancelOrder as cancelOrderRequest, confirmOrderPrice, createGuestCustomerSession, createOrder, createProviderAccountSession, createProviderSession, createSelfProviderSession, createTelegramCustomerSession, declineProviderOffer, getMapProviders, getNearbyMapOrders, getOrder, getProviderOffers, getProviders, getTelegramSession, getUserAccount, messageFromFetchError, retryDispatch, setUserPreferredRole, submitOrderReview, updateCustomerProfile, updateProviderOrderStatus, updateProviderPresence, updateProviderProfile, type AuthSession, type CustomerProfile, type DispatchOffer, type MapRequestPin, type OrderResponse, type ProviderAvailability, type UserAccountStatus, type VerificationStatus } from "./api/client"
+import { acceptProviderOffer, cancelOrder as cancelOrderRequest, confirmOrderPrice, createGuestCustomerSession, createOrder, createProviderAccountSession, createProviderSession, createSelfProviderSession, createTelegramCustomerSession, declineProviderOffer, getMapProviders, getNearbyMapOrders, getOrder, getProviderOffers, getProviders, getTelegramSession, getUserAccount, messageFromFetchError, retryDispatch, setUserPreferredRole, submitOrderReview, updateCustomerProfile, updateProviderOrderStatus, updateProviderPresence, updateProviderProfile, ApiRequestError, type AuthSession, type CustomerProfile, type DispatchOffer, type MapRequestPin, type OrderResponse, type ProviderAvailability, type UserAccountStatus, type VerificationStatus } from "./api/client"
 import RouteMap from "./components/map/RouteMap"
 import { RideScreen } from "./components/layout/RideScreen"
 import { PomichMapBackground, useSuppressMapAtmosphere } from "./components/layout/PomichMapShell"
@@ -3767,7 +3767,16 @@ function ProviderFlow({ providerToken, providerRegistered = false, onLogout, onR
     }
   }, [activeOrder?.id, activeOrder?.assignedProviderId, activeOrder?.partnerId, providerId, providerAuthToken])
 
-  const phoneConflict = Boolean(registrationError && /phone_already_registered|вже зареєстровано/i.test(registrationError))
+  const phoneConflict = Boolean(registrationError && /phone_already_registered|вже зареєстровано|уже зареєстровано/i.test(registrationError))
+
+  const openPartnerRestoreOrLogin = () => {
+    if (phoneConflict && onRestoreAccount) {
+      onRestoreAccount()
+      return
+    }
+    setRegistrationError(undefined)
+    setLoginView("login")
+  }
 
   if (!providerAuthToken && !providerToken) {
     // Already-registered partner: wait for customer→provider self-session instead of flashing login/register.
@@ -3783,11 +3792,7 @@ function ProviderFlow({ providerToken, providerRegistered = false, onLogout, onR
           onChange={updateRegistrationForm}
           onToggleSpecialty={toggleRegistrationSpecialty}
           onSubmit={saveRegistration}
-          onLogin={phoneConflict && onRestoreAccount ? onRestoreAccount : () => {
-            setRegistrationError(undefined)
-            setLoginView("login")
-          }}
-        />
+          onLogin={onRestoreAccount ? onRestoreAccount : undefined}
       )
     }
 
@@ -3857,7 +3862,7 @@ function ProviderFlow({ providerToken, providerRegistered = false, onLogout, onR
         onChange={updateRegistrationForm}
         onToggleSpecialty={toggleRegistrationSpecialty}
         onSubmit={saveRegistration}
-        onLogin={phoneConflict && onRestoreAccount ? onRestoreAccount : undefined}
+        onLogin={onRestoreAccount ? openPartnerRestoreOrLogin : undefined}
       />
     )
   }
@@ -4271,13 +4276,43 @@ export default function CustomerApp() {
     beginOnboarding("customer", false, true)
   }, [beginOnboarding, applyRoleToUrl, telegramContext])
 
+  const enterPartnerFlow = useCallback(() => {
+    clearExplicitLogout()
+    setAccount(null)
+    setCustomerToken(undefined)
+
+    if (!telegramContext.initData) {
+      clearCustomerAuthStorage()
+    }
+
+    beginOnboarding("provider", false, true)
+  }, [beginOnboarding, telegramContext.initData])
+
+  const restorePartnerAccount = useCallback(() => {
+    clearProviderAuthStorage({ includeAdmin: true })
+    if (!telegramContext.initData) {
+      clearCustomerAuthStorage()
+    }
+    setAccount(null)
+    setCustomerToken(undefined)
+    setRole(null)
+    setShowOnboarding(true)
+    setShowLanding(false)
+    setShowCabinet(false)
+    beginOnboarding("provider", false, true)
+  }, [beginOnboarding, telegramContext.initData])
+
   const handleRoleChange = useCallback((nextRole: Role | null) => {
     if (nextRole === "customer") {
       void enterCustomerFlow()
       return
     }
+    if (nextRole === "provider") {
+      void enterPartnerFlow()
+      return
+    }
     applyRoleToUrl(nextRole)
-  }, [applyRoleToUrl, enterCustomerFlow])
+  }, [applyRoleToUrl, enterCustomerFlow, enterPartnerFlow])
 
   const handleLogout = () => {
     // Block Telegram auto-relogin AND web session restore after explicit logout.
@@ -4553,7 +4588,8 @@ export default function CustomerApp() {
             void enterCustomerFlow()
             return
           }
-          beginOnboarding(nextRole, false, false)
+          // Partner re-entry after logout: phone login restores linked provider (no blank registration).
+          beginOnboarding("provider", false, true)
         }}
         onRegister={() => beginOnboarding(null, true, false)}
         onLogin={() => void enterCustomerFlow()}
@@ -4567,7 +4603,12 @@ export default function CustomerApp() {
     ) : (
       <AppShell compact={compact} role={role} loggedInName={loggedInCustomerName} onRoleChange={handleRoleChange} onOpenCabinet={() => setShowCabinet(true)} onSwitchRole={handleSwitchRole} onLogout={handleLogout}>
         {role === "provider" ? (
-          <ProviderFlow providerToken={providerToken} providerRegistered={account?.providerRegistered ?? false} onLogout={handleLogout} />
+          <ProviderFlow
+            providerToken={providerToken}
+            providerRegistered={account?.providerRegistered ?? false}
+            onLogout={handleLogout}
+            onRestoreAccount={restorePartnerAccount}
+          />
         ) : role === "customer" && account && !isReturningClient(account) ? (
           <CustomerAppFallback
             message="Потрібно завершити реєстрацію клієнта."

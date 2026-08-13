@@ -97,7 +97,10 @@ describe('ProviderCabinet', () => {
     renderCabinet()
 
     expect(await screen.findByText('Не перевірено')).toBeInTheDocument()
-    expect(screen.getByText('Поза лінією')).toBeInTheDocument()
-    expect(screen.getByText('Підтвердження телефону')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByText('Поза лінією')).toBeInTheDocument()
+    })
+    // Section title + OtpVerificationPanel both render this heading when unverified.
+    expect(screen.getAllByText('Підтвердження телефону').length).toBeGreaterThanOrEqual(1)
   })
 })

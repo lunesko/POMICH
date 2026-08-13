@@ -2,7 +2,7 @@ import json
 import math
 import os
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import JSON, Column, DateTime, Float, Index, MetaData, String, Table, bindparam, create_engine, delete, insert, inspect, select, text, update
@@ -224,7 +224,7 @@ def _run_schema_migrations(engine: Engine) -> None:
                 insert(schema_migrations).values(
                     version=version,
                     name=name,
-                    applied_at=datetime.utcnow(),
+                    applied_at=datetime.now(timezone.utc).replace(tzinfo=None),
                 )
             )
 
@@ -458,7 +458,7 @@ def sql_candidate_providers_for_order(
     now: datetime | None = None,
 ) -> list[dict[str, Any]]:
     engine = get_engine()
-    checked_at = now or datetime.utcnow()
+    checked_at = now or datetime.now(timezone.utc).replace(tzinfo=None)
     threshold_iso = (checked_at - timedelta(seconds=ttl_seconds)).isoformat(timespec="seconds")
     offered_ids = {str(item) for item in (already_offered_provider_ids or set())}
 
@@ -475,7 +475,7 @@ def sql_accept_offer(
     now: datetime | None = None,
 ) -> dict[str, Any]:
     engine = get_engine()
-    now_dt = now or datetime.utcnow()
+    now_dt = now or datetime.now(timezone.utc).replace(tzinfo=None)
     now_iso = f"{now_dt.isoformat(timespec='seconds')}Z"
 
     with engine.begin() as connection:
@@ -891,7 +891,7 @@ def _save_collection_marker(connection, name: str, payload: Any) -> None:
         insert(runtime_collections).values(
             name=name,
             payload=payload,
-            updated_at=datetime.utcnow(),
+            updated_at=datetime.now(timezone.utc).replace(tzinfo=None),
         )
     )
 
@@ -959,7 +959,7 @@ def sql_upsert_provider(provider: dict[str, Any]) -> dict[str, Any]:
     if not provider_id:
         raise ValueError("provider id is required")
 
-    now_iso = str(payload.get("updatedAt") or payload.get("lastSeenAt") or datetime.utcnow().isoformat(timespec="seconds") + "Z")
+    now_iso = str(payload.get("updatedAt") or payload.get("lastSeenAt") or datetime.now(timezone.utc).replace(tzinfo=None).isoformat(timespec="seconds") + "Z")
     payload["updatedAt"] = now_iso
     location_lat, location_lng = _point(payload.get("location"))
     presence_payload = {

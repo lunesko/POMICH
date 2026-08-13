@@ -809,6 +809,133 @@ describe('POMICH role-based flows', () => {
     expect(screen.queryByText(/Реєстрація партнера/i)).not.toBeInTheDocument()
   })
 
+  it('after logout, choosing partner opens phone login and restores registered partner', async () => {
+    const user = userEvent.setup()
+    const partnerProfile = {
+      ...verifiedTestProfile,
+      id: 'guest-vitaliy',
+      name: 'Віталій',
+      phone: '+380661007434',
+    }
+    const providerRecord = {
+      id: 'provider-guest-vitaliy',
+      name: 'Віталій',
+      phone: '+380661007434',
+      city: 'Ужгород',
+      vehicle: 'Volkswagen Crafter',
+      plate: 'BX5874HX',
+      registeredAt: '2026-08-09T00:00:00',
+      verificationStatus: 'verified',
+      verification: { phone: true },
+      specialties: ['tow', 'fuel'],
+      serviceRadiusKm: 15,
+      status: 'offline',
+    }
+
+    vi.stubGlobal('fetch', mockRegisteredCustomerFetch((url, init) => {
+      if (url.includes('/auth/customer/phone/login/send')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ ok: true, channel: 'telegram', expiresAt: new Date(Date.now() + 600000).toISOString() }),
+        })
+      }
+      if (url.includes('/auth/customer/phone/login/confirm')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            role: 'customer',
+            subjectId: 'guest-vitaliy',
+            customerId: 'guest-vitaliy',
+            accessToken: TEST_CUSTOMER_TOKEN,
+            expiresAt: Math.floor(Date.now() / 1000) + 3600,
+            profile: partnerProfile,
+            account: {
+              customerId: 'guest-vitaliy',
+              preferredRole: 'provider',
+              linkedProviderId: 'provider-guest-vitaliy',
+              rolesRegistered: ['customer', 'provider'],
+              clientRegistered: true,
+              providerRegistered: true,
+              needsOnboarding: false,
+              profile: partnerProfile,
+            },
+          }),
+        })
+      }
+      if (url.includes('/users/') && url.includes('/account/role')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            customerId: 'guest-vitaliy',
+            preferredRole: 'provider',
+            linkedProviderId: 'provider-guest-vitaliy',
+            rolesRegistered: ['customer', 'provider'],
+            clientRegistered: true,
+            providerRegistered: true,
+            needsOnboarding: false,
+            profile: partnerProfile,
+          }),
+        })
+      }
+      if (url.includes('/users/') && url.includes('/account')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            customerId: 'guest-vitaliy',
+            preferredRole: 'provider',
+            linkedProviderId: 'provider-guest-vitaliy',
+            rolesRegistered: ['customer', 'provider'],
+            clientRegistered: true,
+            providerRegistered: true,
+            needsOnboarding: false,
+            profile: partnerProfile,
+          }),
+        })
+      }
+      if (url.includes('/auth/provider/self/session')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            role: 'provider',
+            subjectId: 'provider-guest-vitaliy',
+            providerId: 'provider-guest-vitaliy',
+            tokenType: 'Bearer',
+            accessToken: 'pomich_auth_v1.provider-self',
+            expiresAt: Math.floor(Date.now() / 1000) + 3600,
+          }),
+        })
+      }
+      if (url.includes('/providers/provider-guest-vitaliy/')) {
+        return Promise.resolve({ ok: true, json: async () => providerRecord })
+      }
+      if (url.endsWith('/providers') || url.includes('/map/providers')) {
+        return Promise.resolve({ ok: true, json: async () => [providerRecord] })
+      }
+      return undefined
+    }))
+
+    renderApp()
+    expect(await screen.findByText(/Допомога на дорозі — поруч/i)).toBeInTheDocument()
+
+    // Landing «Партнер» must open phone login (not blank registration).
+    const partnerButtons = screen.getAllByRole('button', { name: /Партнер|Надаю послуги|Стати партнером/i })
+    await user.click(partnerButtons[0])
+    expect(await screen.findByText(/^Увійти$/i)).toBeInTheDocument()
+    expect(screen.queryByText(/Реєстрація партнера/i)).not.toBeInTheDocument()
+
+    const phoneInput = screen.getByRole('textbox', { name: /Телефон|номер/i })
+    await user.clear(phoneInput)
+    await user.type(phoneInput, '661007434')
+    await user.click(screen.getByRole('button', { name: /Надіслати код|Отримати код/i }))
+
+    const codeInput = await screen.findByRole('textbox', { name: /код/i })
+    await user.type(codeInput, '123456')
+    await user.click(screen.getByRole('button', { name: /^Увійти$|Підтвердити/i }))
+
+    expect(await screen.findByText('Партнер POMICH', {}, { timeout: 8000 })).toBeInTheDocument()
+    expect(screen.queryByText(/Реєстрація партнера/i)).not.toBeInTheDocument()
+  })
+
   it('logs out from header and clears stored auth', async () => {
     const user = userEvent.setup()
     window.localStorage.setItem('pomichCustomerId', 'guest-test')

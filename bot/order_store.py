@@ -3,7 +3,7 @@ import math
 import os
 import threading
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -97,7 +97,7 @@ def _default_offer_store_path() -> Path:
 
 
 def _now_iso() -> str:
-    return f"{datetime.utcnow().isoformat(timespec='seconds')}Z"
+    return f"{datetime.now(timezone.utc).replace(tzinfo=None).isoformat(timespec='seconds')}Z"
 
 
 def _write_json_atomic(path: Path, data: Any) -> None:
@@ -210,7 +210,7 @@ def confirm_order_price(
 
 
 def apply_provider_presence_ttl(providers: List[Dict[str, Any]], now: Optional[datetime] = None) -> List[Dict[str, Any]]:
-    checked_at = now or datetime.utcnow()
+    checked_at = now or datetime.now(timezone.utc).replace(tzinfo=None)
     visible_providers: List[Dict[str, Any]] = []
 
     for provider in providers:
@@ -564,7 +564,7 @@ def save_order(order: Dict[str, Any], store_path: Optional[Path] = None) -> Dict
         else:
             payload.pop("customerComment", None)
         payload.pop("comment", None)
-        payload["id"] = payload.get("id") or f"PM-{datetime.utcnow().strftime('%Y%m%d%H%M%S%f')}"
+        payload["id"] = payload.get("id") or f"PM-{datetime.now(timezone.utc).replace(tzinfo=None).strftime('%Y%m%d%H%M%S%f')}"
         payload["createdAt"] = payload.get("createdAt") or _now_iso()
         payload["updatedAt"] = payload.get("updatedAt") or payload["createdAt"]
         payload["status"] = normalize_order_status(payload.get("status") or "searching")
@@ -1258,7 +1258,7 @@ def purge_stale_guest_customers(
     store_path: Optional[Path] = None,
     order_store_path: Optional[Path] = None,
 ) -> Dict[str, Any]:
-    threshold = datetime.utcnow() - timedelta(days=max(1, int(days)))
+    threshold = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=max(1, int(days)))
     orders = load_orders(order_store_path)
     customer_ids_with_orders = {
         str(order.get("customerId") or order.get("customer_id") or "").strip()
@@ -1836,9 +1836,12 @@ def update_provider_profile(provider_id: str, data: Dict[str, Any], store_path: 
     save_providers(providers, store_path)
 
     # Keep the owning customer row in sync so phone login restores this partner after logout.
-    customer_id = resolve_customer_id_for_provider(str(provider_id), store_path)
+    # Always use the customer store (never the providers file passed as store_path in tests).
+    customer_id = resolve_customer_id_for_provider(str(provider_id))
     if not customer_id and str(provider_id).startswith("provider-"):
-        customer_id = str(provider_id)[len("provider-") :].strip()
+        candidate = str(provider_id)[len("provider-") :].strip()
+        if candidate:
+            customer_id = candidate
     if customer_id and updated is not None:
         try:
             patch: Dict[str, Any] = {
@@ -1851,8 +1854,8 @@ def update_provider_profile(provider_id: str, data: Dict[str, Any], store_path: 
                 patch["phone"] = updated.get("phone")
             if updated.get("city"):
                 patch["city"] = updated.get("city")
-            update_customer_profile(customer_id, patch, store_path)
-            mark_user_role_registered(customer_id, "provider", store_path)
+            update_customer_profile(customer_id, patch)
+            mark_user_role_registered(customer_id, "provider")
         except ValueError:
             # Never fail provider save because of a parallel customer-row phone conflict.
             pass
@@ -1991,7 +1994,7 @@ def _offer_error_for_status(status: str) -> DispatchConflict:
 
 
 def _expire_offers_in_memory(offers: List[Dict[str, Any]], orders: List[Dict[str, Any]], now: Optional[datetime] = None) -> bool:
-    checked_at = now or datetime.utcnow()
+    checked_at = now or datetime.now(timezone.utc).replace(tzinfo=None)
     now_iso = f"{checked_at.isoformat(timespec='seconds')}Z"
     order_by_id = {str(order.get("id")): order for order in orders}
     changed = False
@@ -2076,7 +2079,7 @@ def _set_provider_status(provider_id: str, status: str, assigned_order_id: Optio
 
 
 def _provider_is_recent(provider: Dict[str, Any], now: Optional[datetime] = None) -> bool:
-    checked_at = now or datetime.utcnow()
+    checked_at = now or datetime.now(timezone.utc).replace(tzinfo=None)
     last_seen = _parse_iso(provider.get("lastSeenAt") or provider.get("updatedAt"))
     last_location_at = _parse_iso(provider.get("lastLocationAt") or provider.get("lastSeenAt") or provider.get("updatedAt"))
     if not last_seen or checked_at - last_seen > timedelta(seconds=PROVIDER_PRESENCE_TTL_SECONDS):
@@ -2098,7 +2101,7 @@ def eligible_providers_for_order(
         return []
 
     offered_ids = already_offered_provider_ids or set()
-    checked_at = now or datetime.utcnow()
+    checked_at = now or datetime.now(timezone.utc).replace(tzinfo=None)
     candidates: List[Dict[str, Any]] = []
 
     for provider in providers if providers is not None else load_providers():
@@ -2168,7 +2171,7 @@ def dispatch_order(
         if normalize_order_status(order.get("status")) != "searching":
             return attach_dispatch_to_order(order, offers)
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
         now_iso = f"{now.isoformat(timespec='seconds')}Z"
         offered_ids = {
             str(offer.get("providerId"))

@@ -1,6 +1,6 @@
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -171,7 +171,7 @@ def test_provider_presence_ttl_expires_online_provider():
     stale_provider = {
         "id": "provider-stale",
         "status": "online",
-        "lastSeenAt": (datetime.utcnow() - timedelta(seconds=90)).isoformat(timespec="seconds"),
+        "lastSeenAt": (datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=90)).isoformat(timespec="seconds"),
     }
 
     providers = apply_provider_presence_ttl([stale_provider])
@@ -181,7 +181,7 @@ def test_provider_presence_ttl_expires_online_provider():
 
 
 def _provider(provider_id, lat, lng, specialties=None, status="online", radius=50, assigned_order_id=None, last_seen_at=None):
-    now = datetime.utcnow().isoformat(timespec="seconds")
+    now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat(timespec="seconds")
     payload = {
         "id": provider_id,
         "name": provider_id,
@@ -220,7 +220,7 @@ def test_dispatch_creates_max_five_sorted_eligible_offers(tmp_path):
     provider_path = tmp_path / "providers.json"
     offer_path = tmp_path / "offers.json"
     pickup = {"lat": 48.6208, "lng": 22.2879}
-    stale_time = (datetime.utcnow() - timedelta(seconds=120)).isoformat(timespec="seconds")
+    stale_time = (datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=120)).isoformat(timespec="seconds")
 
     save_providers(
         [
@@ -452,7 +452,7 @@ def test_expired_offer_disappears_from_provider_queue(tmp_path):
     order = save_order({"service": "tow", "customerCoordinates": {"lat": 48.6208, "lng": 22.2879}}, store_path=order_path)
     dispatch_order(order["id"], order_path, provider_path, offer_path)
     offers = load_offers(offer_path)
-    offers[0]["expiresAt"] = (datetime.utcnow() - timedelta(seconds=1)).isoformat(timespec="seconds")
+    offers[0]["expiresAt"] = (datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=1)).isoformat(timespec="seconds")
     save_offers(offers, offer_path)
 
     assert get_provider_offers("p1", order_path, offer_path) == []
@@ -585,6 +585,46 @@ def test_duplicate_provider_phone_registration_rejected(tmp_path):
             },
             store_path=provider_path,
         )
+
+
+def test_provider_registration_links_customer_for_phone_login_restore(tmp_path, monkeypatch):
+    from bot.order_store import (
+        build_user_account_status,
+        find_registered_customer_by_phone,
+        update_provider_profile,
+    )
+
+    customer_path = tmp_path / "customers.json"
+    provider_path = tmp_path / "providers.json"
+    monkeypatch.setattr("bot.order_store._default_customer_store_path", lambda: customer_path)
+    monkeypatch.setattr("bot.order_store._default_provider_store_path", lambda: provider_path)
+
+    update_customer_profile(
+        "guest-vitaliy",
+        {"name": "Віталій", "phone": "+380661007434", "city": "Ужгород"},
+        store_path=customer_path,
+    )
+    update_provider_profile(
+        "provider-guest-vitaliy",
+        {
+            "name": "Віталій",
+            "phone": "+380661007434",
+            "city": "Ужгород",
+            "vehicle": "Volkswagen Crafter",
+            "plate": "BX5874HX",
+            "specialties": ["tow", "fuel"],
+            "serviceRadiusKm": 15,
+        },
+        store_path=provider_path,
+    )
+
+    restored = find_registered_customer_by_phone("+380661007434", store_path=customer_path)
+    assert restored is not None
+    assert restored["id"] == "guest-vitaliy"
+
+    status = build_user_account_status("guest-vitaliy", store_path=customer_path)
+    assert status["providerRegistered"] is True
+    assert status["linkedProviderId"] == "provider-guest-vitaliy"
 
 
 def test_guest_inherits_verification_from_tg_profile_by_phone(tmp_path, monkeypatch):
