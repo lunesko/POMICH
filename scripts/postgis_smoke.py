@@ -144,7 +144,7 @@ def main() -> None:
 
         def try_accept(offer: dict) -> tuple[str, str]:
             try:
-                result = accept_offer(offer["id"], offer["providerId"])
+                result = accept_offer(offer["id"], offer["providerId"], proposed_price=1200)
                 return "accepted", result["provider"]["id"]
             except DispatchConflict as exc:
                 return "conflict", exc.code
