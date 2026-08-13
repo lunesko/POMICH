@@ -918,19 +918,19 @@ describe('POMICH role-based flows', () => {
     expect(await screen.findByText(/Допомога на дорозі — поруч/i)).toBeInTheDocument()
 
     // Landing «Партнер» must open phone login (not blank registration).
-    const partnerButtons = screen.getAllByRole('button', { name: /Партнер|Надаю послуги|Стати партнером/i })
-    await user.click(partnerButtons[0])
-    expect(await screen.findByText(/^Увійти$/i)).toBeInTheDocument()
+    await user.click(screen.getAllByRole('button', { name: /Надаю послуги/i })[0])
+    expect(await screen.findByText('Увійти')).toBeInTheDocument()
     expect(screen.queryByText(/Реєстрація партнера/i)).not.toBeInTheDocument()
 
-    const phoneInput = screen.getByRole('textbox', { name: /Телефон|номер/i })
+    const phoneInput = document.querySelector('input[type="tel"]') as HTMLInputElement
+    expect(phoneInput).toBeTruthy()
     await user.clear(phoneInput)
     await user.type(phoneInput, '661007434')
-    await user.click(screen.getByRole('button', { name: /Надіслати код|Отримати код/i }))
+    await user.click(screen.getByRole('button', { name: /Надіслати код/i }))
 
-    const codeInput = await screen.findByRole('textbox', { name: /код/i })
+    const codeInput = await screen.findByPlaceholderText(/6 цифр/i)
     await user.type(codeInput, '123456')
-    await user.click(screen.getByRole('button', { name: /^Увійти$|Підтвердити/i }))
+    await user.click(screen.getByRole('button', { name: /Підтвердити/i }))
 
     expect(await screen.findByText('Партнер POMICH', {}, { timeout: 8000 })).toBeInTheDocument()
     expect(screen.queryByText(/Реєстрація партнера/i)).not.toBeInTheDocument()

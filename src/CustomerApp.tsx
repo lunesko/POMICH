@@ -3792,7 +3792,8 @@ function ProviderFlow({ providerToken, providerRegistered = false, onLogout, onR
           onChange={updateRegistrationForm}
           onToggleSpecialty={toggleRegistrationSpecialty}
           onSubmit={saveRegistration}
-          onLogin={onRestoreAccount ? onRestoreAccount : undefined}
+          onLogin={openPartnerRestoreOrLogin}
+        />
       )
     }
 
