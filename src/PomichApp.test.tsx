@@ -936,6 +936,89 @@ describe('POMICH role-based flows', () => {
     expect(screen.queryByText(/Реєстрація партнера/i)).not.toBeInTheDocument()
   })
 
+  it('partner registration login CTA opens phone restore, not password dead-end', async () => {
+    const user = userEvent.setup()
+    window.history.pushState({}, '', '/?role=provider')
+    renderApp()
+
+    expect(await screen.findByText('Реєстрація партнера')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /Вже маєте акаунт\? Увійти/i }))
+
+    expect(await screen.findByText('Увійти')).toBeInTheDocument()
+    expect(screen.getByText(/Код надійде у Telegram/i)).toBeInTheDocument()
+    expect(document.querySelector('input[type="tel"]')).toBeTruthy()
+    expect(screen.queryByText('Вхід партнера')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Логін')).not.toBeInTheDocument()
+  })
+
+  it('phone_already_registered shows restore CTA and opens phone login', async () => {
+    const user = userEvent.setup()
+    window.history.pushState({}, '', '/?role=provider')
+
+    vi.stubGlobal('fetch', mockRegisteredCustomerFetch((url, init) => {
+      if (url.includes('/auth/provider/self/session')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            role: 'provider',
+            subjectId: 'provider-guest-test',
+            providerId: 'provider-guest-test',
+            tokenType: 'Bearer',
+            accessToken: 'pomich_auth_v1.provider-self',
+            expiresAt: Math.floor(Date.now() / 1000) + 3600,
+          }),
+        })
+      }
+      if (url.includes('/providers/') && url.includes('/profile') && init?.method === 'PATCH') {
+        return Promise.resolve({
+          ok: false,
+          status: 409,
+          json: async () => ({ detail: 'phone_already_registered' }),
+        })
+      }
+      if (url.endsWith('/providers') || url.includes('/map/providers')) {
+        return Promise.resolve({ ok: true, json: async () => [] })
+      }
+      return undefined
+    }))
+
+    window.localStorage.setItem('pomichCustomerId', 'guest-test')
+    window.sessionStorage.setItem('pomichCustomerId', 'guest-test')
+    storeAuthSession(authSessionStorageKey('customer', 'guest-test'), {
+      role: 'customer',
+      subjectId: 'guest-test',
+      customerId: 'guest-test',
+      tokenType: 'Bearer',
+      accessToken: TEST_CUSTOMER_TOKEN,
+      expiresAt: Math.floor(Date.now() / 1000) + 3600,
+      profile: verifiedTestProfile,
+    })
+
+    renderApp()
+    expect(await screen.findByText('Реєстрація партнера')).toBeInTheDocument()
+
+    await user.type(screen.getByPlaceholderText(/Ваше ім'я/i), 'Віталій')
+    const phoneInput = document.querySelector('input[type="tel"]') as HTMLInputElement
+    await user.clear(phoneInput)
+    await user.type(phoneInput, '661007434')
+    await user.selectOptions(screen.getByRole('combobox', { name: /Марка авто/i }), 'Volkswagen')
+    await user.selectOptions(screen.getByRole('combobox', { name: /^Модель$/i }), 'Crafter')
+
+    const plateInput = screen.getByPlaceholderText(/AA 1234 BB|АА 1234 ВВ|BX/i)
+    await user.clear(plateInput)
+    await user.type(plateInput, 'BX5874HX')
+
+    await user.click(screen.getByRole('button', { name: /Евакуатор/i }))
+    await user.click(screen.getByRole('button', { name: /Зареєструватись/i }))
+
+    expect(await screen.findByRole('button', { name: /Увійти за цим номером/i })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /Увійти за цим номером/i }))
+
+    expect(await screen.findByText('Увійти')).toBeInTheDocument()
+    expect(document.querySelector('input[type="tel"]')).toBeTruthy()
+    expect(screen.queryByText('Вхід партнера')).not.toBeInTheDocument()
+  })
+
   it('logs out from header and clears stored auth', async () => {
     const user = userEvent.setup()
     window.localStorage.setItem('pomichCustomerId', 'guest-test')
@@ -1707,42 +1790,16 @@ describe('POMICH role-based flows', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Акаунт партнера не збігається')
   })
 
-  it('lets a provider sign in with an account before registration', async () => {
+  it('lets a provider open phone restore from registration instead of password dead-end', async () => {
     const user = userEvent.setup()
-    const providerSessionToken = 'pomich_auth_v1.provider-account-session'
-    vi.stubGlobal('fetch', mockRegisteredCustomerFetch((url) => {
-      if (url.includes('/auth/provider/login')) {
-        return Promise.resolve({
-          ok: true,
-          json: async () => ({
-            role: 'provider',
-            subjectId: 'provider-oleksandr',
-            providerId: 'provider-oleksandr',
-            tokenType: 'Bearer',
-            accessToken: providerSessionToken,
-            expiresAt: Math.floor(Date.now() / 1000) + 3600,
-          }),
-        })
-      }
-      if (url.endsWith('/providers')) {
-        return Promise.resolve({ ok: true, json: async () => [] })
-      }
-      return undefined
-    }))
-
     renderApp()
 
     const partnerButtons = await screen.findAllByRole('button', { name: /Надаю послуги/i })
     await user.click(partnerButtons[0]!)
-    expect(screen.getByText('Реєстрація партнера')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: /Вже маєте акаунт\? Увійти/i }))
-    expect(screen.getByText('Вхід партнера')).toBeInTheDocument()
-    await user.clear(screen.getByLabelText('Логін'))
-    await user.type(screen.getByLabelText('Логін'), 'oleksandr')
-    await user.type(screen.getByLabelText('Пароль'), 'provider-pass')
-    await user.click(screen.getByRole('button', { name: /Увійти/i }))
-
-    expect(await screen.findByText('Реєстрація партнера')).toBeInTheDocument()
+    // Landing partner entry is phone login for returning partners.
+    expect(await screen.findByText('Увійти')).toBeInTheDocument()
+    expect(screen.queryByText(/Реєстрація партнера/i)).not.toBeInTheDocument()
+    expect(document.querySelector('input[type="tel"]')).toBeTruthy()
   })
 
   it('moves from service selection to the tow flow', async () => {

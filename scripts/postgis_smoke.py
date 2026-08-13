@@ -4,7 +4,7 @@ import tempfile
 import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from sqlalchemy import create_engine, text
@@ -61,7 +61,7 @@ def _provider(
     verification_status: str = "verified",
     radius: int = 50,
 ) -> dict:
-    now = datetime.utcnow().isoformat(timespec="seconds")
+    now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat(timespec="seconds")
     return {
         "id": provider_id,
         "name": provider_id,
