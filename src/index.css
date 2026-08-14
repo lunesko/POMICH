@@ -6334,4 +6334,186 @@ html.tg-compact .pomich-ride-screen__map .leaflet-top.leaflet-left {
   }
 }
 
+/* ==========================================================================
+   POMICH Hero Branding & Component Animations (Logo, Text, Underline, Buttons)
+   ========================================================================== */
+
+/* 1. Staggered 3D Pop & Shimmer for Brand Title Letters */
+.landing-hero-brand-word {
+  display: inline-flex;
+  position: relative;
+  perspective: 1000px;
+}
+
+.landing-hero-brand-letter {
+  display: inline-block;
+  opacity: 0;
+  will-change: transform, opacity;
+  background: linear-gradient(135deg, var(--pomich-text) 0%, var(--pomich-accent, #16a36a) 50%, var(--pomich-accent-blue, #1d6fd4) 100%);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: pomichLetterPop 0.75s cubic-bezier(0.175, 0.885, 0.32, 1.25) forwards, pomichTextShimmer 8s linear infinite;
+}
+
+@keyframes pomichLetterPop {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 32px, -20px) rotateX(35deg) scale(0.85);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) rotateX(0deg) scale(1);
+  }
+}
+
+@keyframes pomichTextShimmer {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+/* 2. Animated Underline Glow Bar */
+.landing-hero-brand-underline {
+  display: block;
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #16A36A 0%, #1D6FD4 50%, #8EF0BE 100%);
+  background-size: 200% 100%;
+  box-shadow: 0 0 16px rgba(22, 163, 106, 0.6), 0 0 32px rgba(29, 111, 212, 0.4);
+  transform-origin: left center;
+  transform: scaleX(0);
+  opacity: 0;
+  animation: pomichUnderlineExpand 0.9s cubic-bezier(0.16, 1, 0.3, 1) 0.45s forwards, pomichGradientFlow 4s linear infinite;
+  margin-top: 4px;
+}
+
+@keyframes pomichUnderlineExpand {
+  0% {
+    transform: scaleX(0);
+    opacity: 0;
+  }
+  100% {
+    transform: scaleX(1);
+    opacity: 1;
+  }
+}
+
+@keyframes pomichGradientFlow {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+/* 3. Hero Eyebrow, Title & Subtitle Entrances */
+.landing-hero-eyebrow {
+  opacity: 0;
+  animation: pomichFadeUp 0.65s cubic-bezier(0.16, 1, 0.3, 1) 0.15s forwards;
+}
+
+.landing-hero-title {
+  opacity: 0;
+  animation: pomichFadeUp 0.7s cubic-bezier(0.16, 1, 0.3, 1) 0.5s forwards;
+}
+
+.landing-hero-support {
+  opacity: 0;
+  animation: pomichFadeUp 0.75s cubic-bezier(0.16, 1, 0.3, 1) 0.65s forwards;
+}
+
+@keyframes pomichFadeUp {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 18px, 0);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+/* 4. Action Buttons Animated Entrance & Hover Micro-Interactions */
+.landing-hero-ctas {
+  opacity: 0;
+  animation: pomichFadeUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.75s forwards;
+}
+
+.landing-hero-cta-primary,
+.landing-hero-cta-secondary {
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.25s ease, filter 0.25s ease !important;
+  will-change: transform, box-shadow;
+}
+
+.landing-hero-cta-primary {
+  background: linear-gradient(135deg, #16A36A 0%, #118253 60%, #1D6FD4 100%) !important;
+  box-shadow: 0 8px 24px rgba(22, 163, 106, 0.35), inset 0 1px 1px rgba(255, 255, 255, 0.3) !important;
+}
+
+.landing-hero-cta-primary:hover {
+  transform: translateY(-3px) scale(1.03) !important;
+  box-shadow: 0 14px 36px rgba(22, 163, 106, 0.55), 0 0 20px rgba(29, 111, 212, 0.4), inset 0 1px 1px rgba(255, 255, 255, 0.4) !important;
+}
+
+.landing-hero-cta-primary:active {
+  transform: translateY(1px) scale(0.97) !important;
+  box-shadow: 0 4px 14px rgba(22, 163, 106, 0.3) !important;
+}
+
+.landing-hero-cta-secondary {
+  background: linear-gradient(135deg, #1D6FD4 0%, #1456A8 60%, #856110 100%) !important;
+  box-shadow: 0 8px 24px rgba(29, 111, 212, 0.35), inset 0 1px 1px rgba(255, 255, 255, 0.3) !important;
+}
+
+.landing-hero-cta-secondary:hover {
+  transform: translateY(-3px) scale(1.03) !important;
+  box-shadow: 0 14px 36px rgba(29, 111, 212, 0.55), 0 0 20px rgba(184, 134, 11, 0.4), inset 0 1px 1px rgba(255, 255, 255, 0.4) !important;
+}
+
+.landing-hero-cta-secondary:active {
+  transform: translateY(1px) scale(0.97) !important;
+  box-shadow: 0 4px 14px rgba(29, 111, 212, 0.3) !important;
+}
+
+.landing-hero-cta-primary::after,
+.landing-hero-cta-secondary::after {
+  content: "";
+  position: absolute;
+  top: -50%;
+  left: -60%;
+  width: 60%;
+  height: 200%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.32) 50%,
+    transparent 100%
+  );
+  transform: rotate(25deg);
+  animation: pomichButtonShine 4.5s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes pomichButtonShine {
+  0%, 70% {
+    left: -60%;
+  }
+  100% {
+    left: 140%;
+  }
+}
+
 
