@@ -1789,6 +1789,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
     }
 
     const refreshOrder = () => {
+      if (document.visibilityState !== "visible") return
       getOrder(orderId)
         .then(applyPolledOrder)
         .catch(() => undefined)

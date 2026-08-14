@@ -762,6 +762,7 @@ export default function ProviderFlow({
     if (!onDuty || !providerAuthToken) return
 
     const heartbeat = () => {
+      if (document.visibilityState !== "visible") return
       const presenceId = readAuthSessionSubject(providerAuthToken) || providerId
       updateProviderPresence(presenceId, {
         status: "online",
@@ -786,6 +787,7 @@ export default function ProviderFlow({
     const subjectId = readAuthSessionSubject(providerAuthToken) || providerId
 
     const refreshOffers = () => {
+      if (document.visibilityState !== "visible") return
       getProviderOffers(subjectId, providerAuthToken)
         .then((offers) => {
           if (!cancelled) {
@@ -849,6 +851,7 @@ export default function ProviderFlow({
     const radiusKm = providerProfile.serviceRadiusKm ?? registrationForm.serviceRadiusKm ?? DEFAULT_SERVICE_RADIUS_KM
 
     const refreshNearby = () => {
+      if (document.visibilityState !== "visible") return
       const loc = providerLocationRef.current
       getNearbyMapOrders(loc.lat, loc.lng, radiusKm)
         .then((orders) => {
