@@ -299,8 +299,9 @@ export default function ProviderFlow({
   const partnerRegisteredFromStorage =
     typeof window !== "undefined" &&
     Boolean(window.localStorage.getItem(`pomichPartnerRegistered:${providerId}`))
-  const linkedPartnerId =
+  const rawLinkedPartnerId =
     typeof window !== "undefined" ? window.sessionStorage.getItem("pomichLinkedProviderId") : ""
+  const linkedPartnerId = providerRegistered === false ? "" : rawLinkedPartnerId
   const effectiveProviderRegistered = providerRegistered || partnerRegisteredFromStorage
   const providerSessionStorageKey = useMemo(() => authSessionStorageKey("provider", providerId), [providerId])
   const [providerAccessToken, setProviderAccessToken] = useState<string | undefined>(() => {
@@ -329,7 +330,7 @@ export default function ProviderFlow({
   const [step, setStep] = useState<"register" | "verify" | "duty" | "offer" | "awaiting_price" | "navigation" | "arrived" | "completed">(() => {
     if (typeof window === "undefined") return "register"
     if (initialScreen === "verify") return "verify"
-    if (effectiveProviderRegistered || window.localStorage.getItem(`pomichPartnerRegistered:${getActiveProviderId()}`)) return "duty"
+    if (effectiveProviderRegistered || window.localStorage.getItem(`pomichPartnerRegistered:${getActiveProviderId()}`) || Boolean(linkedPartnerId)) return "duty"
     return "register"
   })
   const [dutySheetSnap, setDutySheetSnap] = useState<"half" | "expanded">(() =>
@@ -424,9 +425,16 @@ export default function ProviderFlow({
       ? readStoredAuthSession(authSessionStorageKey("customer", customerIdForOtp), "customer", customerIdForOtp)
       : undefined)
   const [customerOtpProfile, setCustomerOtpProfile] = useState<CustomerProfile | undefined>()
+  const isPartnerRegisteredAndCompleted = Boolean(
+    providerProfile.registeredAt ||
+    (effectiveProviderRegistered && (providerProfile.vehicle || registrationForm.vehicle || registrationForm.vehicleMake))
+  )
   const providerCanGoOnline =
-    Boolean(providerProfile.registeredAt || effectiveProviderRegistered) &&
-    (isProviderPhoneVerified(providerProfile) || Boolean(customerOtpProfile && isCustomerVerified(customerOtpProfile)))
+    isPartnerRegisteredAndCompleted &&
+    (isProviderPhoneVerified(providerProfile) ||
+     Boolean(customerOtpProfile && isCustomerVerified(customerOtpProfile)) ||
+     Boolean(customerIdForOtp && customerTokenForOtp) ||
+     Boolean(readBootstrapProfile()?.phone))
   const dutyAutoAttemptedRef = useRef(false)
 
   const markProviderPhoneVerified = useCallback((currentProvider?: ProviderAvailability) => {
@@ -502,6 +510,10 @@ export default function ProviderFlow({
       writeCachedProviderProfile({ ...merged, id: currentProvider.id || providerId })
       return merged
     })
+    if (typeof window !== "undefined" && (currentProvider.registeredAt || currentProvider.vehicle || currentProvider.plate)) {
+      window.localStorage.setItem(`pomichPartnerRegistered:${currentProvider.id || providerId}`, "1")
+      window.localStorage.setItem(`pomichPartnerRegistered:${getActiveProviderId()}`, "1")
+    }
     // Always prefill (including empty shells without registeredAt) so role switch is not blank.
     mergeRegistrationFormFromSources([currentProvider], { overwrite: Boolean(currentProvider.registeredAt) })
     setOnDuty(currentProvider.status === "online" || currentProvider.status === "busy")
@@ -630,7 +642,7 @@ export default function ProviderFlow({
           if (current !== "register" && current !== "verify" && current !== "duty") return current
           // Returning / linked partners stay on duty; go-online opens prefilled completion if needed.
           // Only first-time partners without a linked account are forced into blank registration.
-          if (!registered && !effectiveProviderRegistered) return "register"
+          if (!registered && !effectiveProviderRegistered && !linkedPartnerId) return "register"
           if (registered && isProviderPhoneVerified(resolved || cached || {})) {
             return current === "register" || current === "verify" ? "duty" : current
           }
@@ -711,6 +723,11 @@ export default function ProviderFlow({
     providerProfile.serviceRadiusKm,
   ])
 
+  const providerLocationRef = useRef(providerLocation)
+  useEffect(() => {
+    providerLocationRef.current = providerLocation
+  }, [providerLocation])
+
   useEffect(() => {
     if (!onDuty || typeof navigator === "undefined" || !("geolocation" in navigator)) return
 
@@ -748,7 +765,7 @@ export default function ProviderFlow({
       const presenceId = readAuthSessionSubject(providerAuthToken) || providerId
       updateProviderPresence(presenceId, {
         status: "online",
-        location: providerLocation,
+        location: providerLocationRef.current,
         etaMinutes: providerProfile.etaMinutes ?? provider.etaMinutes,
       }, providerAuthToken).catch(() => undefined)
     }
@@ -756,7 +773,7 @@ export default function ProviderFlow({
     heartbeat()
     const interval = window.setInterval(heartbeat, 12000)
     return () => window.clearInterval(interval)
-  }, [onDuty, providerAuthToken, providerId, providerLocation, providerProfile.etaMinutes])
+  }, [onDuty, providerAuthToken, providerId, providerProfile.etaMinutes])
 
   useEffect(() => {
     const interval = window.setInterval(() => setOfferClock(Date.now()), 1000)
@@ -832,7 +849,8 @@ export default function ProviderFlow({
     const radiusKm = providerProfile.serviceRadiusKm ?? registrationForm.serviceRadiusKm ?? DEFAULT_SERVICE_RADIUS_KM
 
     const refreshNearby = () => {
-      getNearbyMapOrders(providerLocation.lat, providerLocation.lng, radiusKm)
+      const loc = providerLocationRef.current
+      getNearbyMapOrders(loc.lat, loc.lng, radiusKm)
         .then((orders) => {
           if (cancelled) return
           const visible = (Array.isArray(orders) ? orders : []).filter((pin) => {
@@ -865,8 +883,6 @@ export default function ProviderFlow({
     activeOrder,
     onDuty,
     providerAuthToken,
-    providerLocation.lat,
-    providerLocation.lng,
     providerProfile.serviceRadiusKm,
     providerSpecialties,
     registrationForm.serviceRadiusKm,
@@ -1310,9 +1326,15 @@ export default function ProviderFlow({
       const registered = Boolean(fresh?.registeredAt || providerProfile.registeredAt || effectiveProviderRegistered)
       const verified =
         isProviderPhoneVerified(fresh?.id ? fresh : providerProfile) ||
-        Boolean(customerOtpProfile && isCustomerVerified(customerOtpProfile))
+        Boolean(customerOtpProfile && isCustomerVerified(customerOtpProfile)) ||
+        Boolean(customerIdForOtp && customerTokenForOtp) ||
+        Boolean(readBootstrapProfile()?.phone)
 
-      if (nextDuty && !registered) {
+      if (verified && providerProfile.verificationStatus !== "verified") {
+        markProviderPhoneVerified(fresh)
+      }
+
+      if (nextDuty && !isPartnerRegisteredAndCompleted) {
         const message = "Спочатку заповніть профіль партнера."
         setOfferError(message)
         setPresenceToast(message)
@@ -1657,7 +1679,7 @@ export default function ProviderFlow({
             <div style={{ marginTop: 10 }}>
               <PrimaryButton
                 label={
-                  !(providerProfile.registeredAt || effectiveProviderRegistered)
+                  !isPartnerRegisteredAndCompleted
                     ? "Завершити профіль"
                     : !providerCanGoOnline
                       ? "Підтвердити телефон"
@@ -1731,7 +1753,7 @@ export default function ProviderFlow({
             ) : (
               <PrimaryButton
                 label={
-                  !(providerProfile.registeredAt || effectiveProviderRegistered)
+                  !isPartnerRegisteredAndCompleted
                     ? "Завершити профіль"
                     : !providerCanGoOnline
                       ? "Підтвердити телефон"
@@ -1939,15 +1961,28 @@ export default function ProviderFlow({
                     ? "Підтвердити телефон"
                     : presenceSaving
                       ? "Оновлюємо статус…"
-                      : "Вийти на лінію"
+                      : onDuty
+                        ? "Знятися з лінії"
+                        : "Вийти на лінію"
               }
-              onClick={() => void setDuty(true)}
+              onClick={() => {
+                if (onDuty) {
+                  void setDuty(false)
+                } else if (!isPartnerRegisteredAndCompleted || !providerCanGoOnline) {
+                  openPhoneOrProfileGate()
+                } else {
+                  void setDuty(true)
+                }
+              }}
               disabled={presenceSaving}
             />
           </div>
         </div>
         <div data-sheet-full>
-          <SheetHeading title="Партнер POMICH" subtitle={onDuty ? "Ви на лінії — заявки на карті" : "Вийдіть на лінію, щоб бачити заявки"} />
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 12 }}>
+            <SheetHeading title="Партнер POMICH" subtitle={onDuty ? "Ви на лінії — заявки на карті" : "Вийдіть на лінію, щоб бачити заявки"} />
+            <DutyStatusToggle onDuty={onDuty} saving={presenceSaving} disabled={presenceSaving} onToggle={handleDutyToggle} />
+          </div>
           <div style={{ marginTop: 14 }}>
             <PrimaryButton
               label={
@@ -1957,9 +1992,19 @@ export default function ProviderFlow({
                     ? "Підтвердити телефон"
                     : presenceSaving
                       ? "Оновлюємо статус…"
-                      : "Вийти на лінію"
+                      : onDuty
+                        ? "Знятися з лінії"
+                        : "Вийти на лінію"
               }
-              onClick={() => void setDuty(true)}
+              onClick={() => {
+                if (onDuty) {
+                  void setDuty(false)
+                } else if (!isPartnerRegisteredAndCompleted || !providerCanGoOnline) {
+                  openPhoneOrProfileGate()
+                } else {
+                  void setDuty(true)
+                }
+              }}
               disabled={presenceSaving}
             />
           </div>

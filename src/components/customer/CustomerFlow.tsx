@@ -1028,18 +1028,32 @@ function SearchingStep({ orderId, status, order, pickup, destination, cancelErro
         <StatusPill status={status} />
       </div>
 
-      <div style={{ position: "relative", height: 142, display: "flex", alignItems: "center", justifyContent: "center", marginTop: 8 }}>
-        {[0, 1, 2].map((item) => (
-          <div key={item} className="pulse-ring" style={{ position: "absolute", width: 70 + item * 42, height: 70 + item * 42, borderRadius: 999, background: BRAND, opacity: 0.12 }} />
-        ))}
-        <div style={{ width: 72, height: 72, borderRadius: 24, background: "var(--pomich-accent-panel-bg)", boxShadow: "0 16px 36px rgba(17,19,21,0.24)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 32 }}>🚛</div>
+      <div className="pomich-radar-container">
+        <div className="pomich-radar-ring" />
+        <div className="pomich-radar-ring" />
+        <div className="pomich-radar-ring" />
+        <div className="pomich-radar-beam" />
+        <div className="pomich-radar-center-icon">🚛</div>
       </div>
 
-      <div style={{ color: MUTED, fontWeight: 750, lineHeight: 1.4 }}>{noProviders ? "Можна повторити пошук без створення нової заявки." : offersSent > 0 ? `Звернулися до ${offersSent} партнерів. Перший, хто підтвердить, отримає заявку.` : "Партнери бачать ваше місцезнаходження та відстань до вас."}</div>
+      <div style={{ color: MUTED, fontWeight: 750, lineHeight: 1.4, textAlign: "center" }}>
+        {noProviders
+          ? "Можна повторити пошук без створення нової заявки."
+          : offersSent > 0
+            ? `Звернулися до ${offersSent} партнерів. Перший, хто підтвердить, отримає заявку.`
+            : "Скануємо найближчих партнерів на лінії… Партнери бачать ваше місцезнаходження."}
+      </div>
       <div style={{ marginTop: 16 }}><Timeline status={status} /></div>
       <div style={{ marginTop: 16, display: "grid", gap: 9 }}>
-        {["Заявку надіслано", "Партнери переглядають деталі", "Очікуємо підтвердження"].map((item) => (
-          <div key={item} style={{ background: SURFACE_TONE, borderRadius: 15, border: `1px solid ${BORDER}`, padding: "12px 14px", fontWeight: 850, color: DARK }}>✓ {item}</div>
+        {[
+          { text: "Заявку надіслано в систему", active: true },
+          { text: "Сканування та розсилка партнерам", active: true },
+          { text: "Очікування підтвердження ціни", active: !noProviders },
+        ].map((item) => (
+          <div key={item.text} style={{ background: SURFACE_TONE, borderRadius: 15, border: `1px solid ${BORDER}`, padding: "12px 14px", fontWeight: 850, color: DARK, display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ color: item.active ? "var(--pomich-accent, #16a36a)" : "var(--pomich-muted)", fontWeight: 900 }}>{item.active ? "✓" : "⏳"}</span>
+            <span>{item.text}</span>
+          </div>
         ))}
       </div>
       <div style={{ display: "grid", gap: 10, marginTop: 16 }}>

@@ -130,15 +130,16 @@ def _delete_stored_otp_telegram_message(record: Dict[str, Any]) -> None:
 
     preferred = normalize_telegram_bot_kind(str(record.get("telegramBotKind") or ""))
     kinds = [preferred] if preferred else ["customer", "provider"]
-    if preferred:
-        other = "provider" if preferred == "customer" else "customer"
-        kinds.append(other)
 
-    try:
-        for kind in kinds:
-            delete_message(str(chat_id), int(message_id), kind=kind)
-    except (TypeError, ValueError):
-        return
+    def _async_delete() -> None:
+        try:
+            for kind in kinds:
+                delete_message(str(chat_id), int(message_id), kind=kind)
+        except Exception:
+            pass
+
+    thread = threading.Thread(target=_async_delete, daemon=True)
+    thread.start()
 
 
 def _schedule_otp_message_deletion(

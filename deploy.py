@@ -9,6 +9,17 @@ import time
 import paramiko
 from pathlib import Path
 
+def load_env_deploy():
+    env_file = Path(__file__).parent / ".env.deploy"
+    if env_file.exists():
+        for line in env_file.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                k, v = line.split("=", 1)
+                os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+
+load_env_deploy()
+
 HOST = os.environ.get("POMICH_SSH_HOST", "157.173.101.252")
 USER = os.environ.get("POMICH_SSH_USER", "root")
 PASSWORD = os.environ.get("POMICH_SSH_PASSWORD", "")
@@ -33,7 +44,7 @@ def ssh_connect():
 
 
 def run(ssh, cmd, check=True, timeout=300):
-    print(f"  $ {cmd}")
+    print(f"  $ {cmd}", flush=True)
     stdin, stdout, stderr = ssh.exec_command(cmd, timeout=timeout)
     out = stdout.read().decode(errors="replace").strip()
     err = stderr.read().decode(errors="replace").strip()

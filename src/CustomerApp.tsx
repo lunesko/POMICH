@@ -285,12 +285,19 @@ export default function CustomerApp() {
         applyRoleToUrl("provider")
         return
       }
+
+      if (resolved.token) {
+        if (linkedId) storeLinkedProviderId(linkedId)
+        setAccount({ ...status, linkedProviderId: linkedId || status.linkedProviderId })
+        setCustomerToken(resolved.token)
+        if (status.profile && typeof window !== "undefined") {
+          window.sessionStorage.setItem("pomichBootstrapProfile", JSON.stringify(status.profile))
+        }
+      }
     } catch {
       // Fall through to phone OTP when partner session cannot be restored.
     }
 
-    setAccount(null)
-    setCustomerToken(undefined)
     setRole(null)
     beginOnboarding("provider", false, !telegramContext.initData)
   }, [beginOnboarding, applyRoleToUrl, telegramContext])

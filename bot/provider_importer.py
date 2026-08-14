@@ -26,6 +26,10 @@ OVERPASS_URLS = (
     "https://overpass-api.de/api/interpreter",
     "https://overpass.kumi.systems/api/interpreter",
 )
+# Split city queries when area is large or Overpass returns OOM/timeout.
+MAX_BBOX_SPAN_DEG = 0.12  # ~13 km; larger bboxes are queried as a grid
+OVERPASS_RETRIES = 3
+OVERPASS_BACKOFF_SECONDS = 4.0
 
 FAKE_PHONE_PATTERNS = (
     r"^\+?380?0{6,}",
@@ -298,6 +302,57 @@ out center tags;
 """
 
 
+def _bbox_span(bbox: tuple[float, float, float, float]) -> tuple[float, float]:
+    south, west, north, east = bbox
+    return (max(0.0, north - south), max(0.0, east - west))
+
+
+def _split_bbox(
+    bbox: tuple[float, float, float, float],
+    *,
+    rows: int = 2,
+    cols: int = 2,
+) -> list[tuple[float, float, float, float]]:
+    south, west, north, east = bbox
+    rows = max(1, rows)
+    cols = max(1, cols)
+    lat_step = (north - south) / rows
+    lng_step = (east - west) / cols
+    chunks: list[tuple[float, float, float, float]] = []
+    for row in range(rows):
+        for col in range(cols):
+            chunk_south = south + row * lat_step
+            chunk_west = west + col * lng_step
+            chunk_north = north if row == rows - 1 else chunk_south + lat_step
+            chunk_east = east if col == cols - 1 else chunk_west + lng_step
+            chunks.append((chunk_south, chunk_west, chunk_north, chunk_east))
+    return chunks
+
+
+def _needs_bbox_split(bbox: tuple[float, float, float, float]) -> bool:
+    lat_span, lng_span = _bbox_span(bbox)
+    return lat_span > MAX_BBOX_SPAN_DEG or lng_span > MAX_BBOX_SPAN_DEG
+
+
+def _is_overpass_capacity_error(exc: BaseException) -> bool:
+    text = str(exc).lower()
+    return any(
+        token in text
+        for token in (
+            "oom",
+            "out of memory",
+            "timeout",
+            "too many requests",
+            "rate_limited",
+            "429",
+            "504",
+            "503",
+            "gateway",
+            "remark",
+        )
+    )
+
+
 def _fetch_overpass_payload(bbox: tuple[float, float, float, float], *, user_agent_suffix: str) -> dict[str, Any]:
     body = _overpass_query(bbox).encode("utf-8")
     headers = {
@@ -305,31 +360,35 @@ def _fetch_overpass_payload(bbox: tuple[float, float, float, float], *, user_age
         "User-Agent": f"POMICH/1.0 ({user_agent_suffix})",
     }
     last_error: Exception | None = None
-    for overpass_url in OVERPASS_URLS:
-        request = urllib.request.Request(overpass_url, data=body, headers=headers, method="POST")
-        try:
-            with urllib.request.urlopen(request, timeout=120) as response:
-                return json.loads(response.read().decode("utf-8"))
-        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, json.JSONDecodeError, ValueError) as exc:
-            last_error = exc
-            continue
+    for attempt in range(OVERPASS_RETRIES):
+        for overpass_url in OVERPASS_URLS:
+            request = urllib.request.Request(overpass_url, data=body, headers=headers, method="POST")
+            try:
+                with urllib.request.urlopen(request, timeout=120) as response:
+                    payload = json.loads(response.read().decode("utf-8"))
+                remark = str(payload.get("remark") or "").lower()
+                if any(token in remark for token in ("runtime error", "out of memory", "timeout")):
+                    raise urllib.error.URLError(f"overpass remark: {payload.get('remark')}")
+                return payload
+            except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, json.JSONDecodeError, ValueError) as exc:
+                last_error = exc
+                continue
+        if attempt + 1 < OVERPASS_RETRIES:
+            time.sleep(OVERPASS_BACKOFF_SECONDS * (attempt + 1))
     if last_error:
         raise last_error
     raise urllib.error.URLError("no Overpass endpoints configured")
 
 
-def fetch_overpass_providers(
-    bbox: tuple[float, float, float, float],
+def _providers_from_payload(
+    payload: dict[str, Any],
     *,
     city: str,
     settlement_id: str,
-    oblast: str = "",
-    user_agent_suffix: str = "provider-import",
+    oblast: str,
+    seen: set[str],
 ) -> list[dict[str, Any]]:
-    payload = _fetch_overpass_payload(bbox, user_agent_suffix=user_agent_suffix)
-
     records: list[dict[str, Any]] = []
-    seen: set[str] = set()
     id_prefix = settlement_id or _slug(city)
     for element in payload.get("elements", []):
         tags = element.get("tags") or {}
@@ -378,6 +437,69 @@ def fetch_overpass_providers(
             )
         )
     return records
+
+
+def fetch_overpass_providers(
+    bbox: tuple[float, float, float, float],
+    *,
+    city: str,
+    settlement_id: str,
+    oblast: str = "",
+    user_agent_suffix: str = "provider-import",
+    _depth: int = 0,
+) -> list[dict[str, Any]]:
+    """Fetch OSM providers for a bbox, auto-splitting large/failing queries."""
+    seen: set[str] = set()
+    if _needs_bbox_split(bbox) and _depth < 3:
+        records: list[dict[str, Any]] = []
+        for chunk in _split_bbox(bbox, rows=2, cols=2):
+            chunk_records = fetch_overpass_providers(
+                chunk,
+                city=city,
+                settlement_id=settlement_id,
+                oblast=oblast,
+                user_agent_suffix=user_agent_suffix,
+                _depth=_depth + 1,
+            )
+            for item in chunk_records:
+                key = f"{item['name'].lower()}:{item['location']['lat']:.4f}:{item['location']['lng']:.4f}"
+                if key in seen:
+                    continue
+                seen.add(key)
+                records.append(item)
+            time.sleep(1.0)
+        return records
+
+    try:
+        payload = _fetch_overpass_payload(bbox, user_agent_suffix=user_agent_suffix)
+        return _providers_from_payload(
+            payload,
+            city=city,
+            settlement_id=settlement_id,
+            oblast=oblast,
+            seen=seen,
+        )
+    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, json.JSONDecodeError, ValueError) as exc:
+        if _depth < 3 and _is_overpass_capacity_error(exc):
+            records = []
+            for chunk in _split_bbox(bbox, rows=2, cols=2):
+                chunk_records = fetch_overpass_providers(
+                    chunk,
+                    city=city,
+                    settlement_id=settlement_id,
+                    oblast=oblast,
+                    user_agent_suffix=user_agent_suffix,
+                    _depth=_depth + 1,
+                )
+                for item in chunk_records:
+                    key = f"{item['name'].lower()}:{item['location']['lat']:.4f}:{item['location']['lng']:.4f}"
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    records.append(item)
+                time.sleep(1.5)
+            return records
+        raise
 
 
 def import_settlement_providers(
@@ -485,9 +607,36 @@ def import_ukraine_providers(
 
     combined: list[dict[str, Any]] = []
     per_settlement: list[dict[str, Any]] = []
+    total_selected = len(selected)
+
+    def _status(**kwargs: Any) -> None:
+        try:
+            from scripts.ops.import_monitor_status import write_import_status
+
+            write_import_status(**kwargs)
+        except Exception:
+            pass
+
+    _status(
+        phase="running",
+        total=total_selected,
+        completed=0,
+        message=f"Starting import of {total_selected} settlements",
+    )
+
     for index, settlement in enumerate(selected):
         if index > 0 and delay_seconds > 0:
             time.sleep(delay_seconds)
+        _status(
+            phase="running",
+            current_city=str(settlement.get("name") or ""),
+            current_oblast=str(settlement.get("oblast") or ""),
+            current_settlement_id=str(settlement.get("id") or ""),
+            completed=index,
+            total=total_selected,
+            providers_stored=len(combined),
+            message=f"Importing {settlement.get('name') or settlement.get('id')}",
+        )
         result = import_settlement_providers(settlement, prefer_osm=prefer_osm, use_seed=use_seed and str(settlement.get("id")) == "uzhhorod")
         combined.extend(result["providers"])
         per_settlement.append(
@@ -500,6 +649,13 @@ def import_ukraine_providers(
         )
 
     with_phone = sum(1 for item in combined if item.get("phone"))
+    _status(
+        phase="done",
+        completed=total_selected,
+        total=total_selected,
+        providers_stored=len(combined),
+        message=f"Finished {total_selected} settlements, {len(combined)} providers",
+    )
     return {
         "settlements": len(selected),
         "providers": filter_non_occupied_providers(combined),

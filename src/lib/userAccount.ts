@@ -1,5 +1,7 @@
 import type { CustomerProfile } from "../api/client"
 import { DEFAULT_CUSTOMER_NAME, isCustomerProfileComplete } from "./customerProfile"
+import { getActiveProviderId } from "./constants"
+import { readCachedProviderProfile } from "./providerProfileCache"
 
 /** True when a stored web profile name differs from what the user just entered. */
 export function isStoredProfileNameMismatch(storedName: string | undefined, enteredName: string): boolean {
@@ -31,7 +33,7 @@ export function isClientProfileComplete(profile: CustomerProfile): boolean {
 /** Registered on server or profile already has name + valid phone. */
 export function isReturningClient(status: UserAccountStatus): boolean {
   if (status.clientRegistered) return true
-  return Boolean(status.profile && isCustomerProfileComplete(status.profile))
+  return Boolean(status.profile && isClientProfileComplete(status.profile))
 }
 
 export function isPartnerLocallyRegistered(providerId: string): boolean {
@@ -45,6 +47,14 @@ export function isReturningPartner(status: UserAccountStatus): boolean {
   if (status.rolesRegistered.includes("provider")) return true
   const linkedId = (status.linkedProviderId || "").trim() || resolveProviderIdForCustomer(status.customerId, status.linkedProviderId)
   if (linkedId && isPartnerLocallyRegistered(linkedId)) return true
+  if (typeof window !== "undefined") {
+    const activeId = getActiveProviderId()
+    if (activeId && isPartnerLocallyRegistered(activeId)) return true
+    const cached = readCachedProviderProfile(linkedId || activeId)
+    if (cached && (cached.registeredAt || cached.vehicle || cached.plate || (cached.name && cached.phone))) return true
+    const bootstrap = readBootstrapProfile()
+    if (bootstrap && ((bootstrap as any).vehicle || (bootstrap as any).plate)) return true
+  }
   return Boolean((status.linkedProviderId || "").trim())
 }
 
