@@ -213,16 +213,17 @@ class TelegramBotClient:
         *,
         reply_markup: dict[str, Any] | None = None,
         parse_mode: str | None = None,
+        timeout: int = 5,
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {"chat_id": chat_id, "text": text}
         if reply_markup is not None:
             payload["reply_markup"] = reply_markup
         if parse_mode is not None:
             payload["parse_mode"] = parse_mode
-        return self.request("sendMessage", payload)
+        return self.request("sendMessage", payload, timeout=timeout)
 
-    def delete_message(self, chat_id: str | int, message_id: int) -> dict[str, Any]:
-        return self.request("deleteMessage", {"chat_id": chat_id, "message_id": message_id})
+    def delete_message(self, chat_id: str | int, message_id: int, *, timeout: int = 5) -> dict[str, Any]:
+        return self.request("deleteMessage", {"chat_id": chat_id, "message_id": message_id}, timeout=timeout)
 
     def set_chat_menu_button(self, text: str, web_app_url: str) -> dict[str, Any]:
         return self.request(
@@ -698,18 +699,27 @@ def send_message(
     *,
     parse_mode: str | None = None,
     kind: TelegramBotKind | str | None = "customer",
+    timeout: int = 5,
 ) -> dict[str, Any]:
     bot_kind = normalize_telegram_bot_kind(kind) or "customer"
     try:
-        return TelegramBotClient(kind=bot_kind).send_message(chat_id, text, parse_mode=parse_mode)
+        return TelegramBotClient(kind=bot_kind).send_message(
+            chat_id, text, parse_mode=parse_mode, timeout=timeout
+        )
     except TelegramApiError as exc:
         return {"ok": False, "error": str(exc)}
 
 
-def delete_message(chat_id: str | int, message_id: int, *, kind: TelegramBotKind | str | None = "customer") -> dict[str, Any]:
+def delete_message(
+    chat_id: str | int,
+    message_id: int,
+    *,
+    kind: TelegramBotKind | str | None = "customer",
+    timeout: int = 5,
+) -> dict[str, Any]:
     bot_kind = normalize_telegram_bot_kind(kind) or "customer"
     try:
-        return TelegramBotClient(kind=bot_kind).delete_message(chat_id, message_id)
+        return TelegramBotClient(kind=bot_kind).delete_message(chat_id, message_id, timeout=timeout)
     except TelegramApiError as exc:
         return {"ok": False, "error": str(exc)}
 

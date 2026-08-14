@@ -991,6 +991,42 @@ def test_customer_phone_login_send_and_confirm(monkeypatch, tmp_path) -> None:
     assert body["account"]["clientRegistered"] is True
 
 
+def test_phone_login_confirm_does_not_call_telegram(monkeypatch, tmp_path) -> None:
+    _use_temp_store(monkeypatch, tmp_path)
+    otp_path = tmp_path / "otp_codes.json"
+    telegram_calls: list[str] = []
+    monkeypatch.setattr("bot.otp_verification._default_otp_store_path", lambda: otp_path)
+    monkeypatch.setattr("bot.otp_verification._generate_otp_code", lambda: "445566")
+    monkeypatch.setattr("bot.otp_verification._send_telegram_otp", lambda chat_id, code, **kwargs: 321)
+    monkeypatch.setattr("bot.otp_verification._run_in_background", lambda fn: fn())
+    monkeypatch.setattr(
+        "bot.telegram_bot.send_message",
+        lambda *args, **kwargs: telegram_calls.append("send") or {"ok": True, "result": {"message_id": 1}},
+    )
+    monkeypatch.setattr(
+        "bot.telegram_bot.delete_message",
+        lambda *args, **kwargs: telegram_calls.append("delete") or {"ok": True},
+    )
+    monkeypatch.setenv("POMICH_OTP_SECRET", "test-otp-secret")
+    order_store.update_customer_profile(
+        "tg-829741830",
+        {"name": "Vitaliy", "phone": "+380661007434"},
+    )
+
+    client = TestClient(app)
+    send_response = client.post("/api/auth/customer/phone/login/send", json={"phone": "+380661007434"})
+    assert send_response.status_code == 200
+    assert send_response.json().get("sent") is True
+    telegram_calls.clear()
+
+    confirm_response = client.post(
+        "/api/auth/customer/phone/login/confirm",
+        json={"phone": "+380661007434", "code": "445566"},
+    )
+    assert confirm_response.status_code == 200
+    assert telegram_calls == []
+
+
 def test_customer_phone_login_send_allows_duplicate_registered_phone(monkeypatch, tmp_path) -> None:
     """Login OTP must not 500 when guest + tg rows share the same phone."""
     _use_temp_store(monkeypatch, tmp_path)

@@ -36,6 +36,13 @@ OTP_RATE_LIMIT_MAX_SENDS = 3
 # Cross-customer debounce: same phone / Telegram chat must not get two codes within this window.
 OTP_SEND_COOLDOWN_SECONDS = 45
 OTP_CODE_LENGTH = 6
+# Never use urllib/requests 60s default on the OTP path. Telegram delivery is backgrounded.
+OTP_TELEGRAM_TIMEOUT_SECONDS = 3
+
+
+def _run_in_background(fn) -> None:
+    thread = threading.Thread(target=fn, daemon=True)
+    thread.start()
 
 UK_OTP_EMAIL_MESSAGE = "Ваш код підтвердження POMICH: {code}. Дійсний 10 хв."
 UK_OTP_TELEGRAM_MESSAGE = "Ваш код підтвердження POMICH: <code>{code}</code>\n\nДійсний 10 хв."
@@ -112,11 +119,7 @@ def _cleanup_expired_otp_records(store: Dict[str, Any], now: Optional[datetime] 
             record = {**record, "sendHistory": recent_sends}
             cleaned[str(customer_id)] = record
         elif recent_sends:
-            if expires_at is None or expires_at <= checked_at:
-                _delete_stored_otp_telegram_message(record)
             cleaned[str(customer_id)] = {"sendHistory": recent_sends}
-        else:
-            _delete_stored_otp_telegram_message(record)
     return cleaned
 
 
@@ -134,7 +137,12 @@ def _delete_stored_otp_telegram_message(record: Dict[str, Any]) -> None:
     def _async_delete() -> None:
         try:
             for kind in kinds:
-                delete_message(str(chat_id), int(message_id), kind=kind)
+                delete_message(
+                    str(chat_id),
+                    int(message_id),
+                    kind=kind,
+                    timeout=OTP_TELEGRAM_TIMEOUT_SECONDS,
+                )
         except Exception:
             pass
 
@@ -160,7 +168,12 @@ def _schedule_otp_message_deletion(
             kinds.append(other)
         try:
             for bot_kind in kinds:
-                delete_message(chat_id, message_id, kind=bot_kind)
+                delete_message(
+                    chat_id,
+                    message_id,
+                    kind=bot_kind,
+                    timeout=OTP_TELEGRAM_TIMEOUT_SECONDS,
+                )
         except Exception:
             return
 
@@ -205,6 +218,7 @@ def _send_telegram_otp(chat_id: str, code: str, *, kind: str | None = None) -> i
         UK_OTP_TELEGRAM_MESSAGE.format(code=code),
         parse_mode="HTML",
         kind=bot_kind,
+        timeout=OTP_TELEGRAM_TIMEOUT_SECONDS,
     )
     if isinstance(result, dict) and result.get("ok") is False:
         raise OtpVerificationError("telegram_send_failed", "Не вдалося надіслати код у Telegram")
@@ -247,6 +261,36 @@ def _deliver_telegram_otp(chat_id: str, code: str, *, preferred_kind: str | None
         except OtpVerificationError as exc:
             last_error = exc
     raise last_error or OtpVerificationError("telegram_send_failed", "Не вдалося надіслати код у Telegram")
+
+
+def _deliver_telegram_otp_and_record(
+    customer_id: str,
+    chat_id: str,
+    code: str,
+    *,
+    preferred_kind: str | None = None,
+    store_path: Optional[Path] = None,
+) -> None:
+    try:
+        message_id, bot_kind = _deliver_telegram_otp(chat_id, code, preferred_kind=preferred_kind)
+    except Exception as exc:
+        print(
+            f"[POMICH OTP] telegram send failed customer_id={customer_id} chat_id={chat_id} error={exc}",
+            flush=True,
+        )
+        return
+    with OTP_LOCK:
+        otp_path = store_path or _default_otp_store_path()
+        store = _load_otp_store(otp_path)
+        record = store.get(customer_id)
+        if not isinstance(record, dict) or not record.get("codeHash"):
+            return
+        record["telegramChatId"] = str(chat_id)
+        record["telegramMessageId"] = message_id
+        record["telegramBotKind"] = bot_kind
+        store[customer_id] = record
+        _save_otp_store(store, otp_path)
+    _schedule_otp_message_deletion(str(chat_id), message_id, OTP_TTL_SECONDS, kind=bot_kind)
 
 
 def _send_email_otp(email: str, code: str) -> None:
@@ -315,6 +359,7 @@ def _already_sent_response(record: Dict[str, Any], now: datetime, retry_after: i
     channel = str(record.get("channel") or "telegram").strip().lower() or "telegram"
     return {
         "ok": True,
+        "sent": True,
         "channel": channel,
         "expiresAt": record.get("expiresAt"),
         "expiresInSeconds": expires_in,
@@ -429,8 +474,12 @@ def send_customer_verification_code(
     expires_at = now + timedelta(seconds=OTP_TTL_SECONDS)
     profile_phone = str(profile.get("phone") or phone or "").strip() or None
 
+    pending_telegram: Optional[Dict[str, Any]] = None
+    pending_email: Optional[tuple[str, str]] = None
+    telegram_chat_id: Optional[str] = None
+    otp_path = store_path or _default_otp_store_path()
+
     with OTP_LOCK:
-        otp_path = store_path or _default_otp_store_path()
         store = _cleanup_expired_otp_records(_load_otp_store(otp_path), now)
         record = store.get(customer_id) if isinstance(store.get(customer_id), dict) else {}
         send_history = record.get("sendHistory") if isinstance(record.get("sendHistory"), list) else []
@@ -460,9 +509,6 @@ def send_customer_verification_code(
 
         code = _generate_otp_code()
         code_hash = _hash_otp_code(customer_id, normalized_channel, code)
-        telegram_message_id: Optional[int] = None
-        telegram_chat_id: Optional[str] = None
-        otp_bot_kind = "customer"
 
         if normalized_channel == "telegram":
             telegram_chat_id = _telegram_chat_id_for_customer(
@@ -482,24 +528,24 @@ def send_customer_verification_code(
                 telegram_chat_id=telegram_chat_id,
                 phone=profile_phone,
             )
-            # Drop previous OTP bubbles for this chat (any customer id) before sending a new one.
+            # Queue previous OTP bubble deletes; never wait for Telegram HTTP here.
             _delete_otp_messages_for_chat(store, telegram_chat_id)
-            telegram_message_id, otp_bot_kind = _deliver_telegram_otp(
-                telegram_chat_id,
-                code,
-                preferred_kind=_preferred_otp_bot_kind(profile, preferred_bot_kind),
-            )
             target = telegram_chat_id
+            pending_telegram = {
+                "chat_id": telegram_chat_id,
+                "code": code,
+                "preferred_kind": _preferred_otp_bot_kind(profile, preferred_bot_kind),
+            }
         else:
             target_email = str(email or profile.get("email") or "").strip()
             if not target_email or "@" not in target_email:
                 raise OtpVerificationError("email_missing", "email is required for email verification")
             _enforce_delivery_cooldown(store, now=now, phone=profile_phone, email=target_email)
-            _send_email_otp(target_email, code)
+            pending_email = (target_email, code)
             target = target_email
 
         print(
-            "[POMICH OTP] sent "
+            "[POMICH OTP] queued "
             f"reason={send_reason} endpoint={send_reason} customer_id={customer_id} "
             f"channel={normalized_channel} phone={profile_phone or '-'} "
             f"target={target} chat_id={telegram_chat_id or '-'}",
@@ -519,21 +565,42 @@ def send_customer_verification_code(
             "sendReason": send_reason,
             "customerId": customer_id,
         }
-        if normalized_channel == "telegram" and telegram_chat_id and telegram_message_id is not None:
+        if normalized_channel == "telegram" and telegram_chat_id:
             record["telegramChatId"] = str(telegram_chat_id)
-            record["telegramMessageId"] = telegram_message_id
-            record["telegramBotKind"] = otp_bot_kind
-            _schedule_otp_message_deletion(
-                str(telegram_chat_id),
-                telegram_message_id,
-                OTP_TTL_SECONDS,
-                kind=otp_bot_kind,
-            )
         store[customer_id] = record
         _save_otp_store(store, otp_path)
 
+    if pending_telegram:
+        chat_id = str(pending_telegram["chat_id"])
+        queued_code = str(pending_telegram["code"])
+        preferred_kind = pending_telegram.get("preferred_kind")
+        queued_customer_id = customer_id
+        queued_store_path = otp_path
+
+        def _bg_telegram_send() -> None:
+            _deliver_telegram_otp_and_record(
+                queued_customer_id,
+                chat_id,
+                queued_code,
+                preferred_kind=preferred_kind,
+                store_path=queued_store_path,
+            )
+
+        _run_in_background(_bg_telegram_send)
+    elif pending_email:
+        target_email, queued_code = pending_email
+
+        def _bg_email_send() -> None:
+            try:
+                _send_email_otp(target_email, queued_code)
+            except Exception as exc:
+                print(f"[POMICH OTP] email send failed target={target_email} error={exc}", flush=True)
+
+        _run_in_background(_bg_email_send)
+
     response: Dict[str, Any] = {
         "ok": True,
+        "sent": True,
         "channel": normalized_channel,
         "expiresAt": store[customer_id]["expiresAt"],
         "expiresInSeconds": OTP_TTL_SECONDS,
@@ -565,7 +632,6 @@ def confirm_customer_verification_code(
 
         expires_at = _parse_iso(record.get("expiresAt"))
         if expires_at is None or expires_at <= now:
-            _delete_stored_otp_telegram_message(record)
             store.pop(customer_id, None)
             _save_otp_store(store, otp_path)
             raise OtpVerificationError("code_expired", "verification code expired")
@@ -576,7 +642,6 @@ def confirm_customer_verification_code(
         if not hmac.compare_digest(expected_hash, actual_hash):
             raise OtpVerificationError("code_invalid", "verification code is invalid")
 
-        _delete_stored_otp_telegram_message(record)
         store.pop(customer_id, None)
         _save_otp_store(store, otp_path)
 

@@ -1,3 +1,5 @@
+import threading
+import time
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -16,6 +18,7 @@ def otp_env(monkeypatch, tmp_path):
     monkeypatch.delenv("SMTP_HOST", raising=False)
     monkeypatch.setattr(otp_verification, "_default_otp_store_path", lambda: otp_path)
     monkeypatch.setattr(otp_verification, "_send_telegram_otp", lambda chat_id, code, **kwargs: 12345)
+    monkeypatch.setattr(otp_verification, "_run_in_background", lambda fn: fn())
     return customer_path, otp_path
 
 
@@ -200,38 +203,42 @@ def test_telegram_otp_message_uses_html_code_tag(monkeypatch) -> None:
         "Ваш код підтвердження POMICH: <code>378741</code>\n\nДійсний 10 хв."
     )
     assert sent_messages[0]["parse_mode"] == "HTML"
+    assert sent_messages[0]["timeout"] == otp_verification.OTP_TELEGRAM_TIMEOUT_SECONDS
 
 
-def test_confirm_deletes_telegram_otp_message(otp_env, monkeypatch) -> None:
+def test_confirm_does_not_call_telegram(otp_env, monkeypatch) -> None:
     customer_path, _ = otp_env
-    deleted: list[tuple[str, int]] = []
+    telegram_calls: list[str] = []
     monkeypatch.setattr(otp_verification, "_generate_otp_code", lambda: "654321")
-    monkeypatch.setattr(otp_verification, "_send_telegram_otp", lambda chat_id, code, **kwargs: 555)
     monkeypatch.setattr(
         otp_verification,
         "_delete_stored_otp_telegram_message",
-        lambda record: deleted.append((str(record.get("telegramChatId")), int(record["telegramMessageId"])))
-        if record.get("telegramChatId") and record.get("telegramMessageId") is not None
-        else None,
+        lambda record: telegram_calls.append("delete"),
+    )
+    monkeypatch.setattr(
+        "bot.telegram_bot.send_message",
+        lambda *args, **kwargs: telegram_calls.append("send") or {"ok": True, "result": {"message_id": 1}},
+    )
+    monkeypatch.setattr(
+        "bot.telegram_bot.delete_message",
+        lambda *args, **kwargs: telegram_calls.append("delete_api") or {"ok": True},
     )
     update_customer_profile("tg-42", {"name": "Maria", "phone": "+380501112233"}, customer_path)
 
     otp_verification.send_customer_verification_code("tg-42", "telegram", customer_store_path=customer_path)
+    telegram_calls.clear()
     otp_verification.confirm_customer_verification_code("tg-42", "654321", customer_store_path=customer_path)
 
-    assert deleted == [("42", 555)]
+    assert telegram_calls == []
 
 
-def test_expired_cleanup_deletes_telegram_otp_message(monkeypatch, otp_env) -> None:
+def test_expired_code_cleanup_does_not_call_telegram(monkeypatch, otp_env) -> None:
     customer_path, otp_path = otp_env
-    deleted: list[tuple[str, int]] = []
-    monkeypatch.setattr(otp_verification, "_send_telegram_otp", lambda chat_id, code, **kwargs: 777)
+    telegram_calls: list[str] = []
     monkeypatch.setattr(
         otp_verification,
         "_delete_stored_otp_telegram_message",
-        lambda record: deleted.append((str(record.get("telegramChatId")), int(record["telegramMessageId"])))
-        if record.get("telegramChatId") and record.get("telegramMessageId") is not None
-        else None,
+        lambda record: telegram_calls.append("delete"),
     )
     update_customer_profile("tg-7", {"name": "Olena", "phone": "+380931234567"}, customer_path)
     otp_verification.send_customer_verification_code("tg-7", "telegram", customer_store_path=customer_path)
@@ -244,7 +251,7 @@ def test_expired_cleanup_deletes_telegram_otp_message(monkeypatch, otp_env) -> N
     with pytest.raises(otp_verification.OtpVerificationError) as exc:
         otp_verification.confirm_customer_verification_code("tg-7", "123456", customer_store_path=customer_path)
     assert exc.value.code == "code_expired"
-    assert deleted == [("7", 777)]
+    assert telegram_calls == []
 
 
 def test_email_channel_sets_email_flag(otp_env) -> None:
@@ -486,3 +493,82 @@ def test_otp_falls_back_to_customer_bot_when_provider_send_fails(otp_env, monkey
     otp_verification.send_customer_verification_code("tg-42", "telegram", customer_store_path=customer_path)
 
     assert sent == ["provider", "customer"]
+
+
+def test_send_returns_without_waiting_for_telegram_http(otp_env, monkeypatch) -> None:
+    customer_path, _ = otp_env
+
+    def hang_send(*args, **kwargs):
+        time.sleep(5)
+        return 1
+
+    monkeypatch.setattr(otp_verification, "_send_telegram_otp", hang_send)
+    monkeypatch.setattr(
+        otp_verification,
+        "_run_in_background",
+        lambda fn: threading.Thread(target=fn, daemon=True).start(),
+    )
+    update_customer_profile("tg-42", {"name": "Maria", "phone": "+380501112233"}, customer_path)
+
+    started = time.monotonic()
+    sent = otp_verification.send_customer_verification_code("tg-42", "telegram", customer_store_path=customer_path)
+    elapsed = time.monotonic() - started
+
+    assert sent["ok"] is True
+    assert sent.get("sent") is True
+    assert elapsed < 1.0
+
+
+def test_send_returns_without_waiting_for_delete_message(otp_env, monkeypatch) -> None:
+    customer_path, otp_path = otp_env
+    monkeypatch.setattr(otp_verification, "OTP_SEND_COOLDOWN_SECONDS", 0)
+    monkeypatch.setattr(
+        otp_verification,
+        "_run_in_background",
+        lambda fn: threading.Thread(target=fn, daemon=True).start(),
+    )
+
+    def hang_delete(*args, **kwargs):
+        time.sleep(5)
+        return {"ok": True}
+
+    monkeypatch.setattr("bot.telegram_bot.delete_message", hang_delete)
+    update_customer_profile("tg-42", {"name": "Maria", "phone": "+380501112233"}, customer_path)
+
+    live_expires = (datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=8)).isoformat(timespec="seconds") + "Z"
+    otp_verification._save_otp_store(
+        {
+            "tg-42": {
+                "codeHash": "stale",
+                "channel": "telegram",
+                "telegramChatId": "42",
+                "telegramMessageId": 111,
+                "telegramBotKind": "customer",
+                "expiresAt": live_expires,
+                "sendHistory": [],
+                "lastSentAt": "2020-01-01T00:00:00Z",
+            }
+        },
+        otp_path,
+    )
+
+    started = time.monotonic()
+    sent = otp_verification.send_customer_verification_code("tg-42", "telegram", customer_store_path=customer_path)
+    elapsed = time.monotonic() - started
+
+    assert sent["ok"] is True
+    assert elapsed < 1.0
+
+
+def test_telegram_otp_send_uses_short_timeout(monkeypatch) -> None:
+    sent_messages: list[dict] = []
+
+    def fake_send_message(chat_id, text, **kwargs):
+        sent_messages.append({"chat_id": chat_id, "text": text, **kwargs})
+        return {"ok": True, "result": {"message_id": 9876}}
+
+    monkeypatch.setattr("bot.telegram_bot.send_message", fake_send_message)
+    otp_verification._send_telegram_otp("12345", "378741")
+
+    assert sent_messages[0]["timeout"] == otp_verification.OTP_TELEGRAM_TIMEOUT_SECONDS
+    assert sent_messages[0]["timeout"] <= 5
