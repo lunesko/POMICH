@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest"
 
 import type { DispatchOffer } from "../api/client"
 import {
+  filterActiveMapRequestPins,
   filterActiveOffers,
   filterVisibleOffers,
+  isMapRequestPinActive,
   isOfferActive,
   isPresentableOffer,
   mergeRequestPins,
@@ -46,6 +48,7 @@ describe("dispatchOffer helpers", () => {
       id: "ORD-1",
       offerId: "OF-TEST",
       service: "tow",
+      status: "searching",
       distanceKm: 4.2,
     })
   })
@@ -101,6 +104,27 @@ describe("dispatchOffer helpers", () => {
     expect(merged).toHaveLength(2)
     expect(merged.find((pin) => pin.id === "ORD-1")?.offerId).toBe("OF-TEST")
     expect(merged.find((pin) => pin.id === "ORD-NEAR")?.offerId).toBeUndefined()
+  })
+
+  it("drops completed, cancelled, and other terminal nearby orders from map pins", () => {
+    expect(isMapRequestPinActive({ status: "searching" })).toBe(true)
+    expect(isMapRequestPinActive({ status: "accepted" })).toBe(true)
+    expect(isMapRequestPinActive({ status: "en_route" })).toBe(true)
+    expect(isMapRequestPinActive({ status: "completed" })).toBe(false)
+    expect(isMapRequestPinActive({ status: "cancelled" })).toBe(false)
+    expect(isMapRequestPinActive({ status: "canceled" })).toBe(false)
+    expect(isMapRequestPinActive({ status: "expired" })).toBe(false)
+    expect(isMapRequestPinActive({ status: "draft" })).toBe(false)
+
+    const nearby = [
+      { id: "ORD-LIVE", service: "tow", status: "searching", customerCoordinates: { lat: 48.62, lng: 22.28 } },
+      { id: "ORD-DONE", service: "tow", status: "completed", customerCoordinates: { lat: 48.63, lng: 22.27 } },
+      { id: "ORD-CANCEL", service: "tow", status: "cancelled", customerCoordinates: { lat: 48.61, lng: 22.29 } },
+      { id: "ORD-OLD", service: "tow", status: "expired", customerCoordinates: { lat: 48.64, lng: 22.26 } },
+    ]
+    const merged = mergeRequestPins([], nearby)
+    expect(merged.map((pin) => pin.id)).toEqual(["ORD-LIVE"])
+    expect(filterActiveMapRequestPins(nearby).map((pin) => pin.id)).toEqual(["ORD-LIVE"])
   })
 
   it("hides dismissed offers and parses price", () => {

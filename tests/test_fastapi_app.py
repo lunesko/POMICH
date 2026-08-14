@@ -1359,3 +1359,21 @@ def test_dispatch_list_excludes_directory_and_map_is_slim(monkeypatch, tmp_path)
         assert "verification" not in item
         assert item["name"]
         assert item["location"]["lat"]
+
+
+def test_map_nearby_orders_excludes_completed_and_cancelled(monkeypatch, tmp_path) -> None:
+    _use_temp_store(monkeypatch, tmp_path)
+    coords = {"lat": 48.6208, "lng": 22.2879}
+    order_store.save_order(
+        {"id": "PM-OPEN", "service": "tow", "status": "searching", "customerCoordinates": coords},
+    )
+    order_store.save_order(
+        {"id": "PM-DONE", "service": "tow", "status": "completed", "customerCoordinates": coords},
+    )
+    order_store.save_order(
+        {"id": "PM-CANCEL", "service": "tow", "status": "cancelled", "customerCoordinates": coords},
+    )
+    client = TestClient(app)
+    response = client.get("/api/map/orders/nearby", params={"lat": 48.6208, "lng": 22.2879, "radius_km": 20})
+    assert response.status_code == 200
+    assert {item["id"] for item in response.json()} == {"PM-OPEN"}

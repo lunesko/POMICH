@@ -1,5 +1,6 @@
 import type { DispatchOffer, MapRequestPin } from "../api/client"
 import { parseApiDateMs } from "./auth"
+import { ACTIVE_ORDER_STATUSES, TERMINAL_ORDER_STATUSES as SESSION_TERMINAL_STATUSES } from "./customerSession"
 
 /** Fallback when backend omits expiresAt — must stay >0 so UI does not treat offer as expired. */
 export const DEFAULT_OFFER_SECONDS_LEFT = 90
@@ -62,14 +63,27 @@ export function isOfferActive(offer: DispatchOffer, nowMs = Date.now()): boolean
   return expiresMs > nowMs
 }
 
-const TERMINAL_ORDER_STATUSES = new Set(["completed", "cancelled", "expired"])
+const TERMINAL_ORDER_STATUSES = new Set(["completed", "cancelled", "expired", "draft", ...SESSION_TERMINAL_STATUSES])
+
+export function isMapRequestPinActive(pin: Pick<MapRequestPin, "status">): boolean {
+  const status = String(pin.status || "").trim().toLowerCase()
+  if (!status) return true
+  if (TERMINAL_ORDER_STATUSES.has(status) || status === "canceled") return false
+  return ACTIVE_ORDER_STATUSES.has(status)
+}
+
+export const isOpenRequestPin = isMapRequestPinActive
+
+export function filterActiveMapRequestPins(pins: MapRequestPin[]): MapRequestPin[] {
+  return pins.filter((pin) => Boolean(pin.id && pin.customerCoordinates) && isMapRequestPinActive(pin))
+}
 
 /** Only pending, unexpired offers for still-searching orders belong in partner duty UI. */
 export function isPresentableOffer(offer: DispatchOffer, nowMs = Date.now()): boolean {
   const status = String(offer.status || "pending").trim().toLowerCase()
   if (status !== "pending") return false
   const orderStatus = String(offer.orderStatus || "searching").trim().toLowerCase()
-  if (orderStatus !== "searching" || TERMINAL_ORDER_STATUSES.has(orderStatus)) return false
+  if (TERMINAL_ORDER_STATUSES.has(orderStatus) || orderStatus !== "searching") return false
   return isOfferActive(offer, nowMs)
 }
 
@@ -86,6 +100,7 @@ export function pinFromOffer(offer: DispatchOffer): MapRequestPin {
     id: offer.orderId,
     offerId: offer.id,
     service: offer.service,
+    status: offer.orderStatus || "searching",
     vehicleState: offer.vehicleState,
     customerComment: offer.customerComment,
     customerLocation: offer.approximateLocation,
@@ -132,8 +147,7 @@ export function mergeRequestPins(
 ): MapRequestPin[] {
   const fromOffers = pinsFromActiveOffers(filterVisibleOffers(offers, filter, nowMs), nowMs)
   const coveredOrderIds = new Set(fromOffers.map((pin) => pin.id))
-  const extras = nearbyOrders.filter((pin) => {
-    if (!pin.id || !pin.customerCoordinates) return false
+  const extras = filterActiveMapRequestPins(nearbyOrders).filter((pin) => {
     if (coveredOrderIds.has(pin.id)) return false
     if (filter.dismissedOrderIds?.has(pin.id)) return false
     return true

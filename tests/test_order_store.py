@@ -24,6 +24,7 @@ from bot.order_store import (
     load_orders,
     load_providers,
     merge_directory_providers,
+    nearby_searching_orders,
     partner_telegram_user_ids_for_order,
     redispatch_searching_orders_for_provider,
     resolve_provider_telegram_user_id,
@@ -39,6 +40,36 @@ from bot.order_store import (
     update_provider_profile,
     update_customer_profile,
 )
+
+
+def test_nearby_searching_orders_excludes_completed_and_cancelled(tmp_path):
+    store_path = tmp_path / "orders.json"
+    coords = {"lat": 48.62, "lng": 22.28}
+    save_order(
+        {"id": "PM-OPEN", "service": "tow", "status": "searching", "customerCoordinates": coords},
+        store_path=store_path,
+    )
+    save_order(
+        {"id": "PM-DONE", "service": "tow", "status": "completed", "customerCoordinates": coords},
+        store_path=store_path,
+    )
+    save_order(
+        {"id": "PM-CANCEL", "service": "tow", "status": "cancelled", "customerCoordinates": coords},
+        store_path=store_path,
+    )
+    save_order(
+        {
+            "id": "PM-TAKEN",
+            "service": "tow",
+            "status": "searching",
+            "assignedProviderId": "p1",
+            "customerCoordinates": coords,
+        },
+        store_path=store_path,
+    )
+
+    nearby = nearby_searching_orders(48.62, 22.28, radius_km=20, order_store_path=store_path)
+    assert {item["id"] for item in nearby} == {"PM-OPEN"}
 
 
 def test_save_order_persists_to_json(tmp_path):
@@ -603,6 +634,48 @@ def test_completed_order_does_not_reappear_in_provider_offers(tmp_path):
     redispatch_searching_orders_for_provider("p1", order_path, provider_path, offer_path)
     assert get_provider_offers("p1", order_path, offer_path) == []
     assert all(item.get("status") != "pending" for item in load_offers(offer_path) if item.get("orderId") == order["id"])
+
+
+def test_nearby_searching_orders_exclude_terminal_and_assigned(tmp_path):
+    import json
+
+    order_path = tmp_path / "orders.json"
+    pickup = {"lat": 48.6208, "lng": 22.2879}
+    live = save_order({"service": "tow", "customerCoordinates": pickup}, store_path=order_path)
+    cancelled = save_order({"service": "tow", "customerCoordinates": pickup}, store_path=order_path)
+    update_order_status(cancelled["id"], "cancelled", store_path=order_path)
+    accepted = save_order({"service": "tow", "customerCoordinates": pickup}, store_path=order_path)
+    update_order_status(accepted["id"], "accepted", store_path=order_path)
+
+    orders = load_orders(order_path)
+    orders.extend(
+        [
+            {
+                "id": "PM-DONE",
+                "status": "completed",
+                "service": "tow",
+                "customerCoordinates": pickup,
+            },
+            {
+                "id": "PM-EMPTY",
+                "service": "tow",
+                "customerCoordinates": pickup,
+            },
+            {
+                "id": "PM-ASSIGNED",
+                "status": "searching",
+                "service": "tow",
+                "assignedProviderId": "p1",
+                "customerCoordinates": pickup,
+            },
+        ]
+    )
+    order_path.write_text(json.dumps(orders), encoding="utf-8")
+
+    pins = nearby_searching_orders(48.6208, 22.2879, radius_km=20, order_store_path=order_path)
+    ids = {item["id"] for item in pins}
+    assert ids == {live["id"]}
+    assert all(item["status"] == "searching" for item in pins)
 
 
 def test_phone_login_finds_guest_partner_via_provider_phone(tmp_path):

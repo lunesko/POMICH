@@ -188,7 +188,10 @@ def map_nearby_orders(
     x_pomich_provider_token: str | None = Header(default=None),
     authorization: str | None = None,
 ) -> list[dict]:
-    """Searching orders near a provider location for map pins."""
+    """Searching orders near a provider location for map pins.
+
+    Completed, cancelled, assigned, and other non-searching orders are never returned.
+    """
     if authorization or x_pomich_provider_token:
         # Optional auth — endpoint is usable for provider map mode.
         pass

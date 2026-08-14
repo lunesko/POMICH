@@ -76,6 +76,7 @@ import {
 import { readSheetHeights, type SheetSnap } from "../../hooks/useMobileSheetSnap"
 import { resolveMapTileConfig, type MapTileTheme } from "../../lib/theme"
 import { isOccupiedCoordinates, OCCUPIED_PICK_MESSAGE } from "../../lib/occupiedTerritories"
+import { isMapRequestPinActive } from "../../lib/dispatchOffer"
 import type { DirectoryScopeMode } from "../../lib/directoryScope"
 import { UKRAINE_BOUNDS, UKRAINE_MAP_FIT_MAX_ZOOM, UKRAINE_MAP_FIT_MAX_ZOOM_MOBILE } from "../../lib/ukraineMapMask"
 
@@ -1083,6 +1084,11 @@ export function RouteMap({
 
   const [directoryMarkersHidden, setDirectoryMarkersHidden] = useState(false)
 
+  const visibleRequestPins = useMemo(
+    () => (requestPins ?? []).filter((pin) => Boolean(pin.customerCoordinates) && isMapRequestPinActive(pin)),
+    [requestPins],
+  )
+
   const [mapToolsOpen, setMapToolsOpen] = useState(false)
 
   const [routeCoords, setRouteCoords] = useState<LatLngTuple[] | null>(null)
@@ -1681,7 +1687,7 @@ export function RouteMap({
 
         {!directoryOnly
 
-          ? (requestPins ?? []).map((pin) => {
+          ? visibleRequestPins.map((pin) => {
 
               const point = pin.customerCoordinates
 

@@ -48,6 +48,17 @@ ORDER_STATUSES = {
     "completed",
     "cancelled",
 }
+ACTIVE_ORDER_STATUSES = {
+    "searching",
+    "accepted",
+    "price_confirmed",
+    "assigned",
+    "en_route",
+    "arrived",
+    "in_progress",
+}
+TERMINAL_ORDER_STATUSES = {"completed", "cancelled"}
+MAP_REQUEST_PIN_STATUSES = {"searching"}
 ORDER_TRANSITIONS = {
     "draft": {"searching", "cancelled"},
     "searching": {"accepted", "cancelled"},
@@ -168,12 +179,33 @@ def _parse_iso(value: Any) -> Optional[datetime]:
         return None
 
 
+def peek_order_status(status: Any) -> Optional[str]:
+    """Map-safe status: missing/unknown is None, never silently becomes searching."""
+    raw = str(status or "").strip().lower()
+    if not raw:
+        return None
+    raw = ORDER_STATUS_ALIASES.get(raw, raw)
+    if raw not in ORDER_STATUSES:
+        return None
+    return raw
+
+
 def normalize_order_status(status: Any) -> str:
     normalized = str(status or "searching").strip().lower()
     normalized = ORDER_STATUS_ALIASES.get(normalized, normalized)
     if normalized not in ORDER_STATUSES:
         raise ValueError(f"unknown order status: {status}")
     return normalized
+
+
+def is_map_request_order(order: Dict[str, Any]) -> bool:
+    """Unassigned searching orders only — completed/cancelled never become map pins."""
+    status = peek_order_status(order.get("status"))
+    if status not in MAP_REQUEST_PIN_STATUSES:
+        return False
+    if order.get("assignedProviderId"):
+        return False
+    return True
 
 
 def _normalize_proposed_price(value: Any) -> Optional[float]:
@@ -868,9 +900,7 @@ def nearby_searching_orders(
     normalized_service = normalize_service(service) if service else None
     results: List[Dict[str, Any]] = []
     for order in load_orders(order_store_path):
-        if normalize_order_status(order.get("status")) != "searching":
-            continue
-        if order.get("assignedProviderId"):
+        if not is_map_request_order(order):
             continue
         order_service = normalize_service(order.get("service"))
         if normalized_service and order_service != normalized_service:
@@ -884,7 +914,7 @@ def nearby_searching_orders(
         payload = {
             "id": order.get("id"),
             "service": order_service,
-            "status": "searching",
+            "status": peek_order_status(order.get("status")) or "searching",
             "customerLocation": order.get("customerLocation"),
             "vehicleState": order.get("vehicleState"),
             "customerComment": order.get("customerComment"),
@@ -2286,7 +2316,7 @@ def _try_offer_order_to_provider(
     """Create a pending offer for one eligible provider. Returns True when a new offer is added."""
     order_id = str(order.get("id"))
     provider_id = str(provider.get("id"))
-    if normalize_order_status(order.get("status")) != "searching":
+    if peek_order_status(order.get("status")) != "searching":
         return False
     if order.get("assignedProviderId"):
         return False
@@ -2379,7 +2409,7 @@ def redispatch_searching_orders_for_provider(
 
         created_order_ids: List[str] = []
         for order in orders:
-            if normalize_order_status(order.get("status")) != "searching":
+            if peek_order_status(order.get("status")) != "searching":
                 continue
             if _try_offer_order_to_provider(order, provider, offers, now):
                 created_order_ids.append(str(order.get("id")))
@@ -2434,11 +2464,11 @@ def _expire_offers_in_memory(offers: List[Dict[str, Any]], orders: List[Dict[str
             continue
 
         order = order_by_id.get(str(offer.get("orderId")))
-        order_status = normalize_order_status(order.get("status")) if order else "cancelled"
+        order_status = peek_order_status(order.get("status")) if order else "cancelled"
         expires_at = _parse_iso(offer.get("expiresAt"))
 
-        if order_status == "cancelled":
-            offer["status"] = "cancelled"
+        if order_status in {None, "cancelled"} or order_status in TERMINAL_ORDER_STATUSES:
+            offer["status"] = "cancelled" if order_status != "completed" else "lost"
             offer["respondedAt"] = now_iso
             changed = True
         elif order_status != "searching":
@@ -2710,7 +2740,7 @@ def get_provider_offers(
             order = order_by_id.get(str(offer.get("orderId")))
             if not order:
                 continue
-            if normalize_order_status(order.get("status")) != "searching":
+            if peek_order_status(order.get("status")) != "searching":
                 continue
             if order.get("assignedProviderId"):
                 continue

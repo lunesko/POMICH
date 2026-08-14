@@ -84,7 +84,7 @@ import { OrderFinalStep } from "../customer/OrderTerminalStep"
 import { DutyStatusToggle, PresenceToast, presenceErrorMessage } from "../ui/DutyStatusToggle"
 import { OrderRequestSheet } from "./OrderRequestSheet"
 import { IncomingOfferStep } from "./IncomingOfferStep"
-import { filterActiveOffers, filterVisibleOffers, isOfferActive, isPresentableOffer, mergeRequestPins, offerActionErrorMessage, offerSecondsLeft, parseOfferPrice, pinFromOffer, readPersistedOfferDismissals, writePersistedOfferDismissals } from "../../lib/dispatchOffer"
+import { filterActiveMapRequestPins, filterActiveOffers, filterVisibleOffers, isOfferActive, isPresentableOffer, mergeRequestPins, offerActionErrorMessage, offerSecondsLeft, parseOfferPrice, pinFromOffer, readPersistedOfferDismissals, writePersistedOfferDismissals } from "../../lib/dispatchOffer"
 import { subscribeOrderEvents, subscribeProviderEvents } from "../../lib/realtime"
 import { getTelegramContext } from "../../telegram"
 import FormContainer, { FormFooterBar, FormHeader } from "../layout/FormContainer"
@@ -856,8 +856,7 @@ export default function ProviderFlow({
       getNearbyMapOrders(loc.lat, loc.lng, radiusKm)
         .then((orders) => {
           if (cancelled) return
-          const visible = (Array.isArray(orders) ? orders : []).filter((pin) => {
-            if (!pin.customerCoordinates) return false
+          const visible = filterActiveMapRequestPins(Array.isArray(orders) ? orders : []).filter((pin) => {
             if (dismissedOrderIdsRef.current.has(pin.id)) return false
             if (pin.service && providerSpecialties.length > 0 && !providerSpecialties.includes(pin.service as ServiceKey)) {
               return false
@@ -1360,8 +1359,17 @@ export default function ProviderFlow({
       setOnDuty(nextDuty)
       setProviderProfile((profile) => ({ ...profile, ...updated, status: updated.status ?? (nextDuty ? "online" : "offline") }))
       if (nextDuty) {
+        setIncomingOffers([])
+        setNearbyRequestPins([])
+        setMapRequestPins([])
+        setSelectedRequestPin(undefined)
         setPresenceToast("Ви на лінії")
         setStep("duty")
+      } else {
+        setIncomingOffers([])
+        setNearbyRequestPins([])
+        setMapRequestPins([])
+        setSelectedRequestPin(undefined)
       }
     } catch (error) {
       setOnDuty(false)
