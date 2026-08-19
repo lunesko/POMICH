@@ -59,7 +59,7 @@ import {
 } from "../../lib/constants"
 import { readBootstrapProfile, resolveProviderIdForCustomer, storeLinkedProviderId } from "../../lib/userAccount"
 import { readCachedProviderProfile, writeCachedProviderProfile } from "../../lib/providerProfileCache"
-import { clearActiveOrder, persistActiveOrder, pickLatestActiveOrder, readActiveOrder } from "../../lib/customerSession"
+import { clearActiveOrder, isActiveOrderStatus, persistActiveOrder, pickLatestActiveOrder, readActiveOrder } from "../../lib/customerSession"
 import { requestCurrentPosition } from "../../lib/mapGeo"
 import { validateUkraineMobilePhone } from "../../lib/ukrainePhone"
 import { isValidUkrainePlate, validateUkrainePlate } from "../../lib/ukrainePlate"
@@ -330,8 +330,17 @@ export default function ProviderFlow({
   const [step, setStep] = useState<"register" | "verify" | "duty" | "offer" | "awaiting_price" | "navigation" | "arrived" | "completed">(() => {
     if (typeof window === "undefined") return "register"
     if (initialScreen === "verify") return "verify"
-    if (effectiveProviderRegistered || window.localStorage.getItem(`pomichPartnerRegistered:${getActiveProviderId()}`) || Boolean(linkedPartnerId)) return "duty"
-    return "register"
+    const isRegistered = effectiveProviderRegistered || window.localStorage.getItem(`pomichPartnerRegistered:${getActiveProviderId()}`) || Boolean(linkedPartnerId)
+    if (!isRegistered) return "register"
+    const persisted = readActiveOrder()
+    if (persisted?.orderId && isActiveOrderStatus(persisted.status)) {
+      const s = persisted.status
+      if (s === "accepted") return "awaiting_price"
+      if (s === "arrived" || s === "in_progress") return "arrived"
+      if (s === "completed") return "completed"
+      return "navigation"
+    }
+    return "duty"
   })
   const [dutySheetSnap, setDutySheetSnap] = useState<"half" | "expanded">(() =>
     initialScreen === "offers" ? "expanded" : "half",
@@ -1829,7 +1838,7 @@ export default function ProviderFlow({
   if (step === "awaiting_price") {
     const proposed = activeOrder?.partnerProposedPrice
     return (
-      <ScreenLayout footer={<SecondaryButton label="Повернутись до карти" onClick={returnToDuty} />}>
+      <ScreenLayout>
         <Header title="Очікуємо клієнта" subtitle={activeOrder?.id ? `Замовлення #${activeOrder.id}` : undefined} status="accepted" />
         <div style={{ padding: "8px 16px 16px", display: "grid", gap: 12 }}>
           <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 18, padding: 16 }}>
