@@ -26,6 +26,7 @@ from bot.runtime_store import (
     sql_storage_enabled,
     sql_upsert_provider,
 )
+from bot.ukraine_plate import normalize_ukraine_plate
 
 PROVIDER_PRESENCE_TTL_SECONDS = 60
 PROVIDER_ACTIVE_STATUSES = {"online", "busy"}
@@ -2328,7 +2329,7 @@ def update_provider_profile(provider_id: str, data: Dict[str, Any], store_path: 
             provider["vehicleMake"] = str(data.get("vehicleMake") or "").strip()
         if data.get("vehicleModel") is not None:
             provider["vehicleModel"] = str(data.get("vehicleModel") or "").strip()
-        provider["plate"] = str(data.get("plate") or provider.get("plate") or "").strip()
+        provider["plate"] = normalize_ukraine_plate(str(data.get("plate") or provider.get("plate") or "").strip())
         if data.get("city") is not None:
             provider["city"] = str(data.get("city") or provider.get("city") or "").strip()
         provider["specialties"] = specialties
@@ -2359,7 +2360,7 @@ def update_provider_profile(provider_id: str, data: Dict[str, Any], store_path: 
             "name": str(data.get("name") or "Партнер POMICH").strip(),
             "rating": data.get("rating") or 4.8,
             "vehicle": str(data.get("vehicle") or "Автодопомога").strip(),
-            "plate": str(data.get("plate") or "").strip(),
+            "plate": normalize_ukraine_plate(str(data.get("plate") or "").strip()),
             "city": str(data.get("city") or "Ужгород").strip(),
             "phone": next_phone,
             "telegram": str(data.get("telegram") or "pomich_help_bot").strip(),
