@@ -105,10 +105,6 @@ function buildStubProviderProfile(providerId: string): ProviderAvailability {
   }
 }
 
-function isProviderProfileIncomplete(profile?: ProviderAvailability): boolean {
-  return isPartnerProfileIncomplete(profile)
-}
-
 function profileToForm(profile: ProviderAvailability) {
   return {
     name: profile.name?.trim() && profile.name !== "Партнер POMICH" ? profile.name : "",
@@ -242,7 +238,7 @@ export default function ProviderCabinet({
       setProfile(loaded)
       writeCachedProviderProfile(loaded)
       setLoadError(undefined)
-      if (isProviderProfileIncomplete(loaded) && !initialEditing) {
+      if (isPartnerProfileIncomplete(loaded) && !initialEditing) {
         setEditing(true)
       }
       return loaded
@@ -253,7 +249,7 @@ export default function ProviderCabinet({
         return resolved
       })
       setLoadError(undefined)
-      if (isProviderProfileIncomplete(resolved) && !initialEditing) {
+      if (isPartnerProfileIncomplete(resolved) && !initialEditing) {
         setEditing(true)
       }
       return resolved
@@ -491,7 +487,7 @@ export default function ProviderCabinet({
       setDutyError("Підтвердіть телефон кодом у Telegram, щоб вийти на лінію.")
       return
     }
-    if (!isOnline && isProviderProfileIncomplete(profile)) {
+    if (!isOnline && isPartnerProfileIncomplete(profile)) {
       setDutyError("Спочатку заповніть профіль партнера (авто, номер і послуги).")
       setEditing(true)
       return

@@ -142,7 +142,7 @@ type DirectoryMapRideProps = {
   onProviderSelect?: (provider: ProviderAvailability) => void
 }
 
-function StepBadge({ step }: { step: 1 | 2 | 3 | 4 }) {
+function StepBadge({ step }: { step: 1 | 2 | 3 | 4 | 5 }) {
   return (
     <div className="pomich-step-badge">
       Крок {step} з 4 · {FLOW_STEP_LABELS[step - 1]}
@@ -1038,11 +1038,8 @@ function SearchingStep({ orderId, status, order, pickup, destination, cancelErro
   }, [orderId])
 
   useEffect(() => {
-    if (pendingOffers > 0 || order?.dispatchState === "OFFERS_SENT") {
-      // Allow another auto-retry after a successful wave that later exhausts again.
-      if (pendingOffers > 0) autoRetryAttemptedRef.current = false
-    }
-  }, [pendingOffers, order?.dispatchState])
+    if (pendingOffers > 0) autoRetryAttemptedRef.current = false
+  }, [pendingOffers])
 
   useEffect(() => {
     // Auto-retry once when the wave is exhausted; keep manual CTA for NO_PROVIDERS after that.
