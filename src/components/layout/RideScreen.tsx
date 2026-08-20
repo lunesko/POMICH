@@ -1,5 +1,5 @@
 import type { CSSProperties, ReactNode, WheelEvent } from "react"
-import { Children, isValidElement, useEffect, useMemo } from "react"
+import { Children, isValidElement, useEffect, useMemo, useState } from "react"
 
 import type { MapRequestPin, ProviderAvailability } from "../../api/client"
 import { mediaQueries } from "../../lib/breakpoints"
@@ -136,6 +136,19 @@ export function RideScreen({
 
   const sheetChildren = useMemo(() => filterSheetChildren(children, mobileSheet, snap), [children, mobileSheet, snap])
 
+  /* Defer Leaflet mount one frame so sheet/text paint first (cuts "full load" scripting contention). */
+  const [mapReady, setMapReady] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    const idle = window.setTimeout(() => {
+      if (!cancelled) setMapReady(true)
+    }, 0)
+    return () => {
+      cancelled = true
+      window.clearTimeout(idle)
+    }
+  }, [])
+
   const mapProps = useMemo(() => ({
     pickup,
     destination,
@@ -211,7 +224,7 @@ export function RideScreen({
     return (
       <div className="pomich-ride-screen pomich-ride-screen--split relative h-full min-h-0 w-full overflow-hidden pomich-ride-map-bg">
         <div className="pomich-ride-screen__map absolute inset-0 h-full w-full">
-          <LazyRouteMap key="pomich-ride-map" {...mapProps} showBrandBadge />
+          {mapReady ? <LazyRouteMap key="pomich-ride-map" {...mapProps} showBrandBadge /> : null}
         </div>
         <div
           className={`pomich-sheet-panel pomich-sheet-panel--side z-[10] flex min-h-0 shrink-0 flex-col overflow-hidden rounded-2xl ${
@@ -244,7 +257,7 @@ export function RideScreen({
       data-sheet-snap={mobileSheet ? snap : undefined}
     >
       <div className="pomich-ride-screen__map">
-        <LazyRouteMap key="pomich-ride-map" {...mapProps} />
+        {mapReady ? <LazyRouteMap key="pomich-ride-map" {...mapProps} /> : null}
       </div>
       <div
         className={`pomich-sheet-panel pomich-sheet-panel--bottom ${sheetCompact ? "tg-sheet-compact rounded-t-2xl" : "rounded-t-2xl"}`}

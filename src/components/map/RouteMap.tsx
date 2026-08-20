@@ -151,6 +151,9 @@ function MapThemeTileLayer({ mapTileTheme }: { mapTileTheme: MapTileTheme }) {
       key={tile.url}
       url={tile.url}
       maxZoom={19}
+      keepBuffer={1}
+      updateWhenIdle
+      updateWhenZooming={false}
       {...(usesSubdomains && tile.subdomains ? { subdomains: tile.subdomains } : {})}
       attribution={tile.attribution}
     />

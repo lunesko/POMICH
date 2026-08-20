@@ -720,6 +720,7 @@ export async function getMapProviders(options?: {
   lat?: number
   lng?: number
   radiusKm?: number
+  kind?: "dispatch" | "directory"
 }) {
   const params = new URLSearchParams()
   if (options?.scope === "all") params.set("scope", "all")
@@ -727,6 +728,7 @@ export async function getMapProviders(options?: {
   if (options?.lat != null) params.set("lat", String(options.lat))
   if (options?.lng != null) params.set("lng", String(options.lng))
   if (options?.radiusKm != null) params.set("radius_km", String(options.radiusKm))
+  if (options?.kind) params.set("kind", options.kind)
   const query = params.toString()
   const response = await fetch(`${getBaseUrl()}/map/providers${query ? `?${query}` : ""}`)
 

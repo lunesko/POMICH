@@ -6,6 +6,7 @@ import {
   createGuestCustomerSession,
   createOrder,
   getCustomerOrders,
+  getMapProviders,
   getOrder,
   getProviders,
   getTelegramSession,
@@ -591,15 +592,6 @@ function HomeStep({
   onRetryGeo,
   onServiceCityChange,
   onSelect,
-  onProviderSelect,
-  directoryScope,
-  onDirectoryScopeChange,
-  directoryScopeCity,
-  directoryScopeGeoLoading,
-  directoryScopeGeoError,
-  onDirectoryScopeGeoRetry,
-  directoryScopeRecenterTrigger,
-  directoryScopeCityCenter,
 }: {
   pickup: Point
   locationLabel: string
@@ -620,15 +612,6 @@ function HomeStep({
   onRetryGeo: () => void
   onServiceCityChange: (city: string) => void
   onSelect: (service: ServiceKey) => void
-  onProviderSelect?: (provider: ProviderAvailability) => void
-  directoryScope?: import("../../lib/directoryScope").DirectoryScopeMode
-  onDirectoryScopeChange?: (scope: import("../../lib/directoryScope").DirectoryScopeMode) => void
-  directoryScopeCity?: string
-  directoryScopeGeoLoading?: boolean
-  directoryScopeGeoError?: string
-  onDirectoryScopeGeoRetry?: () => void
-  directoryScopeRecenterTrigger?: number
-  directoryScopeCityCenter?: Point
 }) {
   const nearby = nearbyProvidersFor(pickup, providers)
   const profileReady = isCustomerReadyForOrder(customerProfile)
@@ -641,26 +624,14 @@ function HomeStep({
   return (
     <RideScreen
       pickup={pickup}
-      providers={nearby}
-      /* Help flow: only live dispatch partners on the map. Directory gas-station spam
-         (hundreds of Leaflet markers) made the client map lag; catalog stays on landing «Карта». */
+      providers={[]}
       showDirectoryProviders={false}
-      mapSubtitle={`${locationLabel} · ${directoryScope === "my-city" && directoryScopeCity ? directoryScopeCity : directoryScope === "all-ukraine" ? "Україна" : serviceCity}`}
+      mapSubtitle={`${locationLabel} · ${serviceCity}`}
       defaultSnap="half"
       recenterTrigger={recenterTrigger}
       onRetryGeo={onRetryGeo}
       geoLoading={geoLoading}
       geoError={geoError}
-      onProviderSelect={onProviderSelect}
-      directoryScope={directoryScope}
-      onDirectoryScopeChange={onDirectoryScopeChange}
-      directoryScopeCity={directoryScopeCity}
-      directoryScopeGeoLoading={directoryScopeGeoLoading}
-      directoryScopeGeoError={directoryScopeGeoError}
-      onDirectoryScopeGeoRetry={onDirectoryScopeGeoRetry}
-      directoryScopeRecenterTrigger={directoryScopeRecenterTrigger}
-      directoryScopeCityCenter={directoryScopeCityCenter}
-      mapZoom={directoryScope === "all-ukraine" ? 6 : undefined}
     >
       <div data-sheet-full>
       <StepBadge step={1} />
@@ -673,16 +644,14 @@ function HomeStep({
         </div>
       </CurrentLocationCard>
 
-      {directoryScope === "my-city" ? (
-        <div style={{ marginTop: 12 }}>
-          <CitySelect
-            id="pomich-customer-home-city"
-            value={serviceCity}
-            onChange={onServiceCityChange}
-            label="Місто для карти та партнерів"
-          />
-        </div>
-      ) : null}
+      <div style={{ marginTop: 12 }}>
+        <CitySelect
+          id="pomich-customer-home-city"
+          value={serviceCity}
+          onChange={onServiceCityChange}
+          label="Місто сервісу"
+        />
+      </div>
 
       <div style={{ marginTop: 14 }}>
         {!profileReady ? (
@@ -1370,19 +1339,11 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
   const geoWatchDebounceRef = useRef<number | undefined>(undefined)
   const [destinationPoint, setDestinationPoint] = useState<Point>(DEFAULT_DESTINATION)
   const {
-    scope: directoryScope,
-    setScope: setDirectoryScope,
-    resolvedCity: directoryScopeCity,
-    cityCenter: directoryScopeCityCenter,
     providers: nearbyProviders,
     loading: providersLoading,
-    recenterTrigger: directoryScopeRecenterTrigger,
-    geoError: directoryScopeGeoError,
-    geoLoading: directoryScopeGeoLoading,
-    retryGeo: retryDirectoryGeo,
-    fetchProvidersNear,
-    refetchProviders,
-  } = useDirectoryScope({ refreshMs: 60000 })
+  } = useDirectoryScope({ enabled: false })
+  const [liveNearbyProviders, setLiveNearbyProviders] = useState<ProviderAvailability[]>([])
+  const [liveNearbyLoading, setLiveNearbyLoading] = useState(false)
   const [customerReviewSaving, setCustomerReviewSaving] = useState(false)
   const [customerReviewError, setCustomerReviewError] = useState<string | undefined>()
   const [customerReviewSubmitted, setCustomerReviewSubmitted] = useState(false)
@@ -1430,53 +1391,47 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
 
   useEffect(() => {
     if (screen !== "home") return
-    if (directoryScope === "all-ukraine") return
     const center = serviceCityCenter(serviceCity)
     if (shouldRecenterMap(pickupRef.current, center, 25_000)) {
       pickupRef.current = center
       setPickup(center)
       setGeoRecenterTrigger((value) => value + 1)
     }
-  }, [screen, serviceCity, directoryScope])
+  }, [screen, serviceCity])
+
+  useEffect(() => {
+    if (screen !== "home" && screen !== "location" && screen !== "destination" && screen !== "review") return
+    let cancelled = false
+    setLiveNearbyLoading(true)
+    getMapProviders({
+      lat: pickup.lat,
+      lng: pickup.lng,
+      radiusKm: 35,
+      kind: "dispatch",
+    })
+      .then((items) => {
+        if (cancelled) return
+        setLiveNearbyProviders(Array.isArray(items) ? items : [])
+      })
+      .catch(() => {
+        if (!cancelled) setLiveNearbyProviders([])
+      })
+      .finally(() => {
+        if (!cancelled) setLiveNearbyLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [screen, pickup.lat, pickup.lng])
 
   const directoryMapProps = useMemo(
     (): DirectoryMapRideProps => ({
-      providers: nearbyProviders,
-      directoryScope,
-      onDirectoryScopeChange: setDirectoryScope,
-      directoryScopeCity: directoryScopeCity ?? undefined,
-      directoryScopeGeoLoading: directoryScopeGeoLoading,
-      directoryScopeGeoError: directoryScopeGeoError,
-      onDirectoryScopeGeoRetry: retryDirectoryGeo,
-      directoryScopeRecenterTrigger: directoryScopeRecenterTrigger,
-      directoryScopeCityCenter: directoryScopeCityCenter ?? undefined,
+      /* Order flow map stays light: no OSM-directory catalog fetch / pins. */
+      providers: [],
       onProviderSelect: setSelectedPartnerProfile,
     }),
-    [
-      nearbyProviders,
-      directoryScope,
-      setDirectoryScope,
-      directoryScopeCity,
-      directoryScopeGeoLoading,
-      directoryScopeGeoError,
-      retryDirectoryGeo,
-      directoryScopeRecenterTrigger,
-      directoryScopeCityCenter,
-    ],
+    [],
   )
-
-  const prevFlowScreenRef = useRef(screen)
-  useEffect(() => {
-    const prev = prevFlowScreenRef.current
-    prevFlowScreenRef.current = screen
-    if (screen === "home" && prev !== "home") {
-      void refetchProviders()
-      return
-    }
-    if (screen === "location" || screen === "destination" || screen === "details" || screen === "review") {
-      void fetchProvidersNear(pickup, 45)
-    }
-  }, [screen, pickup.lat, pickup.lng, fetchProvidersNear, refetchProviders])
 
   const orderInput: CustomerOrderInput = {
     service: selectedService,
@@ -2347,7 +2302,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
       return <OrderErrorStep pickup={pickup} destination={destinationPoint} onRetry={() => setScreen("review")} showAction={!isTelegram} />
     case "home":
     default:
-      return <HomeStep pickup={pickup} locationLabel={addressLabel || geoMessage} serviceCity={serviceCity} providers={nearbyProviders} providersLoading={providersLoading} customerProfile={customerProfile} customerVerificationSaving={customerVerificationSaving} customerVerificationError={customerVerificationError} customerToken={customerAuthToken} isTelegram={isTelegram} geoLoading={geoLoading} geoError={geoError} recenterTrigger={geoRecenterTrigger} onProfileChange={(patch) => setCustomerProfile((profile) => ({ ...profile, ...patch }))} onVerifyCustomer={verifyCustomerProfile} onProfileVerified={(saved) => setCustomerProfile((profile) => ({ ...profile, ...saved }))} onRetryGeo={retryGeolocation} onServiceCityChange={applyServiceCity} onProviderSelect={setSelectedPartnerProfile} directoryScope={directoryScope} onDirectoryScopeChange={setDirectoryScope} directoryScopeCity={directoryScopeCity ?? undefined} directoryScopeGeoLoading={directoryScopeGeoLoading} directoryScopeGeoError={directoryScopeGeoError} onDirectoryScopeGeoRetry={retryDirectoryGeo} directoryScopeRecenterTrigger={directoryScopeRecenterTrigger} directoryScopeCityCenter={directoryScopeCityCenter ?? undefined} onSelect={(service) => { if (!isCustomerReadyForOrder(customerProfile)) return; setSelectedService(service); setDestination(""); setDestinationPoint(pickup); setScreen("location") }} />
+      return <HomeStep pickup={pickup} locationLabel={addressLabel || geoMessage} serviceCity={serviceCity} providers={liveNearbyProviders} providersLoading={liveNearbyLoading || providersLoading} customerProfile={customerProfile} customerVerificationSaving={customerVerificationSaving} customerVerificationError={customerVerificationError} customerToken={customerAuthToken} isTelegram={isTelegram} geoLoading={geoLoading} geoError={geoError} recenterTrigger={geoRecenterTrigger} onProfileChange={(patch) => setCustomerProfile((profile) => ({ ...profile, ...patch }))} onVerifyCustomer={verifyCustomerProfile} onProfileVerified={(saved) => setCustomerProfile((profile) => ({ ...profile, ...saved }))} onRetryGeo={retryGeolocation} onServiceCityChange={applyServiceCity} onSelect={(service) => { if (!isCustomerReadyForOrder(customerProfile)) return; setSelectedService(service); setDestination(""); setDestinationPoint(pickup); setScreen("location") }} />
   }
   })()
 

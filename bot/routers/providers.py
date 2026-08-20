@@ -122,15 +122,19 @@ def map_providers(
     lat: float | None = None,
     lng: float | None = None,
     radius_km: float = 25.0,
+    kind: str | None = None,
 ) -> list[dict]:
     """Providers for map display; scope=all (free UA) or city/geo filter. Occupied zones excluded."""
     normalized_scope = str(scope or "").strip().lower()
     city_key = city.strip() if city and city.strip() else ""
     radius = max(1.0, min(radius_km, 100.0))
-    cache_key = f"{normalized_scope}|{city_key}|{lat}|{lng}|{radius}"
+    kind_key = str(kind or "").strip().lower()
+    cache_key = f"{normalized_scope}|{city_key}|{lat}|{lng}|{radius}|{kind_key}"
 
     def build() -> list[dict]:
         providers = filter_non_occupied_providers(load_providers())
+        if kind_key in {"dispatch", "directory"}:
+            providers = [provider for provider in providers if _provider_kind(provider) == kind_key]
         if normalized_scope == "all":
             filtered = providers
         elif city_key:
