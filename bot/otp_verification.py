@@ -132,7 +132,13 @@ def _delete_stored_otp_telegram_message(record: Dict[str, Any]) -> None:
     from bot.telegram_config import normalize_telegram_bot_kind
 
     preferred = normalize_telegram_bot_kind(str(record.get("telegramBotKind") or ""))
-    kinds = [preferred] if preferred else ["customer", "provider"]
+    kinds: list[str] = []
+    if preferred:
+        kinds.append(preferred)
+        other = "provider" if preferred == "customer" else "customer"
+        kinds.append(other)
+    else:
+        kinds = ["customer", "provider"]
 
     def _async_delete() -> None:
         try:
@@ -644,6 +650,8 @@ def confirm_customer_verification_code(
         if not hmac.compare_digest(expected_hash, actual_hash):
             raise OtpVerificationError("code_invalid", "verification code is invalid")
 
+        # Queue OTP bubble delete immediately on success (async — does not block confirm).
+        _delete_stored_otp_telegram_message(record)
         store.pop(customer_id, None)
         _save_otp_store(store, otp_path)
 

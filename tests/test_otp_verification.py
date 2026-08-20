@@ -206,18 +206,14 @@ def test_telegram_otp_message_uses_html_code_tag(monkeypatch) -> None:
     assert sent_messages[0]["timeout"] == otp_verification.OTP_TELEGRAM_TIMEOUT_SECONDS
 
 
-def test_confirm_does_not_call_telegram(otp_env, monkeypatch) -> None:
+def test_confirm_queues_telegram_otp_delete(otp_env, monkeypatch) -> None:
     customer_path, _ = otp_env
     telegram_calls: list[str] = []
     monkeypatch.setattr(otp_verification, "_generate_otp_code", lambda: "654321")
     monkeypatch.setattr(
         otp_verification,
         "_delete_stored_otp_telegram_message",
-        lambda record: telegram_calls.append("delete"),
-    )
-    monkeypatch.setattr(
-        "bot.telegram_bot.send_message",
-        lambda *args, **kwargs: telegram_calls.append("send") or {"ok": True, "result": {"message_id": 1}},
+        lambda record: telegram_calls.append(f"delete:{record.get('telegramMessageId')}"),
     )
     monkeypatch.setattr(
         "bot.telegram_bot.delete_message",
@@ -229,7 +225,8 @@ def test_confirm_does_not_call_telegram(otp_env, monkeypatch) -> None:
     telegram_calls.clear()
     otp_verification.confirm_customer_verification_code("tg-42", "654321", customer_store_path=customer_path)
 
-    assert telegram_calls == []
+    assert telegram_calls == ["delete:12345"]
+    assert "delete_api" not in telegram_calls  # confirm must not block on Telegram HTTP
 
 
 def test_expired_code_cleanup_does_not_call_telegram(monkeypatch, otp_env) -> None:
