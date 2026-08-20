@@ -63,6 +63,7 @@ import { clearActiveOrder, isActiveOrderStatus, persistActiveOrder, pickLatestAc
 import { requestCurrentPosition } from "../../lib/mapGeo"
 import { validateUkraineMobilePhone } from "../../lib/ukrainePhone"
 import { isValidUkrainePlate, validateUkrainePlate } from "../../lib/ukrainePlate"
+import { isPartnerProfileComplete } from "../../lib/partnerProfileComplete"
 import { validatePersonName } from "../../lib/personName"
 import { DEFAULT_SERVICE_CITY, validateServiceCity } from "../../lib/ukraineCities"
 import { PhoneInput } from "../ui/PhoneInput"
@@ -439,16 +440,20 @@ export default function ProviderFlow({
       ? readStoredAuthSession(authSessionStorageKey("customer", customerIdForOtp), "customer", customerIdForOtp)
       : undefined)
   const [customerOtpProfile, setCustomerOtpProfile] = useState<CustomerProfile | undefined>()
-  const isPartnerRegisteredAndCompleted = Boolean(
-    (providerProfile.registeredAt || effectiveProviderRegistered) &&
-      String(providerProfile.name || registrationForm.name || "").trim() &&
-      String(providerProfile.phone || registrationForm.phone || "").trim() &&
-      isValidUkrainePlate(String(providerProfile.plate || registrationForm.plate || "")) &&
-      toServiceKeys(providerProfile.specialties?.length ? providerProfile.specialties : registrationForm.specialties).length > 0 &&
-      Boolean(
+  const isPartnerRegisteredAndCompleted = isPartnerProfileComplete(
+    {
+      name: providerProfile.name || registrationForm.name,
+      phone: providerProfile.phone || registrationForm.phone,
+      plate: providerProfile.plate || registrationForm.plate,
+      specialties: providerProfile.specialties?.length ? providerProfile.specialties : registrationForm.specialties,
+      vehicle:
         String(providerProfile.vehicle || "").trim() ||
-          partnerVehicleSelectionIsComplete(registrationForm.vehicleMake, registrationForm.vehicleMakeOther, registrationForm.vehicleModel),
-      ),
+        (partnerVehicleSelectionIsComplete(registrationForm.vehicleMake, registrationForm.vehicleMakeOther, registrationForm.vehicleModel)
+          ? registrationForm.vehicle || `${registrationForm.vehicleMake} ${registrationForm.vehicleModel}`.trim()
+          : ""),
+      registeredAt: providerProfile.registeredAt,
+    },
+    { treatAsRegistered: effectiveProviderRegistered },
   )
   const providerCanGoOnline =
     isPartnerRegisteredAndCompleted &&
@@ -1387,10 +1392,20 @@ export default function ProviderFlow({
         applyLoadedProvider(fresh)
       }
       const freshProfile = fresh?.id ? fresh : providerProfile
-      const registeredComplete = Boolean(
-        (freshProfile.registeredAt || effectiveProviderRegistered) &&
-          isValidUkrainePlate(String(freshProfile.plate || registrationForm.plate || "")) &&
-          toServiceKeys(freshProfile.specialties?.length ? freshProfile.specialties : registrationForm.specialties).length > 0,
+      const registeredComplete = isPartnerProfileComplete(
+        {
+          name: freshProfile.name || registrationForm.name,
+          phone: freshProfile.phone || registrationForm.phone,
+          plate: freshProfile.plate || registrationForm.plate,
+          specialties: freshProfile.specialties?.length ? freshProfile.specialties : registrationForm.specialties,
+          vehicle:
+            String(freshProfile.vehicle || "").trim() ||
+            (partnerVehicleSelectionIsComplete(registrationForm.vehicleMake, registrationForm.vehicleMakeOther, registrationForm.vehicleModel)
+              ? registrationForm.vehicle || `${registrationForm.vehicleMake} ${registrationForm.vehicleModel}`.trim()
+              : ""),
+          registeredAt: freshProfile.registeredAt,
+        },
+        { treatAsRegistered: effectiveProviderRegistered },
       )
       const verified =
         isProviderPhoneVerified(freshProfile) ||

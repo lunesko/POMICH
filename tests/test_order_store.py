@@ -19,6 +19,7 @@ from bot.order_store import (
     expire_stale_dispatch,
     get_order,
     get_provider_offers,
+    get_provider_profile,
     get_provider_public_card,
     get_telegram_session,
     list_provider_public_reviews,
@@ -238,6 +239,28 @@ def test_presence_promotes_linked_verified_customer_shell(tmp_path, monkeypatch)
             profile["verification"] = {"phone": True}
     save_customer_profiles(profiles, customer_path)
 
+    with pytest.raises(ValueError, match="complete"):
+        update_provider_presence(
+            "provider-tg-55",
+            {"status": "online", "location": {"lat": 48.63, "lng": 22.27}},
+            store_path=provider_path,
+        )
+
+    from bot.order_store import update_provider_profile
+
+    update_provider_profile(
+        "provider-tg-55",
+        {
+            "name": "Партнер",
+            "phone": "+380509998877",
+            "vehicle": "Автодопомога",
+            "plate": "AO 5555 CH",
+            "specialties": ["tow"],
+            "serviceRadiusKm": 15,
+        },
+        store_path=provider_path,
+    )
+
     online = update_provider_presence(
         "provider-tg-55",
         {"status": "online", "location": {"lat": 48.63, "lng": 22.27}},
@@ -248,6 +271,7 @@ def test_presence_promotes_linked_verified_customer_shell(tmp_path, monkeypatch)
     loaded = get_provider_profile("provider-tg-55", provider_path)
     assert loaded is not None
     assert loaded["status"] == "online"
+    assert loaded.get("plate") == "AO 5555 CH"
 
 
 def test_provider_presence_ttl_expires_online_provider():
@@ -270,7 +294,7 @@ def _provider(provider_id, lat, lng, specialties=None, status="online", radius=5
         "name": provider_id,
         "rating": 4.8,
         "vehicle": "Service van",
-        "plate": "TEST",
+        "plate": "AO 1248 CH",
         "phone": "+380000000000",
         "telegram": "pomich_help_bot",
         "status": status,
@@ -414,6 +438,67 @@ def test_dispatch_reoffers_provider_after_offer_expires(tmp_path, monkeypatch):
     assert redispatched["dispatchState"] == "OFFERS_SENT"
     assert len(active_offers) == 1
     assert active_offers[0]["providerId"] == "p1"
+
+
+def test_expire_stale_auto_retries_exhausted_searching_offers(tmp_path, monkeypatch):
+    order_path = tmp_path / "orders.json"
+    provider_path = tmp_path / "providers.json"
+    offer_path = tmp_path / "offers.json"
+    monkeypatch.setenv("POMICH_ORDER_STORE_PATH", str(order_path))
+    monkeypatch.setenv("POMICH_PROVIDER_STORE_PATH", str(provider_path))
+    monkeypatch.setenv("POMICH_OFFER_STORE_PATH", str(offer_path))
+    pickup = {"lat": 48.6208, "lng": 22.2879}
+
+    save_providers([_provider("p1", 48.6218, 22.2879)], provider_path)
+    order = save_order({"service": "tow", "customerCoordinates": pickup}, store_path=order_path)
+    dispatch_order(order["id"], order_path, provider_path, offer_path)
+    offers = load_offers(offer_path)
+    assert len(offers) == 1
+    offers[0]["expiresAt"] = (datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=5)).isoformat(timespec="seconds") + "Z"
+    save_offers(offers, offer_path)
+
+    expire_stale_dispatch(order_path, offer_path, provider_path)
+    pending = [offer for offer in load_offers(offer_path) if offer.get("status") == "pending"]
+    refreshed = get_order(order["id"], order_path, provider_path)
+
+    assert refreshed is not None
+    assert refreshed["status"] == "searching"
+    assert int((refreshed.get("dispatchInfo") or {}).get("autoRetryCount") or 0) >= 1
+    assert len(pending) == 1
+
+
+def test_incomplete_provider_cannot_go_online_without_plate(tmp_path):
+    store_path = tmp_path / "providers.json"
+    from bot.order_store import is_provider_profile_complete, update_provider_profile, verify_provider_phone_otp
+
+    created = update_provider_profile(
+        "provider-no-plate",
+        {
+            "name": "Без номера",
+            "phone": "+380501112244",
+            "vehicle": "Iveco Daily",
+            "plate": "",
+            "specialties": ["tow"],
+            "serviceRadiusKm": 12,
+        },
+        store_path=store_path,
+    )
+    # Force empty plate after registration (normalize may leave blank)
+    providers = load_providers(store_path)
+    for provider in providers:
+        if provider.get("id") == "provider-no-plate":
+            provider["plate"] = ""
+    save_providers(providers, store_path)
+    verify_provider_phone_otp("provider-no-plate", store_path=store_path)
+    assert is_provider_profile_complete(get_provider_profile("provider-no-plate", store_path)) is False
+
+    with pytest.raises(ValueError, match="complete"):
+        update_provider_presence(
+            "provider-no-plate",
+            {"status": "online", "location": {"lat": 48.63, "lng": 22.27}},
+            store_path=store_path,
+        )
+    assert created["registeredAt"]
 
 
 def test_redispatch_offers_searching_orders_when_provider_goes_online(tmp_path, monkeypatch):

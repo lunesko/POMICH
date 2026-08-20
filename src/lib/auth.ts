@@ -267,6 +267,13 @@ export function clearAllAuthStorage() {
     if (key?.startsWith("pomichAuthSession:")) keysToRemove.push(key)
   }
   keysToRemove.forEach((key) => window.sessionStorage.removeItem(key))
+
+  const localKeysToRemove: string[] = []
+  for (let index = 0; index < window.localStorage.length; index += 1) {
+    const key = window.localStorage.key(index)
+    if (key?.startsWith("pomichPartnerRegistered:")) localKeysToRemove.push(key)
+  }
+  localKeysToRemove.forEach((key) => window.localStorage.removeItem(key))
 }
 
 export function storeAuthSession(storageKey: string, session: AuthSession) {

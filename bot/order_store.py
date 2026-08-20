@@ -26,7 +26,7 @@ from bot.runtime_store import (
     sql_storage_enabled,
     sql_upsert_provider,
 )
-from bot.ukraine_plate import normalize_ukraine_plate
+from bot.ukraine_plate import is_valid_ukraine_plate, normalize_ukraine_plate
 
 PROVIDER_PRESENCE_TTL_SECONDS = 60
 PROVIDER_ACTIVE_STATUSES = {"online", "busy"}
@@ -2064,6 +2064,27 @@ def resolve_linked_provider_id(customer_id: str, profile: Dict[str, Any] | None 
     return ""
 
 
+def is_provider_profile_complete(provider: Optional[Dict[str, Any]]) -> bool:
+    """True when partner has name, phone, vehicle, valid plate, specialties, and registeredAt."""
+    if not isinstance(provider, dict):
+        return False
+    name = str(provider.get("name") or "").strip()
+    if not name or name == "Партнер POMICH":
+        return False
+    phone = str(provider.get("phone") or "").strip()
+    vehicle = str(provider.get("vehicle") or "").strip()
+    plate = str(provider.get("plate") or "").strip()
+    specialties = provider.get("specialties") if isinstance(provider.get("specialties"), list) else []
+    specialties = _clean_provider_specialties(specialties)
+    return bool(
+        provider.get("registeredAt")
+        and phone
+        and vehicle
+        and specialties
+        and is_valid_ukraine_plate(plate)
+    )
+
+
 def is_customer_provider_registered(customer_id: str, store_path: Optional[Path] = None) -> bool:
     profile = get_customer_profile(customer_id, store_path)
     provider_id = resolve_linked_provider_id(customer_id, profile)
@@ -2076,6 +2097,8 @@ def is_customer_provider_registered(customer_id: str, store_path: Optional[Path]
     phone = str(provider.get("phone") or "").strip()
     vehicle = str(provider.get("vehicle") or "").strip()
     specialties = provider.get("specialties") if isinstance(provider.get("specialties"), list) else []
+    specialties = _clean_provider_specialties(specialties)
+    # Account-level "has partner role" — presence/go-online still requires is_provider_profile_complete (plate).
     return bool(provider.get("registeredAt") and name and phone and vehicle and specialties)
 
 
@@ -2470,6 +2493,8 @@ def update_provider_presence(provider_id: str, data: Dict[str, Any], store_path:
             raise ValueError("provider status must be online, busy or offline")
         if status in PROVIDER_ACTIVE_STATUSES and not provider.get("registeredAt"):
             raise ValueError("provider profile must be registered before going online")
+        if status in PROVIDER_ACTIVE_STATUSES and not is_provider_profile_complete(provider):
+            raise ValueError("provider profile must be complete before going online")
         if status in PROVIDER_ACTIVE_STATUSES and not is_provider_verified(provider):
             raise ValueError("provider verification must be approved before going online")
         if provider.get("assignedOrderId") and status == "online":
@@ -2508,7 +2533,10 @@ def update_provider_presence(provider_id: str, data: Dict[str, Any], store_path:
             "lastSeenAt": now,
             "lastLocationAt": now if data.get("location") else None,
             "updatedAt": now,
+            "registeredAt": data.get("registeredAt"),
         })
+        if status in PROVIDER_ACTIVE_STATUSES and not is_provider_profile_complete(candidate):
+            raise ValueError("provider profile must be complete before going online")
         if status in PROVIDER_ACTIVE_STATUSES and not is_provider_verified(candidate):
             raise ValueError("provider verification must be approved before going online")
         updated = candidate
@@ -2795,12 +2823,16 @@ def _free_providers_after_idle_cancel(
     return changed
 
 
+MAX_DISPATCH_AUTO_RETRIES = 2
+
+
 def expire_stale_dispatch(
     order_store_path: Optional[Path] = None,
     offer_store_path: Optional[Path] = None,
     provider_store_path: Optional[Path] = None,
 ) -> List[Dict[str, Any]]:
     """Expire pending offers and cancel idle accepted orders. Returns cancelled (enriched) orders."""
+    retry_order_ids: List[str] = []
     with STORE_LOCK:
         order_path = order_store_path or _default_store_path()
         offer_path = offer_store_path or _default_offer_store_path()
@@ -2808,12 +2840,66 @@ def expire_stale_dispatch(
         offers = load_offers(offer_path)
         offer_changed = _expire_offers_in_memory(offers, orders)
         cancelled = _cancel_idle_accepted_orders_in_memory(orders, offers)
-        if offer_changed or cancelled:
+        exhaustion_changed = False
+        now_iso = _now_iso()
+        for order in orders:
+            if peek_order_status(order.get("status")) != "searching":
+                continue
+            order_id = str(order.get("id") or "")
+            if not order_id:
+                continue
+            related = [offer for offer in offers if str(offer.get("orderId")) == order_id]
+            if not related:
+                continue
+            if any(offer.get("status") == "pending" for offer in related):
+                continue
+            info = order.get("dispatchInfo") if isinstance(order.get("dispatchInfo"), dict) else {}
+            auto_retries = int(info.get("autoRetryCount") or 0)
+            if auto_retries >= MAX_DISPATCH_AUTO_RETRIES:
+                if order.get("dispatchState") != "NO_PROVIDERS_AVAILABLE":
+                    order["dispatchState"] = "NO_PROVIDERS_AVAILABLE"
+                    order["updatedAt"] = now_iso
+                    order["dispatchInfo"] = {
+                        **info,
+                        "autoRetryCount": auto_retries,
+                        "exhaustedAt": now_iso,
+                    }
+                    _append_order_event(
+                        order,
+                        "OFFERS_EXHAUSTED",
+                        now_iso,
+                        {"autoRetryCount": auto_retries},
+                    )
+                    exhaustion_changed = True
+                continue
+            order["dispatchInfo"] = {**info, "autoRetryCount": auto_retries + 1, "lastAutoRetryAt": now_iso}
+            order["updatedAt"] = now_iso
+            _append_order_event(
+                order,
+                "DISPATCH_AUTO_RETRY",
+                now_iso,
+                {"autoRetryCount": auto_retries + 1},
+            )
+            exhaustion_changed = True
+            retry_order_ids.append(order_id)
+        if offer_changed or cancelled or exhaustion_changed:
             save_offers(offers, offer_path)
             _write_json_atomic(order_path, orders)
         if cancelled:
             _free_providers_after_idle_cancel(cancelled, provider_store_path)
-        return [enrich_order_for_client(order, provider_store_path) for order in cancelled]
+
+    for order_id in retry_order_ids:
+        try:
+            dispatch_order(
+                order_id,
+                order_store_path=order_store_path,
+                provider_store_path=provider_store_path,
+                offer_store_path=offer_store_path,
+            )
+        except Exception:
+            continue
+
+    return [enrich_order_for_client(order, provider_store_path) for order in cancelled]
 
 
 def expire_stale_and_notify(
@@ -3027,11 +3113,17 @@ def dispatch_order(
 
         if not selected:
             order["dispatchState"] = "NO_PROVIDERS_AVAILABLE"
+            prev_info = order.get("dispatchInfo") if isinstance(order.get("dispatchInfo"), dict) else {}
             order["dispatchInfo"] = {
                 "eligibleProviders": len(candidates),
                 "offersSent": 0,
                 "searchRadiusStepsKm": DISPATCH_SEARCH_RADIUS_STEPS_KM,
                 "lastDispatchAt": now_iso,
+                **{
+                    key: prev_info[key]
+                    for key in ("autoRetryCount", "lastAutoRetryAt", "exhaustedAt")
+                    if key in prev_info
+                },
             }
             order["updatedAt"] = now_iso
             _append_order_event(order, "NO_PROVIDERS_AVAILABLE", now_iso)
@@ -3054,6 +3146,7 @@ def dispatch_order(
             _append_order_event(order, "OFFER_CREATED", now_iso, {"offerId": offer["id"], "providerId": candidate["id"], "distanceKm": candidate["distanceKm"]})
 
         order["dispatchState"] = "OFFERS_SENT"
+        prev_info = order.get("dispatchInfo") if isinstance(order.get("dispatchInfo"), dict) else {}
         order["dispatchInfo"] = {
             "eligibleProviders": len(candidates),
             "offersSent": len(selected),
@@ -3062,6 +3155,11 @@ def dispatch_order(
             "maxProviderOffers": MAX_PROVIDER_OFFERS,
             "offerTimeoutSeconds": OFFER_TIMEOUT_SECONDS,
             "lastDispatchAt": now_iso,
+            **{
+                key: prev_info[key]
+                for key in ("autoRetryCount", "lastAutoRetryAt", "exhaustedAt")
+                if key in prev_info
+            },
         }
         order["updatedAt"] = now_iso
         _write_json_atomic(order_path, orders)
