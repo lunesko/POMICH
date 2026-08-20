@@ -2453,10 +2453,6 @@ html:not([data-pomich-theme]) .landing-hero-eyebrow {
   transform: translateY(1px) scale(0.98);
   filter: brightness(0.97);
 }
-@keyframes landingHeroKenBurns {
-  from { transform: scale(1) translate3d(0, 0, 0); }
-  to { transform: scale(1.12) translate3d(-3%, -2%, 0); }
-}
 @keyframes landingHeroBrandIn {
   /* Soft fade + slight rise — calm entrance */
   from { opacity: 0; transform: translateY(14px) scale(0.97); }
