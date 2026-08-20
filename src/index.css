@@ -1270,8 +1270,33 @@ html:not([data-pomich-theme]) .pomich-map-tools-panel__close {
   color: rgba(255, 255, 255, 0.88);
 }
 .pomich-route-map .leaflet-container {
-  transform: translateZ(0);
-  backface-visibility: hidden;
+  /* Avoid translateZ/GPU layer hacks — they open hairline tile seams on iOS Safari. */
+  transform: none;
+  backface-visibility: visible;
+}
+/* Hide 1px gaps between raster tiles (retina / subpixel rounding) */
+.pomich-route-map .leaflet-tile,
+.pomich-ride-screen__map .leaflet-tile {
+  border: none !important;
+  outline: 1px solid transparent;
+  box-shadow: none !important;
+}
+.pomich-route-map .leaflet-tile-container img,
+.pomich-ride-screen__map .leaflet-tile-container img {
+  /* Slight oversize closes subpixel gaps without visible stretch */
+  width: 256.5px !important;
+  height: 256.5px !important;
+}
+/* App-shell atmosphere map: static (no Ken Burns) so cabinet/forms never show blinking tile seams */
+.pomich-map-shell__map--static {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  transform: none;
+  animation: none;
+  will-change: auto;
 }
 /* Ukraine mask / occupied overlay — below markers (600), above tiles (200) */
 .pomich-route-map .leaflet-pane.pomich-ukraine-pane,

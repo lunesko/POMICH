@@ -61,6 +61,9 @@ export function PomichMapBackground({
   fixed?: boolean
 }) {
   const heroProviders = providers && providers.length > 0 ? providers : fallbackProviders
+  /* Ken Burns only on landing hero — CSS transforms on Leaflet tiles cause visible grid seams /
+     flicker (worse on iOS + dark glass compositing). App shell stays static. */
+  const mapMotionClass = variant === "hero" ? "landing-hero-map" : "pomich-map-shell__map--static"
 
   return (
     <div
@@ -68,7 +71,7 @@ export function PomichMapBackground({
       aria-hidden="true"
     >
       <div className="pomich-map-shell__clip landing-hero-map-clip">
-        <div className="pomich-map-shell__map landing-hero-map">
+        <div className={`pomich-map-shell__map ${mapMotionClass}`.trim()}>
           <LazyRouteMap
             pickup={MAP_CENTER}
             destination={MAP_DESTINATION}
