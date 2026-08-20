@@ -2872,6 +2872,10 @@ def expire_stale_dispatch(
                     )
                     exhaustion_changed = True
                 continue
+            last_auto = _parse_iso(info.get("lastAutoRetryAt"))
+            checked_at = datetime.now(timezone.utc).replace(tzinfo=None)
+            if last_auto and (checked_at - last_auto).total_seconds() < 8:
+                continue
             order["dispatchInfo"] = {**info, "autoRetryCount": auto_retries + 1, "lastAutoRetryAt": now_iso}
             order["updatedAt"] = now_iso
             _append_order_event(
@@ -3064,6 +3068,8 @@ def dispatch_order(
     order_store_path: Optional[Path] = None,
     provider_store_path: Optional[Path] = None,
     offer_store_path: Optional[Path] = None,
+    *,
+    reset_auto_retry: bool = False,
 ) -> Optional[Dict[str, Any]]:
     with STORE_LOCK:
         order_path = order_store_path or _default_store_path()
@@ -3079,6 +3085,15 @@ def dispatch_order(
             return None
         if normalize_order_status(order.get("status")) != "searching":
             return attach_dispatch_to_order(order, offers)
+
+        if reset_auto_retry:
+            prev_info = order.get("dispatchInfo") if isinstance(order.get("dispatchInfo"), dict) else {}
+            order["dispatchInfo"] = {
+                **prev_info,
+                "autoRetryCount": 0,
+            }
+            order["dispatchInfo"].pop("exhaustedAt", None)
+            order["dispatchInfo"].pop("lastAutoRetryAt", None)
 
         now = datetime.now(timezone.utc).replace(tzinfo=None)
         now_iso = f"{now.isoformat(timespec='seconds')}Z"

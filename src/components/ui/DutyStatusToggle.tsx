@@ -49,6 +49,9 @@ export function presenceErrorMessage(detail?: string): string {
   if (detail === "provider profile must be registered before going online") {
     return "Спочатку заповніть профіль партнера."
   }
+  if (detail === "provider profile must be complete before going online") {
+    return "Спочатку заповніть профіль партнера (авто, номер і послуги)."
+  }
   if (
     detail === "provider_session_missing" ||
     detail === "customer_session_missing" ||

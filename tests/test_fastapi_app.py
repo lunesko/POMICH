@@ -25,7 +25,7 @@ def _api_provider(provider_id: str, lat: float, lng: float) -> dict:
         "name": provider_id,
         "rating": 4.8,
         "vehicle": "Service van",
-        "plate": "TEST",
+        "plate": "AO 1248 CH",
         "phone": "+380000000000",
         "telegram": "pomich_help_bot",
         "status": "online",

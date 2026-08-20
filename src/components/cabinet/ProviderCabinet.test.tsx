@@ -11,6 +11,7 @@ const providerProfile = {
   phone: '+380671112233',
   city: 'Ужгород',
   vehicle: 'Volkswagen Crafter',
+  plate: 'AO 1248 CH',
   status: 'online' as const,
   verificationStatus: 'verified' as const,
   specialties: ['tow', 'fuel'],

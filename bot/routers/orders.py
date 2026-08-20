@@ -192,7 +192,7 @@ def retry_order_dispatch(
     if existing is None:
         raise HTTPException(status_code=404, detail="order not found")
     require_order_owner_or_admin(existing, authorization, x_pomich_admin_token)
-    order = dispatch_order(order_id)
+    order = dispatch_order(order_id, reset_auto_retry=True)
     if order is None:
         raise HTTPException(status_code=404, detail="order not found")
     publish_order_event(order, "order.dispatched")

@@ -1415,7 +1415,7 @@ export default function ProviderFlow({
         markProviderPhoneVerified(fresh)
       }
 
-      if (nextDuty && !(registeredComplete && isPartnerRegisteredAndCompleted)) {
+      if (nextDuty && !registeredComplete) {
         const message = "Спочатку заповніть профіль партнера (авто, номер і послуги)."
         setOfferError(message)
         setPresenceToast(message)

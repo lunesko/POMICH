@@ -1029,7 +1029,7 @@ function SearchingStep({ orderId, status, order, pickup, destination, cancelErro
     status === "searching" &&
     offersSent > 0 &&
     pendingOffers === 0 &&
-    offers.length > 0
+    offers.some((offer) => offer.status === "expired" || offer.status === "declined" || offer.status === "lost")
   const showRetry = noProviders || offersExhausted
   const autoRetryAttemptedRef = useRef(false)
 
@@ -1038,14 +1038,18 @@ function SearchingStep({ orderId, status, order, pickup, destination, cancelErro
   }, [orderId])
 
   useEffect(() => {
-    if (pendingOffers > 0) autoRetryAttemptedRef.current = false
-  }, [pendingOffers])
+    if (pendingOffers > 0 || order?.dispatchState === "OFFERS_SENT") {
+      // Allow another auto-retry after a successful wave that later exhausts again.
+      if (pendingOffers > 0) autoRetryAttemptedRef.current = false
+    }
+  }, [pendingOffers, order?.dispatchState])
 
   useEffect(() => {
-    if (!showRetry || autoRetryAttemptedRef.current) return
+    // Auto-retry once when the wave is exhausted; keep manual CTA for NO_PROVIDERS after that.
+    if (!offersExhausted || autoRetryAttemptedRef.current) return
     autoRetryAttemptedRef.current = true
     onRetryDispatch()
-  }, [showRetry, onRetryDispatch])
+  }, [offersExhausted, onRetryDispatch])
 
   return (
     <RideScreen pickup={pickup} destination={destination} providers={order?.assignedProvider ? [order.assignedProvider] : undefined} mapSubtitle={orderId ? `#${orderId}` : "Очікуємо партнера"}>
@@ -1920,6 +1924,10 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
   }
 
   const submitOrder = async () => {
+    if (!vehicleState.trim()) {
+      setScreen("details")
+      return
+    }
     setLoading(true)
     try {
       const fromTelegram = Boolean(telegramContext.initData)
