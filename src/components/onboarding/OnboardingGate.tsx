@@ -31,6 +31,7 @@ import {
   isReturningClient,
   isReturningPartner,
   isStoredProfileNameMismatch,
+  hydrateClientFromPartner,
   mergeAccountProfile,
   mergePreservedAccountStatus,
   readBootstrapProfile,
@@ -82,8 +83,15 @@ function shouldUsePhoneLogin(loginMode: boolean, telegramContext: ReturnType<typ
   return loginMode && !telegramContext.initData
 }
 
-function needsClientOtpVerification(profile?: CustomerProfile): boolean {
-  return Boolean(profile && isCustomerProfileComplete(profile) && !isCustomerVerified(profile))
+function needsClientOtpVerification(
+  profile?: CustomerProfile,
+  account?: UserAccountStatus | null,
+): boolean {
+  if (!profile || !isCustomerProfileComplete(profile)) return false
+  if (isCustomerVerified(profile)) return false
+  // Partner phone already verified for this cabinet — do not block role switch with a second OTP.
+  if (account && isReturningPartner(account)) return false
+  return true
 }
 
 function resolveMergedAccountStatus(
@@ -166,7 +174,7 @@ export default function OnboardingGate({ skip, startAtRoleSelect, loginMode = fa
       }
 
       if (isReturningClient(mergedStatus) && effectivePreferred !== "provider") {
-        if (needsClientOtpVerification(mergedStatus.profile)) {
+        if (needsClientOtpVerification(mergedStatus.profile, mergedStatus)) {
           if (mergedStatus.profile) setProfile(mergedStatus.profile)
           // Returning / WebApp reopen: show OTP UI; user must tap «Надіслати код».
           setPhase("verify-client")
@@ -376,12 +384,14 @@ export default function OnboardingGate({ skip, startAtRoleSelect, loginMode = fa
         }
       }
 
-      const mergedStatus = mergePreservedAccountStatus(
-        resolveMergedAccountStatus(status, activeCustomerId, telegramContext, {
-          profile,
-          account,
-        }),
-        preservedAccount,
+      const mergedStatus = hydrateClientFromPartner(
+        mergePreservedAccountStatus(
+          resolveMergedAccountStatus(status, activeCustomerId, telegramContext, {
+            profile,
+            account,
+          }),
+          preservedAccount,
+        ),
       )
       setAccount(mergedStatus)
       if (mergedStatus.linkedProviderId) {
@@ -392,11 +402,27 @@ export default function OnboardingGate({ skip, startAtRoleSelect, loginMode = fa
       }
 
       if (role === "customer" && !isReturningClient(mergedStatus)) {
+        // Registered partner without hydrated client profile: still avoid blank re-registration
+        // when partner identity is already known — ask OTP only if needed after hydrate retry.
+        if (isReturningPartner(mergedStatus)) {
+          const partnerHydrated = hydrateClientFromPartner(mergedStatus)
+          if (isReturningClient(partnerHydrated)) {
+            setAccount(partnerHydrated)
+            if (needsClientOtpVerification(partnerHydrated.profile, partnerHydrated)) {
+              if (partnerHydrated.profile) setProfile(partnerHydrated.profile)
+              setPhase("verify-client")
+              return
+            }
+            onReadyRef.current({ role, account: partnerHydrated, customerToken: token })
+            setPhase("ready")
+            return
+          }
+        }
         setPhase("register-client")
         return
       }
 
-      if (role === "customer" && needsClientOtpVerification(mergedStatus.profile)) {
+      if (role === "customer" && needsClientOtpVerification(mergedStatus.profile, mergedStatus)) {
         if (mergedStatus.profile) setProfile(mergedStatus.profile)
         setPhase("verify-client")
         return
@@ -406,6 +432,33 @@ export default function OnboardingGate({ skip, startAtRoleSelect, loginMode = fa
       setPhase("ready")
     } catch (err) {
       if (role === "customer") {
+        const fallback = hydrateClientFromPartner(
+          mergePreservedAccountStatus(
+            account ?? {
+              customerId: customerId,
+              preferredRole: "customer",
+              linkedProviderId: "",
+              rolesRegistered: [],
+              clientRegistered: false,
+              providerRegistered: false,
+              needsOnboarding: true,
+            },
+            preservedAccount,
+          ),
+        )
+        if (isReturningClient(fallback) || isReturningPartner(fallback)) {
+          setAccount(fallback)
+          if (needsClientOtpVerification(fallback.profile, fallback)) {
+            if (fallback.profile) setProfile(fallback.profile)
+            setPhase("verify-client")
+            return
+          }
+          if (isReturningClient(fallback)) {
+            onReadyRef.current({ role: "customer", account: fallback, customerToken: customerToken })
+            setPhase("ready")
+            return
+          }
+        }
         setPhase("register-client")
         return
       }
@@ -464,7 +517,7 @@ export default function OnboardingGate({ skip, startAtRoleSelect, loginMode = fa
       const status = await getUserAccount(activeCustomerId, token, telegramContext.initData)
       const merged = mergeAccountProfile({ ...status, profile: updated }, updated)
       setAccount(merged)
-      if (needsClientOtpVerification(updated)) {
+      if (needsClientOtpVerification(updated, merged)) {
         // Post-registration OTP step — user must tap «Надіслати код».
         setPhase("verify-client")
         return
@@ -656,10 +709,25 @@ export default function OnboardingGate({ skip, startAtRoleSelect, loginMode = fa
                 }}
                 onVerified={async (saved) => {
                   setProfile(saved)
-                  if (!customerToken) return
-                  const status = await getUserAccount(customerId, customerToken, telegramContext.initData)
-                  setAccount(status)
-                  onReadyRef.current({ role: "customer", account: status, customerToken })
+                  let token = customerToken
+                  if (!token) {
+                    token =
+                      readStoredAuthSession(
+                        authSessionStorageKey("customer", customerId),
+                        "customer",
+                        customerId,
+                      ) ||
+                      readStoredCustomerAuthSession({ telegramChatId: telegramContext.chatId })?.token
+                    if (token) setCustomerToken(token)
+                  }
+                  if (!token) {
+                    setError("Сесію втрачено. Оновіть сторінку або увійдіть знову.")
+                    return
+                  }
+                  const status = await getUserAccount(customerId, token, telegramContext.initData)
+                  const merged = hydrateClientFromPartner(mergeAccountProfile({ ...status, profile: saved }, saved))
+                  setAccount(merged)
+                  onReadyRef.current({ role: "customer", account: merged, customerToken: token })
                   setPhase("ready")
                 }}
               />

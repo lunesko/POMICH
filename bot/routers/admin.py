@@ -12,6 +12,7 @@ from bot.order_store import (
     attach_dispatch_to_orders,
     build_admin_activity_feed,
     build_admin_stats,
+    expire_stale_and_notify,
     list_admin_customer_profiles,
     load_offers,
     load_orders,
@@ -87,6 +88,7 @@ def admin_list_orders(
     authorization: str | None = Header(default=None),
 ) -> list[dict]:
     require_admin_auth(x_pomich_admin_token, authorization)
+    expire_stale_and_notify()
     orders = attach_dispatch_to_orders(load_orders(), load_offers())
     if status and status.strip().lower() not in {"", "all"}:
         normalized = status.strip().lower()

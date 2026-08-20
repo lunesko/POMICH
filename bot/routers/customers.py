@@ -11,6 +11,7 @@ from bot.api_deps import (
 )
 from bot.order_store import (
     build_user_account_status,
+    expire_stale_and_notify,
     get_customer_profile,
     list_orders_for_customer,
     mark_user_role_registered,
@@ -106,4 +107,5 @@ def customer_order_history(
     limit: int = 50,
 ) -> list[dict]:
     require_customer_auth_linked(customer_id, authorization)
+    expire_stale_and_notify()
     return list_orders_for_customer(customer_id, limit=limit)

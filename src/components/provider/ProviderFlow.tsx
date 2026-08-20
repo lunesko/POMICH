@@ -84,7 +84,7 @@ import { OrderFinalStep } from "../customer/OrderTerminalStep"
 import { DutyStatusToggle, PresenceToast, presenceErrorMessage } from "../ui/DutyStatusToggle"
 import { OrderRequestSheet } from "./OrderRequestSheet"
 import { IncomingOfferStep } from "./IncomingOfferStep"
-import { filterActiveMapRequestPins, filterActiveOffers, filterVisibleOffers, isOfferActive, isPresentableOffer, mergeRequestPins, offerActionErrorMessage, offerSecondsLeft, parseOfferPrice, pinFromOffer, readPersistedOfferDismissals, writePersistedOfferDismissals } from "../../lib/dispatchOffer"
+import { filterActiveMapRequestPins, filterActiveOffers, filterVisibleOffers, formatCountdown, acceptedIdleSecondsLeft, isOfferActive, isPresentableOffer, mergeRequestPins, offerActionErrorMessage, offerSecondsLeft, parseOfferPrice, pinFromOffer, readPersistedOfferDismissals, writePersistedOfferDismissals } from "../../lib/dispatchOffer"
 import { subscribeOrderEvents, subscribeProviderEvents } from "../../lib/realtime"
 import { getTelegramContext } from "../../telegram"
 import FormContainer, { FormFooterBar, FormHeader } from "../layout/FormContainer"
@@ -426,15 +426,19 @@ export default function ProviderFlow({
       : undefined)
   const [customerOtpProfile, setCustomerOtpProfile] = useState<CustomerProfile | undefined>()
   const isPartnerRegisteredAndCompleted = Boolean(
-    providerProfile.registeredAt ||
-    (effectiveProviderRegistered && (providerProfile.vehicle || registrationForm.vehicle || registrationForm.vehicleMake))
+    (providerProfile.registeredAt || effectiveProviderRegistered) &&
+      String(providerProfile.name || registrationForm.name || "").trim() &&
+      String(providerProfile.phone || registrationForm.phone || "").trim() &&
+      isValidUkrainePlate(String(providerProfile.plate || registrationForm.plate || "")) &&
+      toServiceKeys(providerProfile.specialties?.length ? providerProfile.specialties : registrationForm.specialties).length > 0 &&
+      Boolean(
+        String(providerProfile.vehicle || "").trim() ||
+          partnerVehicleSelectionIsComplete(registrationForm.vehicleMake, registrationForm.vehicleMakeOther, registrationForm.vehicleModel),
+      ),
   )
   const providerCanGoOnline =
     isPartnerRegisteredAndCompleted &&
-    (isProviderPhoneVerified(providerProfile) ||
-     Boolean(customerOtpProfile && isCustomerVerified(customerOtpProfile)) ||
-     Boolean(customerIdForOtp && customerTokenForOtp) ||
-     Boolean(readBootstrapProfile()?.phone))
+    (isProviderPhoneVerified(providerProfile) || Boolean(customerOtpProfile && isCustomerVerified(customerOtpProfile)))
   const dutyAutoAttemptedRef = useRef(false)
 
   const markProviderPhoneVerified = useCallback((currentProvider?: ProviderAvailability) => {
@@ -1325,19 +1329,22 @@ export default function ProviderFlow({
       if (fresh?.id) {
         applyLoadedProvider(fresh)
       }
-      const registered = Boolean(fresh?.registeredAt || providerProfile.registeredAt || effectiveProviderRegistered)
+      const freshProfile = fresh?.id ? fresh : providerProfile
+      const registeredComplete = Boolean(
+        (freshProfile.registeredAt || effectiveProviderRegistered) &&
+          isValidUkrainePlate(String(freshProfile.plate || registrationForm.plate || "")) &&
+          toServiceKeys(freshProfile.specialties?.length ? freshProfile.specialties : registrationForm.specialties).length > 0,
+      )
       const verified =
-        isProviderPhoneVerified(fresh?.id ? fresh : providerProfile) ||
-        Boolean(customerOtpProfile && isCustomerVerified(customerOtpProfile)) ||
-        Boolean(customerIdForOtp && customerTokenForOtp) ||
-        Boolean(readBootstrapProfile()?.phone)
+        isProviderPhoneVerified(freshProfile) ||
+        Boolean(customerOtpProfile && isCustomerVerified(customerOtpProfile))
 
       if (verified && providerProfile.verificationStatus !== "verified") {
         markProviderPhoneVerified(fresh)
       }
 
-      if (nextDuty && !isPartnerRegisteredAndCompleted) {
-        const message = "Спочатку заповніть профіль партнера."
+      if (nextDuty && !(registeredComplete && isPartnerRegisteredAndCompleted)) {
+        const message = "Спочатку заповніть профіль партнера (авто, номер і послуги)."
         setOfferError(message)
         setPresenceToast(message)
         setStep("register")
@@ -1390,15 +1397,15 @@ export default function ProviderFlow({
   }
 
   const openPhoneOrProfileGate = () => {
-    if (providerProfile.registeredAt || effectiveProviderRegistered) {
-      if (providerCanGoOnline) {
-        void setDuty(true)
-        return
-      }
-      setStep("verify")
+    if (!isPartnerRegisteredAndCompleted) {
+      setStep("register")
       return
     }
-    setStep("register")
+    if (providerCanGoOnline) {
+      void setDuty(true)
+      return
+    }
+    setStep("verify")
   }
 
   // Telegram «Вийти на лінію» opens screen=duty — actually go online once session+profile are ready.
@@ -1698,7 +1705,13 @@ export default function ProviderFlow({
                         ? "Оновлюємо статус…"
                         : "Вийти на лінію"
                 }
-                onClick={() => void setDuty(true)}
+                onClick={() => {
+                  if (!isPartnerRegisteredAndCompleted || !providerCanGoOnline) {
+                    openPhoneOrProfileGate()
+                    return
+                  }
+                  void setDuty(true)
+                }}
                 disabled={presenceSaving}
               />
             </div>
@@ -1828,14 +1841,20 @@ export default function ProviderFlow({
 
   if (step === "awaiting_price") {
     const proposed = activeOrder?.partnerProposedPrice
+    const idleSecondsLeft = acceptedIdleSecondsLeft(activeOrder, offerClock)
     return (
-      <ScreenLayout footer={<SecondaryButton label="Повернутись до карти" onClick={returnToDuty} />}>
+      <ScreenLayout>
         <Header title="Очікуємо клієнта" subtitle={activeOrder?.id ? `Замовлення #${activeOrder.id}` : undefined} status="accepted" />
         <div style={{ padding: "8px 16px 16px", display: "grid", gap: 12 }}>
           <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 18, padding: 16 }}>
             <div style={{ fontWeight: 950, fontSize: 20, color: DARK }}>Ціну надіслано клієнту</div>
             <div style={{ color: MUTED, fontWeight: 750, marginTop: 8, lineHeight: 1.45 }}>
               Ви запропонували {typeof proposed === "number" ? `${proposed.toLocaleString("uk-UA")} ₴` : "ціну"}. Клієнт підтвердить або зв'яжеться для обговорення.
+            </div>
+            <div style={{ marginTop: 14, background: "var(--pomich-warn-bg)", color: "var(--pomich-warn-text)", borderRadius: 14, padding: 12, fontWeight: 800, lineHeight: 1.45 }}>
+              {idleSecondsLeft > 0
+                ? `Якщо клієнт не підтвердить ціну за ${formatCountdown(idleSecondsLeft)}, заявку буде скасовано.`
+                : "Час очікування вийшов — заявку буде скасовано автоматично."}
             </div>
             <div style={{ marginTop: 14 }}>
               <Timeline status="accepted" />
@@ -1966,7 +1985,7 @@ export default function ProviderFlow({
           <div style={{ marginTop: 10 }}>
             <PrimaryButton
               label={
-                !(providerProfile.registeredAt || effectiveProviderRegistered)
+                !isPartnerRegisteredAndCompleted
                   ? "Завершити профіль"
                   : !providerCanGoOnline
                     ? "Підтвердити телефон"
@@ -1997,7 +2016,7 @@ export default function ProviderFlow({
           <div style={{ marginTop: 14 }}>
             <PrimaryButton
               label={
-                !(providerProfile.registeredAt || effectiveProviderRegistered)
+                !isPartnerRegisteredAndCompleted
                   ? "Завершити профіль"
                   : !providerCanGoOnline
                     ? "Підтвердити телефон"

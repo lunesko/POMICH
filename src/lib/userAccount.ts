@@ -33,6 +33,7 @@ export function isClientProfileComplete(profile: CustomerProfile): boolean {
 /** Registered on server or profile already has name + valid phone. */
 export function isReturningClient(status: UserAccountStatus): boolean {
   if (status.clientRegistered) return true
+  if (status.rolesRegistered.includes("customer")) return true
   return Boolean(status.profile && isClientProfileComplete(status.profile))
 }
 
@@ -58,6 +59,54 @@ export function isReturningPartner(status: UserAccountStatus): boolean {
   return Boolean((status.linkedProviderId || "").trim())
 }
 
+/** Fill client name/phone from cached partner profile when switching partner → client. */
+export function hydrateClientFromPartner(status: UserAccountStatus): UserAccountStatus {
+  if (isReturningClient(status)) {
+    const rolesRegistered = status.rolesRegistered.includes("customer")
+      ? status.rolesRegistered
+      : ([...status.rolesRegistered, "customer"] as UserRole[])
+    return {
+      ...status,
+      clientRegistered: true,
+      rolesRegistered,
+      needsOnboarding: false,
+    }
+  }
+  if (!isReturningPartner(status)) return status
+
+  const linkedId = (status.linkedProviderId || "").trim() || resolveProviderIdForCustomer(status.customerId, status.linkedProviderId)
+  const cached = typeof window !== "undefined" ? readCachedProviderProfile(linkedId || getActiveProviderId()) : undefined
+  const bootstrap = typeof window !== "undefined" ? readBootstrapProfile() : undefined
+  const name =
+    (status.profile?.name || "").trim() && (status.profile?.name || "").trim() !== DEFAULT_CUSTOMER_NAME
+      ? (status.profile?.name || "").trim()
+      : (cached?.name || bootstrap?.name || "").trim()
+  const phone = (status.profile?.phone || cached?.phone || bootstrap?.phone || "").trim()
+  if (!name || name === DEFAULT_CUSTOMER_NAME || !phone) return status
+
+  const rolesRegistered = status.rolesRegistered.includes("customer")
+    ? status.rolesRegistered
+    : ([...status.rolesRegistered, "customer"] as UserRole[])
+
+  return {
+    ...status,
+    clientRegistered: true,
+    rolesRegistered,
+    needsOnboarding: false,
+    profile: {
+      ...(status.profile || { id: status.customerId }),
+      id: status.profile?.id || status.customerId,
+      name,
+      phone,
+      city: status.profile?.city || cached?.city || bootstrap?.city,
+      verificationStatus:
+        status.profile?.verificationStatus ||
+        (cached?.verificationStatus === "verified" ? "verified" : status.profile?.verificationStatus) ||
+        "unverified",
+    },
+  }
+}
+
 /** Restore partner flags dropped by a stale /account response during role switch. */
 export function enrichPartnerAccountStatus(status: UserAccountStatus): UserAccountStatus {
   if (!isReturningPartner(status)) return status
@@ -65,13 +114,14 @@ export function enrichPartnerAccountStatus(status: UserAccountStatus): UserAccou
   const rolesRegistered = status.rolesRegistered.includes("provider")
     ? status.rolesRegistered
     : ([...status.rolesRegistered, "provider"] as UserRole[])
-  return {
+  const withPartner: UserAccountStatus = {
     ...status,
     linkedProviderId: linkedId || status.linkedProviderId,
     providerRegistered: true,
     rolesRegistered,
     needsOnboarding: status.needsOnboarding && !isReturningClient(status) ? status.needsOnboarding : false,
   }
+  return hydrateClientFromPartner(withPartner)
 }
 
 /** Merge in-memory account from CustomerApp when reopening the role picker. */
