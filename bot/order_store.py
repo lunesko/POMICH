@@ -18,6 +18,7 @@ from bot.runtime_store import (
     sql_get_customer,
     sql_upsert_customer,
     sql_get_order,
+    sql_upsert_order,
     sql_get_provider,
     sql_offers_for_order,
     sql_orders_for_provider,
@@ -841,19 +842,17 @@ def update_order_status(
     offer_store_path: Optional[Path] = None,
 ) -> Optional[Dict[str, Any]]:
     with STORE_LOCK:
-        path = store_path or _default_store_path()
-        orders = load_orders(path)
-        updated_order: Optional[Dict[str, Any]] = None
         now = _now_iso()
         next_status = normalize_order_status(status)
+        use_sql = _should_use_sql_store(store_path, _default_store_path)
 
-        for order in orders:
-            if str(order.get("id")) != str(order_id):
-                continue
+        if use_sql:
+            order = sql_get_order(str(order_id))
+            if order is None:
+                return None
             current_status = normalize_order_status(order.get("status"))
             if next_status == current_status:
-                updated_order = order
-                break
+                return enrich_order_for_client(order, provider_store_path)
             if next_status not in ORDER_TRANSITIONS[current_status]:
                 raise InvalidStatusTransition(current_status, next_status)
 
@@ -865,13 +864,39 @@ def update_order_status(
             history.append({"status": next_status, "at": now})
             order["statusHistory"] = history
             _append_order_event(order, f"ORDER_{next_status.upper()}", now)
+            sql_upsert_order(order)
             updated_order = order
-            break
+        else:
+            path = store_path or _default_store_path()
+            orders = load_orders(path)
+            updated_order = None
 
-        if updated_order is None:
-            return None
+            for order in orders:
+                if str(order.get("id")) != str(order_id):
+                    continue
+                current_status = normalize_order_status(order.get("status"))
+                if next_status == current_status:
+                    updated_order = order
+                    break
+                if next_status not in ORDER_TRANSITIONS[current_status]:
+                    raise InvalidStatusTransition(current_status, next_status)
 
-        _write_json_atomic(path, orders)
+                order["status"] = next_status
+                order["updatedAt"] = now
+                history = order.get("statusHistory")
+                if not isinstance(history, list):
+                    history = []
+                history.append({"status": next_status, "at": now})
+                order["statusHistory"] = history
+                _append_order_event(order, f"ORDER_{next_status.upper()}", now)
+                updated_order = order
+                break
+
+            if updated_order is None:
+                return None
+
+            _write_json_atomic(path, orders)
+
         if next_status == "cancelled":
             invalidate_order_offers(order_id, "cancelled", offer_store_path)
             if updated_order.get("assignedProviderId"):
@@ -2967,8 +2992,24 @@ def invalidate_order_offers(order_id: str, status: str = "cancelled", offer_stor
 
 
 def _set_provider_status(provider_id: str, status: str, assigned_order_id: Optional[str] = None, provider_store_path: Optional[Path] = None) -> Optional[Dict[str, Any]]:
-    providers = load_providers(provider_store_path)
     now = _now_iso()
+    use_sql = _should_use_sql_store(provider_store_path, _default_provider_store_path)
+
+    if use_sql:
+        provider = get_provider_profile(provider_id, provider_store_path)
+        if provider is None:
+            return None
+        provider.pop("stale", None)
+        provider["status"] = status
+        provider["updatedAt"] = now
+        provider["lastSeenAt"] = now
+        if assigned_order_id:
+            provider["assignedOrderId"] = assigned_order_id
+        else:
+            provider.pop("assignedOrderId", None)
+        return sql_upsert_provider(dict(provider))
+
+    providers = load_providers(provider_store_path)
     updated: Optional[Dict[str, Any]] = None
 
     for provider in providers:
@@ -3744,6 +3785,15 @@ def get_provider_public_card(
 
 
 def _increment_provider_orders_completed(provider_id: str, provider_store_path: Optional[Path] = None) -> None:
+    if _should_use_sql_store(provider_store_path, _default_provider_store_path):
+        provider = get_provider_profile(provider_id, provider_store_path)
+        if provider is None:
+            return
+        provider["ordersCompleted"] = int(provider.get("ordersCompleted") or 0) + 1
+        provider["updatedAt"] = _now_iso()
+        sql_upsert_provider(dict(provider))
+        return
+
     providers = load_providers(provider_store_path)
     changed = False
     for provider in providers:
@@ -3758,6 +3808,16 @@ def _increment_provider_orders_completed(provider_id: str, provider_store_path: 
 
 
 def _increment_customer_orders_completed(customer_id: str, customer_store_path: Optional[Path] = None) -> None:
+    if _should_use_sql_store(customer_store_path, _default_customer_store_path):
+        found = sql_get_customer(str(customer_id))
+        if found is None:
+            return
+        profile = _decrypt_customer_record(found)
+        profile["ordersCompleted"] = int(profile.get("ordersCompleted") or 0) + 1
+        profile["updatedAt"] = _now_iso()
+        sql_upsert_customer(_encrypt_customer_record(profile))
+        return
+
     path = customer_store_path
     profiles = load_customer_profiles(path)
     changed = False
@@ -3806,9 +3866,16 @@ def submit_order_review(
     note = str(comment or "").strip()[:500]
 
     with STORE_LOCK:
-        path = store_path or _default_store_path()
-        orders = load_orders(path)
-        order = next((item for item in orders if str(item.get("id")) == str(order_id)), None)
+        use_sql = _should_use_sql_store(store_path, _default_store_path)
+        if use_sql:
+            order = sql_get_order(str(order_id))
+            orders: Optional[List[Dict[str, Any]]] = None
+            path: Optional[Path] = None
+        else:
+            path = store_path or _default_store_path()
+            orders = load_orders(path)
+            order = next((item for item in orders if str(item.get("id")) == str(order_id)), None)
+
         if order is None:
             raise DispatchConflict("ORDER_NOT_FOUND", "Order was not found.")
         if normalize_order_status(order.get("status")) != "completed":
@@ -3837,29 +3904,48 @@ def submit_order_review(
         }
         order["updatedAt"] = now
         _append_order_event(order, "REVIEW_SUBMITTED", now, {"role": role, "rating": stars})
-        _write_json_atomic(path, orders)
+
+        if use_sql:
+            sql_upsert_order(order)
+        else:
+            assert path is not None and orders is not None
+            _write_json_atomic(path, orders)
 
         if role == "customer":
             provider_id = str(order.get("assignedProviderId") or order.get("partnerId") or "").strip()
             if provider_id:
-                providers = load_providers(provider_store_path)
-                for provider in providers:
-                    if str(provider.get("id")) != provider_id:
-                        continue
+                provider = get_provider_profile(provider_id, provider_store_path)
+                if provider is not None:
                     _apply_star_rating(provider, stars)
                     provider["updatedAt"] = now
-                    break
-                save_providers(providers, provider_store_path)
+                    if _should_use_sql_store(provider_store_path, _default_provider_store_path):
+                        sql_upsert_provider(dict(provider))
+                    else:
+                        providers = load_providers(provider_store_path)
+                        for index, item in enumerate(providers):
+                            if str(item.get("id")) != provider_id:
+                                continue
+                            providers[index] = provider
+                            break
+                        save_providers(providers, provider_store_path)
         else:
             customer_id = str(order.get("customerId") or "").strip()
             if customer_id:
-                profiles = load_customer_profiles(customer_store_path)
-                for profile in profiles:
-                    if str(profile.get("id")) != customer_id:
-                        continue
-                    _apply_star_rating(profile, stars)
-                    profile["updatedAt"] = now
-                    break
-                save_customer_profiles(profiles, customer_store_path)
+                if _should_use_sql_store(customer_store_path, _default_customer_store_path):
+                    found = sql_get_customer(customer_id)
+                    if found is not None:
+                        profile = _decrypt_customer_record(found)
+                        _apply_star_rating(profile, stars)
+                        profile["updatedAt"] = now
+                        sql_upsert_customer(_encrypt_customer_record(profile))
+                else:
+                    profiles = load_customer_profiles(customer_store_path)
+                    for profile in profiles:
+                        if str(profile.get("id")) != customer_id:
+                            continue
+                        _apply_star_rating(profile, stars)
+                        profile["updatedAt"] = now
+                        break
+                    save_customer_profiles(profiles, customer_store_path)
 
         return enrich_order_for_client(order, provider_store_path, customer_store_path)

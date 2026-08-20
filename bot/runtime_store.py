@@ -539,6 +539,63 @@ def sql_get_order(order_id: str) -> dict[str, Any] | None:
     return _json_safe_copy(row[0])
 
 
+def sql_upsert_order(order: dict[str, Any]) -> dict[str, Any]:
+    """Insert or update one order row without rewriting the whole orders table."""
+    payload = _json_safe_copy(order)
+    order_id = str(payload.get("id") or "").strip()
+    if not order_id:
+        raise ValueError("order id is required")
+
+    customer_lat, customer_lng = _point(payload.get("customerCoordinates"))
+    destination_lat, destination_lng = _point(payload.get("destinationCoordinates"))
+    values = {
+        "id": order_id,
+        "status": str(payload.get("status") or "searching"),
+        "service": str(payload.get("service") or "") or None,
+        "source": str(payload.get("source") or "") or None,
+        "customer_id": str(payload.get("customerId") or payload.get("customer_id") or "") or None,
+        "chat_id": str(payload.get("chatId") or "") or None,
+        "assigned_provider_id": str(payload.get("assignedProviderId") or "") or None,
+        "customer_lat": customer_lat,
+        "customer_lng": customer_lng,
+        "destination_lat": destination_lat,
+        "destination_lng": destination_lng,
+        "created_at": str(payload.get("createdAt") or ""),
+        "updated_at": str(payload.get("updatedAt") or ""),
+        "payload": payload,
+    }
+
+    with get_engine().begin() as connection:
+        existing = connection.execute(select(orders.c.id).where(orders.c.id == order_id)).first()
+        if existing:
+            connection.execute(
+                update(orders)
+                .where(orders.c.id == order_id)
+                .values(**{key: value for key, value in values.items() if key != "id"})
+            )
+        else:
+            connection.execute(insert(orders).values(**values))
+
+        connection.execute(delete(order_events).where(order_events.c.order_id == order_id))
+        for index, event in enumerate(payload.get("dispatchEvents") if isinstance(payload.get("dispatchEvents"), list) else []):
+            if not isinstance(event, dict):
+                continue
+            event_id = f"{order_id}:{index}:{event.get('type')}:{event.get('at')}"
+            connection.execute(
+                insert(order_events).values(
+                    id=event_id[:240],
+                    order_id=order_id,
+                    event_type=str(event.get("type") or "") or None,
+                    event_at=str(event.get("at") or "") or None,
+                    provider_id=str(event.get("providerId") or "") or None,
+                    offer_id=str(event.get("offerId") or "") or None,
+                    payload=event,
+                )
+            )
+
+    return payload
+
+
 def sql_offers_for_order(order_id: str) -> list[dict[str, Any]]:
     wanted = str(order_id or "").strip()
     if not wanted:

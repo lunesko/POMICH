@@ -645,7 +645,7 @@ export async function submitOrderReview(
   payload: { role: 'customer' | 'partner'; rating: number; comment?: string; authorId?: string; providerId?: string },
   token?: string,
 ) {
-  const response = await fetch(`${getBaseUrl()}/orders/${encodeURIComponent(orderId)}/reviews`, {
+  const response = await fetchApi(`${getBaseUrl()}/orders/${encodeURIComponent(orderId)}/reviews`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -655,7 +655,8 @@ export async function submitOrderReview(
   })
 
   if (!response.ok) {
-    throw new Error(await parseApiError(response, `Order review failed with ${response.status}`))
+    const parsed = await parseApiErrorDetails(response, 'Не вдалося зберегти оцінку. Спробуйте ще раз.')
+    throw Object.assign(new Error(parsed.message), { status: response.status, detail: parsed.code || parsed.message })
   }
 
   return response.json() as Promise<OrderResponse>

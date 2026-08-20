@@ -40,6 +40,12 @@ import {
   enrichProfileWithTelegram,
   resolveCustomerAuthSession,
 } from "./lib/customerSession"
+import {
+  clearActiveAppRole,
+  clearPendingPartnerReview,
+  persistActiveAppRole,
+  readActiveAppRole,
+} from "./lib/appRole"
 import { syncProfileCityFromGeo } from "./lib/syncProfileCityFromGeo"
 
 const CustomerFlow = lazy(() => import("./components/customer/CustomerFlow"))
@@ -88,12 +94,37 @@ export default function CustomerApp() {
     if (queryRole === "customer" || queryRole === "provider") return queryRole
     const entryRole = resolveEntryRole()
     if (entryRole) return entryRole
+    // Clean URL (pomich.help): restore last role so refresh mid-order does not dump to landing.
+    if (!telegramLoggedOut) {
+      const storedRole = readActiveAppRole()
+      if (storedRole) {
+        const hasCustomerSession = Boolean(readStoredCustomerAuthSession({ telegramChatId: telegramContext.chatId }))
+        const hasLinkedProvider = Boolean(
+          typeof window !== "undefined" &&
+            (window.sessionStorage.getItem("pomichLinkedProviderId") || window.localStorage.getItem("pomichLinkedProviderId")),
+        )
+        if (storedRole === "provider" && (hasCustomerSession || hasLinkedProvider || telegramContext.initData)) {
+          return "provider"
+        }
+        if (storedRole === "customer" && (hasCustomerSession || telegramContext.initData)) {
+          return "customer"
+        }
+      }
+    }
     return null
-  }, [telegramContext.botKind])
+  }, [telegramContext.botKind, telegramContext.chatId, telegramContext.initData, telegramLoggedOut])
   const [role, setRole] = useState<Role | null>(initialRole)
   const [account, setAccount] = useState<UserAccountStatus | null>(null)
   const [showOnboarding, setShowOnboarding] = useState(() => {
-    if (initialRole === "customer" || initialRole === "provider") return true
+    if (initialRole === "customer" || initialRole === "provider") {
+      // Restored from storage with a clean URL — enter flow directly (session hydrate effects run).
+      const fromQuery =
+        typeof window !== "undefined" &&
+        (new URLSearchParams(window.location.search).get("role") === "customer" ||
+          new URLSearchParams(window.location.search).get("role") === "provider")
+      if (!fromQuery && !telegramContext.isTelegram) return false
+      return true
+    }
     if (telegramContext.isTelegram && initialRole !== "admin" && !providerToken && !telegramLoggedOut) return true
     return false
   })
@@ -171,6 +202,11 @@ export default function CustomerApp() {
     setRole(nextRole)
     setShowCabinet(false)
     setCabinetInitialEditing(false)
+    if (nextRole === "customer" || nextRole === "provider") {
+      persistActiveAppRole(nextRole)
+    } else if (nextRole === null) {
+      clearActiveAppRole()
+    }
     if (typeof window === "undefined") return
     if (nextRole === "admin") {
       applyHiddenAdminEntry()
@@ -326,6 +362,7 @@ export default function CustomerApp() {
 
   const goToLanding = useCallback(() => {
     // «Меню» / logo / home — show landing but keep customer token + customerId in storage.
+    clearActiveAppRole()
     setShowLanding(true)
     setShowOnboarding(false)
     setShowCabinet(false)
@@ -352,6 +389,7 @@ export default function CustomerApp() {
     markExplicitLogout(telegramContext.isTelegram ? telegramContext.chatId : undefined)
     // Always leave the ride first — logout must work from completion/review screens.
     clearActiveOrder()
+    clearActiveAppRole()
     clearAllAuthStorage()
     setCustomerToken(undefined)
     setAccount(null)
@@ -446,10 +484,17 @@ export default function CustomerApp() {
       }
       const queryRole = new URLSearchParams(window.location.search).get("role")
       if (queryRole === "customer" || queryRole === "provider") {
+        persistActiveAppRole(queryRole)
         setRole(queryRole)
+        setShowLanding(false)
         return
       }
-      setRole(null)
+      // Clean address bar: keep persisted role instead of dumping to landing on back/forward.
+      const stored = readActiveAppRole()
+      if (stored) {
+        setRole(stored)
+        setShowLanding(false)
+      }
     }
 
     window.addEventListener("popstate", syncRoleFromUrl)

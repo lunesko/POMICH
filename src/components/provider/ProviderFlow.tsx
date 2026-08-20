@@ -60,6 +60,7 @@ import {
 import { readBootstrapProfile, resolveProviderIdForCustomer, storeLinkedProviderId } from "../../lib/userAccount"
 import { readCachedProviderProfile, writeCachedProviderProfile } from "../../lib/providerProfileCache"
 import { clearActiveOrder, isActiveOrderStatus, persistActiveOrder, pickLatestActiveOrder, readActiveOrder } from "../../lib/customerSession"
+import { clearPendingPartnerReview, persistPendingPartnerReview, readPendingPartnerReview } from "../../lib/appRole"
 import { requestCurrentPosition } from "../../lib/mapGeo"
 import { validateUkraineMobilePhone } from "../../lib/ukrainePhone"
 import { validateUkrainePlate } from "../../lib/ukrainePlate"
@@ -1232,6 +1233,8 @@ export default function ProviderFlow({
         rememberDismissedOffer(undefined, orderId)
         setIncomingOffers([])
         clearActiveOrder()
+        if (normalizedStatus === "completed") persistPendingPartnerReview(orderId)
+        else clearPendingPartnerReview()
         setProviderProfile((profile) => ({ ...profile, status: "online", assignedOrderId: undefined } as ProviderAvailability))
         setPartnerReviewSubmitted(Boolean(order.partnerReview?.rating))
         setPartnerReviewError(undefined)
@@ -1346,6 +1349,25 @@ export default function ProviderFlow({
             }
           } catch {
             // Fall through to provider order history.
+          }
+        }
+        const pendingReview = readPendingPartnerReview()
+        if (pendingReview?.orderId && (!activeOrder?.id || activeOrder.id === pendingReview.orderId)) {
+          try {
+            const snapshot = await getOrder(pendingReview.orderId, session.token)
+            if (!cancelled && snapshot?.id) {
+              const nextStatus = normalizeOrderStatus(snapshot.status)
+              if (nextStatus === "completed") {
+                setActiveOrder(snapshot)
+                setPartnerReviewSubmitted(Boolean(snapshot.partnerReview?.rating))
+                if (snapshot.partnerReview?.rating) clearPendingPartnerReview()
+                setStep("completed")
+                return
+              }
+              clearPendingPartnerReview()
+            }
+          } catch {
+            // Fall through to active order history.
           }
         }
         if (activeOrder?.id && activeOrder.service) return
@@ -1612,6 +1634,7 @@ export default function ProviderFlow({
             rememberDismissedOffer(undefined, order.id)
             setIncomingOffers([])
             clearActiveOrder()
+            if (order.id) persistPendingPartnerReview(order.id)
             setProviderProfile((profile) => ({ ...profile, status: "online", assignedOrderId: undefined } as ProviderAvailability))
             setStep("completed")
           }
@@ -1633,6 +1656,7 @@ export default function ProviderFlow({
     }
     setActiveOrder(undefined)
     clearActiveOrder()
+    clearPendingPartnerReview()
     setIncomingOffers([])
     setPartnerReviewSaving(false)
     setPartnerReviewError(undefined)
@@ -1648,12 +1672,13 @@ export default function ProviderFlow({
   }, [activeOrder?.id, onDuty, rememberDismissedOffer])
 
   const submitPartnerOrderReview = useCallback(async ({ rating, comment }: { rating: number; comment: string }) => {
-    if (!activeOrder?.id) return
+    if (!activeOrder?.id || partnerReviewSaving) return
     setPartnerReviewSaving(true)
     setPartnerReviewError(undefined)
     try {
+      const session = await ensureProviderSession()
       const authorProviderId =
-        activeOrder.assignedProviderId || activeOrder.partnerId || providerId
+        activeOrder.assignedProviderId || activeOrder.partnerId || session.providerId || providerId
       const updated = await submitOrderReview(
         activeOrder.id,
         {
@@ -1663,14 +1688,16 @@ export default function ProviderFlow({
           authorId: authorProviderId,
           providerId: authorProviderId,
         },
-        providerAuthToken,
+        session.token,
       )
       setActiveOrder(updated)
       setPartnerReviewSubmitted(true)
+      clearPendingPartnerReview()
     } catch (err) {
       const message = messageFromFetchError(err, "Не вдалося зберегти оцінку. Спробуйте ще раз.")
       if (message.includes("already") || message.includes("вже") || /REVIEW_ALREADY/i.test(String(err))) {
         setPartnerReviewSubmitted(true)
+        clearPendingPartnerReview()
         try {
           const refreshed = await getOrder(activeOrder.id, providerAuthToken)
           setActiveOrder(refreshed)
@@ -1683,7 +1710,7 @@ export default function ProviderFlow({
     } finally {
       setPartnerReviewSaving(false)
     }
-  }, [activeOrder?.id, activeOrder?.assignedProviderId, activeOrder?.partnerId, providerId, providerAuthToken])
+  }, [activeOrder?.id, activeOrder?.assignedProviderId, activeOrder?.partnerId, partnerReviewSaving, providerId, providerAuthToken])
 
   const openPartnerRestoreOrLogin = () => {
     // Prefer phone OTP restore (linked provider) over password login dead-end.
