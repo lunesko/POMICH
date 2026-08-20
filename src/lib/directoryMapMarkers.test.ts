@@ -39,20 +39,20 @@ describe("directoryMaxMarkersForZoom", () => {
   })
 
   it("uses regional and city caps", () => {
-    expect(directoryMaxMarkersForZoom(7)).toBe(250)
-    expect(directoryMaxMarkersForZoom(9)).toBe(200)
-    expect(directoryMaxMarkersForZoom(12)).toBe(500)
+    expect(directoryMaxMarkersForZoom(7)).toBe(80)
+    expect(directoryMaxMarkersForZoom(9)).toBe(100)
+    expect(directoryMaxMarkersForZoom(12)).toBe(140)
   })
 })
 
 describe("selectDirectoryProvidersForRender", () => {
   it("keeps all viewport providers at city zoom when under cap", () => {
-    const providers = Array.from({ length: 120 }, (_, index) =>
+    const providers = Array.from({ length: 90 }, (_, index) =>
       mockProvider(String(index), 48.62 + index * 0.001, 22.28),
     )
     const map = mockMap(12, 48.5, 22.0, 48.8, 22.5)
     const visible = selectDirectoryProvidersForRender(providers, map as never)
-    expect(visible.length).toBe(120)
+    expect(visible.length).toBe(90)
   })
 
   it("samples only within viewport at regional zoom, not globally", () => {
@@ -65,7 +65,7 @@ describe("selectDirectoryProvidersForRender", () => {
     const providers = [...westUkraine, ...eastUkraine]
     const map = mockMap(9, 48.4, 22.0, 48.9, 22.6)
     const visible = selectDirectoryProvidersForRender(providers, map as never)
-    expect(visible.length).toBeLessThanOrEqual(200)
+    expect(visible.length).toBeLessThanOrEqual(100)
     expect(visible.every((item) => String(item.id).startsWith("w-"))).toBe(true)
   })
 })

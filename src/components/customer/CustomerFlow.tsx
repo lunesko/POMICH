@@ -641,7 +641,10 @@ function HomeStep({
   return (
     <RideScreen
       pickup={pickup}
-      providers={providers}
+      providers={nearby}
+      /* Help flow: only live dispatch partners on the map. Directory gas-station spam
+         (hundreds of Leaflet markers) made the client map lag; catalog stays on landing «Карта». */
+      showDirectoryProviders={false}
       mapSubtitle={`${locationLabel} · ${directoryScope === "my-city" && directoryScopeCity ? directoryScopeCity : directoryScope === "all-ukraine" ? "Україна" : serviceCity}`}
       defaultSnap="half"
       recenterTrigger={recenterTrigger}
@@ -1379,7 +1382,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
     retryGeo: retryDirectoryGeo,
     fetchProvidersNear,
     refetchProviders,
-  } = useDirectoryScope({ refreshMs: 10000 })
+  } = useDirectoryScope({ refreshMs: 60000 })
   const [customerReviewSaving, setCustomerReviewSaving] = useState(false)
   const [customerReviewError, setCustomerReviewError] = useState<string | undefined>()
   const [customerReviewSubmitted, setCustomerReviewSubmitted] = useState(false)

@@ -73,7 +73,7 @@ export function RideScreen({
   requestPins,
   mapSubtitle,
   showAllProviders = false,
-  showDirectoryProviders = true,
+  showDirectoryProviders = false,
   userLocation,
   onUserLocationChange,
   onPick,

@@ -321,11 +321,12 @@ function MapDirectoryScopeRecenter({
 
 const DIRECTORY_VIEWPORT_CULL_THRESHOLD = 50
 
-/** Per-viewport caps — never sample the whole country when zoomed into a region. */
+/** Per-viewport caps — never sample the whole country when zoomed into a region.
+ * Keep city caps modest: each pin is a Leaflet Marker DOM node (laggy when hundreds). */
 export function directoryMaxMarkersForZoom(zoom: number): number {
-  if (zoom <= 7) return 250
-  if (zoom <= 10) return 200
-  return 500
+  if (zoom <= 7) return 80
+  if (zoom <= 10) return 100
+  return 140
 }
 
 function directoryViewportPad(zoom: number): number {

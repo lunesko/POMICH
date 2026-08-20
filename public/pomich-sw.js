@@ -1,5 +1,5 @@
-const TILE_CACHE = "pomich-map-tiles-v2"
-const ASSET_CACHE = "pomich-assets-v2"
+const TILE_CACHE = "pomich-map-tiles-v3"
+const ASSET_CACHE = "pomich-assets-v3"
 const TILE_HOST_PATTERN = /(^|\.)tile\.openstreetmap\.org$/
 
 self.addEventListener("install", () => {
@@ -44,18 +44,32 @@ self.addEventListener("fetch", (event) => {
 
   if (!TILE_HOST_PATTERN.test(url.hostname)) return
 
+  // Cache-first for OSM tiles: network-first caused hundreds of PNG fetches + cancels on pan/zoom.
   event.respondWith(
     caches.open(TILE_CACHE).then(async (cache) => {
       const cached = await cache.match(event.request)
+      if (cached) {
+        // Soft revalidate in background without blocking the map.
+        event.waitUntil(
+          fetch(event.request)
+            .then((response) => {
+              if (response.ok || response.type === "opaque") {
+                return cache.put(event.request, response.clone())
+              }
+              return undefined
+            })
+            .catch(() => undefined),
+        )
+        return cached
+      }
       try {
         const response = await fetch(event.request)
         if (response.ok || response.type === "opaque") {
           cache.put(event.request, response.clone())
         }
         return response
-      } catch {
-        if (cached) return cached
-        throw new Error("Map tile unavailable offline")
+      } catch (error) {
+        throw error
       }
     }),
   )
