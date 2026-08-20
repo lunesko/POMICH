@@ -26,6 +26,7 @@ customers = Table(
     Column("id", String(120), primary_key=True),
     Column("name", String(512)),
     Column("phone", String(512)),
+    Column("phone_lookup", String(64)),
     Column("email", String(512)),
     Column("telegram", String(180)),
     Column("city", String(512)),
@@ -41,6 +42,7 @@ providers = Table(
     Column("id", String(120), primary_key=True),
     Column("name", String(180)),
     Column("phone", String(80)),
+    Column("phone_lookup", String(64)),
     Column("telegram", String(180)),
     Column("vehicle", String(180)),
     Column("plate", String(80)),
@@ -141,10 +143,13 @@ runtime_collections = Table(
 Index("idx_orders_status", orders.c.status)
 Index("idx_orders_service", orders.c.service)
 Index("idx_orders_assigned_provider", orders.c.assigned_provider_id)
+Index("idx_orders_customer_id", orders.c.customer_id)
 Index("idx_orders_customer_location", orders.c.customer_lat, orders.c.customer_lng)
 Index("idx_provider_presence_status", provider_presence.c.status)
 Index("idx_provider_presence_location", provider_presence.c.lat, provider_presence.c.lng)
 Index("idx_providers_capabilities", providers.c.capabilities)
+Index("idx_providers_phone_lookup", providers.c.phone_lookup)
+Index("idx_customers_phone_lookup", customers.c.phone_lookup)
 Index("idx_dispatch_offers_order", dispatch_offers.c.order_id)
 Index("idx_dispatch_offers_provider", dispatch_offers.c.provider_id)
 Index("idx_dispatch_offers_status", dispatch_offers.c.status)
@@ -218,6 +223,7 @@ def _run_schema_migrations(engine: Engine) -> None:
         ("2026081103", "dispatch core indexes", _migration_dispatch_core_indexes),
         ("2026081104", "postgis dispatch geo indexes", _migration_postgis_dispatch_geo_indexes),
         ("2026081201", "widen customer encrypted columns", _migration_customer_encrypted_columns),
+        ("2026082001", "phone lookup indexes for OTP/login", _migration_phone_lookup_indexes),
     )
 
     with engine.begin() as connection:
@@ -322,6 +328,33 @@ def _migration_customer_encrypted_columns(connection, engine: Engine) -> None:
     )
     for statement in alters:
         connection.execute(text(statement))
+
+
+def _migration_phone_lookup_indexes(connection, engine: Engine) -> None:
+    from bot.phone_lookup import phone_lookup_key_from_payload
+
+    customer_columns = {column["name"] for column in inspect(connection).get_columns("customers")}
+    provider_columns = {column["name"] for column in inspect(connection).get_columns("providers")}
+    if "phone_lookup" not in customer_columns:
+        connection.execute(text("ALTER TABLE customers ADD COLUMN phone_lookup VARCHAR(64)"))
+    if "phone_lookup" not in provider_columns:
+        connection.execute(text("ALTER TABLE providers ADD COLUMN phone_lookup VARCHAR(64)"))
+
+    connection.execute(text("CREATE INDEX IF NOT EXISTS idx_customers_phone_lookup ON customers (phone_lookup)"))
+    connection.execute(text("CREATE INDEX IF NOT EXISTS idx_providers_phone_lookup ON providers (phone_lookup)"))
+    connection.execute(text("CREATE INDEX IF NOT EXISTS idx_orders_customer_id ON orders (customer_id)"))
+
+    for row in connection.execute(select(customers.c.id, customers.c.payload)).mappings().all():
+        lookup = phone_lookup_key_from_payload(_json_object(row["payload"]))
+        connection.execute(
+            update(customers).where(customers.c.id == str(row["id"])).values(phone_lookup=lookup)
+        )
+
+    for row in connection.execute(select(providers.c.id, providers.c.payload)).mappings().all():
+        lookup = phone_lookup_key_from_payload(_json_object(row["payload"]))
+        connection.execute(
+            update(providers).where(providers.c.id == str(row["id"])).values(phone_lookup=lookup)
+        )
 
 
 def applied_schema_migrations() -> list[dict[str, Any]]:
@@ -441,6 +474,161 @@ def sql_get_provider(provider_id: str) -> dict[str, Any] | None:
     if row is None:
         return None
     return _merge_provider_payload(row["provider_payload"], row["presence_payload"])
+
+
+def sql_get_customer(customer_id: str) -> dict[str, Any] | None:
+    wanted = str(customer_id or "").strip()
+    if not wanted:
+        return None
+    engine = get_engine()
+    with engine.begin() as connection:
+        row = connection.execute(
+            select(customers.c.payload).where(customers.c.id == wanted)
+        ).first()
+    if row is None:
+        return None
+    return _json_safe_copy(row[0])
+
+
+def sql_upsert_customer(customer: dict[str, Any]) -> dict[str, Any]:
+    """Insert or update one customer row without rewriting the whole table."""
+    payload = _json_safe_copy(customer)
+    customer_id = str(payload.get("id") or "").strip()
+    if not customer_id:
+        raise ValueError("customer id is required")
+    now_iso = str(payload.get("updatedAt") or datetime.now(timezone.utc).replace(tzinfo=None).isoformat(timespec="seconds") + "Z")
+    payload["updatedAt"] = now_iso
+    from bot.phone_lookup import phone_lookup_key_from_payload
+    values = {
+        "id": customer_id,
+        "name": _customer_column_value(payload.get("name"), 180),
+        "phone": _customer_column_value(payload.get("phone"), 80),
+        "phone_lookup": phone_lookup_key_from_payload(payload),
+        "email": _customer_column_value(payload.get("email"), 180),
+        "telegram": _customer_column_value(payload.get("telegram"), 180),
+        "city": _customer_column_value(payload.get("city"), 120),
+        "verification_status": str(payload.get("verificationStatus") or "unverified"),
+        "created_at": str(payload.get("createdAt") or ""),
+        "updated_at": now_iso,
+        "payload": payload,
+    }
+    with get_engine().begin() as connection:
+        existing = connection.execute(select(customers.c.id).where(customers.c.id == customer_id)).first()
+        if existing:
+            connection.execute(
+                update(customers)
+                .where(customers.c.id == customer_id)
+                .values(**{key: value for key, value in values.items() if key != "id"})
+            )
+        else:
+            connection.execute(insert(customers).values(**values))
+    return payload
+
+
+def sql_get_order(order_id: str) -> dict[str, Any] | None:
+    wanted = str(order_id or "").strip()
+    if not wanted:
+        return None
+    engine = get_engine()
+    with engine.begin() as connection:
+        row = connection.execute(
+            select(orders.c.payload).where(orders.c.id == wanted)
+        ).first()
+    if row is None:
+        return None
+    return _json_safe_copy(row[0])
+
+
+def sql_offers_for_order(order_id: str) -> list[dict[str, Any]]:
+    wanted = str(order_id or "").strip()
+    if not wanted:
+        return []
+    engine = get_engine()
+    with engine.begin() as connection:
+        rows = connection.execute(
+            select(dispatch_offers.c.payload)
+            .where(dispatch_offers.c.order_id == wanted)
+            .order_by(dispatch_offers.c.created_at)
+        ).all()
+    return [_json_safe_copy(row[0]) for row in rows]
+
+
+def sql_customers_by_phone_lookup(lookup: str) -> list[dict[str, Any]]:
+    key = str(lookup or "").strip()
+    if not key:
+        return []
+    engine = get_engine()
+    with engine.begin() as connection:
+        rows = connection.execute(
+            select(customers.c.payload).where(customers.c.phone_lookup == key)
+        ).all()
+    return [_json_safe_copy(row[0]) for row in rows]
+
+
+def sql_providers_by_phone_lookup(lookup: str) -> list[dict[str, Any]]:
+    key = str(lookup or "").strip()
+    if not key:
+        return []
+    engine = get_engine()
+    with engine.begin() as connection:
+        rows = connection.execute(
+            select(
+                providers.c.payload.label("provider_payload"),
+                provider_presence.c.payload.label("presence_payload"),
+            )
+            .select_from(providers.outerjoin(provider_presence, providers.c.id == provider_presence.c.provider_id))
+            .where(providers.c.phone_lookup == key)
+        ).mappings().all()
+    return [
+        _merge_provider_payload(row["provider_payload"], row["presence_payload"])
+        for row in rows
+    ]
+
+
+def sql_orders_for_provider(provider_id: str, *, limit: int = 50) -> list[dict[str, Any]]:
+    wanted = str(provider_id or "").strip()
+    if not wanted:
+        return []
+    capped = max(1, min(int(limit or 50), 200))
+    engine = get_engine()
+    with engine.begin() as connection:
+        rows = connection.execute(
+            select(orders.c.payload)
+            .where(orders.c.assigned_provider_id == wanted)
+            .order_by(orders.c.updated_at.desc())
+            .limit(capped)
+        ).all()
+    return [_json_safe_copy(row[0]) for row in rows]
+
+
+def sql_pending_offers_for_provider(provider_id: str) -> list[dict[str, Any]]:
+    """Pending offers for a provider whose order is still searching and unassigned."""
+    wanted = str(provider_id or "").strip()
+    if not wanted:
+        return []
+    engine = get_engine()
+    with engine.begin() as connection:
+        rows = connection.execute(
+            select(
+                dispatch_offers.c.payload.label("offer_payload"),
+                orders.c.payload.label("order_payload"),
+            )
+            .select_from(
+                dispatch_offers.join(orders, dispatch_offers.c.order_id == orders.c.id)
+            )
+            .where(dispatch_offers.c.provider_id == wanted)
+            .where(dispatch_offers.c.status == "pending")
+            .where(orders.c.status == "searching")
+            .where((orders.c.assigned_provider_id.is_(None)) | (orders.c.assigned_provider_id == ""))
+            .order_by(dispatch_offers.c.created_at.desc())
+        ).mappings().all()
+    results: list[dict[str, Any]] = []
+    for row in rows:
+        offer = _json_safe_copy(row["offer_payload"] if isinstance(row["offer_payload"], dict) else {})
+        order = _json_safe_copy(row["order_payload"] if isinstance(row["order_payload"], dict) else {})
+        offer["order"] = order
+        results.append(offer)
+    return results
 
 
 def _load_legacy_collection(name: str) -> tuple[bool, Any]:
@@ -1004,10 +1192,13 @@ def sql_upsert_provider(provider: dict[str, Any]) -> dict[str, Any]:
 
     with get_engine().begin() as connection:
         existing = connection.execute(select(providers.c.id).where(providers.c.id == provider_id)).first()
+        from bot.phone_lookup import phone_lookup_key_from_payload
+
         provider_values = {
             "id": provider_id,
             "name": str(payload.get("name") or "") or None,
             "phone": str(payload.get("phone") or "") or None,
+            "phone_lookup": phone_lookup_key_from_payload(payload),
             "telegram": str(payload.get("telegram") or "") or None,
             "vehicle": str(payload.get("vehicle") or "") or None,
             "plate": str(payload.get("plate") or "") or None,
@@ -1060,6 +1251,8 @@ def sql_upsert_provider(provider: dict[str, Any]) -> dict[str, Any]:
 
 
 def _save_providers(connection, provider_payloads: list[dict[str, Any]]) -> None:
+    from bot.phone_lookup import phone_lookup_key_from_payload
+
     connection.execute(delete(provider_presence))
     connection.execute(delete(providers))
     for provider in provider_payloads:
@@ -1069,6 +1262,7 @@ def _save_providers(connection, provider_payloads: list[dict[str, Any]]) -> None
                 id=str(provider.get("id")),
                 name=str(provider.get("name") or "") or None,
                 phone=str(provider.get("phone") or "") or None,
+                phone_lookup=phone_lookup_key_from_payload(provider),
                 telegram=str(provider.get("telegram") or "") or None,
                 vehicle=str(provider.get("vehicle") or "") or None,
                 plate=str(provider.get("plate") or "") or None,
@@ -1116,6 +1310,8 @@ def _customer_column_value(value: Any, max_len: int) -> str | None:
 
 
 def _save_customers(connection, customer_payloads: list[dict[str, Any]]) -> None:
+    from bot.phone_lookup import phone_lookup_key_from_payload
+
     connection.execute(delete(customers))
     for customer in customer_payloads:
         connection.execute(
@@ -1123,6 +1319,7 @@ def _save_customers(connection, customer_payloads: list[dict[str, Any]]) -> None
                 id=str(customer.get("id")),
                 name=_customer_column_value(customer.get("name"), 180),
                 phone=_customer_column_value(customer.get("phone"), 80),
+                phone_lookup=phone_lookup_key_from_payload(customer),
                 email=_customer_column_value(customer.get("email"), 180),
                 telegram=_customer_column_value(customer.get("telegram"), 180),
                 city=_customer_column_value(customer.get("city"), 120),

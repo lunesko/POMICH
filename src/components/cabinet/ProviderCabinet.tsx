@@ -636,7 +636,6 @@ export default function ProviderCabinet({
                       <button type="button" onClick={() => setEditing(false)} className="pomich-cabinet-chip-btn" disabled={saving}>
                         Скасувати
                       </button>
-                      <PrimaryButton label={saving ? "Зберігаємо…" : "Зберегти"} onClick={() => void handleSave()} disabled={saving} />
                     </div>
                   </div>
                 ) : (
