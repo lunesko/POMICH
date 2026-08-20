@@ -237,6 +237,7 @@ export interface OrderResponse {
   }
   offers?: DispatchOffer[]
   statusHistory?: Array<{ status: string; at: string }>
+  dispatchEvents?: Array<Record<string, unknown> & { type?: string; at?: string; message?: string; providerId?: string; offerId?: string; code?: string }>
 }
 
 export interface OrderReview {
@@ -1322,6 +1323,28 @@ export interface AdminActivityItem {
   at?: string
 }
 
+export interface AdminOpsLogEvent {
+  id?: string
+  type: string
+  at?: string
+  severity?: 'error' | 'warn' | 'info' | string
+  source?: string
+  message?: string
+  orderId?: string
+  providerId?: string
+  customerId?: string
+  offerId?: string
+  code?: string
+  orderStatus?: string
+  service?: string
+}
+
+export interface AdminOpsLog {
+  events: AdminOpsLogEvent[]
+  counts: { error: number; warn: number; info: number; total: number }
+  limit: number
+}
+
 export interface AdminSettings {
   runtime: string
   webAppUrl?: string | null
@@ -1339,6 +1362,32 @@ export async function getAdminStats(adminToken?: string) {
   const response = await fetch(`${getBaseUrl()}/admin/stats`, { headers: adminHeaders(adminToken) })
   if (!response.ok) throw new Error(`Admin stats request failed with ${response.status}`)
   return response.json() as Promise<AdminStats>
+}
+
+export async function getAdminOpsLog(
+  adminToken?: string,
+  options?: { limit?: number; severity?: string; orderId?: string },
+): Promise<AdminOpsLog> {
+  const params = new URLSearchParams()
+  if (options?.limit) params.set('limit', String(options.limit))
+  if (options?.severity && options.severity !== 'all') params.set('severity', options.severity)
+  if (options?.orderId?.trim()) params.set('orderId', options.orderId.trim())
+  const suffix = params.toString() ? `?${params.toString()}` : ''
+  const response = await fetch(`${getBaseUrl()}/admin/ops-log${suffix}`, { headers: adminHeaders(adminToken) })
+  if (!response.ok) throw new Error(`Admin ops log request failed with ${response.status}`)
+  const payload = (await response.json()) as Partial<AdminOpsLog> | null
+  const events = Array.isArray(payload?.events) ? payload.events : []
+  const counts = payload?.counts
+  return {
+    events,
+    counts: {
+      error: Number(counts?.error ?? 0) || 0,
+      warn: Number(counts?.warn ?? 0) || 0,
+      info: Number(counts?.info ?? 0) || 0,
+      total: Number(counts?.total ?? events.length) || 0,
+    },
+    limit: Number(payload?.limit ?? options?.limit ?? 100) || 100,
+  }
 }
 
 export async function getAdminClients(adminToken?: string, query?: string, includeGuests = false) {

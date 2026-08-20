@@ -6005,6 +6005,43 @@ html.tg-compact .pomich-ride-screen__map .leaflet-top.leaflet-left {
 .admin-alert-inline { margin: 0 20px; }
 .admin-alert-error { background: rgba(251, 113, 133, 0.12); color: #fecdd3; border: 1px solid rgba(251, 113, 133, 0.25); }
 .admin-alert-info { background: rgba(59, 130, 246, 0.12); color: #bfdbfe; border: 1px solid rgba(59, 130, 246, 0.25); margin-bottom: 12px; }
+.admin-ops-item__head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 4px;
+}
+.admin-ops-severity {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+.admin-ops-severity--error,
+.admin-ops-item--error .admin-ops-severity {
+  background: rgba(251, 113, 133, 0.18);
+  color: #fecdd3;
+}
+.admin-ops-severity--warn,
+.admin-ops-item--warn .admin-ops-severity {
+  background: rgba(251, 191, 36, 0.16);
+  color: #fde68a;
+}
+.admin-ops-severity--info,
+.admin-ops-item--info .admin-ops-severity {
+  background: rgba(56, 189, 248, 0.14);
+  color: #bae6fd;
+}
+.admin-ops-item--error {
+  border-color: rgba(251, 113, 133, 0.28);
+}
+.admin-ops-item--warn {
+  border-color: rgba(251, 191, 36, 0.24);
+}
 .admin-empty, .admin-loading { color: var(--admin-muted); font-weight: 800; padding: 16px 4px; }
 .admin-subpanel { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--admin-border); }
 .admin-subpanel h3 { margin: 0 0 10px; font-size: 14px; }

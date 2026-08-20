@@ -20,6 +20,7 @@ from bot.order_store import (
     merge_directory_providers,
     purge_stale_guest_customers,
 )
+from bot.ops_log import build_admin_ops_log
 from bot.provider_importer import import_uzhgorod_providers, import_ukraine_providers
 
 router = APIRouter(tags=["admin"])
@@ -33,6 +34,19 @@ def admin_stats(
     require_admin_auth(x_pomich_admin_token, authorization)
     stats = build_admin_stats()
     return {**stats, "activity": build_admin_activity_feed(12)}
+
+
+@router.get("/admin/ops-log")
+def admin_ops_log(
+    limit: int = 80,
+    severity: str | None = None,
+    orderId: str | None = None,
+    x_pomich_admin_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+) -> dict:
+    """Stage + error breadcrumbs for ops: order trails and API failures."""
+    require_admin_auth(x_pomich_admin_token, authorization)
+    return build_admin_ops_log(limit=limit, severity=severity, order_id=orderId)
 
 
 @router.get("/admin/clients")

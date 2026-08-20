@@ -2488,6 +2488,16 @@ describe('POMICH role-based flows', () => {
         })
       }
       if (url.includes('/admin/stats')) return Promise.resolve({ ok: true, json: async () => adminPayload })
+      if (url.includes('/admin/ops-log')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            events: [],
+            counts: { error: 0, warn: 0, info: 0, total: 0 },
+            limit: 100,
+          }),
+        })
+      }
       if (url.includes('/admin/clients')) return Promise.resolve({ ok: true, json: async () => [] })
       if (url.includes('/admin/providers')) return Promise.resolve({ ok: true, json: async () => [] })
       if (url.includes('/admin/settings')) return Promise.resolve({ ok: true, json: async () => ({ runtime: 'dev', corsOrigins: ['*'], encryptionEnabled: false, databaseUrlConfigured: false, telegramConfigured: false, adminAccountsConfigured: true, providerAccountsConfigured: false, allowHttpPilot: false, sessionTtlSeconds: 86400 }) })
@@ -2591,6 +2601,16 @@ describe('POMICH role-based flows', () => {
             clients: { verified: 0, registered: 0, disabled: 0 },
             orders: { searching: 0, assigned: 0, enRoute: 0, inProgress: 0 },
             activity: [],
+          }),
+        })
+      }
+      if (url.includes('/admin/ops-log')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            events: [],
+            counts: { error: 0, warn: 0, info: 0, total: 0 },
+            limit: 100,
           }),
         })
       }

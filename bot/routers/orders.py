@@ -36,6 +36,7 @@ from bot.order_store import (
 )
 from bot.realtime import publish_order_event, publish_provider_event
 from bot.telegram_bot import notify_dispatch_offers, notify_order_cancelled, notify_order_created
+from bot.ops_log import record_ops_event
 
 router = APIRouter(tags=["orders"])
 
@@ -175,8 +176,24 @@ def create_order_review(
             existing = get_order(order_id)
             if existing is not None:
                 return existing
+        record_ops_event(
+            event_type="REVIEW_FAILED",
+            message=exc.message,
+            order_id=order_id,
+            provider_id=author_id if role == "partner" else None,
+            customer_id=author_id if role == "customer" else None,
+            code=exc.code,
+            source="orders.reviews",
+        )
         raise dispatch_conflict(exc) from exc
     except ValueError as exc:
+        record_ops_event(
+            event_type="REVIEW_FAILED",
+            message=str(exc),
+            order_id=order_id,
+            code="invalid_review",
+            source="orders.reviews",
+        )
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
@@ -192,8 +209,24 @@ def retry_order_dispatch(
     if existing is None:
         raise HTTPException(status_code=404, detail="order not found")
     require_order_owner_or_admin(existing, authorization, x_pomich_admin_token)
-    order = dispatch_order(order_id, reset_auto_retry=True)
+    try:
+        order = dispatch_order(order_id, reset_auto_retry=True)
+    except Exception as exc:  # noqa: BLE001 - surface as ops breadcrumb then re-raise shaped errors
+        record_ops_event(
+            event_type="DISPATCH_FAILED",
+            message=str(exc),
+            order_id=order_id,
+            source="orders.dispatch.retry",
+        )
+        raise
     if order is None:
+        record_ops_event(
+            event_type="DISPATCH_FAILED",
+            message="order not found",
+            order_id=order_id,
+            code="ORDER_NOT_FOUND",
+            source="orders.dispatch.retry",
+        )
         raise HTTPException(status_code=404, detail="order not found")
     publish_order_event(order, "order.dispatched")
     pending_offers = [
@@ -204,6 +237,13 @@ def retry_order_dispatch(
     for offer in pending_offers:
         publish_provider_event(str(offer.get("providerId") or ""), "offers.changed", {"orderId": order.get("id")})
     notify_dispatch_offers(order, pending_offers)
+    record_ops_event(
+        event_type="DISPATCH_RETRY",
+        message=f"Повторний dispatch · офферів {len(pending_offers)}",
+        order_id=order_id,
+        source="orders.dispatch.retry",
+        extra={"offersSent": len(pending_offers)},
+    )
     return order
 
 
@@ -237,6 +277,16 @@ def provider_patch_order_status(
     try:
         order = update_provider_order_status(provider_id, order_id, status)
     except (DispatchConflict, InvalidStatusTransition, ValueError) as exc:
+        code = getattr(exc, "code", None) or "status_transition"
+        record_ops_event(
+            event_type="STATUS_UPDATE_FAILED",
+            message=str(exc),
+            order_id=order_id,
+            provider_id=provider_id,
+            code=str(code),
+            source="providers.orders.status",
+            extra={"targetStatus": status},
+        )
         if isinstance(exc, DispatchConflict):
             raise dispatch_conflict(exc) from exc
         raise HTTPException(status_code=409, detail=str(exc)) from exc

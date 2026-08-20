@@ -8,6 +8,7 @@ import {
   createAdminSession,
   getAdminClients,
   getAdminOrders,
+  getAdminOpsLog,
   getAdminProviders,
   getAdminSettings,
   getAdminStats,
@@ -18,6 +19,8 @@ import {
   retryDispatch,
   updateOrderStatus,
   type AdminActivityItem,
+  type AdminOpsLog,
+  type AdminOpsLogEvent,
   type AdminSettings,
   type AdminStats,
   type CustomerProfile,
@@ -41,13 +44,14 @@ import { VerificationPill } from "../ui/VerificationPill"
 import { StatusPill } from "../ui/StatusPill"
 import { Timeline } from "../ui/Timeline"
 
-type AdminSection = "dashboard" | "clients" | "providers" | "orders" | "map" | "verification" | "settings"
+type AdminSection = "dashboard" | "clients" | "providers" | "orders" | "logs" | "map" | "verification" | "settings"
 
 const NAV: Array<{ id: AdminSection; label: string; icon: string }> = [
   { id: "dashboard", label: "Дашборд", icon: "📊" },
   { id: "clients", label: "Клієнти", icon: "👤" },
   { id: "providers", label: "Партнери", icon: "🚛" },
   { id: "orders", label: "Заявки", icon: "📋" },
+  { id: "logs", label: "Логи", icon: "🛰️" },
   { id: "map", label: "Карта", icon: "🗺️" },
   { id: "verification", label: "Перевірка", icon: "✅" },
   { id: "settings", label: "Налаштування", icon: "⚙️" },
@@ -149,6 +153,9 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
   const [providers, setProviders] = useState<ProviderAvailability[]>([])
   const [mapProviders, setMapProviders] = useState<ProviderAvailability[]>([])
   const [orders, setOrders] = useState<OrderResponse[]>([])
+  const [opsLog, setOpsLog] = useState<AdminOpsLog | null>(null)
+  const [opsSeverity, setOpsSeverity] = useState<"all" | "error" | "warn" | "info">("all")
+  const [opsOrderQuery, setOpsOrderQuery] = useState("")
   const [settings, setSettings] = useState<AdminSettings | null>(null)
   const [clientQuery, setClientQuery] = useState("")
   const [showGuestSessions, setShowGuestSessions] = useState(false)
@@ -218,13 +225,18 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
     setLoading(true)
     setError(undefined)
     try {
-      const [nextStats, nextClients, nextProviders, nextOrders, nextSettings, nextMapProviders] = await Promise.all([
+      const [nextStats, nextClients, nextProviders, nextOrders, nextSettings, nextMapProviders, nextOpsLog] = await Promise.all([
         getAdminStats(adminAuthToken),
         getAdminClients(adminAuthToken, clientQuery || undefined, showGuestSessions),
         getAdminProviders(adminAuthToken, providerQuery || undefined),
         getAdminOrders(adminAuthToken, orderFilter === "all" ? undefined : orderFilter),
         getAdminSettings(adminAuthToken),
         getMapProviders(),
+        getAdminOpsLog(adminAuthToken, {
+          limit: 100,
+          severity: opsSeverity,
+          orderId: opsOrderQuery.trim() || undefined,
+        }).catch(() => null),
       ])
       setStats(nextStats)
       setClients(nextClients)
@@ -232,12 +244,13 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
       setOrders(nextOrders.slice().reverse())
       setSettings(nextSettings)
       setMapProviders(nextMapProviders)
+      if (nextOpsLog) setOpsLog(nextOpsLog)
     } catch {
       setError("Не вдалося завантажити дані адмін-панелі.")
     } finally {
       setLoading(false)
     }
-  }, [adminAuthToken, clientQuery, providerQuery, orderFilter, showGuestSessions])
+  }, [adminAuthToken, clientQuery, providerQuery, orderFilter, showGuestSessions, opsSeverity, opsOrderQuery])
 
   useEffect(() => {
     refreshAll()
@@ -426,7 +439,12 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
               <div className="admin-panel">
                 <div className="admin-panel-head">
                   <h2>Остання активність</h2>
-                  <span>{stats.activity?.length ?? 0} подій</span>
+                  <div className="admin-inline-actions">
+                    <span>{stats.activity?.length ?? 0} подій</span>
+                    <button className="admin-chip admin-chip-brand" onClick={() => setSection("logs")}>
+                      Логи / помилки{opsLog?.counts?.error ? ` · ${opsLog.counts.error}` : ""}
+                    </button>
+                  </div>
                 </div>
                 <div className="admin-activity-list">
                   {(stats.activity ?? []).map((item: AdminActivityItem) => (
@@ -557,11 +575,96 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
                   try {
                     const updated = await retryDispatch(selectedOrder.id, adminAuthToken)
                     setOrders((items) => items.map((item) => item.id === updated.id ? { ...item, ...updated } : item))
+                    void refreshAll()
                   } catch {
                     setError("Не вдалося повторити диспетчеризацію.")
                   }
+                }} onOpenLogs={(orderId) => {
+                  setOpsOrderQuery(orderId)
+                  setOpsSeverity("all")
+                  setSection("logs")
                 }} />
               ) : null}
+            </div>
+          ) : null}
+
+          {section === "logs" ? (
+            <div className="admin-grid">
+              <div className="admin-stat-grid">
+                <StatCard label="Помилки" value={opsLog?.counts?.error ?? 0} tone="warn" />
+                <StatCard label="Попередження" value={opsLog?.counts?.warn ?? 0} tone="warn" />
+                <StatCard label="Етапи" value={opsLog?.counts?.info ?? 0} />
+                <StatCard label="Усього в вибірці" value={opsLog?.counts?.total ?? 0} tone="brand" />
+              </div>
+              <div className="admin-panel">
+                <div className="admin-panel-head">
+                  <h2>Логи етапів і помилок</h2>
+                  <div className="admin-panel-actions">
+                    <input
+                      className="admin-search"
+                      value={opsOrderQuery}
+                      onChange={(event) => setOpsOrderQuery(event.target.value)}
+                      placeholder="Фільтр по #заявці…"
+                    />
+                  </div>
+                </div>
+                <div className="admin-chip-row" style={{ marginBottom: 12 }}>
+                  {([
+                    ["all", "Усі"],
+                    ["error", "Помилки"],
+                    ["warn", "Попередження"],
+                    ["info", "Етапи"],
+                  ] as const).map(([value, label]) => (
+                    <button
+                      key={value}
+                      className={`admin-chip${opsSeverity === value ? " admin-chip-active" : ""}`}
+                      onClick={() => setOpsSeverity(value)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <p className="admin-muted admin-panel-note">
+                  Тут видно, на якому етапі заявки сталася проблема: dispatch, оффер, статус партнера, оцінка тощо.
+                </p>
+                <div className="admin-activity-list">
+                  {(opsLog?.events ?? []).map((item: AdminOpsLogEvent) => (
+                    <div key={item.id ?? `${item.type}-${item.at}-${item.orderId}`} className={`admin-activity-item admin-ops-item admin-ops-item--${item.severity || "info"}`}>
+                      <div>
+                        <div className="admin-ops-item__head">
+                          <span className={`admin-ops-severity admin-ops-severity--${item.severity || "info"}`}>
+                            {(item.severity || "info").toUpperCase()}
+                          </span>
+                          <strong>{item.type}</strong>
+                        </div>
+                        <div className="admin-muted">{item.message || "—"}</div>
+                        <div className="admin-muted">
+                          {item.orderId ? `#${item.orderId}` : "без заявки"}
+                          {item.providerId ? ` · partner ${item.providerId}` : ""}
+                          {item.source ? ` · ${item.source}` : ""}
+                          {item.code ? ` · ${item.code}` : ""}
+                        </div>
+                      </div>
+                      <div className="admin-activity-meta">
+                        {item.orderId ? (
+                          <button
+                            type="button"
+                            className="admin-chip admin-chip-brand"
+                            onClick={() => {
+                              setSelectedOrderId(item.orderId)
+                              setSection("orders")
+                            }}
+                          >
+                            Заявка
+                          </button>
+                        ) : null}
+                        <span className="admin-muted">{item.at ?? "—"}</span>
+                      </div>
+                    </div>
+                  ))}
+                  {(opsLog?.events ?? []).length === 0 ? <EmptyState text="Подій за цим фільтром немає." /> : null}
+                </div>
+              </div>
             </div>
           ) : null}
 
@@ -750,14 +853,53 @@ function OrderEditor({
   adminAuthToken,
   onStatusChange,
   onRetryDispatch,
+  onOpenLogs,
 }: {
   order: OrderResponse
   adminAuthToken?: string
   onStatusChange: (order: OrderResponse, status: OrderStatus) => Promise<void>
   onRetryDispatch: () => Promise<void>
+  onOpenLogs?: (orderId: string) => void
 }) {
   const status = normalizeOrderStatus(order.status)
   const offers = order.offers ?? []
+  const timeline = useMemo(() => {
+    const rows: Array<{ key: string; at?: string; label: string; detail?: string; tone: "info" | "warn" | "error" }> = []
+    for (const entry of order.statusHistory ?? []) {
+      rows.push({
+        key: `status-${entry.status}-${entry.at}`,
+        at: entry.at,
+        label: `STATUS · ${entry.status}`,
+        detail: orderStatusLabels[normalizeOrderStatus(entry.status)] || entry.status,
+        tone: entry.status === "cancelled" ? "warn" : "info",
+      })
+    }
+    for (const [index, event] of (order.dispatchEvents ?? []).entries()) {
+      const type = String(event.type || "EVENT")
+      const upper = type.toUpperCase()
+      const tone: "info" | "warn" | "error" =
+        upper.includes("FAIL") || upper.includes("ERROR") || upper.includes("EXHAUST") || upper === "NO_PROVIDERS_AVAILABLE"
+          ? "error"
+          : upper.includes("CANCEL") || upper.includes("EXPIRED") || upper.includes("DECLINED") || upper.includes("RETRY")
+            ? "warn"
+            : "info"
+      const detailParts = [
+        typeof event.message === "string" ? event.message : "",
+        typeof event.code === "string" ? event.code : "",
+        typeof event.providerId === "string" ? `partner ${event.providerId}` : "",
+        typeof event.offerId === "string" ? `offer ${event.offerId}` : "",
+      ].filter(Boolean)
+      rows.push({
+        key: `dispatch-${index}-${type}-${String(event.at || "")}`,
+        at: typeof event.at === "string" ? event.at : undefined,
+        label: type,
+        detail: detailParts.join(" · ") || undefined,
+        tone,
+      })
+    }
+    return rows.sort((a, b) => String(a.at || "").localeCompare(String(b.at || "")))
+  }, [order.dispatchEvents, order.statusHistory])
+
   return (
     <div className="admin-panel admin-panel-detail">
       <div className="admin-panel-head">
@@ -781,6 +923,27 @@ function OrderEditor({
           <button className="admin-chip admin-chip-danger" onClick={() => onStatusChange(order, "cancelled")} disabled={!adminAuthToken}>Скасувати</button>
         ) : null}
         <button className="admin-chip admin-chip-brand" onClick={onRetryDispatch}>Повторити dispatch</button>
+        {order.id && onOpenLogs ? (
+          <button className="admin-chip" onClick={() => onOpenLogs(order.id!)}>Логи заявки</button>
+        ) : null}
+      </div>
+      <div className="admin-subpanel">
+        <h3>Історія етапів ({timeline.length})</h3>
+        <div className="admin-activity-list">
+          {timeline.map((item) => (
+            <div key={item.key} className={`admin-activity-item admin-ops-item admin-ops-item--${item.tone}`}>
+              <div>
+                <div className="admin-ops-item__head">
+                  <span className={`admin-ops-severity admin-ops-severity--${item.tone}`}>{item.tone.toUpperCase()}</span>
+                  <strong>{item.label}</strong>
+                </div>
+                {item.detail ? <div className="admin-muted">{item.detail}</div> : null}
+              </div>
+              <span className="admin-muted">{item.at ?? "—"}</span>
+            </div>
+          ))}
+          {timeline.length === 0 ? <EmptyState text="Подій по цій заявці ще немає." /> : null}
+        </div>
       </div>
       {offers.length > 0 ? (
         <div className="admin-subpanel">
