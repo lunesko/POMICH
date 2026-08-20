@@ -1225,10 +1225,11 @@ export default function ProviderFlow({
       }
       const order = await updateProviderOrderStatus(resolvedProviderId, activeOrder.id, nextStatus, session.token)
       const normalizedStatus = normalizeOrderStatus(order.status)
+      const orderId = order.id || activeOrder.id
       setActiveOrder(order)
-      persistActiveOrder(order.id, normalizedStatus)
+      persistActiveOrder(orderId, normalizedStatus)
       if (normalizedStatus === "completed" || normalizedStatus === "cancelled") {
-        rememberDismissedOffer(undefined, order.id)
+        rememberDismissedOffer(undefined, orderId)
         setIncomingOffers([])
         clearActiveOrder()
         setProviderProfile((profile) => ({ ...profile, status: "online", assignedOrderId: undefined } as ProviderAvailability))
