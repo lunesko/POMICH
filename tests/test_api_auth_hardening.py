@@ -26,6 +26,7 @@ def test_read_order_requires_participant(monkeypatch, tmp_path) -> None:
     )
 
     assert client.get(f"/api/orders/{order['id']}").status_code == 401
+    assert client.get("/api/orders/PM-DOES-NOT-EXIST").status_code == 401
     other = client.post("/api/auth/customer/guest/session", json={}).json()
     forbidden = client.get(
         f"/api/orders/{order['id']}",

@@ -119,6 +119,9 @@ def read_order(
     authorization: str | None = Header(default=None),
     x_pomich_admin_token: str | None = Header(default=None),
 ) -> dict:
+    # Auth before existence check so anonymous clients cannot probe order ids.
+    if not extract_bearer_token(authorization):
+        raise HTTPException(status_code=401, detail="auth_session_required")
     expire_stale_and_notify()
     order = get_order(order_id)
     if order is None:
