@@ -907,6 +907,7 @@ function DestinationStep({
 function DetailsStep({ pickup, destination, value, onChange, onNext, onBack }: { pickup: Point; destination: Point; value: string; onChange: (value: string) => void; onNext: () => void; onBack: () => void }) {
   return (
     <RideScreen pickup={pickup} destination={destination} mapSubtitle="Підбір виконавця">
+      <StepBadge step={4} />
       <button onClick={onBack} style={{ border: "none", background: GHOST, color: DARK, borderRadius: 999, padding: "8px 11px", fontWeight: 900, cursor: "pointer", fontFamily: "inherit", marginBottom: 14 }}>← Назад</button>
       <SheetHeading title="Що з автомобілем?" subtitle="Це допоможе підібрати правильний транспорт, інструменти та ETA." />
 
@@ -967,7 +968,7 @@ function ReviewStep({
       mapSubtitle="Перевірка заявки"
       {...directoryMap}
     >
-      <StepBadge step={4} />
+      <StepBadge step={5} />
       <button onClick={onBack} style={{ border: "none", background: GHOST, color: DARK, borderRadius: 999, padding: "8px 11px", fontWeight: 900, cursor: "pointer", fontFamily: "inherit", marginBottom: 14 }}>← Назад</button>
       <SheetHeading title="Перевірте заявку" subtitle="Ціну та час прибуття побачите після того, як партнер прийме заявку." />
 
@@ -1020,12 +1021,52 @@ function ReviewStep({
 
 function SearchingStep({ orderId, status, order, pickup, destination, cancelError, cancelling, onCancel, onRetryDispatch }: { orderId?: string; status: OrderStatus; order?: OrderResponse; pickup: Point; destination: Point; cancelError?: string; cancelling?: boolean; onCancel: () => void; onRetryDispatch: () => void }) {
   const noProviders = order?.dispatchState === "NO_PROVIDERS_AVAILABLE"
-  const offersSent = order?.dispatchInfo?.offersSent ?? order?.offers?.length ?? 0
+  const offers = order?.offers ?? []
+  const pendingOffers = offers.filter((offer) => offer.status === "pending").length
+  const offersSent = order?.dispatchInfo?.offersSent ?? offers.length
+  const offersExhausted =
+    !noProviders &&
+    status === "searching" &&
+    offersSent > 0 &&
+    pendingOffers === 0 &&
+    offers.some((offer) => offer.status === "expired" || offer.status === "declined" || offer.status === "lost")
+  const showRetry = noProviders || offersExhausted
+  const autoRetryAttemptedRef = useRef(false)
+
+  useEffect(() => {
+    autoRetryAttemptedRef.current = false
+  }, [orderId])
+
+  useEffect(() => {
+    if (pendingOffers > 0 || order?.dispatchState === "OFFERS_SENT") {
+      // Allow another auto-retry after a successful wave that later exhausts again.
+      if (pendingOffers > 0) autoRetryAttemptedRef.current = false
+    }
+  }, [pendingOffers, order?.dispatchState])
+
+  useEffect(() => {
+    // Auto-retry once when the wave is exhausted; keep manual CTA for NO_PROVIDERS after that.
+    if (!offersExhausted || autoRetryAttemptedRef.current) return
+    autoRetryAttemptedRef.current = true
+    onRetryDispatch()
+  }, [offersExhausted, onRetryDispatch])
+
   return (
     <RideScreen pickup={pickup} destination={destination} providers={order?.assignedProvider ? [order.assignedProvider] : undefined} mapSubtitle={orderId ? `#${orderId}` : "Очікуємо партнера"}>
-      <StepBadge step={4} />
+      <StepBadge step={5} />
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
-        <SheetHeading title="Очікуємо партнера" subtitle={noProviders ? "Немає вільних партнерів поруч" : orderId ? `Замовлення #${orderId}` : "Шукаємо найближчого перевіреного партнера…"} />
+        <SheetHeading
+          title={showRetry ? "Пошук не дав результату" : "Очікуємо партнера"}
+          subtitle={
+            noProviders
+              ? "Немає вільних партнерів поруч"
+              : offersExhausted
+                ? "Партнери не відповіли вчасно"
+                : orderId
+                  ? `Замовлення #${orderId}`
+                  : "Шукаємо найближчого перевіреного партнера…"
+          }
+        />
         <StatusPill status={status} />
       </div>
 
@@ -1040,16 +1081,18 @@ function SearchingStep({ orderId, status, order, pickup, destination, cancelErro
       <div style={{ color: MUTED, fontWeight: 750, lineHeight: 1.4, textAlign: "center" }}>
         {noProviders
           ? "Можна повторити пошук без створення нової заявки."
-          : offersSent > 0
-            ? `Звернулися до ${offersSent} партнерів. Перший, хто підтвердить, отримає заявку.`
-            : "Скануємо найближчих партнерів на лінії… Партнери бачать ваше місцезнаходження."}
+          : offersExhausted
+            ? "Повторюємо пошук автоматично. Можна також натиснути «Спробувати ще раз»."
+            : offersSent > 0
+              ? `Звернулися до ${offersSent} партнерів. Перший, хто підтвердить, отримає заявку.`
+              : "Скануємо найближчих партнерів на лінії… Партнери бачать ваше місцезнаходження."}
       </div>
       <div style={{ marginTop: 16 }}><Timeline status={status} /></div>
       <div style={{ marginTop: 16, display: "grid", gap: 9 }}>
         {[
           { text: "Заявку надіслано в систему", active: true },
           { text: "Сканування та розсилка партнерам", active: true },
-          { text: "Очікування підтвердження ціни", active: !noProviders },
+          { text: "Очікування підтвердження ціни", active: !showRetry },
         ].map((item) => (
           <div key={item.text} style={{ background: SURFACE_TONE, borderRadius: 15, border: `1px solid ${BORDER}`, padding: "12px 14px", fontWeight: 850, color: DARK, display: "flex", alignItems: "center", gap: 10 }}>
             <span style={{ color: item.active ? "var(--pomich-accent, #16a36a)" : "var(--pomich-muted)", fontWeight: 900 }}>{item.active ? "✓" : "⏳"}</span>
@@ -1059,7 +1102,7 @@ function SearchingStep({ orderId, status, order, pickup, destination, cancelErro
       </div>
       <div style={{ display: "grid", gap: 10, marginTop: 16 }}>
         {cancelError ? <div style={{ background: "var(--pomich-error-bg)", color: "var(--pomich-error-text)", borderRadius: 14, padding: 12, fontWeight: 800 }}>{cancelError}</div> : null}
-        {noProviders ? <PrimaryButton label="Спробувати ще раз" onClick={onRetryDispatch} /> : null}
+        {showRetry ? <PrimaryButton label="Спробувати ще раз" onClick={onRetryDispatch} /> : null}
         <SecondaryButton label={cancelling ? "Скасовуємо…" : "Скасувати заявку"} danger disabled={cancelling} onClick={onCancel} />
       </div>
     </RideScreen>
@@ -1250,10 +1293,10 @@ function TrackingStep({ orderId, status, order, pickup, destination, cancelError
   )
 }
 
-function ArrivedStep({ orderId, status, order, pickup, destination, cancelError, cancelling, onComplete, onCancel }: { orderId?: string; status: OrderStatus; order?: OrderResponse; pickup: Point; destination: Point; cancelError?: string; cancelling?: boolean; onComplete: () => void; onCancel: () => void }) {
+function ArrivedStep({ orderId, status, order, pickup, destination, cancelError, cancelling, onCancel }: { orderId?: string; status: OrderStatus; order?: OrderResponse; pickup: Point; destination: Point; cancelError?: string; cancelling?: boolean; onCancel: () => void }) {
   return (
     <RideScreen pickup={pickup} destination={destination} providerPosition={pickup} mapSubtitle="Виконавець на місці">
-      <StepBadge step={4} />
+      <StepBadge step={5} />
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
         <SheetHeading title="Виконавець на місці" subtitle={orderId ? `Замовлення #${orderId}` : undefined} />
         <StatusPill status={status} />
@@ -1262,13 +1305,13 @@ function ArrivedStep({ orderId, status, order, pickup, destination, cancelError,
         <ProviderCard orderId={orderId} assignedProvider={order?.assignedProvider} />
         <div style={{ background: CARD, borderRadius: 18, padding: 16, border: `1px solid ${BORDER}` }}>
           <Timeline status={status} />
-          <div style={{ marginTop: 16, fontWeight: 900, color: DARK }}>Допомога надається</div>
-          <div style={{ marginTop: 6, color: MUTED, fontWeight: 700 }}>Після завершення підтвердьте заявку, щоб оновити статус у POMICH.</div>
+          <div style={{ marginTop: 16, fontWeight: 900, color: DARK }}>Партнер прибув на місце</div>
+          <div style={{ marginTop: 6, color: MUTED, fontWeight: 700 }}>Статус оновиться автоматично, коли партнер почне та завершить роботи в системі.</div>
         </div>
       </div>
       <div style={{ display: "grid", gap: 10, marginTop: 16 }}>
         {cancelError ? <div style={{ background: "var(--pomich-error-bg)", color: "var(--pomich-error-text)", borderRadius: 14, padding: 12, fontWeight: 800 }}>{cancelError}</div> : null}
-        <PrimaryButton label="Очікуємо початок робіт" onClick={onComplete} disabled />
+        <PrimaryButton label="Очікуємо початок робіт" disabled />
         <SecondaryButton label={cancelling ? "Скасовуємо…" : "Скасувати"} danger disabled={cancelling} onClick={onCancel} />
       </div>
     </RideScreen>
@@ -1315,7 +1358,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
   })
   const [selectedService, setSelectedService] = useState<ServiceKey>("tow")
   const [destination, setDestination] = useState("")
-  const [vehicleState, setVehicleState] = useState("Авто заводиться")
+  const [vehicleState, setVehicleState] = useState("")
   const [customerComment, setCustomerComment] = useState("")
   const [loading, setLoading] = useState(false)
   const [priceConfirming, setPriceConfirming] = useState(false)
@@ -1441,7 +1484,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
       void refetchProviders()
       return
     }
-    if (screen === "location" || screen === "destination" || screen === "review") {
+    if (screen === "location" || screen === "destination" || screen === "details" || screen === "review") {
       void fetchProvidersNear(pickup, 45)
     }
   }, [screen, pickup.lat, pickup.lng, fetchProvidersNear, refetchProviders])
@@ -1865,14 +1908,14 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
     const onSite = resolveServiceDestination(selectedService, pickup)
     setDestination(onSite.destination)
     setDestinationPoint(onSite.destinationPoint)
-    setScreen("review")
+    setScreen("details")
   }
 
   const applyOnSiteDestination = () => {
     const onSite = resolveServiceDestination(selectedService, pickup)
     setDestination(onSite.destination)
     setDestinationPoint(onSite.destinationPoint)
-    setScreen("review")
+    setScreen("details")
   }
 
   const setDestinationFromMap = (point: Point) => {
@@ -1881,6 +1924,10 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
   }
 
   const submitOrder = async () => {
+    if (!vehicleState.trim()) {
+      setScreen("details")
+      return
+    }
     setLoading(true)
     try {
       const fromTelegram = Boolean(telegramContext.initData)
@@ -1950,7 +1997,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
     }
   }
 
-  const retryOrderDispatch = () => {
+  const retryOrderDispatch = useCallback(() => {
     if (!orderId) return
     retryDispatch(orderId, customerAuthToken)
       .then((order) => {
@@ -1958,7 +2005,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
         setStatus(normalizeOrderStatus(order.status))
       })
       .catch(() => undefined)
-  }
+  }, [orderId, customerAuthToken])
 
   const verifyCustomerProfile = async () => {
     const phoneValidation = validateUkraineMobilePhone(customerProfile.phone || "")
@@ -2025,10 +2072,6 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
     }
   }
 
-  const completeOrder = () => {
-    setScreen("in_progress")
-  }
-
   const restart = useCallback(() => {
     userInitiatedCancelRef.current = false
     setScreen("home")
@@ -2088,7 +2131,8 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
     haptic("light")
     if (screen === "location") setScreen("home")
     else if (screen === "destination") setScreen("location")
-    else if (screen === "review") setScreen(serviceRequiresDestination(selectedService) ? "destination" : "location")
+    else if (screen === "details") setScreen(serviceRequiresDestination(selectedService) ? "destination" : "location")
+    else if (screen === "review") setScreen("details")
     else setScreen("home")
   }, [screen, haptic, selectedService])
 
@@ -2105,10 +2149,14 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
       case "destination":
         haptic("medium")
         if (serviceRequiresDestination(selectedService)) {
-          if (destination.trim()) setScreen("review")
+          if (destination.trim()) setScreen("details")
         } else {
           applyOnSiteDestination()
         }
+        break
+      case "details":
+        haptic("medium")
+        if (vehicleState) setScreen("review")
         break
       case "review":
         haptic("medium")
@@ -2131,7 +2179,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
       default:
         break
     }
-  }, [screen, haptic, verifyCustomerProfile, confirmPickupLocation, applyOnSiteDestination, destination, selectedService, submitOrder, startTracking, restart, customerReviewSubmitted, currentOrder?.customerReview?.rating])
+  }, [screen, haptic, verifyCustomerProfile, confirmPickupLocation, applyOnSiteDestination, destination, selectedService, vehicleState, submitOrder, startTracking, restart, customerReviewSubmitted, currentOrder?.customerReview?.rating])
 
   const mainButtonText = useMemo(() => {
     switch (screen) {
@@ -2140,6 +2188,8 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
       case "location":
         return "Підтвердити місце"
       case "destination":
+        return "Далі"
+      case "details":
         return "Далі"
       case "review":
         return "Надіслати заявку"
@@ -2159,10 +2209,11 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
   const customerReviewDone = customerReviewSubmitted || Boolean(currentOrder?.customerReview?.rating)
   const mainButtonVisible =
     (homeNeedsProfileSave) ||
-    ["location", "destination", "review", "assigned", "cancelled", "completed", "error"].includes(screen)
+    ["location", "destination", "details", "review", "assigned", "cancelled", "completed", "error"].includes(screen)
   const mainButtonEnabled =
     screen === "home" ? isCustomerProfileComplete(customerProfile) && !customerVerificationSaving :
     screen === "destination" ? (serviceRequiresDestination(selectedService) ? Boolean(destination.trim()) : true) :
+    screen === "details" ? Boolean(vehicleState) :
     screen === "review" ? !loading :
     mainButtonVisible
 
@@ -2212,7 +2263,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
           onPick={setDestinationFromMap}
           onChange={setDestination}
           onBack={() => setScreen("location")}
-          onNext={() => setScreen("review")}
+          onNext={() => setScreen("details")}
           onSkipOnSite={applyOnSiteDestination}
           {...directoryMapProps}
         />
@@ -2234,7 +2285,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
           loading={loading}
           isTelegram={isTelegram}
           onConfirm={submitOrder}
-          onBack={() => setScreen(serviceRequiresDestination(selectedService) ? "destination" : "location")}
+          onBack={() => setScreen("details")}
           {...directoryMapProps}
         />
       )
@@ -2247,7 +2298,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
     case "tracking":
       return <TrackingStep orderId={orderId} status={status} order={currentOrder} pickup={pickup} destination={destinationPoint} cancelError={cancelError} cancelling={cancelling} onCancel={cancelOrder} />
     case "arrived":
-      return <ArrivedStep orderId={orderId} status={status} order={currentOrder} pickup={pickup} destination={destinationPoint} cancelError={cancelError} cancelling={cancelling} onComplete={completeOrder} onCancel={cancelOrder} />
+      return <ArrivedStep orderId={orderId} status={status} order={currentOrder} pickup={pickup} destination={destinationPoint} cancelError={cancelError} cancelling={cancelling} onCancel={cancelOrder} />
     case "in_progress":
       return <InProgressStep orderId={orderId} status={status} order={currentOrder} pickup={pickup} destination={destinationPoint} cancelError={cancelError} cancelling={cancelling} onCancel={cancelOrder} />
     case "completed":

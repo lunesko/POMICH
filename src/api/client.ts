@@ -220,6 +220,9 @@ export interface OrderResponse {
     searchRadiusKm?: number
     offerTimeoutSeconds?: number
     lastDispatchAt?: string
+    autoRetryCount?: number
+    lastAutoRetryAt?: string
+    exhaustedAt?: string
   }
   offers?: DispatchOffer[]
   statusHistory?: Array<{ status: string; at: string }>

@@ -27,6 +27,8 @@ import type { ServiceKey } from "../../lib/pomichDomain"
 import { readCachedProviderProfile, writeCachedProviderProfile } from "../../lib/providerProfileCache"
 import { roleLabel, readBootstrapProfile, resolveProviderIdForCustomer, storeLinkedProviderId, type UserRole } from "../../lib/userAccount"
 import { validateUkraineMobilePhone } from "../../lib/ukrainePhone"
+import { validateUkrainePlate } from "../../lib/ukrainePlate"
+import { isPartnerProfileIncomplete } from "../../lib/partnerProfileComplete"
 import { DEFAULT_SERVICE_CITY, validateServiceCity } from "../../lib/ukraineCities"
 import { validatePersonName } from "../../lib/personName"
 import { authSessionStorageKey, isAuthSessionToken, readAuthSessionSubject, readStoredAuthSession, readStoredCustomerAuthSession, storeAuthSession } from "../../lib/auth"
@@ -37,6 +39,7 @@ import { formatCabinetOrderStatus, formatCabinetReviewStars } from "../customer/
 import { CitySelect } from "../ui/CitySelect"
 import { OtpVerificationPanel } from "../ui/OtpVerificationPanel"
 import { PhoneInput } from "../ui/PhoneInput"
+import { UkrainePlateInput } from "../ui/UkrainePlateInput"
 import { PrimaryButton } from "../ui/PrimaryButton"
 import { ServiceRadiusField } from "../ui/ServiceRadiusField"
 import { VerificationPill } from "../ui/VerificationPill"
@@ -103,12 +106,7 @@ function buildStubProviderProfile(providerId: string): ProviderAvailability {
 }
 
 function isProviderProfileIncomplete(profile?: ProviderAvailability): boolean {
-  if (!profile) return true
-  const name = profile.name?.trim()
-  if (!name || name === "Партнер POMICH") return true
-  if (!profile.phone?.trim()) return true
-  if (!profile.vehicle?.trim()) return true
-  return toServiceKeys(profile.specialties).length === 0
+  return isPartnerProfileIncomplete(profile)
 }
 
 function profileToForm(profile: ProviderAvailability) {
@@ -117,6 +115,7 @@ function profileToForm(profile: ProviderAvailability) {
     phone: profile.phone || "",
     city: profile.city || "",
     vehicle: profile.vehicle || "",
+    plate: profile.plate || "",
     specialties: toServiceKeys(profile.specialties),
     serviceRadiusKm: profile.serviceRadiusKm ?? DEFAULT_SERVICE_RADIUS_KM,
   }
@@ -159,6 +158,7 @@ export default function ProviderCabinet({
       phone: "",
       city: "",
       vehicle: "",
+      plate: "",
       specialties: [] as ServiceKey[],
       serviceRadiusKm: DEFAULT_SERVICE_RADIUS_KM,
     }
@@ -369,6 +369,7 @@ export default function ProviderCabinet({
           !current.name.trim() &&
           !current.phone.trim() &&
           !current.vehicle.trim() &&
+          !current.plate.trim() &&
           current.specialties.length === 0
         return currentEmpty ? next : current
       })
@@ -429,6 +430,12 @@ export default function ProviderCabinet({
       setSaveError("Вкажіть авто")
       return
     }
+    const plateValidation = validateUkrainePlate(form.plate)
+    if (!plateValidation.valid) {
+      setSaveSuccess(undefined)
+      setSaveError(plateValidation.error || "Вкажіть коректний номер авто")
+      return
+    }
     if (form.specialties.length === 0) {
       setSaveSuccess(undefined)
       setSaveError("Оберіть хоча б одну послугу")
@@ -449,7 +456,7 @@ export default function ProviderCabinet({
           city: cityValidation.value,
           vehicle: form.vehicle.trim(),
           telegram: profile?.telegram,
-          plate: profile?.plate,
+          plate: plateValidation.plate,
           specialties: form.specialties,
           serviceRadiusKm: form.serviceRadiusKm,
           location: profile?.location,
@@ -482,6 +489,11 @@ export default function ProviderCabinet({
   const toggleDuty = async () => {
     if (!profileVerified && !isOnline) {
       setDutyError("Підтвердіть телефон кодом у Telegram, щоб вийти на лінію.")
+      return
+    }
+    if (!isOnline && isProviderProfileIncomplete(profile)) {
+      setDutyError("Спочатку заповніть профіль партнера (авто, номер і послуги).")
+      setEditing(true)
       return
     }
 
@@ -588,6 +600,13 @@ export default function ProviderCabinet({
                         className="pomich-form-input"
                       />
                     </label>
+                    <label className="pomich-cabinet-field">
+                      <span className="pomich-form-label">Номер авто *</span>
+                      <UkrainePlateInput
+                        value={form.plate}
+                        onChange={(plate) => setForm((prev) => ({ ...prev, plate }))}
+                      />
+                    </label>
                     <div className="pomich-cabinet-field">
                       <span className="pomich-form-label">Послуги *</span>
                       <div className="pomich-cabinet-service-grid">
@@ -648,6 +667,7 @@ export default function ProviderCabinet({
                       <div className="pomich-cabinet-profile-phone">{profile?.phone || "Телефон не вказано"}</div>
                       {profile?.city ? <div className="pomich-cabinet-profile-extra">{profile.city}</div> : null}
                       {profile?.vehicle ? <div className="pomich-cabinet-profile-extra">{profile.vehicle}</div> : null}
+                      {profile?.plate ? <div className="pomich-cabinet-profile-extra">{profile.plate}</div> : null}
                       {profile?.specialties?.length ? (
                         <div className="pomich-cabinet-profile-extra">
                           {toServiceKeys(profile.specialties).map((key) => `${getServiceEmoji(key)} ${services.find((item) => item.key === key)?.label ?? key}`).join(" · ")}

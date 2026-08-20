@@ -179,10 +179,14 @@ describe('customer auth storage', () => {
     window.sessionStorage.setItem('pomichProviderToken', 'legacy-provider')
     window.sessionStorage.setItem('pomichAdminToken', 'legacy-admin')
     window.localStorage.setItem('pomichCustomerId', 'guest-test')
+    window.localStorage.setItem('pomichPartnerRegistered:provider-test', '1')
+    window.localStorage.setItem('pomichPartnerRegistered:provider-guest-test', '1')
 
     clearAllAuthStorage()
 
     expect(window.localStorage.getItem('pomichCustomerId')).toBeNull()
+    expect(window.localStorage.getItem('pomichPartnerRegistered:provider-test')).toBeNull()
+    expect(window.localStorage.getItem('pomichPartnerRegistered:provider-guest-test')).toBeNull()
     expect(window.sessionStorage.getItem('pomichProviderToken')).toBeNull()
     expect(window.sessionStorage.getItem('pomichAdminToken')).toBeNull()
     expect(window.sessionStorage.getItem(authSessionStorageKey('customer', 'guest-test'))).toBeNull()
