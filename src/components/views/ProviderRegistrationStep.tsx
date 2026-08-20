@@ -7,7 +7,7 @@ import type { ServiceKey } from "../../lib/pomichDomain"
 import { validatePersonName } from "../../lib/personName"
 import { validateUkraineMobilePhone } from "../../lib/ukrainePhone"
 import { DEFAULT_SERVICE_CITY, validateServiceCity } from "../../lib/ukraineCities"
-import { isValidUkrainePlate } from "../../lib/ukrainePlate"
+import { isValidUkrainePlate, validateUkrainePlate } from "../../lib/ukrainePlate"
 import { ScreenLayout } from "../layout/ScreenLayout"
 import { Header } from "../layout/Header"
 import FormContainer from "../layout/FormContainer"
@@ -47,6 +47,7 @@ export function ProviderRegistrationStep({
   const [phoneHint, setPhoneHint] = useState<string>()
   const [cityError, setCityError] = useState<string>()
   const [cityHint, setCityHint] = useState<string>()
+  const [plateError, setPlateError] = useState<string>()
 
   const composedVehicle = composePartnerVehicle(form.vehicleMake, form.vehicleModel, form.vehicleMakeOther)
   const nameValidation = validatePersonName(form.name)
@@ -74,13 +75,15 @@ export function ProviderRegistrationStep({
     const nextName = validatePersonName(form.name)
     const nextPhone = validateUkraineMobilePhone(form.phone)
     const nextCity = validateServiceCity(form.city || DEFAULT_SERVICE_CITY)
+    const nextPlate = validateUkrainePlate(form.plate)
     setNameError(nextName.error)
     setNameHint(nextName.hint)
     setPhoneError(nextPhone.valid ? undefined : nextPhone.error)
     setPhoneHint(nextPhone.valid ? undefined : "Мобільний номер України: 9 цифр після +380")
     setCityError(nextCity.error)
     setCityHint(nextCity.hint)
-    if (!nextName.valid || !nextPhone.valid || !nextCity.valid) return
+    setPlateError(nextPlate.valid ? undefined : nextPlate.error)
+    if (!nextName.valid || !nextPhone.valid || !nextCity.valid || !nextPlate.valid) return
     onSubmit()
   }
 
@@ -142,7 +145,14 @@ export function ProviderRegistrationStep({
           <PartnerVehicleFields form={form} onChange={onChange} />
           <label style={{ display: "grid", gap: 6 }}>
             <span className="pomich-form-label">Номер</span>
-            <UkrainePlateInput value={form.plate} onChange={(plate) => onChange({ plate })} />
+            <UkrainePlateInput
+              value={form.plate}
+              onChange={(plate) => {
+                onChange({ plate })
+                if (plateError) setPlateError(undefined)
+              }}
+              error={plateError}
+            />
           </label>
           <ServiceRadiusField value={form.serviceRadiusKm} onChange={(serviceRadiusKm) => onChange({ serviceRadiusKm })} />
         </div>
