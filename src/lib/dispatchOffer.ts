@@ -4,6 +4,8 @@ import { ACTIVE_ORDER_STATUSES, TERMINAL_ORDER_STATUSES as SESSION_TERMINAL_STAT
 
 /** Fallback when backend omits expiresAt — must stay >0 so UI does not treat offer as expired. */
 export const DEFAULT_OFFER_SECONDS_LEFT = 90
+/** Accepted order idle window before auto-cancel (must match backend ACCEPTED_IDLE_TIMEOUT_SECONDS). */
+export const DEFAULT_ACCEPTED_IDLE_SECONDS = 900
 
 const OFFER_CONFLICT_MESSAGES: Record<string, string> = {
   PRICE_REQUIRED: "Вкажіть вартість послуги в гривнях.",
@@ -12,6 +14,7 @@ const OFFER_CONFLICT_MESSAGES: Record<string, string> = {
   OFFER_NOT_FOUND: "Пропозицію не знайдено. Оновіть список заявок.",
   ORDER_ALREADY_ACCEPTED: "Замовлення вже прийняв інший виконавець.",
   ORDER_NOT_FOUND: "Заявку не знайдено.",
+  ORDER_ACCEPTED_TIMEOUT: "Заявку скасовано: не підтверджено протягом 15 хвилин.",
   PROVIDER_NOT_VERIFIED: "Підтвердіть телефон, щоб приймати заявки.",
   provider_identity_mismatch: "Акаунт партнера не збігається. Оновіть сторінку та спробуйте ще раз.",
   provider_session_required: "Потрібен вхід партнера. Оновіть сторінку.",
@@ -93,6 +96,31 @@ export function offerSecondsLeft(offer: DispatchOffer | undefined, nowMs = Date.
   const expiresMs = parseApiDateMs(offer.expiresAt)
   if (!Number.isFinite(expiresMs)) return DEFAULT_OFFER_SECONDS_LEFT
   return Math.max(0, Math.ceil((expiresMs - nowMs) / 1000))
+}
+
+export function acceptedIdleSecondsLeft(
+  order: { acceptedAt?: string; acceptedIdleExpiresAt?: string; acceptedIdleTimeoutSeconds?: number; status?: string } | undefined,
+  nowMs = Date.now(),
+): number {
+  if (!order) return 0
+  const status = String(order.status || "").trim().toLowerCase()
+  if (status && status !== "accepted") return 0
+  if (order.acceptedIdleExpiresAt) {
+    const expiresMs = parseApiDateMs(order.acceptedIdleExpiresAt)
+    if (Number.isFinite(expiresMs)) return Math.max(0, Math.ceil((expiresMs - nowMs) / 1000))
+  }
+  const acceptedMs = parseApiDateMs(order.acceptedAt)
+  if (!Number.isFinite(acceptedMs)) return 0
+  const timeoutSec = Number(order.acceptedIdleTimeoutSeconds)
+  const windowSec = Number.isFinite(timeoutSec) && timeoutSec > 0 ? timeoutSec : DEFAULT_ACCEPTED_IDLE_SECONDS
+  return Math.max(0, Math.ceil((acceptedMs + windowSec * 1000 - nowMs) / 1000))
+}
+
+export function formatCountdown(totalSeconds: number): string {
+  const safe = Math.max(0, Math.floor(totalSeconds))
+  const minutes = Math.floor(safe / 60)
+  const seconds = safe % 60
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`
 }
 
 export function pinFromOffer(offer: DispatchOffer): MapRequestPin {

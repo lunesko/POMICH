@@ -23,7 +23,7 @@ from bot.order_store import (
     attach_dispatch_to_orders,
     confirm_order_price,
     dispatch_order,
-    expire_offers,
+    expire_stale_and_notify,
     get_order,
     load_offers,
     load_orders,
@@ -45,6 +45,7 @@ def list_orders(
     authorization: str | None = Header(default=None),
 ) -> list[dict]:
     require_admin_auth(x_pomich_admin_token, authorization)
+    expire_stale_and_notify()
     return attach_dispatch_to_orders(load_orders(), load_offers())
 
 
@@ -111,7 +112,7 @@ def create_order(payload: dict, authorization: str | None = Header(default=None)
 
 @router.get("/orders/{order_id}")
 def read_order(order_id: str) -> dict:
-    expire_offers()
+    expire_stale_and_notify()
     order = get_order(order_id)
     if order is None:
         raise HTTPException(status_code=404, detail="order not found")

@@ -202,7 +202,11 @@ export interface OrderResponse {
   partnerPriceNote?: string
   providerName?: string
   acceptedAt?: string
+  acceptedIdleExpiresAt?: string
+  acceptedIdleTimeoutSeconds?: number
   priceConfirmedAt?: string
+  cancelReason?: string
+  cancelledAt?: string
   assignedProvider?: ProviderAvailability & {
     distanceKm?: number
     etaMinutes?: number

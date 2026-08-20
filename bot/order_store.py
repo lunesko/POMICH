@@ -27,6 +27,9 @@ DISPATCH_SEARCH_RADIUS_STEPS_KM = [int(value) for value in os.getenv("SEARCH_RAD
 MAX_PROVIDER_OFFERS = int(os.getenv("MAX_PROVIDER_OFFERS", "5"))
 # Partners need time to read details, enter a price, and accept. 20s was too short in production.
 OFFER_TIMEOUT_SECONDS = int(os.getenv("OFFER_TIMEOUT_SECONDS", "90"))
+# After a partner accepts, customer must confirm price (and processing must continue).
+# Idle accepted orders are cancelled (not hard-deleted) after this timeout.
+ACCEPTED_IDLE_TIMEOUT_SECONDS = int(os.getenv("ACCEPTED_IDLE_TIMEOUT_SECONDS", "900"))
 OFFER_STATUSES = {"pending", "accepted", "declined", "expired", "lost", "cancelled"}
 STORE_LOCK = threading.RLock()
 
@@ -190,6 +193,22 @@ def peek_order_status(status: Any) -> Optional[str]:
     return raw
 
 
+def _order_accepted_at(order: Dict[str, Any]) -> Optional[datetime]:
+    parsed = _parse_iso(order.get("acceptedAt"))
+    if parsed is not None:
+        return parsed
+    history = order.get("statusHistory")
+    if isinstance(history, list):
+        for entry in reversed(history):
+            if not isinstance(entry, dict):
+                continue
+            if peek_order_status(entry.get("status")) == "accepted":
+                at = _parse_iso(entry.get("at"))
+                if at is not None:
+                    return at
+    return _parse_iso(order.get("updatedAt")) or _parse_iso(order.get("createdAt"))
+
+
 def normalize_order_status(status: Any) -> str:
     normalized = str(status or "searching").strip().lower()
     normalized = ORDER_STATUS_ALIASES.get(normalized, normalized)
@@ -225,6 +244,7 @@ def confirm_order_price(
     order_store_path: Optional[Path] = None,
     offer_store_path: Optional[Path] = None,
 ) -> Dict[str, Any]:
+    expire_stale_and_notify(order_store_path=order_store_path, offer_store_path=offer_store_path)
     with STORE_LOCK:
         path = order_store_path or _default_store_path()
         orders = load_orders(path)
@@ -233,6 +253,8 @@ def confirm_order_price(
             raise DispatchConflict("ORDER_NOT_FOUND", "Order was not found.")
 
         current_status = normalize_order_status(order.get("status"))
+        if current_status == "cancelled" and order.get("cancelReason") == "accepted_idle_timeout":
+            raise DispatchConflict("ORDER_ACCEPTED_TIMEOUT", "Accepted order was cancelled after idle timeout.")
         if current_status not in {"accepted", "assigned"}:
             raise DispatchConflict("PRICE_NOT_PENDING", "Order is not waiting for price confirmation.")
 
@@ -745,6 +767,13 @@ def enrich_order_for_client(
 
     if payload.get("partnerProposedPrice") is None and payload.get("proposedPrice") is not None:
         payload["partnerProposedPrice"] = payload.get("proposedPrice")
+
+    if payload.get("status") == "accepted":
+        payload["acceptedIdleTimeoutSeconds"] = ACCEPTED_IDLE_TIMEOUT_SECONDS
+        accepted_at = _order_accepted_at(payload)
+        if accepted_at is not None:
+            expires_at = accepted_at + timedelta(seconds=ACCEPTED_IDLE_TIMEOUT_SECONDS)
+            payload["acceptedIdleExpiresAt"] = f"{expires_at.isoformat(timespec='seconds')}Z"
 
     customer_id = str(payload.get("customerId") or "").strip()
     if customer_id and not str(payload.get("customerName") or "").strip():
@@ -2485,19 +2514,134 @@ def _expire_offers_in_memory(offers: List[Dict[str, Any]], orders: List[Dict[str
     return changed
 
 
-def expire_offers(order_store_path: Optional[Path] = None, offer_store_path: Optional[Path] = None) -> List[Dict[str, Any]]:
-    with STORE_LOCK:
-        orders = load_orders(order_store_path)
-        offers = load_offers(offer_store_path)
-        changed = _expire_offers_in_memory(offers, orders)
-        if changed:
-            save_offers(offers, offer_store_path)
-            if order_store_path:
-                _write_json_atomic(order_store_path, orders)
-            else:
-                _write_json_atomic(_default_store_path(), orders)
-        return offers
+def _cancel_idle_accepted_orders_in_memory(
+    orders: List[Dict[str, Any]],
+    offers: List[Dict[str, Any]],
+    now: Optional[datetime] = None,
+) -> List[Dict[str, Any]]:
+    """Cancel accepted orders idle longer than ACCEPTED_IDLE_TIMEOUT_SECONDS. Mutates orders/offers."""
+    checked_at = now or datetime.now(timezone.utc).replace(tzinfo=None)
+    now_iso = f"{checked_at.isoformat(timespec='seconds')}Z"
+    timeout = timedelta(seconds=ACCEPTED_IDLE_TIMEOUT_SECONDS)
+    cancelled: List[Dict[str, Any]] = []
 
+    for order in orders:
+        if peek_order_status(order.get("status")) != "accepted":
+            continue
+        accepted_at = _order_accepted_at(order)
+        if accepted_at is None or checked_at - accepted_at < timeout:
+            continue
+
+        order["status"] = "cancelled"
+        order["cancelReason"] = "accepted_idle_timeout"
+        order["cancelledAt"] = now_iso
+        order["updatedAt"] = now_iso
+        order["dispatchState"] = "CANCELLED"
+        history = order.get("statusHistory") if isinstance(order.get("statusHistory"), list) else []
+        history.append({"status": "cancelled", "at": now_iso, "reason": "accepted_idle_timeout"})
+        order["statusHistory"] = history
+        _append_order_event(
+            order,
+            "ORDER_ACCEPTED_TIMEOUT",
+            now_iso,
+            {"timeoutSeconds": ACCEPTED_IDLE_TIMEOUT_SECONDS, "acceptedAt": order.get("acceptedAt")},
+        )
+        _append_order_event(order, "ORDER_CANCELLED", now_iso, {"reason": "accepted_idle_timeout"})
+        cancelled.append(order)
+
+        order_id = str(order.get("id") or "")
+        for offer in offers:
+            if str(offer.get("orderId")) != order_id:
+                continue
+            if offer.get("status") != "pending":
+                continue
+            offer["status"] = "cancelled"
+            offer["respondedAt"] = now_iso
+
+    return cancelled
+
+
+def _free_providers_after_idle_cancel(
+    cancelled_orders: List[Dict[str, Any]],
+    provider_store_path: Optional[Path] = None,
+) -> bool:
+    if not cancelled_orders:
+        return False
+    providers = load_providers(provider_store_path)
+    now = _now_iso()
+    changed = False
+    provider_ids = {
+        str(order.get("assignedProviderId") or order.get("partnerId") or "").strip()
+        for order in cancelled_orders
+    }
+    provider_ids.discard("")
+    for provider in providers:
+        if str(provider.get("id") or "") not in provider_ids:
+            continue
+        provider.pop("stale", None)
+        provider["status"] = "online"
+        provider["assignedOrderId"] = None
+        provider["updatedAt"] = now
+        provider["lastSeenAt"] = now
+        changed = True
+    if changed:
+        save_providers(providers, provider_store_path)
+    return changed
+
+
+def expire_stale_dispatch(
+    order_store_path: Optional[Path] = None,
+    offer_store_path: Optional[Path] = None,
+    provider_store_path: Optional[Path] = None,
+) -> List[Dict[str, Any]]:
+    """Expire pending offers and cancel idle accepted orders. Returns cancelled (enriched) orders."""
+    with STORE_LOCK:
+        order_path = order_store_path or _default_store_path()
+        offer_path = offer_store_path or _default_offer_store_path()
+        orders = load_orders(order_path)
+        offers = load_offers(offer_path)
+        offer_changed = _expire_offers_in_memory(offers, orders)
+        cancelled = _cancel_idle_accepted_orders_in_memory(orders, offers)
+        if offer_changed or cancelled:
+            save_offers(offers, offer_path)
+            _write_json_atomic(order_path, orders)
+        if cancelled:
+            _free_providers_after_idle_cancel(cancelled, provider_store_path)
+        return [enrich_order_for_client(order, provider_store_path) for order in cancelled]
+
+
+def expire_stale_and_notify(
+    order_store_path: Optional[Path] = None,
+    offer_store_path: Optional[Path] = None,
+    provider_store_path: Optional[Path] = None,
+) -> List[Dict[str, Any]]:
+    """Expire stale dispatch state and notify parties about idle-accepted cancellations."""
+    cancelled = expire_stale_dispatch(
+        order_store_path=order_store_path,
+        offer_store_path=offer_store_path,
+        provider_store_path=provider_store_path,
+    )
+    if not cancelled:
+        return cancelled
+    from bot.realtime import publish_order_event, publish_provider_event
+    from bot.telegram_bot import notify_order_cancelled
+
+    for order in cancelled:
+        notify_order_cancelled(order)
+        publish_order_event(order, "order.cancelled")
+        provider_id = str(order.get("assignedProviderId") or order.get("partnerId") or "").strip()
+        if provider_id:
+            publish_provider_event(
+                provider_id,
+                "offers.changed",
+                {"orderId": order.get("id"), "action": "terminal", "reason": "accepted_idle_timeout"},
+            )
+    return cancelled
+
+
+def expire_offers(order_store_path: Optional[Path] = None, offer_store_path: Optional[Path] = None) -> List[Dict[str, Any]]:
+    expire_stale_dispatch(order_store_path=order_store_path, offer_store_path=offer_store_path)
+    return load_offers(offer_store_path)
 
 def invalidate_order_offers(order_id: str, status: str = "cancelled", offer_store_path: Optional[Path] = None) -> List[Dict[str, Any]]:
     with STORE_LOCK:
@@ -2724,13 +2868,10 @@ def get_provider_offers(
     order_store_path: Optional[Path] = None,
     offer_store_path: Optional[Path] = None,
 ) -> List[Dict[str, Any]]:
+    expire_stale_and_notify(order_store_path=order_store_path, offer_store_path=offer_store_path)
     with STORE_LOCK:
         orders = load_orders(order_store_path)
         offers = load_offers(offer_store_path)
-        changed = _expire_offers_in_memory(offers, orders)
-        if changed:
-            save_offers(offers, offer_store_path)
-            _write_json_atomic(order_store_path or _default_store_path(), orders)
 
         order_by_id = {str(order.get("id")): order for order in orders}
         provider_offers = []
