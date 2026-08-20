@@ -14,7 +14,10 @@ from bot.runtime_store import (
     save_collection,
     sql_accept_offer,
     sql_candidate_providers_for_order,
+    sql_find_registered_provider_by_phone,
+    sql_get_customer,
     sql_storage_enabled,
+    sql_upsert_customer,
     sql_upsert_provider,
 )
 
@@ -343,8 +346,27 @@ def is_provider_verified(provider: Dict[str, Any]) -> bool:
 
 
 def verify_provider_phone_otp(provider_id: str, store_path: Optional[Path] = None) -> Optional[Dict[str, Any]]:
-    providers = load_providers(store_path)
     now = _now_iso()
+    if _should_use_sql_store(store_path, _default_provider_store_path):
+        provider = get_provider_profile(provider_id, store_path)
+        if provider is None:
+            return None
+        provider = _normalize_provider_trust(provider)
+        verification = provider.get("verification") if isinstance(provider.get("verification"), dict) else {}
+        verification["phone"] = True
+        verification["reviewedAt"] = now
+        verification["reviewedBy"] = "otp"
+        verification["reviewNote"] = "Verified via Telegram OTP"
+        provider["verificationStatus"] = "verified"
+        provider["verification"] = verification
+        provider["trustedBadges"] = _verification_badges("verified", "provider")
+        provider["profileUpdatedAt"] = now
+        provider["updatedAt"] = now
+        persisted = sql_upsert_provider(dict(provider))
+        persisted.pop("stale", None)
+        return dict(persisted)
+
+    providers = load_providers(store_path)
     updated: Optional[Dict[str, Any]] = None
     for index, provider in enumerate(providers):
         if str(provider.get("id")) != str(provider_id):
@@ -1227,6 +1249,15 @@ def save_customer_profiles(profiles: List[Dict[str, Any]], store_path: Optional[
 
 
 def get_customer_profile(customer_id: str, store_path: Optional[Path] = None) -> Dict[str, Any]:
+    if _should_use_sql_store(store_path, _default_customer_store_path):
+        found = sql_get_customer(str(customer_id))
+        if found is not None:
+            return _maybe_persist_phone_linked_verification(
+                _normalize_customer_profile(_decrypt_customer_record(found)),
+                store_path,
+            )
+        return _sync_phone_linked_verification(_default_customer_profile(customer_id), store_path)
+
     for profile in load_customer_profiles(store_path):
         if str(profile.get("id")) == str(customer_id):
             return _maybe_persist_phone_linked_verification(_normalize_customer_profile(profile), store_path)
@@ -1673,6 +1704,9 @@ def find_registered_provider_by_phone(
     target = _normalize_ukraine_phone_digits(phone)
     if not target or len(target) != 12:
         return None
+    if providers is None and _should_use_sql_store(store_path, _default_provider_store_path):
+        found = sql_find_registered_provider_by_phone(target, exclude_id=exclude_id)
+        return dict(found) if found is not None else None
     source = providers if providers is not None else load_providers(store_path)
     for provider in source:
         provider_id = str(provider.get("id") or "")
@@ -1785,9 +1819,10 @@ def _ensure_customer_phone_available(
 def _ensure_provider_phone_available(
     provider_id: str,
     phone: str,
-    providers: List[Dict[str, Any]],
+    providers: Optional[List[Dict[str, Any]]] = None,
     *,
     customer_store_path: Optional[Path] = None,
+    provider_store_path: Optional[Path] = None,
 ) -> None:
     phone_value = str(phone or "").strip()
     if not phone_value:
@@ -1797,28 +1832,25 @@ def _ensure_provider_phone_available(
     if not customer_id and str(provider_id).startswith("provider-"):
         customer_id = str(provider_id)[len("provider-") :].strip()
     if customer_id:
-        customer_profiles = load_customer_profiles(customer_store_path)
-        customer_profile = next(
-            (item for item in customer_profiles if str(item.get("id") or "") == customer_id),
-            None,
-        )
-        if customer_profile is not None:
-            customer_phone = _customer_profile_phone_digits(customer_profile)
-            if customer_phone == target:
-                return
+        customer_profile = get_customer_profile(customer_id, customer_store_path)
+        customer_phone = _customer_profile_phone_digits(customer_profile)
+        if customer_phone == target:
+            return
     existing = find_registered_provider_by_phone(
         phone_value,
         exclude_id=str(provider_id),
         providers=providers,
+        store_path=provider_store_path,
     )
     if existing is not None:
         existing_customer_id = resolve_customer_id_for_provider(str(existing.get("id") or ""))
-        if customer_id and existing_customer_id and _profiles_share_account(
-            customer_id,
-            existing_customer_id,
-            load_customer_profiles(customer_store_path),
-        ):
-            return
+        if customer_id and existing_customer_id:
+            profiles = [
+                get_customer_profile(customer_id, customer_store_path),
+                get_customer_profile(existing_customer_id, customer_store_path),
+            ]
+            if _profiles_share_account(customer_id, existing_customer_id, profiles):
+                return
         raise ValueError(PHONE_ALREADY_REGISTERED)
 
 
@@ -1926,6 +1958,9 @@ def _maybe_persist_phone_linked_verification(
         return synced
     customer_id = str(profile.get("id") or "")
     if not customer_id:
+        return synced
+    if _should_use_sql_store(store_path, _default_customer_store_path):
+        sql_upsert_customer(_encrypt_customer_record(synced))
         return synced
     with STORE_LOCK:
         path = store_path or _default_customer_store_path()
@@ -2104,7 +2139,6 @@ def review_customer_verification(customer_id: str, data: Dict[str, Any], store_p
 
 
 def update_provider_profile(provider_id: str, data: Dict[str, Any], store_path: Optional[Path] = None) -> Dict[str, Any]:
-    providers = load_providers(store_path)
     now = _now_iso()
     specialties = _clean_provider_specialties(data.get("specialties"))
     if not specialties:
@@ -2116,16 +2150,59 @@ def update_provider_profile(provider_id: str, data: Dict[str, Any], store_path: 
         radius = 15
     radius = max(1, min(radius, 100))
 
-    updated: Optional[Dict[str, Any]] = None
-    for index, provider in enumerate(providers):
-        if str(provider.get("id")) != str(provider_id):
-            continue
+    use_sql = _should_use_sql_store(store_path, _default_provider_store_path)
+    existing = get_provider_profile(provider_id, store_path) if use_sql else None
+    providers: Optional[List[Dict[str, Any]]] = None if use_sql else load_providers(store_path)
 
+    updated: Optional[Dict[str, Any]] = None
+    if not use_sql and providers is not None:
+        for index, provider in enumerate(providers):
+            if str(provider.get("id")) != str(provider_id):
+                continue
+
+            provider.pop("stale", None)
+            provider = _normalize_provider_trust(provider)
+            provider["name"] = str(data.get("name") or provider.get("name") or "Партнер POMICH").strip()
+            next_phone = str(data.get("phone") or provider.get("phone") or "").strip()
+            _ensure_provider_phone_available(
+                provider_id,
+                next_phone,
+                providers,
+                provider_store_path=store_path,
+            )
+            provider["phone"] = next_phone
+            provider["telegram"] = str(data.get("telegram") or provider.get("telegram") or "pomich_help_bot").strip()
+            provider["vehicle"] = str(data.get("vehicle") or provider.get("vehicle") or "Автодопомога").strip()
+            if data.get("vehicleMake") is not None:
+                provider["vehicleMake"] = str(data.get("vehicleMake") or "").strip()
+            if data.get("vehicleModel") is not None:
+                provider["vehicleModel"] = str(data.get("vehicleModel") or "").strip()
+            provider["plate"] = str(data.get("plate") or provider.get("plate") or "").strip()
+            if data.get("city") is not None:
+                provider["city"] = str(data.get("city") or provider.get("city") or "").strip()
+            provider["specialties"] = specialties
+            provider["serviceRadiusKm"] = radius
+            provider["registeredAt"] = provider.get("registeredAt") or now
+            provider["profileUpdatedAt"] = now
+            provider["updatedAt"] = now
+            if isinstance(data.get("location"), dict):
+                provider["location"] = data["location"]
+                provider["lastLocationAt"] = now
+            providers[index] = provider
+            updated = provider
+            break
+
+    if updated is None and existing is not None:
+        provider = dict(existing)
         provider.pop("stale", None)
         provider = _normalize_provider_trust(provider)
         provider["name"] = str(data.get("name") or provider.get("name") or "Партнер POMICH").strip()
         next_phone = str(data.get("phone") or provider.get("phone") or "").strip()
-        _ensure_provider_phone_available(provider_id, next_phone, providers)
+        _ensure_provider_phone_available(
+            provider_id,
+            next_phone,
+            provider_store_path=store_path,
+        )
         provider["phone"] = next_phone
         provider["telegram"] = str(data.get("telegram") or provider.get("telegram") or "pomich_help_bot").strip()
         provider["vehicle"] = str(data.get("vehicle") or provider.get("vehicle") or "Автодопомога").strip()
@@ -2144,9 +2221,7 @@ def update_provider_profile(provider_id: str, data: Dict[str, Any], store_path: 
         if isinstance(data.get("location"), dict):
             provider["location"] = data["location"]
             provider["lastLocationAt"] = now
-        providers[index] = provider
         updated = provider
-        break
 
     if updated is None:
         status = str(data.get("status") or "offline")
@@ -2155,7 +2230,12 @@ def update_provider_profile(provider_id: str, data: Dict[str, Any], store_path: 
         if status in PROVIDER_ACTIVE_STATUSES and not data.get("registeredAt"):
             raise ValueError("provider profile must be registered before going online")
         next_phone = str(data.get("phone") or "").strip()
-        _ensure_provider_phone_available(provider_id, next_phone, providers)
+        _ensure_provider_phone_available(
+            provider_id,
+            next_phone,
+            providers,
+            provider_store_path=store_path,
+        )
         updated = _normalize_provider_trust({
             "id": str(provider_id),
             "name": str(data.get("name") or "Партнер POMICH").strip(),
@@ -2175,9 +2255,16 @@ def update_provider_profile(provider_id: str, data: Dict[str, Any], store_path: 
             "lastLocationAt": now if data.get("location") else None,
             "updatedAt": now,
         })
-        providers.append(updated)
+        if providers is not None:
+            providers.append(updated)
 
-    save_providers(providers, store_path)
+    if use_sql:
+        persisted = sql_upsert_provider(dict(updated))
+        persisted.pop("stale", None)
+        updated = _normalize_provider_trust(persisted)
+    else:
+        assert providers is not None
+        save_providers(providers, store_path)
 
     # Keep the owning customer row in sync so phone login restores this partner after logout.
     # Always use the customer store (never the providers file passed as store_path in tests).
@@ -2188,23 +2275,45 @@ def update_provider_profile(provider_id: str, data: Dict[str, Any], store_path: 
             customer_id = candidate
     if customer_id and updated is not None:
         try:
-            patch: Dict[str, Any] = {
-                "linkedProviderId": str(provider_id),
-                "preferredRole": "provider",
-            }
-            if updated.get("name"):
-                patch["name"] = updated.get("name")
-            if updated.get("phone"):
-                patch["phone"] = updated.get("phone")
-            if updated.get("city"):
-                patch["city"] = updated.get("city")
-            update_customer_profile(customer_id, patch)
-            mark_user_role_registered(customer_id, "provider")
-        except ValueError:
-            # Never fail provider save because of a parallel customer-row phone conflict.
+            if _should_use_sql_store(None, _default_customer_store_path):
+                existing_customer = sql_get_customer(str(customer_id)) or _default_customer_profile(customer_id)
+                payload = _normalize_customer_profile(_decrypt_customer_record(existing_customer))
+                payload["linkedProviderId"] = str(provider_id)
+                payload["preferredRole"] = "provider"
+                if updated.get("name"):
+                    payload["name"] = updated.get("name")
+                if updated.get("phone"):
+                    payload["phone"] = updated.get("phone")
+                if updated.get("city"):
+                    payload["city"] = updated.get("city")
+                roles = [str(item).strip() for item in (payload.get("rolesRegistered") or []) if str(item).strip()]
+                if "provider" not in roles:
+                    roles.append("provider")
+                payload["rolesRegistered"] = roles
+                payload["profileCompleteness"] = _customer_profile_completeness(payload)
+                payload["updatedAt"] = _now_iso()
+                sql_upsert_customer(_encrypt_customer_record(payload))
+            else:
+                patch: Dict[str, Any] = {
+                    "linkedProviderId": str(provider_id),
+                    "preferredRole": "provider",
+                }
+                if updated.get("name"):
+                    patch["name"] = updated.get("name")
+                if updated.get("phone"):
+                    patch["phone"] = updated.get("phone")
+                if updated.get("city"):
+                    patch["city"] = updated.get("city")
+                update_customer_profile(customer_id, patch)
+                mark_user_role_registered(customer_id, "provider")
+        except Exception:
+            # Never fail provider save because of a parallel customer-row conflict or slow bulk customer rewrite.
             pass
 
-    synced = sync_linked_provider_phone_verification_from_customer(str(provider_id), store_path)
+    try:
+        synced = sync_linked_provider_phone_verification_from_customer(str(provider_id), store_path)
+    except Exception:
+        synced = None
     return dict(synced or updated)
 
 

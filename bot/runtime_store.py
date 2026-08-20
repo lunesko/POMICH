@@ -443,6 +443,101 @@ def sql_get_provider(provider_id: str) -> dict[str, Any] | None:
     return _merge_provider_payload(row["provider_payload"], row["presence_payload"])
 
 
+def sql_get_customer(customer_id: str) -> dict[str, Any] | None:
+    """Load a single customer by id without scanning the full customer table."""
+    wanted = str(customer_id or "").strip()
+    if not wanted:
+        return None
+    engine = get_engine()
+    with engine.begin() as connection:
+        row = connection.execute(select(customers.c.payload).where(customers.c.id == wanted)).first()
+    if row is None:
+        return None
+    return _json_safe_copy(row[0])
+
+
+def sql_upsert_customer(customer: dict[str, Any]) -> dict[str, Any]:
+    """Insert or update one customer row without rewriting the whole table."""
+    payload = _json_safe_copy(customer)
+    customer_id = str(payload.get("id") or "").strip()
+    if not customer_id:
+        raise ValueError("customer id is required")
+    now_iso = str(payload.get("updatedAt") or datetime.now(timezone.utc).replace(tzinfo=None).isoformat(timespec="seconds") + "Z")
+    payload["updatedAt"] = now_iso
+    values = {
+        "id": customer_id,
+        "name": _customer_column_value(payload.get("name"), 180),
+        "phone": _customer_column_value(payload.get("phone"), 80),
+        "email": _customer_column_value(payload.get("email"), 180),
+        "telegram": _customer_column_value(payload.get("telegram"), 180),
+        "city": _customer_column_value(payload.get("city"), 120),
+        "verification_status": str(payload.get("verificationStatus") or "unverified"),
+        "created_at": str(payload.get("createdAt") or ""),
+        "updated_at": now_iso,
+        "payload": payload,
+    }
+    with get_engine().begin() as connection:
+        existing = connection.execute(select(customers.c.id).where(customers.c.id == customer_id)).first()
+        if existing:
+            connection.execute(
+                update(customers)
+                .where(customers.c.id == customer_id)
+                .values(**{key: value for key, value in values.items() if key != "id"})
+            )
+        else:
+            connection.execute(insert(customers).values(**values))
+    return payload
+
+
+def sql_find_registered_provider_by_phone(
+    phone_digits: str,
+    *,
+    exclude_id: str | None = None,
+) -> dict[str, Any] | None:
+    """Find a registered partner by normalized UA phone digits without loading the OSM directory."""
+    target = str(phone_digits or "").strip()
+    if not target or len(target) != 12:
+        return None
+    exclude = str(exclude_id or "").strip()
+    engine = get_engine()
+    with engine.begin() as connection:
+        rows = connection.execute(
+            select(
+                providers.c.id,
+                providers.c.phone,
+                providers.c.payload.label("provider_payload"),
+                provider_presence.c.payload.label("presence_payload"),
+            )
+            .select_from(providers.outerjoin(provider_presence, providers.c.id == provider_presence.c.provider_id))
+            .where(providers.c.registered_at.is_not(None))
+            .where(providers.c.registered_at != "")
+        ).mappings().all()
+
+    for row in rows:
+        provider_id = str(row["id"] or "")
+        if exclude and provider_id == exclude:
+            continue
+        raw_phone = str(row["phone"] or "")
+        if not raw_phone:
+            payload = row["provider_payload"] if isinstance(row["provider_payload"], dict) else {}
+            raw_phone = str(payload.get("phone") or "")
+        digits = "".join(ch for ch in raw_phone if ch.isdigit())
+        if digits.startswith("0") and len(digits) == 10:
+            digits = f"38{digits}"
+        if digits.startswith("80") and len(digits) == 11:
+            digits = f"3{digits}"
+        if len(digits) == 9 and digits[:1] in "345679":
+            digits = f"380{digits}"
+        if digits != target:
+            continue
+        merged = _merge_provider_payload(row["provider_payload"], row["presence_payload"])
+        name = str(merged.get("name") or "").strip()
+        if not name:
+            continue
+        return merged
+    return None
+
+
 def _load_legacy_collection(name: str) -> tuple[bool, Any]:
     engine = get_engine()
     with engine.begin() as connection:
