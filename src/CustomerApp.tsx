@@ -389,6 +389,7 @@ export default function CustomerApp() {
     markExplicitLogout(telegramContext.isTelegram ? telegramContext.chatId : undefined)
     // Always leave the ride first — logout must work from completion/review screens.
     clearActiveOrder()
+    clearPendingPartnerReview()
     clearActiveAppRole()
     clearAllAuthStorage()
     setCustomerToken(undefined)
