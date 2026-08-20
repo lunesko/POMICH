@@ -59,7 +59,7 @@ import {
 } from "../../lib/constants"
 import { readBootstrapProfile, resolveProviderIdForCustomer, storeLinkedProviderId } from "../../lib/userAccount"
 import { readCachedProviderProfile, writeCachedProviderProfile } from "../../lib/providerProfileCache"
-import { clearActiveOrder, persistActiveOrder, pickLatestActiveOrder, readActiveOrder } from "../../lib/customerSession"
+import { clearActiveOrder, isActiveOrderStatus, persistActiveOrder, pickLatestActiveOrder, readActiveOrder } from "../../lib/customerSession"
 import { requestCurrentPosition } from "../../lib/mapGeo"
 import { validateUkraineMobilePhone } from "../../lib/ukrainePhone"
 import { isValidUkrainePlate, validateUkrainePlate } from "../../lib/ukrainePlate"
