@@ -114,6 +114,24 @@ export function formatUkrainePlateInput(raw: string): string {
   return formatted
 }
 
+/**
+ * Append one typed/pasted character to an existing plate value.
+ * Used by the input mask so Cyrillic works equally for first and last letter groups
+ * (avoids WebView bugs with spaced value + text-transform/maxLength).
+ */
+export function appendUkrainePlateChar(current: string, char: string): string {
+  const compact = parseUkrainePlateInput(current)
+  if (compact.length >= 8) return formatUkrainePlateInput(compact)
+  return formatUkrainePlateInput(compact + String(char || ""))
+}
+
+/** Delete one plate character from the end (ignores spaces). */
+export function backspaceUkrainePlate(current: string): string {
+  const compact = parseUkrainePlateInput(current)
+  if (!compact) return ""
+  return formatUkrainePlateInput(compact.slice(0, -1))
+}
+
 /** Normalize stored profile plate for input display. */
 export function plateInputValueFromStored(plate: string | undefined): string {
   if (!plate) return ""
