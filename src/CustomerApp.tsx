@@ -5,7 +5,7 @@ import AppShell from "./components/layout/AppShell"
 import LandingPage from "./components/landing/LandingPage"
 import CustomerAppFallback from "./components/CustomerAppFallback"
 import OnboardingGate from "./components/onboarding/OnboardingGate"
-import { getTelegramContext, resolveEntryRole, resolveEntryScreen, clearEntryScreenParam, type PomichEntryScreen } from "./telegram"
+import { getTelegramContext, resolveEntryRole, resolveEntryScreen, clearEntryScreenParam, sanitizePublicAppUrl, type PomichEntryScreen } from "./telegram"
 import { DEFAULT_CUSTOMER_NAME, isCustomerProfileComplete, isCustomerVerified } from "./lib/customerProfile"
 import { getActiveProviderId, type Role } from "./lib/constants"
 import { readCachedProviderProfile } from "./lib/providerProfileCache"
@@ -157,22 +157,27 @@ export default function CustomerApp() {
     }
 
     clearEntryScreenParam()
+    sanitizePublicAppUrl({ preserveAdminRole: true })
     setEntryScreen(null)
   }, [entryScreen, role, showOnboarding, showLanding])
+
+  // After reading ?role= / ?tgBot= into state, drop them so Safari shows only pomich.help.
+  useEffect(() => {
+    if (role === "admin") return
+    sanitizePublicAppUrl({ preserveAdminRole: true })
+  }, [role])
 
   const applyRoleToUrl = useCallback((nextRole: Role | null) => {
     setRole(nextRole)
     setShowCabinet(false)
     setCabinetInitialEditing(false)
     if (typeof window === "undefined") return
-    const url = new URL(window.location.href)
-    if (nextRole) {
-      url.searchParams.set("role", nextRole)
-    } else {
-      url.searchParams.delete("role")
+    if (nextRole === "admin") {
+      applyHiddenAdminEntry()
+      return
     }
-    url.hash = ""
-    window.history.pushState({}, "", `${url.pathname}${url.search}${url.hash}`)
+    // Customer / partner / landing: never keep role (or other deep-link noise) in the address bar.
+    sanitizePublicAppUrl({ preserveAdminRole: false })
   }, [])
 
   const beginOnboarding = useCallback((nextRole: Role | null, openRolePicker = false, isLogin = false) => {
@@ -316,11 +321,7 @@ export default function CustomerApp() {
     setShowOnboarding(true)
     setShowLanding(false)
     setOnboardingSessionKey((value) => value + 1)
-    if (typeof window !== "undefined") {
-      const url = new URL(window.location.href)
-      url.searchParams.delete("role")
-      window.history.pushState({}, "", `${url.pathname}${url.search}${url.hash}`)
-    }
+    sanitizePublicAppUrl({ preserveAdminRole: false })
   }, [])
 
   const goToLanding = useCallback(() => {
@@ -379,13 +380,7 @@ export default function CustomerApp() {
     // profile is restored after picking «Партнер» again (logout is the only full wipe).
     clearProviderAuthStorage({ includeAdmin: true })
     setAccount((prev) => (prev ? hydrateClientFromPartner(enrichPartnerAccountStatus(prev)) : prev))
-    if (typeof window !== "undefined") {
-      const url = new URL(window.location.href)
-      url.searchParams.delete("role")
-      url.searchParams.delete("providerToken")
-      url.searchParams.delete("adminToken")
-      window.history.pushState({}, "", `${url.pathname}${url.search}${url.hash}`)
-    }
+    sanitizePublicAppUrl({ preserveAdminRole: false })
     setForceRolePicker(true)
     setRolePickerKey((value) => value + 1)
     setPendingRole(null)

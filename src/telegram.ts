@@ -241,6 +241,41 @@ export function clearEntryScreenParam() {
   window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`)
 }
 
+const PUBLIC_EPHEMERAL_QUERY_KEYS = [
+  "role",
+  "screen",
+  "tgBot",
+  "providerToken",
+  "adminToken",
+  "providerId",
+  "logged_out",
+] as const
+
+/**
+ * Keep the address bar as https://pomich.help/ after deep links are consumed.
+ * Customer/partner role lives in React state + session storage — not in the URL.
+ * Hidden admin entry may keep `?role=admin` when preserveAdminRole is true.
+ */
+export function sanitizePublicAppUrl(options?: { preserveAdminRole?: boolean }) {
+  if (typeof window === "undefined") return
+  const url = new URL(window.location.href)
+  const preserveAdmin =
+    options?.preserveAdminRole !== false && url.searchParams.get("role") === "admin"
+  let changed = false
+  for (const key of PUBLIC_EPHEMERAL_QUERY_KEYS) {
+    if (key === "role" && preserveAdmin) continue
+    if (!url.searchParams.has(key)) continue
+    url.searchParams.delete(key)
+    changed = true
+  }
+  if (url.hash && url.hash !== "#admin") {
+    url.hash = ""
+    changed = true
+  }
+  if (!changed) return
+  window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}` || "/")
+}
+
 const THEME_PARAM_MAP: Record<string, string> = {
   bg_color: "--tg-theme-bg-color",
   text_color: "--tg-theme-text-color",

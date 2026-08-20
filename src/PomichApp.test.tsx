@@ -249,6 +249,9 @@ describe('POMICH role-based flows', () => {
 
     expect(await screen.findByText('Реєстрація клієнта')).toBeInTheDocument()
     expect(screen.queryByText(/Допомога на дорозі — поруч/i)).not.toBeInTheDocument()
+    await waitFor(() => {
+      expect(window.location.search).not.toContain('role=')
+    })
   })
 
   it('opens provider flow directly from role deep link', async () => {
@@ -257,6 +260,9 @@ describe('POMICH role-based flows', () => {
 
     expect(await screen.findByText('Реєстрація партнера')).toBeInTheDocument()
     expect(screen.queryByText(/Допомога на дорозі — поруч/i)).not.toBeInTheDocument()
+    await waitFor(() => {
+      expect(window.location.search).not.toContain('role=')
+    })
   })
 
   it('starts with public landing browse mode', async () => {
