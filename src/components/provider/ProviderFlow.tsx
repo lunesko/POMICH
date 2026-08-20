@@ -663,7 +663,7 @@ export default function ProviderFlow({
         }
 
         const registered = Boolean(resolved?.registeredAt || cached?.registeredAt)
-        const hydratedProfile = resolved || cached || {}
+        const hydratedProfile: Partial<ProviderAvailability> = resolved || cached || {}
         const hydratedComplete = isPartnerProfileComplete(
           {
             name: hydratedProfile.name,
