@@ -93,6 +93,7 @@ import { syncProfileCityFromGeo } from "../../lib/syncProfileCityFromGeo"
 import { OrderErrorStep, OrderFinalStep } from "./OrderTerminalStep"
 import { useTelegramMainButton, useTelegramBackButton, useTelegramUx } from "../../hooks/useTelegramUx"
 import { normalizeOrderStatus, screenForOrderStatus } from "../../lib/orderStatus"
+import { acceptedIdleSecondsLeft, formatCountdown } from "../../lib/dispatchOffer"
 import FormContainer, { FormFooterBar, FormHeader } from "../layout/FormContainer"
 import { PhoneInput } from "../ui/PhoneInput"
 import { FieldError } from "../ui/FieldError"
@@ -1097,6 +1098,12 @@ function AcceptedStep({
   const proposedPrice = order?.partnerProposedPrice
   const partnerName = assignedProvider?.name ?? order?.providerName
   const priceLabel = typeof proposedPrice === "number" ? `${proposedPrice.toLocaleString("uk-UA")} ₴` : "—"
+  const [clock, setClock] = useState(Date.now())
+  useEffect(() => {
+    const interval = window.setInterval(() => setClock(Date.now()), 1000)
+    return () => window.clearInterval(interval)
+  }, [])
+  const idleSecondsLeft = acceptedIdleSecondsLeft(order, clock)
 
   return (
     <RideScreen pickup={pickup} destination={destination} providers={assignedProvider ? [assignedProvider] : undefined} mapSubtitle="Партнер запропонував ціну" expandedSheet>
@@ -1136,7 +1143,10 @@ function AcceptedStep({
           <Timeline status={status} />
         </div>
         <div style={{ background: "var(--pomich-warn-bg)", borderRadius: 18, padding: 14, color: "var(--pomich-warn-text)", fontWeight: 800, lineHeight: 1.45 }}>
-          {partnerName ?? "Партнер"} запропонував {typeof proposedPrice === "number" ? priceLabel : "ціну"}. Підтвердіть або зв'яжіться для обговорення.
+          {partnerName ?? "Партнер"} запропонував {typeof proposedPrice === "number" ? priceLabel : "ціну"}.{" "}
+          {idleSecondsLeft > 0
+            ? `Підтвердіть протягом ${formatCountdown(idleSecondsLeft)}, інакше заявку буде скасовано.`
+            : "Час підтвердження вийшов — заявку буде скасовано автоматично."}
         </div>
         {confirmError ? <div style={{ background: "var(--pomich-error-bg)", color: "var(--pomich-error-text)", borderRadius: 14, padding: 12, fontWeight: 800 }}>{confirmError}</div> : null}
         {cancelError ? <div style={{ background: "var(--pomich-error-bg)", color: "var(--pomich-error-text)", borderRadius: 14, padding: 12, fontWeight: 800 }}>{cancelError}</div> : null}
@@ -1691,7 +1701,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
         if (!active) {
           if (stored?.orderId) {
             try {
-              const snapshot = await getOrder(stored.orderId)
+              const snapshot = await getOrder(stored.orderId, session.token)
               if (cancelled) return
               const snapshotStatus = normalizeOrderStatus(snapshot?.status)
               if (isActiveOrderStatus(snapshotStatus) && snapshot?.id) {
@@ -1717,7 +1727,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
           return
         }
 
-        const full = orders.find((item) => item.id === active.orderId) ?? (await getOrder(active.orderId))
+        const full = orders.find((item) => item.id === active.orderId) ?? (await getOrder(active.orderId, session.token))
         if (cancelled || !full?.id) return
         const nextStatus = normalizeOrderStatus(full.status)
         if (!isActiveOrderStatus(nextStatus)) {
@@ -1790,7 +1800,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
 
     const refreshOrder = () => {
       if (document.visibilityState !== "visible") return
-      getOrder(orderId)
+      getOrder(orderId, customerAuthToken)
         .then(applyPolledOrder)
         .catch(() => undefined)
     }
@@ -2057,7 +2067,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
       if (message.includes("already") || message.includes("вже") || /REVIEW_ALREADY/i.test(String(err))) {
         setCustomerReviewSubmitted(true)
         try {
-          const refreshed = await getOrder(orderId)
+          const refreshed = await getOrder(orderId, customerAuthToken)
           setCurrentOrder(refreshed)
         } catch {
           /* ignore */

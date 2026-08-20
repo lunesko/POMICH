@@ -22,6 +22,8 @@ from bot.api_deps import (
 )
 from bot.routers import admin, auth, customers, events, health, orders, providers, telegram, ws
 from bot.telegram_bot import notify_dispatch_offers, notify_order_accepted, notify_order_cancelled, notify_order_created
+from bot.runtime_store import get_engine, sql_storage_enabled
+from bot.telegram_outbound import ensure_telegram_workers
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DIST_DIR = PROJECT_ROOT / "dist"
@@ -51,6 +53,14 @@ class CachedStaticFiles(StaticFiles):
 
 
 app = FastAPI(title="POMICH MVP", version="0.1.0")
+
+
+@app.on_event("startup")
+def _warm_runtime_on_startup() -> None:
+    ensure_telegram_workers()
+    if sql_storage_enabled():
+        get_engine()
+
 
 app.add_middleware(GZipMiddleware, minimum_size=400)
 app.add_middleware(

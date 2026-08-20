@@ -41,6 +41,22 @@ describe("UkrainePlateInput", () => {
     expect(input).toHaveValue("AB")
   })
 
+  it("accepts Cyrillic for last letter group while typing", async () => {
+    const user = userEvent.setup()
+    render(<ControlledPlateInput />)
+
+    const input = screen.getByRole("textbox", { name: /Номер авто/i })
+    await user.type(input, "AO3422")
+    expect(input).toHaveValue("AO 3422")
+    await user.type(input, "ТЕ")
+    expect(input).toHaveValue("AO 3422 TE")
+  })
+
+  it("shows bilingual letter hint", () => {
+    render(<UkrainePlateInput value="" onChange={vi.fn()} />)
+    expect(screen.getByText(/Літери латиницею або кирилицею/i)).toBeInTheDocument()
+  })
+
   it("shows validation error", () => {
     render(<UkrainePlateInput value="" onChange={vi.fn()} error="Введіть номер авто" />)
 

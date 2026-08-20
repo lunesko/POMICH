@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketException, status
 
-from bot.api_deps import require_customer_auth, require_provider_auth
+from bot.api_deps import require_customer_auth, require_order_participant_auth, require_provider_auth
 from bot.order_store import get_order
 from bot.realtime import channel_for_customer, channel_for_order, channel_for_provider, pump_websocket
 
@@ -19,11 +19,24 @@ def _bearer_from_query(access_token: str | None, authorization: str | None) -> s
 
 
 @router.websocket("/ws/orders/{order_id}")
-async def ws_order_events(websocket: WebSocket, order_id: str) -> None:
+async def ws_order_events(
+    websocket: WebSocket,
+    order_id: str,
+    access_token: str | None = Query(default=None),
+) -> None:
     """WebSocket stream for a single order (mirrors SSE /events/orders/{id})."""
     order = get_order(order_id)
     if order is None:
         raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION, reason="order not found")
+    authorization = websocket.headers.get("authorization")
+    try:
+        require_order_participant_auth(order, authorization, access_token=access_token)
+    except Exception as exc:
+        from fastapi import HTTPException
+
+        if isinstance(exc, HTTPException) and exc.status_code in {401, 403}:
+            raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION, reason="unauthorized") from exc
+        raise
     await websocket.accept()
     await pump_websocket(websocket, channel_for_order(order_id))
 

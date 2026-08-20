@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  appendUkrainePlateChar,
   formatUkrainePlateInput,
   isValidUkrainePlate,
   normalizeUkrainePlate,
@@ -19,6 +20,42 @@ describe("ukrainePlate", () => {
   it("accepts Cyrillic lookalikes and maps them to Latin", () => {
     expect(parseUkrainePlateInput("ВХ5874НХ")).toBe("BX5874HX")
     expect(formatUkrainePlateInput("ВХ5874НХ")).toBe("BX 5874 HX")
+    expect(isValidUkrainePlate("АО 3422 ТЕ")).toBe(true)
+    expect(validateUkrainePlate("АО3422ТЕ")).toEqual({
+      valid: true,
+      plate: "AO 3422 TE",
+    })
+  })
+
+  it("accepts mixed Latin and Cyrillic in one plate", () => {
+    expect(parseUkrainePlateInput("АO3422TЕ")).toBe("AO3422TE")
+    expect(formatUkrainePlateInput("АO 3422 TЕ")).toBe("AO 3422 TE")
+    expect(isValidUkrainePlate("АO 3422 TЕ")).toBe(true)
+  })
+
+  it("accepts lowercase Cyrillic and Latin interchangeably", () => {
+    expect(parseUkrainePlateInput("ао3422те")).toBe("AO3422TE")
+    expect(parseUkrainePlateInput("ao3422te")).toBe("AO3422TE")
+    expect(isValidUkrainePlate("ао 3422 те")).toBe(true)
+  })
+
+  it("appends Cyrillic last letters after Latin prefix and digits", () => {
+    let value = formatUkrainePlateInput("AO3422")
+    expect(value).toBe("AO 3422")
+    value = appendUkrainePlateChar(value, "Т")
+    expect(value).toBe("AO 3422 T")
+    value = appendUkrainePlateChar(value, "Е")
+    expect(value).toBe("AO 3422 TE")
+    expect(isValidUkrainePlate(value)).toBe(true)
+  })
+
+  it("types a full Cyrillic plate character by character", () => {
+    let value = ""
+    for (const char of "АО3422ТЕ") {
+      value = appendUkrainePlateChar(value, char)
+    }
+    expect(value).toBe("AO 3422 TE")
+    expect(isValidUkrainePlate(value)).toBe(true)
   })
 
   it("rejects Cyrillic nonsense that is not a plate letter", () => {

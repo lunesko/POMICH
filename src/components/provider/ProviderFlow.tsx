@@ -84,7 +84,7 @@ import { OrderFinalStep } from "../customer/OrderTerminalStep"
 import { DutyStatusToggle, PresenceToast, presenceErrorMessage } from "../ui/DutyStatusToggle"
 import { OrderRequestSheet } from "./OrderRequestSheet"
 import { IncomingOfferStep } from "./IncomingOfferStep"
-import { filterActiveMapRequestPins, filterActiveOffers, filterVisibleOffers, isOfferActive, isPresentableOffer, mergeRequestPins, offerActionErrorMessage, offerSecondsLeft, parseOfferPrice, pinFromOffer, readPersistedOfferDismissals, writePersistedOfferDismissals } from "../../lib/dispatchOffer"
+import { filterActiveMapRequestPins, filterActiveOffers, filterVisibleOffers, formatCountdown, acceptedIdleSecondsLeft, isOfferActive, isPresentableOffer, mergeRequestPins, offerActionErrorMessage, offerSecondsLeft, parseOfferPrice, pinFromOffer, readPersistedOfferDismissals, writePersistedOfferDismissals } from "../../lib/dispatchOffer"
 import { subscribeOrderEvents, subscribeProviderEvents } from "../../lib/realtime"
 import { getTelegramContext } from "../../telegram"
 import FormContainer, { FormFooterBar, FormHeader } from "../layout/FormContainer"
@@ -327,9 +327,17 @@ export default function ProviderFlow({
   const [accountPassword, setAccountPassword] = useState("")
   const [authSaving, setAuthSaving] = useState(false)
   const [loginView, setLoginView] = useState<"login" | "register">(() => (effectiveProviderRegistered ? "login" : "register"))
+  const persistedActiveOrder = typeof window !== "undefined" ? readActiveOrder() : undefined
   const [step, setStep] = useState<"register" | "verify" | "duty" | "offer" | "awaiting_price" | "navigation" | "arrived" | "completed">(() => {
     if (typeof window === "undefined") return "register"
     if (initialScreen === "verify") return "verify"
+    if (persistedActiveOrder?.orderId) {
+      const status = normalizeOrderStatus(persistedActiveOrder.status)
+      if (status === "accepted") return "awaiting_price"
+      if (status === "arrived" || status === "in_progress") return "arrived"
+      if (status === "completed") return "completed"
+      if (status !== "searching" && status !== "cancelled") return "navigation"
+    }
     if (effectiveProviderRegistered || window.localStorage.getItem(`pomichPartnerRegistered:${getActiveProviderId()}`) || Boolean(linkedPartnerId)) return "duty"
     return "register"
   })
@@ -346,7 +354,13 @@ export default function ProviderFlow({
   const [mapRequestPins, setMapRequestPins] = useState<MapRequestPin[]>([])
   const [selectedRequestPin, setSelectedRequestPin] = useState<MapRequestPin | undefined>()
   const [sheetProposedPrice, setSheetProposedPrice] = useState("")
-  const [activeOrder, setActiveOrder] = useState<OrderResponse | undefined>()
+  const [activeOrder, setActiveOrder] = useState<OrderResponse | undefined>(() => {
+    if (!persistedActiveOrder?.orderId) return undefined
+    return {
+      id: persistedActiveOrder.orderId,
+      status: normalizeOrderStatus(persistedActiveOrder.status),
+    } as OrderResponse
+  })
   const [offerError, setOfferError] = useState<string | undefined>()
   const [offerSaving, setOfferSaving] = useState(false)
   const [proposedPrice, setProposedPrice] = useState("")
@@ -426,15 +440,19 @@ export default function ProviderFlow({
       : undefined)
   const [customerOtpProfile, setCustomerOtpProfile] = useState<CustomerProfile | undefined>()
   const isPartnerRegisteredAndCompleted = Boolean(
-    providerProfile.registeredAt ||
-    (effectiveProviderRegistered && (providerProfile.vehicle || registrationForm.vehicle || registrationForm.vehicleMake))
+    (providerProfile.registeredAt || effectiveProviderRegistered) &&
+      String(providerProfile.name || registrationForm.name || "").trim() &&
+      String(providerProfile.phone || registrationForm.phone || "").trim() &&
+      isValidUkrainePlate(String(providerProfile.plate || registrationForm.plate || "")) &&
+      toServiceKeys(providerProfile.specialties?.length ? providerProfile.specialties : registrationForm.specialties).length > 0 &&
+      Boolean(
+        String(providerProfile.vehicle || "").trim() ||
+          partnerVehicleSelectionIsComplete(registrationForm.vehicleMake, registrationForm.vehicleMakeOther, registrationForm.vehicleModel),
+      ),
   )
   const providerCanGoOnline =
     isPartnerRegisteredAndCompleted &&
-    (isProviderPhoneVerified(providerProfile) ||
-     Boolean(customerOtpProfile && isCustomerVerified(customerOtpProfile)) ||
-     Boolean(customerIdForOtp && customerTokenForOtp) ||
-     Boolean(readBootstrapProfile()?.phone))
+    (isProviderPhoneVerified(providerProfile) || Boolean(customerOtpProfile && isCustomerVerified(customerOtpProfile)))
   const dutyAutoAttemptedRef = useRef(false)
 
   const markProviderPhoneVerified = useCallback((currentProvider?: ProviderAvailability) => {
@@ -853,7 +871,7 @@ export default function ProviderFlow({
     const refreshNearby = () => {
       if (document.visibilityState !== "visible") return
       const loc = providerLocationRef.current
-      getNearbyMapOrders(loc.lat, loc.lng, radiusKm)
+      getNearbyMapOrders(loc.lat, loc.lng, radiusKm, undefined, providerAuthToken)
         .then((orders) => {
           if (cancelled) return
           const visible = filterActiveMapRequestPins(Array.isArray(orders) ? orders : []).filter((pin) => {
@@ -1005,38 +1023,57 @@ export default function ProviderFlow({
       setOfferError("Вкажіть вартість послуги в гривнях.")
       return
     }
+    const noteForAccept = priceNote.trim() || undefined
 
     setOfferSaving(true)
     setOfferError(undefined)
+    // Optimistic UI: leave the offer/map empty screen before the API returns.
+    const optimisticOrder = {
+      id: offer.orderId,
+      status: "accepted",
+      service: offer.service,
+      partnerProposedPrice: parsedPrice,
+      partnerPriceNote: noteForAccept,
+      customerCoordinates: offer.customerCoordinates,
+      customerComment: offer.customerComment,
+    } as OrderResponse
+    persistActiveOrder(offer.orderId, "accepted")
+    rememberDismissedOffer(offer.id, offer.orderId)
+    setActiveOrder(optimisticOrder)
+    setIncomingOffers([])
+    setSelectedRequestPin(undefined)
+    setSheetProposedPrice("")
+    setOnDuty(true)
+    setProposedPrice("")
+    setPriceNote("")
+    setStep("awaiting_price")
     try {
       const session = await ensureProviderSession()
       const result = await acceptProviderOffer(session.providerId, offer.id, session.token, {
         proposedPrice: parsedPrice,
-        priceNote: priceNote.trim() || undefined,
+        priceNote: noteForAccept,
       })
       if (result.order?.id) {
         persistActiveOrder(result.order.id, normalizeOrderStatus(result.order.status))
-        rememberDismissedOffer(offer.id, offer.orderId)
+        setActiveOrder(result.order)
+        setProviderProfile((profile) => ({ ...profile, status: "busy", assignedOrderId: result.order.id } as ProviderAvailability))
+        const nextStatus = normalizeOrderStatus(result.order.status)
+        if (nextStatus === "accepted") setStep("awaiting_price")
+        else if (nextStatus === "arrived" || nextStatus === "in_progress") setStep("arrived")
+        else setStep("navigation")
       }
-      setActiveOrder(result.order)
-      setProviderProfile((profile) => ({ ...profile, status: "busy", assignedOrderId: result.order.id } as ProviderAvailability))
-      setIncomingOffers([])
-      setSelectedRequestPin(undefined)
-      setSheetProposedPrice("")
-      setOnDuty(true)
-      setProposedPrice("")
-      setPriceNote("")
-      setStep("awaiting_price")
     } catch (error) {
       const message = offerActionErrorMessage(error, "Не вдалося прийняти заявку. Спробуйте ще раз.")
       setOfferError(message)
       const code = (error as { detail?: { code?: string } }).detail?.code
+      clearActiveOrder()
+      setActiveOrder(undefined)
       if (code === "OFFER_EXPIRED" || code === "ORDER_ALREADY_ACCEPTED" || code === "OFFER_NOT_FOUND") {
         rememberDismissedOffer(offer.id, offer.orderId)
         setIncomingOffers((offers) => offers.filter((item) => item.id !== offer.id))
         setSelectedRequestPin(undefined)
-        setStep("duty")
       }
+      setStep("duty")
     } finally {
       setOfferSaving(false)
     }
@@ -1216,17 +1253,41 @@ export default function ProviderFlow({
   }
 
   useEffect(() => {
-    if (!providerAuthToken || activeOrder) return
+    if (!providerAuthToken) return
     let cancelled = false
     const restoreAssignedOrder = async () => {
       try {
         const session = await ensureProviderSession()
         if (cancelled) return
+        const stored = readActiveOrder()
+        if (stored?.orderId && (!activeOrder?.id || activeOrder.id === stored.orderId)) {
+          try {
+            const snapshot = await getOrder(stored.orderId, session.token)
+            if (!cancelled && snapshot?.id) {
+              const nextStatus = normalizeOrderStatus(snapshot.status)
+              setActiveOrder(snapshot)
+              persistActiveOrder(snapshot.id, nextStatus)
+              setProviderProfile((profile) => ({
+                ...profile,
+                status: "busy",
+                assignedOrderId: snapshot.id,
+              } as ProviderAvailability))
+              if (nextStatus === "accepted") setStep("awaiting_price")
+              else if (nextStatus === "arrived" || nextStatus === "in_progress") setStep("arrived")
+              else if (nextStatus === "completed") setStep("completed")
+              else if (nextStatus !== "cancelled" && nextStatus !== "searching") setStep("navigation")
+              return
+            }
+          } catch {
+            // Fall through to provider order history.
+          }
+        }
+        if (activeOrder?.id && activeOrder.service) return
         const orders = await getProviderOrders(session.providerId, session.token, 20)
         if (cancelled) return
         const active = pickLatestActiveOrder(orders)
         if (!active?.orderId) return
-        const full = orders.find((item) => item.id === active.orderId) ?? (await getOrder(active.orderId))
+        const full = orders.find((item) => item.id === active.orderId) ?? (await getOrder(active.orderId, session.token))
         if (cancelled || !full?.id) return
         const nextStatus = normalizeOrderStatus(full.status)
         setActiveOrder(full)
@@ -1325,19 +1386,22 @@ export default function ProviderFlow({
       if (fresh?.id) {
         applyLoadedProvider(fresh)
       }
-      const registered = Boolean(fresh?.registeredAt || providerProfile.registeredAt || effectiveProviderRegistered)
+      const freshProfile = fresh?.id ? fresh : providerProfile
+      const registeredComplete = Boolean(
+        (freshProfile.registeredAt || effectiveProviderRegistered) &&
+          isValidUkrainePlate(String(freshProfile.plate || registrationForm.plate || "")) &&
+          toServiceKeys(freshProfile.specialties?.length ? freshProfile.specialties : registrationForm.specialties).length > 0,
+      )
       const verified =
-        isProviderPhoneVerified(fresh?.id ? fresh : providerProfile) ||
-        Boolean(customerOtpProfile && isCustomerVerified(customerOtpProfile)) ||
-        Boolean(customerIdForOtp && customerTokenForOtp) ||
-        Boolean(readBootstrapProfile()?.phone)
+        isProviderPhoneVerified(freshProfile) ||
+        Boolean(customerOtpProfile && isCustomerVerified(customerOtpProfile))
 
       if (verified && providerProfile.verificationStatus !== "verified") {
         markProviderPhoneVerified(fresh)
       }
 
-      if (nextDuty && !isPartnerRegisteredAndCompleted) {
-        const message = "Спочатку заповніть профіль партнера."
+      if (nextDuty && !(registeredComplete && isPartnerRegisteredAndCompleted)) {
+        const message = "Спочатку заповніть профіль партнера (авто, номер і послуги)."
         setOfferError(message)
         setPresenceToast(message)
         setStep("register")
@@ -1390,15 +1454,15 @@ export default function ProviderFlow({
   }
 
   const openPhoneOrProfileGate = () => {
-    if (providerProfile.registeredAt || effectiveProviderRegistered) {
-      if (providerCanGoOnline) {
-        void setDuty(true)
-        return
-      }
-      setStep("verify")
+    if (!isPartnerRegisteredAndCompleted) {
+      setStep("register")
       return
     }
-    setStep("register")
+    if (providerCanGoOnline) {
+      void setDuty(true)
+      return
+    }
+    setStep("verify")
   }
 
   // Telegram «Вийти на лінію» opens screen=duty — actually go online once session+profile are ready.
@@ -1443,7 +1507,7 @@ export default function ProviderFlow({
     let cancelled = false
 
     const refreshActiveOrder = () => {
-      getOrder(activeOrder.id!)
+      getOrder(activeOrder.id!, providerAuthToken)
         .then((order) => {
           if (cancelled) return
           const normalizedStatus = normalizeOrderStatus(order.status)
@@ -1523,7 +1587,7 @@ export default function ProviderFlow({
       if (message.includes("already") || message.includes("вже") || /REVIEW_ALREADY/i.test(String(err))) {
         setPartnerReviewSubmitted(true)
         try {
-          const refreshed = await getOrder(activeOrder.id)
+          const refreshed = await getOrder(activeOrder.id, providerAuthToken)
           setActiveOrder(refreshed)
         } catch {
           /* ignore */
@@ -1698,7 +1762,13 @@ export default function ProviderFlow({
                         ? "Оновлюємо статус…"
                         : "Вийти на лінію"
                 }
-                onClick={() => void setDuty(true)}
+                onClick={() => {
+                  if (!isPartnerRegisteredAndCompleted || !providerCanGoOnline) {
+                    openPhoneOrProfileGate()
+                    return
+                  }
+                  void setDuty(true)
+                }}
                 disabled={presenceSaving}
               />
             </div>
@@ -1753,7 +1823,7 @@ export default function ProviderFlow({
                       })
                       .catch(() => undefined)
                     const radiusKm = providerProfile.serviceRadiusKm ?? registrationForm.serviceRadiusKm ?? DEFAULT_SERVICE_RADIUS_KM
-                    getNearbyMapOrders(providerLocation.lat, providerLocation.lng, radiusKm)
+                    getNearbyMapOrders(providerLocation.lat, providerLocation.lng, radiusKm, undefined, providerAuthToken)
                       .then((orders) => setNearbyRequestPins(Array.isArray(orders) ? orders : []))
                       .catch(() => undefined)
                   }}
@@ -1828,14 +1898,20 @@ export default function ProviderFlow({
 
   if (step === "awaiting_price") {
     const proposed = activeOrder?.partnerProposedPrice
+    const idleSecondsLeft = acceptedIdleSecondsLeft(activeOrder, offerClock)
     return (
-      <ScreenLayout footer={<SecondaryButton label="Повернутись до карти" onClick={returnToDuty} />}>
+      <ScreenLayout>
         <Header title="Очікуємо клієнта" subtitle={activeOrder?.id ? `Замовлення #${activeOrder.id}` : undefined} status="accepted" />
         <div style={{ padding: "8px 16px 16px", display: "grid", gap: 12 }}>
           <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 18, padding: 16 }}>
             <div style={{ fontWeight: 950, fontSize: 20, color: DARK }}>Ціну надіслано клієнту</div>
             <div style={{ color: MUTED, fontWeight: 750, marginTop: 8, lineHeight: 1.45 }}>
               Ви запропонували {typeof proposed === "number" ? `${proposed.toLocaleString("uk-UA")} ₴` : "ціну"}. Клієнт підтвердить або зв'яжеться для обговорення.
+            </div>
+            <div style={{ marginTop: 14, background: "var(--pomich-warn-bg)", color: "var(--pomich-warn-text)", borderRadius: 14, padding: 12, fontWeight: 800, lineHeight: 1.45 }}>
+              {idleSecondsLeft > 0
+                ? `Якщо клієнт не підтвердить ціну за ${formatCountdown(idleSecondsLeft)}, заявку буде скасовано.`
+                : "Час очікування вийшов — заявку буде скасовано автоматично."}
             </div>
             <div style={{ marginTop: 14 }}>
               <Timeline status="accepted" />
@@ -1966,7 +2042,7 @@ export default function ProviderFlow({
           <div style={{ marginTop: 10 }}>
             <PrimaryButton
               label={
-                !(providerProfile.registeredAt || effectiveProviderRegistered)
+                !isPartnerRegisteredAndCompleted
                   ? "Завершити профіль"
                   : !providerCanGoOnline
                     ? "Підтвердити телефон"
@@ -1997,7 +2073,7 @@ export default function ProviderFlow({
           <div style={{ marginTop: 14 }}>
             <PrimaryButton
               label={
-                !(providerProfile.registeredAt || effectiveProviderRegistered)
+                !isPartnerRegisteredAndCompleted
                   ? "Завершити профіль"
                   : !providerCanGoOnline
                     ? "Підтвердити телефон"

@@ -9,4 +9,15 @@ router = APIRouter(tags=["health"])
 
 @router.get("/health")
 def health() -> dict:
-    return {"status": "ok", "protocol": "fastapi", "runtime": "production" if is_production_runtime() else "dev"}
+    payload = {
+        "status": "ok",
+        "protocol": "fastapi",
+        "runtime": "production" if is_production_runtime() else "dev",
+    }
+    try:
+        from bot.telegram_outbound import queue_stats
+
+        payload["telegramQueue"] = queue_stats()
+    except Exception:
+        pass
+    return payload

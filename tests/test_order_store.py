@@ -8,6 +8,7 @@ from bot.order_store import (
     DispatchConflict,
     InvalidStatusTransition,
     MAX_PROVIDER_OFFERS,
+    ACCEPTED_IDLE_TIMEOUT_SECONDS,
     OFFER_TIMEOUT_SECONDS,
     accept_offer,
     apply_provider_presence_ttl,
@@ -15,6 +16,7 @@ from bot.order_store import (
     decline_offer,
     dispatch_order,
     enrich_order_for_client,
+    expire_stale_dispatch,
     get_order,
     get_provider_offers,
     get_provider_public_card,
@@ -503,6 +505,86 @@ def test_accept_offer_exposes_partner_price_and_identity_for_customer(tmp_path):
 
 def test_offer_timeout_default_allows_partner_to_enter_price():
     assert OFFER_TIMEOUT_SECONDS >= 60
+
+
+def test_accepted_idle_timeout_defaults_to_fifteen_minutes():
+    assert ACCEPTED_IDLE_TIMEOUT_SECONDS == 900
+
+
+def test_idle_accepted_order_is_cancelled_after_timeout(tmp_path):
+    order_path = tmp_path / "orders.json"
+    provider_path = tmp_path / "providers.json"
+    offer_path = tmp_path / "offers.json"
+
+    save_providers([_provider("p1", 48.6218, 22.2879)], provider_path)
+    order = save_order({"service": "tow", "customerCoordinates": {"lat": 48.6208, "lng": 22.2879}}, store_path=order_path)
+    dispatch_order(order["id"], order_path, provider_path, offer_path)
+    offer = load_offers(offer_path)[0]
+    accept_offer(offer["id"], "p1", order_path, provider_path, offer_path, proposed_price=1200)
+
+    orders = load_orders(order_path)
+    stale_at = (datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=ACCEPTED_IDLE_TIMEOUT_SECONDS + 5)).isoformat(timespec="seconds") + "Z"
+    orders[0]["acceptedAt"] = stale_at
+    orders[0]["updatedAt"] = stale_at
+    from bot.order_store import _write_json_atomic
+
+    _write_json_atomic(order_path, orders)
+
+    cancelled = expire_stale_dispatch(order_path, offer_path, provider_path)
+    persisted = get_order(order["id"], order_path, provider_path)
+    provider = next(item for item in load_providers(provider_path) if item["id"] == "p1")
+
+    assert len(cancelled) == 1
+    assert cancelled[0]["id"] == order["id"]
+    assert persisted["status"] == "cancelled"
+    assert persisted["cancelReason"] == "accepted_idle_timeout"
+    assert any(event.get("type") == "ORDER_ACCEPTED_TIMEOUT" for event in persisted.get("dispatchEvents") or [])
+    assert provider["status"] == "online"
+    assert not provider.get("assignedOrderId")
+
+
+def test_recent_accepted_order_is_not_cancelled_by_idle_timeout(tmp_path):
+    order_path = tmp_path / "orders.json"
+    provider_path = tmp_path / "providers.json"
+    offer_path = tmp_path / "offers.json"
+
+    save_providers([_provider("p1", 48.6218, 22.2879)], provider_path)
+    order = save_order({"service": "tow", "customerCoordinates": {"lat": 48.6208, "lng": 22.2879}}, store_path=order_path)
+    dispatch_order(order["id"], order_path, provider_path, offer_path)
+    offer = load_offers(offer_path)[0]
+    accept_offer(offer["id"], "p1", order_path, provider_path, offer_path, proposed_price=1200)
+
+    cancelled = expire_stale_dispatch(order_path, offer_path, provider_path)
+    persisted = get_order(order["id"], order_path, provider_path)
+
+    assert cancelled == []
+    assert persisted["status"] == "accepted"
+    assert persisted["acceptedIdleTimeoutSeconds"] == ACCEPTED_IDLE_TIMEOUT_SECONDS
+    assert persisted.get("acceptedIdleExpiresAt")
+
+
+def test_confirm_price_rejected_after_accepted_idle_timeout(tmp_path):
+    order_path = tmp_path / "orders.json"
+    provider_path = tmp_path / "providers.json"
+    offer_path = tmp_path / "offers.json"
+
+    save_providers([_provider("p1", 48.6218, 22.2879)], provider_path)
+    order = save_order({"service": "tow", "customerCoordinates": {"lat": 48.6208, "lng": 22.2879}}, store_path=order_path)
+    dispatch_order(order["id"], order_path, provider_path, offer_path)
+    offer = load_offers(offer_path)[0]
+    accept_offer(offer["id"], "p1", order_path, provider_path, offer_path, proposed_price=1200)
+
+    orders = load_orders(order_path)
+    stale_at = (datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=ACCEPTED_IDLE_TIMEOUT_SECONDS + 5)).isoformat(timespec="seconds") + "Z"
+    orders[0]["acceptedAt"] = stale_at
+    from bot.order_store import _write_json_atomic
+
+    _write_json_atomic(order_path, orders)
+
+    with pytest.raises(DispatchConflict) as exc_info:
+        confirm_order_price(order["id"], order_path, offer_path)
+    assert exc_info.value.code == "ORDER_ACCEPTED_TIMEOUT"
+    assert get_order(order["id"], order_path, provider_path)["status"] == "cancelled"
 
 
 def test_provider_can_decline_offer_and_cannot_accept_it_later(tmp_path):
@@ -1512,3 +1594,43 @@ def test_merge_directory_providers_preserves_other_cities(tmp_path):
     assert "uzh-a" in providers
     assert "lviv-a" in providers
     assert providers["dispatch-1"]["providerKind"] == "dispatch"
+
+
+def test_switching_preferred_role_to_customer_reuses_partner_profile(tmp_path, monkeypatch):
+    customer_path = tmp_path / "customers.json"
+    provider_path = tmp_path / "providers.json"
+    monkeypatch.setenv("POMICH_CUSTOMER_STORE_PATH", str(customer_path))
+    monkeypatch.setenv("POMICH_PROVIDER_STORE_PATH", str(provider_path))
+
+    from bot.order_store import (
+        get_customer_profile,
+        set_user_preferred_role,
+        update_customer_profile,
+        update_provider_profile,
+    )
+
+    customer_id = "tg-role-switch"
+    provider_id = f"provider-{customer_id}"
+    update_customer_profile(customer_id, {"preferredRole": "provider", "linkedProviderId": provider_id})
+    update_provider_profile(
+        provider_id,
+        {
+            "name": "Іван Партнер",
+            "phone": "+380671998877",
+            "vehicle": "Ford Transit",
+            "plate": "AO 1111 AA",
+            "specialties": ["tow"],
+            "city": "Ужгород",
+        },
+        store_path=provider_path,
+    )
+
+    status = set_user_preferred_role(customer_id, "customer")
+    profile = get_customer_profile(customer_id)
+
+    assert status["clientRegistered"] is True
+    assert status["providerRegistered"] is True
+    assert "customer" in status["rolesRegistered"]
+    assert "provider" in status["rolesRegistered"]
+    assert profile["name"] == "Іван Партнер"
+    assert "+380671998877" in str(profile.get("phone") or "")

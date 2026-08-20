@@ -3836,7 +3836,9 @@ html:not([data-pomich-theme]) select.pomich-form-input {
   font-weight: 900;
   letter-spacing: 0.08em;
   padding: 0 14px;
-  text-transform: uppercase;
+  /* Uppercase is applied in JS (Latin+Cyrillic). CSS text-transform breaks
+     Cyrillic entry for the last letter group in Telegram/mobile WebViews. */
+  text-transform: none;
 }
 .pomich-plate-input .pomich-plate__field::placeholder {
   color: #9CA3AF;

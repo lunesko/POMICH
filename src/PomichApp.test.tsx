@@ -1543,7 +1543,7 @@ describe('POMICH role-based flows', () => {
     await user.selectOptions(screen.getByRole('combobox', { name: /Марка авто/i }), 'Volkswagen')
     await user.selectOptions(screen.getByRole('combobox', { name: /^Модель$/i }), 'Crafter')
 
-    const plateInput = screen.getByPlaceholderText(/AA 1234 BB|АА 1234 ВВ|BX/i)
+    const plateInput = screen.getByPlaceholderText(/AA 0000 AA/i)
     await user.clear(plateInput)
     await user.type(plateInput, 'BX5874HX')
 
@@ -1878,6 +1878,18 @@ describe('POMICH role-based flows', () => {
   it('lets a provider go on duty before seeing offers', async () => {
     const user = userEvent.setup()
     const providerSessionToken = 'pomich_auth_v1.provider-session'
+    const completedProvider = {
+      id: 'provider-oleksandr',
+      name: 'Олександр',
+      phone: '+380671112233',
+      city: 'Ужгород',
+      vehicle: 'Volkswagen Crafter',
+      plate: 'BX5874HX',
+      registeredAt: '2026-08-09T00:00:00',
+      verificationStatus: 'verified',
+      specialties: ['tow', 'fuel'],
+      serviceRadiusKm: 9,
+    }
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input)
       if (url.includes('/auth/provider/session')) {
@@ -1896,31 +1908,13 @@ describe('POMICH role-based flows', () => {
       if (url.endsWith('/providers')) {
         return Promise.resolve({
           ok: true,
-          json: async () => [
-            {
-              id: 'provider-oleksandr',
-              name: 'Олександр',
-              status: 'offline',
-              registeredAt: '2026-08-09T00:00:00',
-              verificationStatus: 'verified',
-              specialties: ['tow', 'fuel'],
-              serviceRadiusKm: 9,
-            },
-          ],
+          json: async () => [{ ...completedProvider, status: 'offline' }],
         })
       }
       if (url.includes('/providers/provider-oleksandr/profile')) {
         return Promise.resolve({
           ok: true,
-          json: async () => ({
-            id: 'provider-oleksandr',
-            name: 'Олександр',
-            status: 'offline',
-            registeredAt: '2026-08-09T00:00:00',
-            verificationStatus: 'verified',
-            specialties: ['tow', 'fuel'],
-            serviceRadiusKm: 9,
-          }),
+          json: async () => ({ ...completedProvider, status: 'offline' }),
         })
       }
       if (url.includes('/map/providers')) {
@@ -1928,15 +1922,7 @@ describe('POMICH role-based flows', () => {
       }
       return Promise.resolve({
         ok: true,
-        json: async () => ({
-          id: 'provider-oleksandr',
-          name: 'Олександр',
-          status: 'online',
-          registeredAt: '2026-08-09T00:00:00',
-          verificationStatus: 'verified',
-          specialties: ['tow', 'fuel'],
-          serviceRadiusKm: 9,
-        }),
+        json: async () => ({ ...completedProvider, status: 'online' }),
       })
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -2183,6 +2169,7 @@ describe('POMICH role-based flows', () => {
       phone: '+380671112233',
       city: 'Ужгород',
       vehicle: 'Volkswagen Crafter',
+      plate: 'BX5874HX',
       registeredAt: '2026-08-09T00:00:00',
       verificationStatus: 'verified',
       specialties: ['tow', 'fuel'],
@@ -2259,6 +2246,18 @@ describe('POMICH role-based flows', () => {
   it('shows ukrainian toast when go-online fails', async () => {
     const user = userEvent.setup()
     const providerSessionToken = 'pomich_auth_v1.provider-session'
+    const completedProvider = {
+      id: 'provider-oleksandr',
+      name: 'Олександр',
+      phone: '+380671112233',
+      city: 'Ужгород',
+      vehicle: 'Volkswagen Crafter',
+      plate: 'BX5874HX',
+      status: 'offline',
+      registeredAt: '2026-08-09T00:00:00',
+      verificationStatus: 'verified',
+      specialties: ['tow'],
+    }
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
       const url = String(input)
       if (url.includes('/auth/provider/session')) {
@@ -2277,14 +2276,7 @@ describe('POMICH role-based flows', () => {
       if (url.endsWith('/providers')) {
         return Promise.resolve({
           ok: true,
-          json: async () => [{
-            id: 'provider-oleksandr',
-            name: 'Олександр',
-            status: 'offline',
-            registeredAt: '2026-08-09T00:00:00',
-            verificationStatus: 'verified',
-            specialties: ['tow'],
-          }],
+          json: async () => [completedProvider],
         })
       }
       if (url.includes('/map/providers')) {
@@ -2293,14 +2285,7 @@ describe('POMICH role-based flows', () => {
       if (url.includes('/providers/provider-oleksandr/profile')) {
         return Promise.resolve({
           ok: true,
-          json: async () => ({
-            id: 'provider-oleksandr',
-            name: 'Олександр',
-            status: 'offline',
-            registeredAt: '2026-08-09T00:00:00',
-            verificationStatus: 'verified',
-            specialties: ['tow'],
-          }),
+          json: async () => completedProvider,
         })
       }
       if (url.includes('/presence')) {
@@ -2324,6 +2309,18 @@ describe('POMICH role-based flows', () => {
   it('shows clear toast when go-online hits provider identity mismatch', async () => {
     const user = userEvent.setup()
     const providerSessionToken = 'pomich_auth_v1.provider-session'
+    const completedProvider = {
+      id: 'provider-tg-829741830',
+      name: 'Віталій',
+      phone: '+380671112233',
+      city: 'Ужгород',
+      vehicle: 'Ford Transit',
+      plate: 'AO1234CH',
+      status: 'offline',
+      registeredAt: '2026-08-09T00:00:00',
+      verificationStatus: 'verified',
+      specialties: ['tow'],
+    }
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
       const url = String(input)
       if (url.includes('/auth/provider/session')) {
@@ -2342,18 +2339,17 @@ describe('POMICH role-based flows', () => {
       if (url.endsWith('/providers')) {
         return Promise.resolve({
           ok: true,
-          json: async () => [{
-            id: 'provider-tg-829741830',
-            name: 'Віталій',
-            status: 'offline',
-            registeredAt: '2026-08-09T00:00:00',
-            verificationStatus: 'verified',
-            specialties: ['tow'],
-          }],
+          json: async () => [completedProvider],
         })
       }
       if (url.includes('/map/providers')) {
         return Promise.resolve({ ok: true, json: async () => [] })
+      }
+      if (url.includes('/providers/provider-tg-829741830/profile')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => completedProvider,
+        })
       }
       if (url.includes('/presence')) {
         return Promise.resolve({
@@ -2362,7 +2358,7 @@ describe('POMICH role-based flows', () => {
           json: async () => ({ detail: 'provider_identity_mismatch' }),
         })
       }
-      return Promise.resolve({ ok: true, json: async () => ({}) })
+      return Promise.resolve({ ok: true, json: async () => completedProvider })
     }))
     window.history.pushState({}, '', '/?providerToken=partner-secret&providerId=provider-tg-829741830')
 

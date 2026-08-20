@@ -12,6 +12,7 @@ from bot.api_deps import (
     require_customer_auth_from_bearer,
     require_order_customer_owner,
     require_order_owner_or_admin,
+    require_order_participant_auth,
     require_provider_auth,
     verify_init_data_or_raise,
 )
@@ -23,7 +24,7 @@ from bot.order_store import (
     attach_dispatch_to_orders,
     confirm_order_price,
     dispatch_order,
-    expire_offers,
+    expire_stale_and_notify,
     get_order,
     load_offers,
     load_orders,
@@ -45,6 +46,7 @@ def list_orders(
     authorization: str | None = Header(default=None),
 ) -> list[dict]:
     require_admin_auth(x_pomich_admin_token, authorization)
+    expire_stale_and_notify()
     return attach_dispatch_to_orders(load_orders(), load_offers())
 
 
@@ -69,7 +71,9 @@ def create_order(payload: dict, authorization: str | None = Header(default=None)
         apply_verified_telegram_identity(payload, verified_telegram)
         if customer_principal is not None and payload.get("customerId") != customer_principal.subject_id:
             raise HTTPException(status_code=403, detail="customer_identity_mismatch")
-    elif customer_principal is not None:
+    elif customer_principal is None:
+        raise HTTPException(status_code=401, detail="customer_session_required")
+    else:
         payload["customerIdentity"] = {"type": "guest", "customerId": customer_principal.subject_id}
 
     pickup = payload.get("customerCoordinates")
@@ -110,11 +114,19 @@ def create_order(payload: dict, authorization: str | None = Header(default=None)
 
 
 @router.get("/orders/{order_id}")
-def read_order(order_id: str) -> dict:
-    expire_offers()
+def read_order(
+    order_id: str,
+    authorization: str | None = Header(default=None),
+    x_pomich_admin_token: str | None = Header(default=None),
+) -> dict:
+    # Auth before existence check so anonymous clients cannot probe order ids.
+    if not extract_bearer_token(authorization):
+        raise HTTPException(status_code=401, detail="auth_session_required")
+    expire_stale_and_notify()
     order = get_order(order_id)
     if order is None:
         raise HTTPException(status_code=404, detail="order not found")
+    require_order_participant_auth(order, authorization, x_pomich_admin_token=x_pomich_admin_token)
     return attach_dispatch_to_order(order, load_offers())
 
 
