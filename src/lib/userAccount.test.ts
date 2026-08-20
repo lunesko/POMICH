@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { CustomerProfile } from '../api/client'
-import { enrichPartnerAccountStatus, isReturningClient, isReturningPartner, isStoredProfileNameMismatch, mergeAccountProfile, mergePreservedAccountStatus, type UserAccountStatus } from './userAccount'
+import { enrichPartnerAccountStatus, hydrateClientFromPartner, isReturningClient, isReturningPartner, isStoredProfileNameMismatch, mergeAccountProfile, mergePreservedAccountStatus, type UserAccountStatus } from './userAccount'
 
 const baseStatus: UserAccountStatus = {
   customerId: 'guest-test',
@@ -82,5 +82,27 @@ describe('userAccount helpers', () => {
     expect(merged.linkedProviderId).toBe('provider-guest-test')
     expect(isReturningPartner(merged)).toBe(true)
     expect(enrichPartnerAccountStatus(merged).needsOnboarding).toBe(false)
+  })
+
+  it('hydrates client profile from partner so role switch skips re-registration', () => {
+    const partnerOnly: UserAccountStatus = {
+      ...baseStatus,
+      preferredRole: 'provider',
+      linkedProviderId: 'provider-guest-test',
+      providerRegistered: true,
+      rolesRegistered: ['provider'],
+      needsOnboarding: false,
+      profile: {
+        id: 'guest-test',
+        name: 'Партнер Іван',
+        phone: '+380671112233',
+        verificationStatus: 'verified',
+      },
+    }
+    const hydrated = hydrateClientFromPartner(partnerOnly)
+    expect(isReturningClient(hydrated)).toBe(true)
+    expect(hydrated.clientRegistered).toBe(true)
+    expect(hydrated.rolesRegistered).toContain('customer')
+    expect(hydrated.profile?.name).toBe('Партнер Іван')
   })
 })

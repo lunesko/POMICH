@@ -1998,6 +1998,51 @@ def build_user_account_status(customer_id: str, store_path: Optional[Path] = Non
     }
 
 
+def ensure_customer_client_from_linked_provider(
+    customer_id: str,
+    store_path: Optional[Path] = None,
+) -> Dict[str, Any]:
+    """Hydrate customer name/phone from linked partner so role switch does not re-ask registration."""
+    profile = get_customer_profile(customer_id, store_path)
+    if is_customer_client_registered(profile):
+        roles = [str(item).strip() for item in (profile.get("rolesRegistered") or []) if str(item).strip()]
+        if "customer" not in roles:
+            preferred = str(profile.get("preferredRole") or "").strip()
+            patch: Dict[str, Any] = {"rolesRegistered": [*roles, "customer"]}
+            if preferred in {"customer", "provider"}:
+                patch["preferredRole"] = preferred
+            update_customer_profile(customer_id, patch, store_path)
+        _maybe_persist_phone_linked_verification(get_customer_profile(customer_id, store_path), store_path)
+        return build_user_account_status(customer_id, store_path)
+
+    provider_id = resolve_linked_provider_id(customer_id, profile)
+    provider = get_provider_profile(provider_id) if provider_id else None
+    if provider is None:
+        return build_user_account_status(customer_id, store_path)
+
+    name = str(provider.get("name") or "").strip()
+    phone = str(provider.get("phone") or "").strip()
+    if not name or not phone:
+        return build_user_account_status(customer_id, store_path)
+
+    patch: Dict[str, Any] = {
+        "name": name,
+        "phone": phone,
+        "linkedProviderId": str(provider_id),
+    }
+    city = str(provider.get("city") or "").strip()
+    if city:
+        patch["city"] = city
+    try:
+        update_customer_profile(customer_id, patch, store_path)
+        mark_user_role_registered(customer_id, "customer", store_path)
+        _maybe_persist_phone_linked_verification(get_customer_profile(customer_id, store_path), store_path)
+    except ValueError:
+        # Phone conflict on another row — still return current status without failing role switch.
+        pass
+    return build_user_account_status(customer_id, store_path)
+
+
 def set_user_preferred_role(customer_id: str, role: str, store_path: Optional[Path] = None) -> Dict[str, Any]:
     normalized_role = str(role or "").strip()
     if normalized_role not in {"customer", "provider"}:
@@ -2007,6 +2052,9 @@ def set_user_preferred_role(customer_id: str, role: str, store_path: Optional[Pa
         provider_id = resolve_linked_provider_id(customer_id, profile)
         if provider_id and not str(profile.get("linkedProviderId") or "").strip():
             profile = update_customer_profile(customer_id, {"linkedProviderId": provider_id}, store_path)
+    elif normalized_role == "customer":
+        # Partner → client: reuse partner name/phone instead of empty «Реєстрація клієнта».
+        return ensure_customer_client_from_linked_provider(customer_id, store_path)
     return build_user_account_status(customer_id, store_path)
 
 
@@ -2200,6 +2248,15 @@ def update_provider_profile(provider_id: str, data: Dict[str, Any], store_path: 
                 patch["city"] = updated.get("city")
             update_customer_profile(customer_id, patch)
             mark_user_role_registered(customer_id, "provider")
+            # Dual-role cabinet: partner registration also completes the client profile.
+            synced_profile = get_customer_profile(customer_id)
+            if is_customer_client_registered(synced_profile):
+                roles = [str(item).strip() for item in (synced_profile.get("rolesRegistered") or []) if str(item).strip()]
+                if "customer" not in roles:
+                    update_customer_profile(
+                        customer_id,
+                        {"rolesRegistered": [*roles, "customer"], "preferredRole": "provider"},
+                    )
         except ValueError:
             # Never fail provider save because of a parallel customer-row phone conflict.
             pass

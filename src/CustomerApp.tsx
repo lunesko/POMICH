@@ -11,7 +11,7 @@ import { getActiveProviderId, type Role } from "./lib/constants"
 import { readCachedProviderProfile } from "./lib/providerProfileCache"
 import { mediaQueries } from "./lib/breakpoints"
 import { useMediaQuery } from "./hooks/useMediaQuery"
-import { enrichPartnerAccountStatus, isReturningClient, isReturningPartner, mergeAccountProfile, mergePreservedAccountStatus, resolveProviderIdForCustomer, storeLinkedProviderId } from "./lib/userAccount"
+import { enrichPartnerAccountStatus, hydrateClientFromPartner, isReturningClient, isReturningPartner, mergeAccountProfile, mergePreservedAccountStatus, resolveProviderIdForCustomer, storeLinkedProviderId } from "./lib/userAccount"
 import {
   applyHiddenAdminEntry,
   isAdminEntryLocation,
@@ -378,7 +378,7 @@ export default function CustomerApp() {
     // Keep the same customer identity + linkedProviderId so a registered partner
     // profile is restored after picking «Партнер» again (logout is the only full wipe).
     clearProviderAuthStorage({ includeAdmin: true })
-    setAccount((prev) => (prev ? enrichPartnerAccountStatus(prev) : prev))
+    setAccount((prev) => (prev ? hydrateClientFromPartner(enrichPartnerAccountStatus(prev)) : prev))
     if (typeof window !== "undefined") {
       const url = new URL(window.location.href)
       url.searchParams.delete("role")
@@ -709,7 +709,7 @@ export default function CustomerApp() {
               onRestoreAccount={restorePartnerAccount}
             />
           </FlowSuspense>
-        ) : role === "customer" && account && !isReturningClient(account) ? (
+        ) : role === "customer" && account && !isReturningClient(hydrateClientFromPartner(account)) ? (
           <CustomerAppFallback
             message="Потрібно завершити реєстрацію клієнта."
             onRetry={() => beginOnboarding("customer", false, true)}

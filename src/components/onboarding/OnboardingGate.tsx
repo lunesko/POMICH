@@ -31,6 +31,7 @@ import {
   isReturningClient,
   isReturningPartner,
   isStoredProfileNameMismatch,
+  hydrateClientFromPartner,
   mergeAccountProfile,
   mergePreservedAccountStatus,
   readBootstrapProfile,
@@ -376,12 +377,14 @@ export default function OnboardingGate({ skip, startAtRoleSelect, loginMode = fa
         }
       }
 
-      const mergedStatus = mergePreservedAccountStatus(
-        resolveMergedAccountStatus(status, activeCustomerId, telegramContext, {
-          profile,
-          account,
-        }),
-        preservedAccount,
+      const mergedStatus = hydrateClientFromPartner(
+        mergePreservedAccountStatus(
+          resolveMergedAccountStatus(status, activeCustomerId, telegramContext, {
+            profile,
+            account,
+          }),
+          preservedAccount,
+        ),
       )
       setAccount(mergedStatus)
       if (mergedStatus.linkedProviderId) {
@@ -392,6 +395,22 @@ export default function OnboardingGate({ skip, startAtRoleSelect, loginMode = fa
       }
 
       if (role === "customer" && !isReturningClient(mergedStatus)) {
+        // Registered partner without hydrated client profile: still avoid blank re-registration
+        // when partner identity is already known — ask OTP only if needed after hydrate retry.
+        if (isReturningPartner(mergedStatus)) {
+          const partnerHydrated = hydrateClientFromPartner(mergedStatus)
+          if (isReturningClient(partnerHydrated)) {
+            setAccount(partnerHydrated)
+            if (needsClientOtpVerification(partnerHydrated.profile)) {
+              if (partnerHydrated.profile) setProfile(partnerHydrated.profile)
+              setPhase("verify-client")
+              return
+            }
+            onReadyRef.current({ role, account: partnerHydrated, customerToken: token })
+            setPhase("ready")
+            return
+          }
+        }
         setPhase("register-client")
         return
       }
@@ -406,6 +425,33 @@ export default function OnboardingGate({ skip, startAtRoleSelect, loginMode = fa
       setPhase("ready")
     } catch (err) {
       if (role === "customer") {
+        const fallback = hydrateClientFromPartner(
+          mergePreservedAccountStatus(
+            account ?? {
+              customerId: customerId,
+              preferredRole: "customer",
+              linkedProviderId: "",
+              rolesRegistered: [],
+              clientRegistered: false,
+              providerRegistered: false,
+              needsOnboarding: true,
+            },
+            preservedAccount,
+          ),
+        )
+        if (isReturningClient(fallback) || isReturningPartner(fallback)) {
+          setAccount(fallback)
+          if (needsClientOtpVerification(fallback.profile)) {
+            if (fallback.profile) setProfile(fallback.profile)
+            setPhase("verify-client")
+            return
+          }
+          if (isReturningClient(fallback)) {
+            onReadyRef.current({ role: "customer", account: fallback, customerToken: customerToken })
+            setPhase("ready")
+            return
+          }
+        }
         setPhase("register-client")
         return
       }

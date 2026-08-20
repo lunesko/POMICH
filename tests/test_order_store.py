@@ -1512,3 +1512,43 @@ def test_merge_directory_providers_preserves_other_cities(tmp_path):
     assert "uzh-a" in providers
     assert "lviv-a" in providers
     assert providers["dispatch-1"]["providerKind"] == "dispatch"
+
+
+def test_switching_preferred_role_to_customer_reuses_partner_profile(tmp_path, monkeypatch):
+    customer_path = tmp_path / "customers.json"
+    provider_path = tmp_path / "providers.json"
+    monkeypatch.setenv("POMICH_CUSTOMER_STORE_PATH", str(customer_path))
+    monkeypatch.setenv("POMICH_PROVIDER_STORE_PATH", str(provider_path))
+
+    from bot.order_store import (
+        get_customer_profile,
+        set_user_preferred_role,
+        update_customer_profile,
+        update_provider_profile,
+    )
+
+    customer_id = "tg-role-switch"
+    provider_id = f"provider-{customer_id}"
+    update_customer_profile(customer_id, {"preferredRole": "provider", "linkedProviderId": provider_id})
+    update_provider_profile(
+        provider_id,
+        {
+            "name": "Іван Партнер",
+            "phone": "+380671998877",
+            "vehicle": "Ford Transit",
+            "plate": "AO 1111 AA",
+            "specialties": ["tow"],
+            "city": "Ужгород",
+        },
+        store_path=provider_path,
+    )
+
+    status = set_user_preferred_role(customer_id, "customer")
+    profile = get_customer_profile(customer_id)
+
+    assert status["clientRegistered"] is True
+    assert status["providerRegistered"] is True
+    assert "customer" in status["rolesRegistered"]
+    assert "provider" in status["rolesRegistered"]
+    assert profile["name"] == "Іван Партнер"
+    assert "+380671998877" in str(profile.get("phone") or "")
