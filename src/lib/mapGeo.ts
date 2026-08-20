@@ -144,20 +144,37 @@ export function moveMapToPoint(
 }
 
 /** Shared geolocation options with a low-accuracy fallback for Telegram WebApp. */
+export type GeoRequestErrorKind = "permission-denied" | "unavailable"
+
+export function classifyGeolocationError(error: GeolocationPositionError): {
+  kind: GeoRequestErrorKind
+  message: string
+} {
+  if (error.code === error.PERMISSION_DENIED) {
+    return {
+      kind: "permission-denied",
+      message: "Дозвольте доступ до геолокації в браузері або Telegram, потім натисніть кнопку ще раз.",
+    }
+  }
+  if (error.code === error.TIMEOUT) {
+    return {
+      kind: "unavailable",
+      message: "Не вдалося визначити місцезнаходження вчасно. Натисніть «Оновити» або оберіть точку на карті.",
+    }
+  }
+  return {
+    kind: "unavailable",
+    message: "Не вдалося визначити місцезнаходження. Спробуйте ще раз або оберіть точку на карті.",
+  }
+}
+
 export function requestCurrentPosition(
   onSuccess: (point: GeoPoint) => void,
-  onError: (message: string) => void,
+  onError: (message: string, kind?: GeoRequestErrorKind) => void,
 ): void {
   if (typeof navigator === "undefined" || !("geolocation" in navigator)) {
-    onError("Геолокація недоступна у цьому браузері.")
+    onError("Геолокація недоступна у цьому браузері.", "unavailable")
     return
-  }
-
-  const failMessage = (error: GeolocationPositionError) => {
-    if (error.code === error.PERMISSION_DENIED) {
-      return "Дозвольте доступ до геолокації в браузері або Telegram, потім натисніть кнопку ще раз."
-    }
-    return "Не вдалося визначити місцезнаходження. Спробуйте ще раз."
   }
 
   navigator.geolocation.getCurrentPosition(
@@ -171,11 +188,12 @@ export function requestCurrentPosition(
           onSuccess({ lat: position.coords.latitude, lng: position.coords.longitude })
         },
         (retryError) => {
-          onError(failMessage(retryError))
+          const classified = classifyGeolocationError(retryError)
+          onError(classified.message, classified.kind)
         },
-        { enableHighAccuracy: false, timeout: 16000, maximumAge: 60000 },
+        { enableHighAccuracy: false, timeout: 20000, maximumAge: 120000 },
       )
     },
-    { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 },
+    { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 },
   )
 }

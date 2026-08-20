@@ -46,9 +46,19 @@ def ssh_connect():
 def run(ssh, cmd, check=True, timeout=300):
     print(f"  $ {cmd}", flush=True)
     stdin, stdout, stderr = ssh.exec_command(cmd, timeout=timeout)
-    out = stdout.read().decode(errors="replace").strip()
-    err = stderr.read().decode(errors="replace").strip()
-    rc = stdout.channel.recv_exit_status()
+    channel = stdout.channel
+    channel.settimeout(timeout)
+    try:
+        out = stdout.read().decode(errors="replace").strip()
+        err = stderr.read().decode(errors="replace").strip()
+        rc = channel.recv_exit_status()
+    except Exception as e:
+        try:
+            channel.close()
+        except Exception:
+            pass
+        print(f"  [WARN] command timed out/failed after {timeout}s: {e}")
+        return "", str(e), 1
     if out:
         print(f"    {out[:500]}")
     if err and rc != 0:

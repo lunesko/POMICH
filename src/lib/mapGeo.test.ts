@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, afterEach } from "vitest"
 
 import {
+  classifyGeolocationError,
   distanceMeters,
   MAP_FLY_THRESHOLD_M,
   MAP_RECENTER_THRESHOLD_M,
@@ -15,6 +16,14 @@ describe("mapGeo", () => {
 
   afterEach(() => {
     document.body.innerHTML = ""
+  })
+
+  it("classifies permission denied separately from timeout", () => {
+    const denied = classifyGeolocationError({ code: 1, PERMISSION_DENIED: 1, POSITION_UNAVAILABLE: 2, TIMEOUT: 3, message: "" } as GeolocationPositionError)
+    const timedOut = classifyGeolocationError({ code: 3, PERMISSION_DENIED: 1, POSITION_UNAVAILABLE: 2, TIMEOUT: 3, message: "" } as GeolocationPositionError)
+    expect(denied.kind).toBe("permission-denied")
+    expect(timedOut.kind).toBe("unavailable")
+    expect(timedOut.message).toMatch(/вчасно|Оновити/i)
   })
 
   it("computes distance in meters", () => {

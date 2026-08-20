@@ -1362,6 +1362,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
   const [geoRecenterTrigger, setGeoRecenterTrigger] = useState(0)
   const [pickup, setPickup] = useState<Point>(PICKUP)
   const explicitGeoRecenterRef = useRef(false)
+  const skipNextAutoGeoRef = useRef(false)
   const pickupRef = useRef<Point>(PICKUP)
   const geoWatchDebounceRef = useRef<number | undefined>(undefined)
   const [destinationPoint, setDestinationPoint] = useState<Point>(DEFAULT_DESTINATION)
@@ -1631,15 +1632,15 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
     if (screen === "cancelled" || screen === "completed") return
     if (geoState === "telegram") return
     if (geoState !== "requesting") return
-    if (typeof navigator === "undefined" || !("geolocation" in navigator)) {
-      setGeoState("unavailable")
-      setGeoMessage("Не вдалося визначити геолокацію.")
+    if (skipNextAutoGeoRef.current) {
+      skipNextAutoGeoRef.current = false
       return
     }
 
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const nextPoint = { lat: position.coords.latitude, lng: position.coords.longitude }
+    let cancelled = false
+    requestCurrentPosition(
+      (nextPoint) => {
+        if (cancelled) return
         setPickup(nextPoint)
         setGeoState("success")
         setGeoMessage("Місцезнаходження визначено.")
@@ -1648,16 +1649,16 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
           setGeoRecenterTrigger((value) => value + 1)
         }
       },
-      (error) => {
-        setGeoState("permission-denied")
-        if (error.code === error.PERMISSION_DENIED) {
-          setGeoMessage("Доступ до геолокації заборонено.")
-        } else {
-          setGeoMessage("Не вдалося визначити геолокацію. Можна вибрати точку вручну.")
-        }
+      (message, kind) => {
+        if (cancelled) return
+        setGeoState(kind === "permission-denied" ? "permission-denied" : "unavailable")
+        setGeoMessage(message)
       },
-      { enableHighAccuracy: true, timeout: 12000 },
     )
+
+    return () => {
+      cancelled = true
+    }
   }, [geoState, screen])
 
   useEffect(() => {
@@ -1692,16 +1693,33 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
 
   const retryGeolocation = () => {
     explicitGeoRecenterRef.current = true
+    skipNextAutoGeoRef.current = true
     setGeoState("requesting")
     setGeoMessage("Визначаємо ваше місцезнаходження…")
     setAddressLabel("Визначаємо адресу…")
+    // Call from the click gesture so iOS Safari / Telegram can show the permission prompt.
+    requestCurrentPosition(
+      (nextPoint) => {
+        setPickup(nextPoint)
+        setGeoState("success")
+        setGeoMessage("Місцезнаходження визначено.")
+        if (explicitGeoRecenterRef.current) {
+          explicitGeoRecenterRef.current = false
+          setGeoRecenterTrigger((value) => value + 1)
+        }
+      },
+      (message, kind) => {
+        setGeoState(kind === "permission-denied" ? "permission-denied" : "unavailable")
+        setGeoMessage(message)
+      },
+    )
   }
 
   const geoLoading = geoState === "requesting"
   const geoError = geoState === "permission-denied"
-    ? "Дозвольте доступ до геолокації в браузері або Telegram, потім натисніть «Оновити»."
+    ? (geoMessage || "Дозвольте доступ до геолокації в браузері або Telegram, потім натисніть «Оновити».")
     : geoState === "unavailable"
-      ? "Геолокація недоступна у цьому браузері."
+      ? (geoMessage || "Не вдалося визначити геолокацію. Натисніть «Оновити» або оберіть точку на карті.")
       : undefined
 
   /* Restore in-progress order after Telegram WebApp reopen (sessionStorage often wiped). */
