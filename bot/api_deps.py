@@ -466,6 +466,93 @@ def require_order_owner_or_admin(
     raise HTTPException(status_code=401, detail="auth_session_required")
 
 
+def order_assigned_provider_id(order: dict | None) -> str:
+    if not isinstance(order, dict):
+        return ""
+    return str(order.get("assignedProviderId") or order.get("partnerId") or "").strip()
+
+
+def require_any_provider_auth(
+    authorization: str | None = None,
+    x_pomich_provider_token: str | None = None,
+) -> AuthPrincipal:
+    """Any valid provider session (not tied to a path provider_id)."""
+    secret = configured_provider_secret()
+    bearer_token = extract_bearer_token(authorization)
+    if not bearer_token:
+        raise HTTPException(status_code=401, detail="provider_session_required")
+    return verify_role_session(bearer_token, "provider", secret)
+
+
+def require_order_participant_auth(
+    order: dict,
+    authorization: str | None = None,
+    *,
+    access_token: str | None = None,
+    x_pomich_admin_token: str | None = None,
+) -> AuthPrincipal:
+    """Customer owner, assigned partner, or admin may read an order / its realtime channel."""
+    auth_header = authorization
+    if not auth_header and access_token:
+        auth_header = f"Bearer {str(access_token).strip()}"
+
+    bearer_token = extract_bearer_token(auth_header)
+    if not bearer_token:
+        raise HTTPException(status_code=401, detail="auth_session_required")
+
+    role = _session_role_hint(bearer_token)
+    if role == "admin":
+        return require_admin_auth(x_pomich_admin_token, auth_header)
+    if role == "customer":
+        principal = require_customer_auth_from_bearer(auth_header)
+        customer_id = order_customer_id(order)
+        if customer_id and principal.subject_id == customer_id:
+            return principal
+        try:
+            from bot.order_store import _customer_ids_for_order_history, _order_belongs_to_customer
+
+            aliases = _customer_ids_for_order_history(principal.subject_id)
+            if any(_order_belongs_to_customer(order, alias) for alias in aliases):
+                return principal
+        except Exception:
+            pass
+        raise HTTPException(status_code=403, detail="customer_identity_mismatch")
+    if role == "provider":
+        principal = verify_role_session(bearer_token, "provider", configured_provider_secret())
+        assigned = order_assigned_provider_id(order)
+        if assigned and principal.subject_id == assigned:
+            return principal
+        raise HTTPException(status_code=403, detail="provider_identity_mismatch")
+    raise HTTPException(status_code=401, detail="auth_session_required")
+
+
+def require_telegram_webhook_secret(
+    x_telegram_bot_api_secret_token: str | None,
+    *,
+    bot_kind: str | None = None,
+) -> None:
+    """Reject forged Telegram updates when a webhook secret is configured.
+
+    Production: secret is mandatory whenever Telegram bots are configured, so open
+    webhook URLs cannot be used to inject /start or fake commands.
+    """
+    kind = normalize_telegram_bot_kind(bot_kind) or ""
+    expected = (
+        (os.getenv(f"TELEGRAM_{kind.upper()}_WEBHOOK_SECRET") or "").strip()
+        if kind
+        else ""
+    ) or (os.getenv("TELEGRAM_WEBHOOK_SECRET") or "").strip()
+
+    if not expected:
+        if is_production_runtime() and any_telegram_bot_configured():
+            raise HTTPException(status_code=503, detail="telegram_webhook_secret_not_configured")
+        return
+
+    supplied = (x_telegram_bot_api_secret_token or "").strip()
+    if not supplied or not hmac.compare_digest(supplied, expected):
+        raise HTTPException(status_code=401, detail="telegram_webhook_secret_invalid")
+
+
 def apply_verified_telegram_identity(payload: dict, verified_telegram: dict | None) -> None:
     user = (verified_telegram or {}).get("user") or {}
     telegram_user_id = str(user.get("id") or "").strip()

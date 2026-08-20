@@ -5,7 +5,13 @@ from typing import Any
 
 from fastapi import APIRouter, Body, Header, HTTPException
 
-from bot.api_deps import dispatch_conflict, is_production_runtime, require_admin_auth, require_provider_auth
+from bot.api_deps import (
+    dispatch_conflict,
+    is_production_runtime,
+    require_admin_auth,
+    require_any_provider_auth,
+    require_provider_auth,
+)
 from bot.occupied_territories import filter_non_occupied_providers, is_occupied_coordinates, occupied_zone_name
 from bot.settlements import (
     filter_providers_by_city,
@@ -92,7 +98,13 @@ def _cached_map_markers(cache_key: str, builder) -> list[dict]:
 
 
 @router.get("/providers")
-def list_providers(kind: str | None = None) -> list[dict]:
+def list_providers(
+    kind: str | None = None,
+    x_pomich_admin_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+) -> list[dict]:
+    """Dispatch partner directory — admin only (full rows). Public map uses /map/providers."""
+    require_admin_auth(x_pomich_admin_token, authorization)
     providers = load_providers()
     if kind:
         normalized = kind.strip().lower()
@@ -186,15 +198,14 @@ def map_nearby_orders(
     radius_km: float = 20.0,
     service: str | None = None,
     x_pomich_provider_token: str | None = Header(default=None),
-    authorization: str | None = None,
+    authorization: str | None = Header(default=None),
 ) -> list[dict]:
     """Searching orders near a provider location for map pins.
 
     Completed, cancelled, assigned, and other non-searching orders are never returned.
+    Requires a partner session so anonymous clients cannot scrape live request pins.
     """
-    if authorization or x_pomich_provider_token:
-        # Optional auth — endpoint is usable for provider map mode.
-        pass
+    require_any_provider_auth(authorization, x_pomich_provider_token)
     return nearby_searching_orders(lat, lng, radius_km=radius_km, service=service)
 
 

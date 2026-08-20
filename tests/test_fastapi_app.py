@@ -100,7 +100,7 @@ def test_fastapi_serves_health_and_api_prefix(monkeypatch) -> None:
 
     health = client.get("/health")
     orders = client.get("/api/orders", headers=admin_headers)
-    providers = client.get("/api/providers")
+    providers = client.get("/api/providers", headers=admin_headers)
 
     assert health.status_code == 200
     assert health.json()["status"] == "ok"
@@ -577,28 +577,33 @@ def test_fastapi_rejects_admin_orders_without_token(monkeypatch) -> None:
 
 def test_fastapi_create_order_persists_customer_comment(monkeypatch, tmp_path) -> None:
     _use_temp_store(monkeypatch, tmp_path)
+    monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", CUSTOMER_SESSION_SECRET)
     client = TestClient(app)
+    customer_headers = _customer_session_headers(client)
 
     created = client.post(
         "/api/orders",
+        headers=customer_headers,
         json={
             "service": "tow",
             "status": "searching",
-            "customerComment": "ÐÐ»ÑÑÑ Ð² Ð±Ð°ÑÐ´Ð°ÑÐºÑ",
+            "customerComment": "Ключі в бардачку",
         },
     )
 
     assert created.status_code == 201
     payload = created.json()
-    assert payload["customerComment"] == "ÐÐ»ÑÑÑ Ð² Ð±Ð°ÑÐ´Ð°ÑÐºÑ"
+    assert payload["customerComment"] == "Ключі в бардачку"
 
 
 def test_fastapi_rejects_invalid_order_transition(monkeypatch) -> None:
     monkeypatch.setenv("POMICH_ADMIN_TOKEN", ADMIN_TOKEN)
+    monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", CUSTOMER_SESSION_SECRET)
     client = TestClient(app)
     admin_headers = _admin_session_headers(client)
+    customer_headers = _customer_session_headers(client)
 
-    created = client.post("/api/orders", json={"service": "tow", "status": "searching"})
+    created = client.post("/api/orders", headers=customer_headers, json={"service": "tow", "status": "searching"})
     response = client.patch(
         f"/api/orders/{created.json()['id']}/status",
         json={"status": "completed"},
@@ -611,6 +616,7 @@ def test_fastapi_rejects_invalid_order_transition(monkeypatch) -> None:
 def test_fastapi_dispatches_order_and_first_offer_acceptance_wins(monkeypatch, tmp_path) -> None:
     _use_temp_store(monkeypatch, tmp_path)
     _use_provider_auth(monkeypatch)
+    monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", CUSTOMER_SESSION_SECRET)
     order_store.save_providers(
         [
             _api_provider("p1", 48.6218, 22.2879),
@@ -618,11 +624,13 @@ def test_fastapi_dispatches_order_and_first_offer_acceptance_wins(monkeypatch, t
         ],
     )
     client = TestClient(app)
+    customer_headers = _customer_session_headers(client)
     first_provider_headers = _provider_session_headers(client, "p1")
     second_provider_headers = _provider_session_headers(client, "p2")
 
     created = client.post(
         "/api/orders",
+        headers=customer_headers,
         json={
             "service": "tow",
             "status": "searching",
@@ -656,7 +664,7 @@ def test_fastapi_dispatches_order_and_first_offer_acceptance_wins(monkeypatch, t
     assert lost.status_code == 409
     assert lost.json()["detail"]["code"] == "ORDER_ALREADY_ACCEPTED"
 
-    order = client.get(f"/api/orders/{created_order['id']}").json()
+    order = client.get(f"/api/orders/{created_order['id']}", headers=customer_headers).json()
     assert order["assignedProviderId"] == "p1"
     assert order["status"] == "accepted"
     assert order["partnerProposedPrice"] == 1200
@@ -836,7 +844,9 @@ def test_fastapi_assigned_provider_can_drive_lifecycle(monkeypatch, tmp_path) ->
     assert client.patch(f"/api/providers/p1/orders/{created_order['id']}/status", headers=provider_headers, json={"status": "in_progress"}).json()["status"] == "in_progress"
     assert client.patch(f"/api/providers/p1/orders/{created_order['id']}/status", headers=provider_headers, json={"status": "completed"}).json()["status"] == "completed"
 
-    provider = client.get("/api/providers").json()[0]
+    monkeypatch.setenv("POMICH_ADMIN_TOKEN", ADMIN_TOKEN)
+    admin_headers = _admin_session_headers(client)
+    provider = client.get("/api/providers", headers=admin_headers).json()[0]
     assert provider["status"] == "online"
     assert "assignedOrderId" not in provider
 
@@ -1209,12 +1219,15 @@ def test_sse_provider_events_require_auth(monkeypatch, tmp_path) -> None:
 
 def test_ws_order_events_handshake_and_broadcast(monkeypatch, tmp_path) -> None:
     _use_temp_store(monkeypatch, tmp_path)
+    monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", CUSTOMER_SESSION_SECRET)
     from bot import realtime
 
     realtime.reset_realtime_for_tests()
     client = TestClient(app)
+    customer_headers = _customer_session_headers(client)
     created = client.post(
         "/api/orders",
+        headers=customer_headers,
         json={
             "service": "tow",
             "status": "searching",
@@ -1222,8 +1235,9 @@ def test_ws_order_events_handshake_and_broadcast(monkeypatch, tmp_path) -> None:
         },
     )
     order = created.json()
+    token = customer_headers["Authorization"].removeprefix("Bearer ").strip()
     try:
-        with client.websocket_connect(f"/api/ws/orders/{order['id']}") as websocket:
+        with client.websocket_connect(f"/api/ws/orders/{order['id']}?access_token={token}") as websocket:
             connected = websocket.receive_json()
             assert connected["type"] == "connected"
             assert connected["channel"] == realtime.channel_for_order(order["id"])
@@ -1333,6 +1347,7 @@ def test_dist_root_static_files_served_before_spa_fallback(tmp_path, monkeypatch
 
 def test_dispatch_list_excludes_directory_and_map_is_slim(monkeypatch, tmp_path) -> None:
     _use_temp_store(monkeypatch, tmp_path)
+    monkeypatch.setenv("POMICH_ADMIN_TOKEN", ADMIN_TOKEN)
     dispatch = _api_provider("p-dispatch", 48.62, 22.28)
     directory = {
         **_api_provider("p-dir", 48.63, 22.29),
@@ -1345,11 +1360,12 @@ def test_dispatch_list_excludes_directory_and_map_is_slim(monkeypatch, tmp_path)
     }
     order_store.save_providers([dispatch, directory])
     client = TestClient(app)
+    admin_headers = _admin_session_headers(client)
 
-    listed = client.get("/api/providers").json()
+    listed = client.get("/api/providers", headers=admin_headers).json()
     assert {item["id"] for item in listed} == {"p-dispatch"}
 
-    directory_only = client.get("/api/providers?kind=directory").json()
+    directory_only = client.get("/api/providers?kind=directory", headers=admin_headers).json()
     assert {item["id"] for item in directory_only} == {"p-dir"}
 
     mapped = client.get("/api/map/providers?scope=all").json()
@@ -1363,6 +1379,7 @@ def test_dispatch_list_excludes_directory_and_map_is_slim(monkeypatch, tmp_path)
 
 def test_map_nearby_orders_excludes_completed_and_cancelled(monkeypatch, tmp_path) -> None:
     _use_temp_store(monkeypatch, tmp_path)
+    _use_provider_auth(monkeypatch)
     coords = {"lat": 48.6208, "lng": 22.2879}
     order_store.save_order(
         {"id": "PM-OPEN", "service": "tow", "status": "searching", "customerCoordinates": coords},
@@ -1374,6 +1391,11 @@ def test_map_nearby_orders_excludes_completed_and_cancelled(monkeypatch, tmp_pat
         {"id": "PM-CANCEL", "service": "tow", "status": "cancelled", "customerCoordinates": coords},
     )
     client = TestClient(app)
-    response = client.get("/api/map/orders/nearby", params={"lat": 48.6208, "lng": 22.2879, "radius_km": 20})
+    provider_headers = _provider_session_headers(client, "p1")
+    response = client.get(
+        "/api/map/orders/nearby",
+        params={"lat": 48.6208, "lng": 22.2879, "radius_km": 20},
+        headers=provider_headers,
+    )
     assert response.status_code == 200
     assert {item["id"] for item in response.json()} == {"PM-OPEN"}

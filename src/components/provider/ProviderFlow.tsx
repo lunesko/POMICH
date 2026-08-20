@@ -871,7 +871,7 @@ export default function ProviderFlow({
     const refreshNearby = () => {
       if (document.visibilityState !== "visible") return
       const loc = providerLocationRef.current
-      getNearbyMapOrders(loc.lat, loc.lng, radiusKm)
+      getNearbyMapOrders(loc.lat, loc.lng, radiusKm, undefined, providerAuthToken)
         .then((orders) => {
           if (cancelled) return
           const visible = filterActiveMapRequestPins(Array.isArray(orders) ? orders : []).filter((pin) => {
@@ -1262,7 +1262,7 @@ export default function ProviderFlow({
         const stored = readActiveOrder()
         if (stored?.orderId && (!activeOrder?.id || activeOrder.id === stored.orderId)) {
           try {
-            const snapshot = await getOrder(stored.orderId)
+            const snapshot = await getOrder(stored.orderId, session.token)
             if (!cancelled && snapshot?.id) {
               const nextStatus = normalizeOrderStatus(snapshot.status)
               setActiveOrder(snapshot)
@@ -1287,7 +1287,7 @@ export default function ProviderFlow({
         if (cancelled) return
         const active = pickLatestActiveOrder(orders)
         if (!active?.orderId) return
-        const full = orders.find((item) => item.id === active.orderId) ?? (await getOrder(active.orderId))
+        const full = orders.find((item) => item.id === active.orderId) ?? (await getOrder(active.orderId, session.token))
         if (cancelled || !full?.id) return
         const nextStatus = normalizeOrderStatus(full.status)
         setActiveOrder(full)
@@ -1507,7 +1507,7 @@ export default function ProviderFlow({
     let cancelled = false
 
     const refreshActiveOrder = () => {
-      getOrder(activeOrder.id!)
+      getOrder(activeOrder.id!, providerAuthToken)
         .then((order) => {
           if (cancelled) return
           const normalizedStatus = normalizeOrderStatus(order.status)
@@ -1587,7 +1587,7 @@ export default function ProviderFlow({
       if (message.includes("already") || message.includes("вже") || /REVIEW_ALREADY/i.test(String(err))) {
         setPartnerReviewSubmitted(true)
         try {
-          const refreshed = await getOrder(activeOrder.id)
+          const refreshed = await getOrder(activeOrder.id, providerAuthToken)
           setActiveOrder(refreshed)
         } catch {
           /* ignore */
@@ -1823,7 +1823,7 @@ export default function ProviderFlow({
                       })
                       .catch(() => undefined)
                     const radiusKm = providerProfile.serviceRadiusKm ?? registrationForm.serviceRadiusKm ?? DEFAULT_SERVICE_RADIUS_KM
-                    getNearbyMapOrders(providerLocation.lat, providerLocation.lng, radiusKm)
+                    getNearbyMapOrders(providerLocation.lat, providerLocation.lng, radiusKm, undefined, providerAuthToken)
                       .then((orders) => setNearbyRequestPins(Array.isArray(orders) ? orders : []))
                       .catch(() => undefined)
                   }}

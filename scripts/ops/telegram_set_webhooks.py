@@ -94,11 +94,21 @@ def configure_bot(kind: str, origin: str | None) -> int:
     print(f"  webhook: {webhook}")
     print(f"  menu: {menu_text} -> {web_app}")
 
+    import os
+
+    secret = (
+        (os.getenv(f"TELEGRAM_{kind.upper()}_WEBHOOK_SECRET") or "").strip()
+        or (os.getenv("TELEGRAM_WEBHOOK_SECRET") or "").strip()
+    )
+    webhook_payload: dict = {"url": webhook, "allowed_updates": ["message", "callback_query"]}
+    if secret:
+        webhook_payload["secret_token"] = secret
+        print("  secret_token: configured")
+    else:
+        print("  secret_token: MISSING (set TELEGRAM_WEBHOOK_SECRET)")
+
     try:
-        client.request(
-            "setWebhook",
-            {"url": webhook, "allowed_updates": ["message", "callback_query"]},
-        )
+        client.request("setWebhook", webhook_payload)
         client.set_chat_menu_button(menu_text, web_app)
         client.set_my_commands(commands)
     except TelegramApiError as exc:

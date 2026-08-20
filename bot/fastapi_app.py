@@ -54,6 +54,14 @@ class CachedStaticFiles(StaticFiles):
 
 app = FastAPI(title="POMICH MVP", version="0.1.0")
 
+
+@app.on_event("startup")
+def _warm_runtime_on_startup() -> None:
+    ensure_telegram_workers()
+    if sql_storage_enabled():
+        get_engine()
+
+
 app.add_middleware(GZipMiddleware, minimum_size=400)
 app.add_middleware(
     CORSMiddleware,

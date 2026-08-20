@@ -581,9 +581,10 @@ export async function createTelegramCustomerSession(
   return response.json() as Promise<AuthSession>
 }
 
-export async function getOrder(orderId: string) {
+export async function getOrder(orderId: string, accessToken?: string) {
   const response = await fetch(`${getBaseUrl()}/orders/${encodeURIComponent(orderId)}`, {
     cache: 'no-store',
+    headers: authHeaders(accessToken) ?? {},
   })
 
   if (!response.ok) {
@@ -804,7 +805,13 @@ export async function getNearestMapSettlement(lat: number, lng: number, maxKm = 
   return response.json() as Promise<MapSettlement & { distanceKm?: number }>
 }
 
-export async function getNearbyMapOrders(lat: number, lng: number, radiusKm = 20, service?: string) {
+export async function getNearbyMapOrders(
+  lat: number,
+  lng: number,
+  radiusKm = 20,
+  service?: string,
+  providerToken?: string,
+) {
   const params = new URLSearchParams({
     lat: String(lat),
     lng: String(lng),
@@ -812,7 +819,9 @@ export async function getNearbyMapOrders(lat: number, lng: number, radiusKm = 20
   })
   if (service) params.set('service', service)
 
-  const response = await fetch(`${getBaseUrl()}/map/orders/nearby?${params.toString()}`)
+  const response = await fetch(`${getBaseUrl()}/map/orders/nearby?${params.toString()}`, {
+    headers: authHeaders(providerToken) ?? {},
+  })
 
   if (!response.ok) {
     throw new Error(`Nearby map orders request failed with ${response.status}`)

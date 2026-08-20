@@ -1701,7 +1701,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
         if (!active) {
           if (stored?.orderId) {
             try {
-              const snapshot = await getOrder(stored.orderId)
+              const snapshot = await getOrder(stored.orderId, session.token)
               if (cancelled) return
               const snapshotStatus = normalizeOrderStatus(snapshot?.status)
               if (isActiveOrderStatus(snapshotStatus) && snapshot?.id) {
@@ -1727,7 +1727,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
           return
         }
 
-        const full = orders.find((item) => item.id === active.orderId) ?? (await getOrder(active.orderId))
+        const full = orders.find((item) => item.id === active.orderId) ?? (await getOrder(active.orderId, session.token))
         if (cancelled || !full?.id) return
         const nextStatus = normalizeOrderStatus(full.status)
         if (!isActiveOrderStatus(nextStatus)) {
@@ -1800,7 +1800,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
 
     const refreshOrder = () => {
       if (document.visibilityState !== "visible") return
-      getOrder(orderId)
+      getOrder(orderId, customerAuthToken)
         .then(applyPolledOrder)
         .catch(() => undefined)
     }
@@ -2067,7 +2067,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
       if (message.includes("already") || message.includes("вже") || /REVIEW_ALREADY/i.test(String(err))) {
         setCustomerReviewSubmitted(true)
         try {
-          const refreshed = await getOrder(orderId)
+          const refreshed = await getOrder(orderId, customerAuthToken)
           setCurrentOrder(refreshed)
         } catch {
           /* ignore */
