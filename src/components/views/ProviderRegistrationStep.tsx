@@ -29,6 +29,7 @@ interface ProviderRegistrationStepProps {
   onToggleSpecialty: (specialty: ServiceKey) => void
   onSubmit: () => void
   onLogin?: () => void
+  onBack?: () => void
 }
 
 export function ProviderRegistrationStep({
@@ -40,6 +41,7 @@ export function ProviderRegistrationStep({
   onToggleSpecialty,
   onSubmit,
   onLogin,
+  onBack,
 }: ProviderRegistrationStepProps) {
   const [nameError, setNameError] = useState<string>()
   const [nameHint, setNameHint] = useState<string>()
@@ -98,8 +100,11 @@ export function ProviderRegistrationStep({
       : "Зареєструватись"
 
   return (
-    <ScreenLayout footer={<PrimaryButton label={submitLabel} onClick={handleSubmit} disabled={!canSubmit || saving} />}>
-      <Header title={title} subtitle={subtitle} />
+    <ScreenLayout
+      className="pomich-screen-layout--form"
+      footer={<PrimaryButton label={submitLabel} onClick={handleSubmit} disabled={!canSubmit || saving} />}
+    >
+      <Header title={title} subtitle={subtitle} onBack={onBack} />
       <FormContainer>
         <div className="pomich-form-card">
           <label style={{ display: "grid", gap: 6 }}>

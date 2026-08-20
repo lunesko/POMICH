@@ -5,12 +5,13 @@ import { FormFooterBar } from "./FormContainer"
 interface ScreenLayoutProps {
   children: ReactNode
   footer?: ReactNode
+  className?: string
 }
 
-export function ScreenLayout({ children, footer }: ScreenLayoutProps) {
+export function ScreenLayout({ children, footer, className = "" }: ScreenLayoutProps) {
   return (
     <div
-      className="pomich-themed-shell pomich-screen-layout"
+      className={`pomich-themed-shell pomich-screen-layout ${className}`.trim()}
       style={{ width: "100%", maxWidth: "100%", minWidth: 0, height: "100%", minHeight: "100%", display: "flex", flexDirection: "column", overflowX: "hidden" }}
     >
       <div className="pomich-screen-layout__content" style={{ flex: 1, minWidth: 0, overflow: "auto", overflowX: "hidden" }}>{children}</div>

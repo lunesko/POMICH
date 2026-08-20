@@ -251,9 +251,9 @@ function ProviderCard({
   )
 }
 
-function ScreenLayout({ children, footer }: { children: React.ReactNode; footer?: React.ReactNode }) {
+function ScreenLayout({ children, footer, className = "" }: { children: React.ReactNode; footer?: React.ReactNode; className?: string }) {
   return (
-    <div className="pomich-themed-shell pomich-screen-layout" style={{ width: "100%", maxWidth: "100%", minWidth: 0, height: "100%", minHeight: "100%", display: "flex", flexDirection: "column", overflowX: "hidden" }}>
+    <div className={`pomich-themed-shell pomich-screen-layout ${className}`.trim()} style={{ width: "100%", maxWidth: "100%", minWidth: 0, height: "100%", minHeight: "100%", display: "flex", flexDirection: "column", overflowX: "hidden" }}>
       <div className="pomich-screen-layout__content" style={{ flex: 1, minWidth: 0, overflow: "auto", overflowX: "hidden" }}>{children}</div>
       {footer ? <FormFooterBar>{footer}</FormFooterBar> : null}
     </div>
@@ -661,16 +661,33 @@ export default function ProviderFlow({
         }
 
         const registered = Boolean(resolved?.registeredAt || cached?.registeredAt)
+        const hydratedProfile = resolved || cached || {}
+        const hydratedComplete = isPartnerProfileComplete(
+          {
+            name: hydratedProfile.name,
+            phone: hydratedProfile.phone,
+            plate: hydratedProfile.plate,
+            specialties: hydratedProfile.specialties,
+            vehicle: hydratedProfile.vehicle,
+            registeredAt: hydratedProfile.registeredAt,
+          },
+          { treatAsRegistered: effectiveProviderRegistered || Boolean(linkedPartnerId) },
+        )
         setStep((current) => {
           if (current !== "register" && current !== "verify" && current !== "duty") return current
+          // Preserve intentional profile/OTP gates — hydrate must not yank «Завершити профіль» back to a blank map.
+          if (current === "register") {
+            if (hydratedComplete && isProviderPhoneVerified(hydratedProfile)) return "duty"
+            return "register"
+          }
+          if (current === "verify") {
+            if (isProviderPhoneVerified(hydratedProfile)) return "duty"
+            return "verify"
+          }
           // Returning / linked partners stay on duty; go-online opens prefilled completion if needed.
           // Only first-time partners without a linked account are forced into blank registration.
           if (!registered && !effectiveProviderRegistered && !linkedPartnerId) return "register"
-          if (registered && isProviderPhoneVerified(resolved || cached || {})) {
-            return current === "register" || current === "verify" ? "duty" : current
-          }
-          if (registered) return current === "register" ? "duty" : current
-          return current === "register" ? "duty" : current
+          return current
         })
       } catch {
         // Demo mode stays usable even when the backend is temporarily unavailable.
@@ -681,7 +698,7 @@ export default function ProviderFlow({
     return () => {
       cancelled = true
     }
-  }, [providerId, loadCurrentProvider, applyLoadedProvider, effectiveProviderRegistered])
+  }, [providerId, loadCurrentProvider, applyLoadedProvider, effectiveProviderRegistered, linkedPartnerId])
 
   // Prefill partner form from the signed-in customer (role switch / missing provider SQL row).
   useEffect(() => {
@@ -1673,7 +1690,7 @@ export default function ProviderFlow({
       verificationStatus: providerProfile.verificationStatus,
     }
     return (
-      <ScreenLayout>
+      <ScreenLayout className="pomich-screen-layout--form">
         <Header
           title="Підтвердження телефону"
           subtitle="Спочатку телефон, потім код з Telegram"
@@ -1717,6 +1734,9 @@ export default function ProviderFlow({
         onToggleSpecialty={toggleRegistrationSpecialty}
         onSubmit={saveRegistration}
         onLogin={onRestoreAccount ? openPartnerRestoreOrLogin : undefined}
+        onBack={completingPartnerProfile || effectiveProviderRegistered || Boolean(linkedPartnerId)
+          ? () => setStep("duty")
+          : undefined}
       />
     )
   }

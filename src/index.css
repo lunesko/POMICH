@@ -2845,6 +2845,23 @@ html:not(.tg-compact):not(.mobile-compact) .pomich-map-shell--root:has(.pomich-r
 .pomich-themed-shell:has(> .pomich-tg-header) > .pomich-app-main:not(:has(.pomich-ride-screen)):not(:has(.pomich-ride-map-bg)),
 .pomich-tg-app:has(> .pomich-tg-header) > .pomich-tg-main:not(:has(.pomich-ride-screen)):not(:has(.pomich-ride-map-bg)) {
   padding-top: calc(var(--pomich-app-header-height) + env(safe-area-inset-top, 0px));
+  /* Same fill lock as ride screens — otherwise ScreenLayout flex-shrinks to 0 and only the map shows */
+  height: 100%;
+  min-height: 0;
+  max-height: 100%;
+  flex: 1 1 0;
+  overflow: hidden;
+}
+/* Partner/customer form gates over the decorative map: keep a readable solid plate */
+.pomich-map-shell--root .pomich-screen-layout--form {
+  background: color-mix(in srgb, var(--pomich-bg) 94%, transparent);
+}
+[data-pomich-theme="light"] .pomich-map-shell--root .pomich-screen-layout--form,
+html:not([data-pomich-theme]) .pomich-map-shell--root .pomich-screen-layout--form {
+  background: rgba(226, 233, 230, 0.96);
+}
+[data-pomich-theme="dark"] .pomich-map-shell--root .pomich-screen-layout--form {
+  background: rgba(12, 16, 20, 0.94);
 }
 /* Map chrome sits below the fixed glass app header (zoom, locate, filter chip) */
 .pomich-map-shell--root:has(.pomich-tg-header) .pomich-route-map,

@@ -1179,6 +1179,10 @@ describe('POMICH role-based flows', () => {
     expect(await screen.findByText(/Профіль партнера/i)).toBeInTheDocument()
     expect(screen.getByDisplayValue('Віталій')).toBeInTheDocument()
     expect(screen.getByDisplayValue('66 100 74 34')).toBeInTheDocument()
+    // Form plate must stay mounted (not a blank map-only shell).
+    expect(screen.getByRole('button', { name: /Зберегти профіль/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Назад/i })).toBeInTheDocument()
+    expect(document.querySelector('.pomich-screen-layout--form')).not.toBeNull()
   })
 
   it('opens partner duty go-online UI from ?screen=duty deep link', async () => {
