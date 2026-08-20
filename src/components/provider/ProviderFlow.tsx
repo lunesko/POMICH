@@ -1671,46 +1671,119 @@ export default function ProviderFlow({
     setStep("duty")
   }, [activeOrder?.id, onDuty, rememberDismissedOffer])
 
-  const submitPartnerOrderReview = useCallback(async ({ rating, comment }: { rating: number; comment: string }) => {
-    if (!activeOrder?.id || partnerReviewSaving) return
-    setPartnerReviewSaving(true)
-    setPartnerReviewError(undefined)
-    try {
-      const session = await ensureProviderSession()
-      const authorProviderId =
-        activeOrder.assignedProviderId || activeOrder.partnerId || session.providerId || providerId
-      const updated = await submitOrderReview(
-        activeOrder.id,
-        {
-          role: "partner",
-          rating,
-          comment,
-          authorId: authorProviderId,
-          providerId: authorProviderId,
-        },
-        session.token,
-      )
-      setActiveOrder(updated)
+  useEffect(() => {
+    if (activeOrder?.partnerReview?.rating) {
       setPartnerReviewSubmitted(true)
       clearPendingPartnerReview()
+    }
+  }, [activeOrder?.id, activeOrder?.partnerReview?.rating])
+
+  const submitPartnerOrderReview = useCallback(async ({ rating, comment }: { rating: number; comment: string }) => {
+    if (!activeOrder?.id || partnerReviewSaving) return
+    if (activeOrder.partnerReview?.rating) {
+      setPartnerReviewSubmitted(true)
+      clearPendingPartnerReview()
+      return
+    }
+    setPartnerReviewSaving(true)
+    setPartnerReviewError(undefined)
+    const orderId = activeOrder.id
+    const markReviewDone = (order?: OrderResponse) => {
+      if (order) setActiveOrder(order)
+      setPartnerReviewSubmitted(true)
+      clearPendingPartnerReview()
+      setPartnerReviewError(undefined)
+    }
+    const refreshOrder = async (token?: string) => {
+      try {
+        return await getOrder(orderId, token || providerAuthToken)
+      } catch {
+        return undefined
+      }
+    }
+    try {
+      let token = providerAuthToken
+      let authorProviderId =
+        activeOrder.assignedProviderId || activeOrder.partnerId || providerId
+      if (!token || !authorProviderId) {
+        const session = await ensureProviderSession()
+        token = session.token
+        authorProviderId = authorProviderId || session.providerId
+      }
+      if (!token || !authorProviderId) {
+        throw Object.assign(new Error("Сесію партнера не відкрито. Оновіть сторінку або увійдіть знову."), {
+          detail: "provider_session_missing",
+        })
+      }
+
+      const postReview = (accessToken: string, providerKey: string) =>
+        submitOrderReview(
+          orderId,
+          {
+            role: "partner",
+            rating,
+            comment,
+            authorId: providerKey,
+            providerId: providerKey,
+          },
+          accessToken,
+        )
+
+      try {
+        const updated = await postReview(token, authorProviderId)
+        markReviewDone(updated)
+        return
+      } catch (firstError) {
+        const status = firstError && typeof firstError === "object" && "status" in firstError
+          ? Number((firstError as { status?: number }).status)
+          : 0
+        const transient =
+          status === 401 ||
+          status === 403 ||
+          /з'єднатися|перевищив час|timeout|failed to fetch|network/i.test(
+            messageFromFetchError(firstError, ""),
+          )
+        if (!transient) throw firstError
+        const session = await ensureProviderSession()
+        const retryId = activeOrder.assignedProviderId || activeOrder.partnerId || session.providerId || authorProviderId
+        try {
+          const updated = await postReview(session.token, retryId)
+          markReviewDone(updated)
+          return
+        } catch (retryError) {
+          const recovered = await refreshOrder(session.token)
+          if (recovered?.partnerReview?.rating) {
+            markReviewDone(recovered)
+            return
+          }
+          throw retryError
+        }
+      }
     } catch (err) {
+      const recovered = await refreshOrder()
+      if (recovered?.partnerReview?.rating) {
+        markReviewDone(recovered)
+        return
+      }
       const message = messageFromFetchError(err, "Не вдалося зберегти оцінку. Спробуйте ще раз.")
       if (message.includes("already") || message.includes("вже") || /REVIEW_ALREADY/i.test(String(err))) {
-        setPartnerReviewSubmitted(true)
-        clearPendingPartnerReview()
-        try {
-          const refreshed = await getOrder(activeOrder.id, providerAuthToken)
-          setActiveOrder(refreshed)
-        } catch {
-          /* ignore */
-        }
-      } else {
-        setPartnerReviewError(message)
+        const refreshed = await refreshOrder()
+        markReviewDone(refreshed)
+        return
       }
+      setPartnerReviewError(message)
     } finally {
       setPartnerReviewSaving(false)
     }
-  }, [activeOrder?.id, activeOrder?.assignedProviderId, activeOrder?.partnerId, partnerReviewSaving, providerId, providerAuthToken])
+  }, [
+    activeOrder?.id,
+    activeOrder?.assignedProviderId,
+    activeOrder?.partnerId,
+    activeOrder?.partnerReview?.rating,
+    partnerReviewSaving,
+    providerId,
+    providerAuthToken,
+  ])
 
   const openPartnerRestoreOrLogin = () => {
     // Prefer phone OTP restore (linked provider) over password login dead-end.

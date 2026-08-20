@@ -596,13 +596,14 @@ export async function createTelegramCustomerSession(
 }
 
 export async function getOrder(orderId: string, accessToken?: string) {
-  const response = await fetch(`${getBaseUrl()}/orders/${encodeURIComponent(orderId)}`, {
+  const response = await fetchApi(`${getBaseUrl()}/orders/${encodeURIComponent(orderId)}`, {
     cache: 'no-store',
     headers: authHeaders(accessToken) ?? {},
   })
 
   if (!response.ok) {
-    throw new Error(`Order request failed with ${response.status}`)
+    const parsed = await parseApiErrorDetails(response, 'Не вдалося завантажити замовлення.')
+    throw Object.assign(new Error(parsed.message), { status: response.status, detail: parsed.code || parsed.message })
   }
 
   return response.json() as Promise<OrderResponse>

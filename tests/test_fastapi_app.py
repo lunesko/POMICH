@@ -1373,7 +1373,7 @@ def test_dist_root_static_files_served_before_spa_fallback(tmp_path, monkeypatch
     dist_dir = tmp_path / "dist"
     dist_dir.mkdir(parents=True)
     (dist_dir / "index.html").write_text("<!doctype html><html><body>POMICH</body></html>", encoding="utf-8")
-    (dist_dir / "pomich-sw.js").write_text('const TILE_CACHE = "pomich-map-tiles-v1"\n', encoding="utf-8")
+    (dist_dir / "pomich-sw.js").write_text('const TILE_CACHE = "pomich-map-tiles-v2"\n', encoding="utf-8")
 
     from importlib import reload
 

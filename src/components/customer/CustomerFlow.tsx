@@ -2090,9 +2090,18 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
   }, [])
 
   const submitCustomerOrderReview = useCallback(async ({ rating, comment }: { rating: number; comment: string }) => {
-    if (!orderId) return
+    if (!orderId || customerReviewSaving) return
+    if (currentOrder?.customerReview?.rating) {
+      setCustomerReviewSubmitted(true)
+      return
+    }
     setCustomerReviewSaving(true)
     setCustomerReviewError(undefined)
+    const markDone = (order?: typeof currentOrder) => {
+      if (order) setCurrentOrder(order)
+      setCustomerReviewSubmitted(true)
+      setCustomerReviewError(undefined)
+    }
     try {
       const authorId = currentOrder?.customerId || customerId
       const updated = await submitOrderReview(
@@ -2105,18 +2114,25 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
         },
         customerAuthToken,
       )
-      setCurrentOrder(updated)
-      setCustomerReviewSubmitted(true)
+      markDone(updated)
     } catch (err) {
+      try {
+        const refreshed = await getOrder(orderId, customerAuthToken)
+        if (refreshed?.customerReview?.rating) {
+          markDone(refreshed)
+          return
+        }
+      } catch {
+        /* ignore */
+      }
       const message = messageFromFetchError(err, "Не вдалося зберегти оцінку. Спробуйте ще раз.")
       // Idempotent: review already saved — treat as success and unlock continue/logout flow.
       if (message.includes("already") || message.includes("вже") || /REVIEW_ALREADY/i.test(String(err))) {
-        setCustomerReviewSubmitted(true)
         try {
           const refreshed = await getOrder(orderId, customerAuthToken)
-          setCurrentOrder(refreshed)
+          markDone(refreshed)
         } catch {
-          /* ignore */
+          markDone()
         }
       } else {
         setCustomerReviewError(message)
@@ -2124,7 +2140,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
     } finally {
       setCustomerReviewSaving(false)
     }
-  }, [orderId, customerId, customerAuthToken, currentOrder?.customerId])
+  }, [orderId, customerId, customerAuthToken, currentOrder?.customerId, currentOrder?.customerReview?.rating, customerReviewSaving])
 
   const { isTelegram, haptic } = useTelegramUx()
   const profileReady = isCustomerReadyForOrder(customerProfile)

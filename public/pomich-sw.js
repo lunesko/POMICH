@@ -1,5 +1,5 @@
-const TILE_CACHE = "pomich-map-tiles-v1"
-const ASSET_CACHE = "pomich-assets-v1"
+const TILE_CACHE = "pomich-map-tiles-v2"
+const ASSET_CACHE = "pomich-assets-v2"
 const TILE_HOST_PATTERN = /(^|\.)tile\.openstreetmap\.org$/
 
 self.addEventListener("install", () => {
@@ -25,6 +25,9 @@ self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return
 
   const url = new URL(event.request.url)
+
+  // Never intercept API — always network.
+  if (url.pathname.startsWith("/api/")) return
 
   if (url.origin === self.location.origin && url.pathname.startsWith("/assets/")) {
     event.respondWith(
