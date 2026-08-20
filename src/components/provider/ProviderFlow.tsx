@@ -459,6 +459,8 @@ export default function ProviderFlow({
     isPartnerRegisteredAndCompleted &&
     (isProviderPhoneVerified(providerProfile) || Boolean(customerOtpProfile && isCustomerVerified(customerOtpProfile)))
   const dutyAutoAttemptedRef = useRef(false)
+  /** User opened «Завершити профіль» / incomplete go-online gate — hydrate must not bounce away. */
+  const profileGateOpenRef = useRef(false)
 
   const markProviderPhoneVerified = useCallback((currentProvider?: ProviderAvailability) => {
     setProviderProfile((profile) => {
@@ -675,18 +677,20 @@ export default function ProviderFlow({
         )
         setStep((current) => {
           if (current !== "register" && current !== "verify" && current !== "duty") return current
-          // Preserve intentional profile/OTP gates — hydrate must not yank «Завершити профіль» back to a blank map.
-          if (current === "register") {
-            if (hydratedComplete && isProviderPhoneVerified(hydratedProfile)) return "duty"
-            return "register"
-          }
-          if (current === "verify") {
-            if (isProviderPhoneVerified(hydratedProfile)) return "duty"
+          // Preserve intentional profile/OTP gates opened this session (e.g. «Завершити профіль»).
+          if (current === "register" && profileGateOpenRef.current && !hydratedComplete) return "register"
+          if (current === "verify" && profileGateOpenRef.current && !isProviderPhoneVerified(hydratedProfile)) {
             return "verify"
           }
           // Returning / linked partners stay on duty; go-online opens prefilled completion if needed.
           // Only first-time partners without a linked account are forced into blank registration.
           if (!registered && !effectiveProviderRegistered && !linkedPartnerId) return "register"
+          if (registered && isProviderPhoneVerified(hydratedProfile)) {
+            return current === "register" || current === "verify" ? "duty" : current
+          }
+          if (registered || effectiveProviderRegistered || linkedPartnerId) {
+            return current === "register" ? "duty" : current
+          }
           return current
         })
       } catch {
@@ -1376,6 +1380,11 @@ export default function ProviderFlow({
       }
       setStep(isProviderPhoneVerified(updated) ? "duty" : "verify")
       setLoginView("login")
+      if (isProviderPhoneVerified(updated)) {
+        profileGateOpenRef.current = false
+      } else {
+        profileGateOpenRef.current = true
+      }
     } catch (error) {
       const code = error instanceof ApiRequestError ? error.code : undefined
       const message =
@@ -1436,6 +1445,7 @@ export default function ProviderFlow({
         const message = "Спочатку заповніть профіль партнера (авто, номер і послуги)."
         setOfferError(message)
         setPresenceToast(message)
+        profileGateOpenRef.current = true
         setStep("register")
         return
       }
@@ -1443,6 +1453,7 @@ export default function ProviderFlow({
         const message = "Підтвердіть телефон кодом у Telegram, щоб вийти на лінію."
         setOfferError(message)
         setPresenceToast(message)
+        profileGateOpenRef.current = true
         setStep("verify")
         return
       }
@@ -1487,6 +1498,7 @@ export default function ProviderFlow({
 
   const openPhoneOrProfileGate = () => {
     if (!isPartnerRegisteredAndCompleted) {
+      profileGateOpenRef.current = true
       setStep("register")
       return
     }
@@ -1494,6 +1506,7 @@ export default function ProviderFlow({
       void setDuty(true)
       return
     }
+    profileGateOpenRef.current = true
     setStep("verify")
   }
 
@@ -1694,7 +1707,10 @@ export default function ProviderFlow({
         <Header
           title="Підтвердження телефону"
           subtitle="Спочатку телефон, потім код з Telegram"
-          onBack={() => setStep("duty")}
+          onBack={() => {
+            profileGateOpenRef.current = false
+            setStep("duty")
+          }}
         />
         <FormContainer>
           <div className="pomich-form-card">
@@ -1735,7 +1751,10 @@ export default function ProviderFlow({
         onSubmit={saveRegistration}
         onLogin={onRestoreAccount ? openPartnerRestoreOrLogin : undefined}
         onBack={completingPartnerProfile || effectiveProviderRegistered || Boolean(linkedPartnerId)
-          ? () => setStep("duty")
+          ? () => {
+              profileGateOpenRef.current = false
+              setStep("duty")
+            }
           : undefined}
       />
     )
