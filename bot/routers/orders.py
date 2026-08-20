@@ -240,9 +240,14 @@ def provider_patch_order_status(
         if isinstance(exc, DispatchConflict):
             raise dispatch_conflict(exc) from exc
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    publish_order_event(order, "order.status")
-    if normalize_order_status(order.get("status")) in {"completed", "cancelled"}:
+    normalized = normalize_order_status(order.get("status"))
+    if normalized in {"completed", "cancelled"}:
         publish_provider_event(provider_id, "offers.changed", {"orderId": order_id, "action": "terminal"})
+    if normalized == "cancelled":
+        notify_order_cancelled(order)
+        publish_order_event(order, "order.cancelled")
+    else:
+        publish_order_event(order, "order.status")
     return order
 
 

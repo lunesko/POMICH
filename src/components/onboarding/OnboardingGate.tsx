@@ -607,7 +607,9 @@ export default function OnboardingGate({ skip, startAtRoleSelect, loginMode = fa
 
   if (skip) return null
 
-  if (phase === "boot" || phase === "ready") {
+  if (phase === "ready") return null
+
+  if (phase === "boot") {
     return <div className="pomich-boot-screen">Завантажуємо POMICH…</div>
   }
 

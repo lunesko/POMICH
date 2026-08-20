@@ -38,6 +38,8 @@ const providerErrorMessages: Record<string, string> = {
   ORDER_NOT_COMPLETED: 'Оцінку можна залишити лише після завершення заявки.',
   REVIEW_FORBIDDEN: 'Немає доступу до оцінки цієї заявки.',
   ORDER_NOT_FOUND: 'Заявку не знайдено.',
+  ORDER_NOT_ASSIGNED_TO_PROVIDER: 'Це замовлення призначене іншому партнеру. Оновіть сторінку.',
+  ORDER_ACCEPTED_TIMEOUT: 'Час очікування підтвердження ціни вийшов — заявку скасовано.',
   OFFER_EXPIRED: 'Пропозиція вже завершилась. Очікуйте нову заявку.',
   OFFER_NOT_FOUND: 'Пропозицію не знайдено.',
   OFFER_DECLINED: 'Цю пропозицію вже пропущено.',
@@ -143,12 +145,21 @@ export const FETCH_TIMEOUT_ERROR_UA = 'Запит перевищив час оч
 export const DEFAULT_API_TIMEOUT_MS = 25_000
 
 export function messageFromFetchError(error: unknown, fallback = FETCH_NETWORK_ERROR_UA): string {
+  if (error && typeof error === 'object' && 'detail' in error) {
+    const detail = (error as { detail?: unknown }).detail
+    if (typeof detail === 'string' && providerErrorMessages[detail]) {
+      return providerErrorMessages[detail]
+    }
+  }
   if (error instanceof Error) {
     if (error.name === 'AbortError' || /aborted|timeout|timed out/i.test(error.message)) {
       return FETCH_TIMEOUT_ERROR_UA
     }
     if (/failed to fetch|networkerror|load failed/i.test(error.message)) {
       return FETCH_NETWORK_ERROR_UA
+    }
+    if (providerErrorMessages[error.message]) {
+      return providerErrorMessages[error.message]
     }
     return error.message
   }
@@ -1138,15 +1149,21 @@ export async function updateProviderPresence(providerId: string, payload: { stat
 }
 
 export async function updateProviderOrderStatus(providerId: string, orderId: string, status: string, providerToken?: string) {
-  const response = await fetch(`${getBaseUrl()}/providers/${encodeURIComponent(providerId)}/orders/${encodeURIComponent(orderId)}/status`, {
+  const response = await fetchApi(`${getBaseUrl()}/providers/${encodeURIComponent(providerId)}/orders/${encodeURIComponent(orderId)}/status`, {
     method: 'PATCH',
     headers: providerJsonHeaders(providerToken),
     body: JSON.stringify({ status }),
   })
 
   if (!response.ok) {
-    const error = await response.json().catch(() => undefined)
-    throw Object.assign(new Error(`Provider order status request failed with ${response.status}`), { status: response.status, detail: error?.detail })
+    const parsed = await parseApiErrorDetails(response, "Не вдалося оновити статус замовлення. Спробуйте ще раз.")
+    const message =
+      (parsed.message && parsed.message.startsWith('invalid order status transition')
+        ? 'Цей статус уже змінено. Оновіть сторінку.'
+        : undefined) ||
+      parsed.message ||
+      "Не вдалося оновити статус замовлення. Спробуйте ще раз."
+    throw Object.assign(new Error(message), { status: response.status, detail: parsed.code || parsed.message })
   }
 
   return response.json() as Promise<OrderResponse>

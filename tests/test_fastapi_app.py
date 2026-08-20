@@ -716,6 +716,52 @@ def test_fastapi_cancel_order_notifies_partner(monkeypatch, tmp_path) -> None:
     assert offers == []
 
 
+def test_fastapi_provider_can_cancel_assigned_order(monkeypatch, tmp_path) -> None:
+    _use_temp_store(monkeypatch, tmp_path)
+    _use_provider_auth(monkeypatch)
+    order_store.save_providers([_api_provider("p1", 48.6218, 22.2879)])
+    client = TestClient(app)
+    provider_headers = _provider_session_headers(client, "p1")
+    customer_headers = _customer_session_headers(client, "guest-customer-provider-cancel")
+
+    created_order = client.post(
+        "/api/orders",
+        headers=customer_headers,
+        json={
+            "service": "tow",
+            "status": "searching",
+            "customerCoordinates": {"lat": 48.6208, "lng": 22.2879},
+        },
+    ).json()
+    offer = client.get("/api/providers/p1/offers", headers=provider_headers).json()[0]
+    client.post(
+        f"/api/providers/p1/offers/{offer['id']}/accept",
+        headers=provider_headers,
+        json={"proposedPrice": 1500, "priceNote": "Евакуатор"},
+    )
+
+    sent_messages: list[dict[str, str]] = []
+
+    def _fake_notify(order: dict) -> list[dict]:
+        sent_messages.append({"id": str(order.get("id")), "status": str(order.get("status"))})
+        return [{"ok": True}]
+
+    monkeypatch.setattr("bot.routers.orders.notify_order_cancelled", _fake_notify)
+
+    cancelled = client.patch(
+        f"/api/providers/p1/orders/{created_order['id']}/status",
+        headers=provider_headers,
+        json={"status": "cancelled"},
+    )
+    assert cancelled.status_code == 200
+    assert cancelled.json()["status"] == "cancelled"
+    assert sent_messages == [{"id": created_order["id"], "status": "cancelled"}]
+
+    provider = order_store.get_provider_profile("p1")
+    assert provider is not None
+    assert provider.get("status") == "online"
+
+
 def test_fastapi_admin_can_cancel_order(monkeypatch, tmp_path) -> None:
     _use_temp_store(monkeypatch, tmp_path)
     monkeypatch.setenv("POMICH_ADMIN_TOKEN", ADMIN_TOKEN)

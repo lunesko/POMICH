@@ -132,7 +132,19 @@ function resolveSessionProviderId(session: { providerId?: string; subjectId?: st
   return String(session.providerId || session.subjectId || fallback).trim() || fallback
 }
 
-function PrimaryButton({ label, onClick, loading = false, disabled = false }: { label: string; onClick?: () => void; loading?: boolean; disabled?: boolean }) {
+function PrimaryButton({
+  label,
+  onClick,
+  loading = false,
+  disabled = false,
+  loadingLabel = "Зачекайте…",
+}: {
+  label: string
+  onClick?: () => void
+  loading?: boolean
+  disabled?: boolean
+  loadingLabel?: string
+}) {
   return (
     <button
       type="button"
@@ -140,7 +152,7 @@ function PrimaryButton({ label, onClick, loading = false, disabled = false }: { 
       disabled={disabled || loading}
       className={`pomich-primary-btn${disabled || loading ? " is-disabled" : ""}`}
     >
-      {loading ? "Створюємо заявку…" : label}
+      {loading ? loadingLabel : label}
     </button>
   )
 }
@@ -364,6 +376,7 @@ export default function ProviderFlow({
   })
   const [offerError, setOfferError] = useState<string | undefined>()
   const [offerSaving, setOfferSaving] = useState(false)
+  const [orderAdvancing, setOrderAdvancing] = useState(false)
   const [proposedPrice, setProposedPrice] = useState("")
   const [priceNote, setPriceNote] = useState("")
   const [offerClock, setOfferClock] = useState(Date.now())
@@ -1199,12 +1212,21 @@ export default function ProviderFlow({
   }
 
   const advanceProviderOrder = async (nextStatus: OrderStatus) => {
-    if (!activeOrder?.id) return
+    if (!activeOrder?.id || orderAdvancing) return
+    setOrderAdvancing(true)
+    setOfferError(undefined)
     try {
-      if (!providerAuthToken) throw new Error("provider_session_missing")
-      const order = await updateProviderOrderStatus(providerId, activeOrder.id, nextStatus, providerAuthToken)
+      const session = await ensureProviderSession()
+      const resolvedProviderId = resolveSessionProviderId({ providerId: session.providerId }, providerId)
+      if (!resolvedProviderId) {
+        throw Object.assign(new Error("Сесію партнера не відкрито. Оновіть сторінку або увійдіть знову."), {
+          detail: "provider_session_missing",
+        })
+      }
+      const order = await updateProviderOrderStatus(resolvedProviderId, activeOrder.id, nextStatus, session.token)
       const normalizedStatus = normalizeOrderStatus(order.status)
       setActiveOrder(order)
+      persistActiveOrder(order.id, normalizedStatus)
       if (normalizedStatus === "completed" || normalizedStatus === "cancelled") {
         rememberDismissedOffer(undefined, order.id)
         setIncomingOffers([])
@@ -1212,15 +1234,26 @@ export default function ProviderFlow({
         setProviderProfile((profile) => ({ ...profile, status: "online", assignedOrderId: undefined } as ProviderAvailability))
         setPartnerReviewSubmitted(Boolean(order.partnerReview?.rating))
         setPartnerReviewError(undefined)
-        setStep("completed")
+        setStep(normalizedStatus === "cancelled" ? "duty" : "completed")
       } else if (normalizedStatus === "arrived" || normalizedStatus === "in_progress") {
         setStep("arrived")
+      } else if (normalizedStatus === "accepted") {
+        setStep("awaiting_price")
       } else {
         setStep("navigation")
       }
-    } catch {
-      setOfferError("Не вдалося оновити статус замовлення.")
+    } catch (error) {
+      setOfferError(messageFromFetchError(error, "Не вдалося оновити статус замовлення. Спробуйте ще раз."))
+    } finally {
+      setOrderAdvancing(false)
     }
+  }
+
+  const cancelActiveOrder = async () => {
+    if (!activeOrder?.id || orderAdvancing) return
+    const confirmed = typeof window === "undefined" ? true : window.confirm("Скасувати цю заявку? Клієнт отримає сповіщення.")
+    if (!confirmed) return
+    await advanceProviderOrder("cancelled")
   }
 
   const updateRegistrationForm = (patch: Partial<PartnerRegistrationForm>) => {
@@ -1242,13 +1275,19 @@ export default function ProviderFlow({
         readAuthSessionSubject(providerAuthToken) ||
         (typeof window !== "undefined" ? window.sessionStorage.getItem("pomichLinkedProviderId") : null) ||
         providerId
-      if (subject && subject !== providerId) {
-        setProviderId(subject)
-        storeLinkedProviderId(subject)
-      } else if (subject) {
-        storeLinkedProviderId(subject)
+      const resolvedId = resolveSessionProviderId({ providerId: subject || undefined }, providerId)
+      if (!resolvedId) {
+        throw Object.assign(new Error("Сесію партнера не відкрито. Оновіть сторінку або увійдіть знову."), {
+          detail: "provider_session_missing",
+        })
       }
-      return { token: providerAuthToken, providerId: subject }
+      if (resolvedId !== providerId) {
+        setProviderId(resolvedId)
+        storeLinkedProviderId(resolvedId)
+      } else {
+        storeLinkedProviderId(resolvedId)
+      }
+      return { token: providerAuthToken, providerId: resolvedId }
     }
 
     const customerId =
@@ -1954,7 +1993,18 @@ export default function ProviderFlow({
     const proposed = activeOrder?.partnerProposedPrice
     const idleSecondsLeft = acceptedIdleSecondsLeft(activeOrder, offerClock)
     return (
-      <ScreenLayout>
+      <ScreenLayout
+        footer={
+          <SecondaryButton
+            label={orderAdvancing ? "Скасовуємо…" : "Скасувати заявку"}
+            danger
+            disabled={orderAdvancing}
+            onClick={() => {
+              void cancelActiveOrder()
+            }}
+          />
+        }
+      >
         <Header title="Очікуємо клієнта" subtitle={activeOrder?.id ? `Замовлення #${activeOrder.id}` : undefined} status="accepted" />
         <div style={{ padding: "8px 16px 16px", display: "grid", gap: 12 }}>
           <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 18, padding: 16 }}>
@@ -1981,15 +2031,42 @@ export default function ProviderFlow({
     const activeStatus = normalizeOrderStatus(activeOrder?.status)
     const nextStatus: OrderStatus = activeStatus === "arrived" ? "in_progress" : "completed"
     return (
-      <ScreenLayout footer={<PrimaryButton label={activeStatus === "arrived" ? "ПОЧАТИ РОБОТУ" : "ЗАВЕРШИТИ"} onClick={() => activeOrder ? advanceProviderOrder(nextStatus) : setStep("completed")} />}>
+      <ScreenLayout
+        footer={
+          <>
+            <PrimaryButton
+              label={activeStatus === "arrived" ? "ПОЧАТИ РОБОТУ" : "ЗАВЕРШИТИ"}
+              loading={orderAdvancing}
+              loadingLabel={activeStatus === "arrived" ? "Починаємо…" : "Завершуємо…"}
+              onClick={() => {
+                if (activeOrder) void advanceProviderOrder(nextStatus)
+                else setStep("completed")
+              }}
+            />
+            <SecondaryButton
+              label={orderAdvancing ? "Скасовуємо…" : "Скасувати заявку"}
+              danger
+              disabled={orderAdvancing}
+              onClick={() => {
+                void cancelActiveOrder()
+              }}
+            />
+          </>
+        }
+      >
         <Header title={activeStatus === "in_progress" ? "Допомога триває" : "Ви на місці"} subtitle="Клієнт бачить ваш статус у POMICH" status={activeStatus === "in_progress" ? "in_progress" : "arrived"} />
         <div style={{ padding: "8px 16px 16px", display: "grid", gap: 12 }}>
           <ProviderCard orderId={activeOrder?.id} assignedProvider={activeOrder?.assignedProvider ?? providerPresence} />
           <div style={{ background: CARD, borderRadius: 18, border: `1px solid ${BORDER}`, padding: 14 }}>
             <Timeline status={activeStatus === "in_progress" ? "in_progress" : "arrived"} />
             <div style={{ fontWeight: 900, color: DARK, marginTop: 16 }}>Поточна дія</div>
-            <div style={{ color: MUTED, fontWeight: 700, marginTop: 6 }}>Підтвердіть завершення, коли допомогу надано.</div>
+            <div style={{ color: MUTED, fontWeight: 700, marginTop: 6 }}>
+              {activeStatus === "arrived"
+                ? "Натисніть «Почати роботу», коли починаєте допомогу клієнту."
+                : "Підтвердіть завершення, коли допомогу надано."}
+            </div>
           </div>
+          {offerError ? <div style={{ background: "var(--pomich-error-bg)", color: "var(--pomich-error-text)", borderRadius: 14, padding: 12, fontWeight: 800 }}>{offerError}</div> : null}
         </div>
       </ScreenLayout>
     )
@@ -2003,7 +2080,30 @@ export default function ProviderFlow({
     const routeDestination = activeOrder?.destinationCoordinates ?? destination
     const customerLabel = activeOrder?.customerLocation || "Точка подачі клієнта"
     return (
-      <ScreenLayout footer={<PrimaryButton label={activeStatus === "en_route" ? "Я НА МІСЦІ" : "ЇДУ ДО КЛІЄНТА"} onClick={() => activeOrder ? advanceProviderOrder(nextStatus) : setStep("arrived")} disabled={activeStatus === "accepted"} />}>
+      <ScreenLayout
+        footer={
+          <>
+            <PrimaryButton
+              label={activeStatus === "en_route" ? "Я НА МІСЦІ" : "ЇДУ ДО КЛІЄНТА"}
+              loading={orderAdvancing}
+              loadingLabel={activeStatus === "en_route" ? "Оновлюємо…" : "Виїжджаємо…"}
+              disabled={activeStatus === "accepted"}
+              onClick={() => {
+                if (activeOrder) void advanceProviderOrder(nextStatus)
+                else setStep("arrived")
+              }}
+            />
+            <SecondaryButton
+              label={orderAdvancing ? "Скасовуємо…" : "Скасувати заявку"}
+              danger
+              disabled={orderAdvancing}
+              onClick={() => {
+                void cancelActiveOrder()
+              }}
+            />
+          </>
+        }
+      >
         <Header title="Маршрут до клієнта" subtitle={activeOrder?.id ? `Активне замовлення #${activeOrder.id}` : "Активне замовлення"} status={activeStatus === "en_route" ? "en_route" : "price_confirmed"} />
         <div style={{ padding: "0 16px 16px", display: "grid", gap: 12 }}>
           <LazyRouteMap
@@ -2022,6 +2122,7 @@ export default function ProviderFlow({
                 : "Увімкніть геолокацію, щоб бачити себе на карті. Рух не імітується."}
             </div>
           </div>
+          {offerError ? <div style={{ background: "var(--pomich-error-bg)", color: "var(--pomich-error-text)", borderRadius: 14, padding: 12, fontWeight: 800 }}>{offerError}</div> : null}
         </div>
       </ScreenLayout>
     )
