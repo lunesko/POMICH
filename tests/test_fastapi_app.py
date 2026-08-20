@@ -1001,7 +1001,7 @@ def test_customer_phone_login_send_and_confirm(monkeypatch, tmp_path) -> None:
     assert body["account"]["clientRegistered"] is True
 
 
-def test_phone_login_confirm_does_not_call_telegram(monkeypatch, tmp_path) -> None:
+def test_phone_login_confirm_queues_otp_message_delete(monkeypatch, tmp_path) -> None:
     _use_temp_store(monkeypatch, tmp_path)
     otp_path = tmp_path / "otp_codes.json"
     telegram_calls: list[str] = []
@@ -1034,7 +1034,12 @@ def test_phone_login_confirm_does_not_call_telegram(monkeypatch, tmp_path) -> No
         json={"phone": "+380661007434", "code": "445566"},
     )
     assert confirm_response.status_code == 200
-    assert telegram_calls == []
+    # Async delete tries preferred bot + fallback (2 calls); confirm itself must not send OTP.
+    deadline = time.time() + 1.0
+    while time.time() < deadline and len(telegram_calls) < 2:
+        time.sleep(0.01)
+    assert telegram_calls == ["delete", "delete"]
+    assert "send" not in telegram_calls
 
 
 def test_customer_phone_login_send_allows_duplicate_registered_phone(monkeypatch, tmp_path) -> None:
