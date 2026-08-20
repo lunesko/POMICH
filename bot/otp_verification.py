@@ -586,6 +586,8 @@ def send_customer_verification_code(
                 store_path=queued_store_path,
             )
 
+        # Dedicated short-lived thread: OTP latency must not wait on the shared
+        # Telegram outbound queue when dispatch fan-out is busy.
         _run_in_background(_bg_telegram_send)
     elif pending_email:
         target_email, queued_code = pending_email

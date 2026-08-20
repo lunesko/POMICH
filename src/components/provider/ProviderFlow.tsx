@@ -327,9 +327,17 @@ export default function ProviderFlow({
   const [accountPassword, setAccountPassword] = useState("")
   const [authSaving, setAuthSaving] = useState(false)
   const [loginView, setLoginView] = useState<"login" | "register">(() => (effectiveProviderRegistered ? "login" : "register"))
+  const persistedActiveOrder = typeof window !== "undefined" ? readActiveOrder() : undefined
   const [step, setStep] = useState<"register" | "verify" | "duty" | "offer" | "awaiting_price" | "navigation" | "arrived" | "completed">(() => {
     if (typeof window === "undefined") return "register"
     if (initialScreen === "verify") return "verify"
+    if (persistedActiveOrder?.orderId) {
+      const status = normalizeOrderStatus(persistedActiveOrder.status)
+      if (status === "accepted") return "awaiting_price"
+      if (status === "arrived" || status === "in_progress") return "arrived"
+      if (status === "completed") return "completed"
+      if (status !== "searching" && status !== "cancelled") return "navigation"
+    }
     if (effectiveProviderRegistered || window.localStorage.getItem(`pomichPartnerRegistered:${getActiveProviderId()}`) || Boolean(linkedPartnerId)) return "duty"
     return "register"
   })
@@ -346,7 +354,13 @@ export default function ProviderFlow({
   const [mapRequestPins, setMapRequestPins] = useState<MapRequestPin[]>([])
   const [selectedRequestPin, setSelectedRequestPin] = useState<MapRequestPin | undefined>()
   const [sheetProposedPrice, setSheetProposedPrice] = useState("")
-  const [activeOrder, setActiveOrder] = useState<OrderResponse | undefined>()
+  const [activeOrder, setActiveOrder] = useState<OrderResponse | undefined>(() => {
+    if (!persistedActiveOrder?.orderId) return undefined
+    return {
+      id: persistedActiveOrder.orderId,
+      status: normalizeOrderStatus(persistedActiveOrder.status),
+    } as OrderResponse
+  })
   const [offerError, setOfferError] = useState<string | undefined>()
   const [offerSaving, setOfferSaving] = useState(false)
   const [proposedPrice, setProposedPrice] = useState("")
@@ -1009,38 +1023,57 @@ export default function ProviderFlow({
       setOfferError("Вкажіть вартість послуги в гривнях.")
       return
     }
+    const noteForAccept = priceNote.trim() || undefined
 
     setOfferSaving(true)
     setOfferError(undefined)
+    // Optimistic UI: leave the offer/map empty screen before the API returns.
+    const optimisticOrder = {
+      id: offer.orderId,
+      status: "accepted",
+      service: offer.service,
+      partnerProposedPrice: parsedPrice,
+      partnerPriceNote: noteForAccept,
+      customerCoordinates: offer.customerCoordinates,
+      customerComment: offer.customerComment,
+    } as OrderResponse
+    persistActiveOrder(offer.orderId, "accepted")
+    rememberDismissedOffer(offer.id, offer.orderId)
+    setActiveOrder(optimisticOrder)
+    setIncomingOffers([])
+    setSelectedRequestPin(undefined)
+    setSheetProposedPrice("")
+    setOnDuty(true)
+    setProposedPrice("")
+    setPriceNote("")
+    setStep("awaiting_price")
     try {
       const session = await ensureProviderSession()
       const result = await acceptProviderOffer(session.providerId, offer.id, session.token, {
         proposedPrice: parsedPrice,
-        priceNote: priceNote.trim() || undefined,
+        priceNote: noteForAccept,
       })
       if (result.order?.id) {
         persistActiveOrder(result.order.id, normalizeOrderStatus(result.order.status))
-        rememberDismissedOffer(offer.id, offer.orderId)
+        setActiveOrder(result.order)
+        setProviderProfile((profile) => ({ ...profile, status: "busy", assignedOrderId: result.order.id } as ProviderAvailability))
+        const nextStatus = normalizeOrderStatus(result.order.status)
+        if (nextStatus === "accepted") setStep("awaiting_price")
+        else if (nextStatus === "arrived" || nextStatus === "in_progress") setStep("arrived")
+        else setStep("navigation")
       }
-      setActiveOrder(result.order)
-      setProviderProfile((profile) => ({ ...profile, status: "busy", assignedOrderId: result.order.id } as ProviderAvailability))
-      setIncomingOffers([])
-      setSelectedRequestPin(undefined)
-      setSheetProposedPrice("")
-      setOnDuty(true)
-      setProposedPrice("")
-      setPriceNote("")
-      setStep("awaiting_price")
     } catch (error) {
       const message = offerActionErrorMessage(error, "Не вдалося прийняти заявку. Спробуйте ще раз.")
       setOfferError(message)
       const code = (error as { detail?: { code?: string } }).detail?.code
+      clearActiveOrder()
+      setActiveOrder(undefined)
       if (code === "OFFER_EXPIRED" || code === "ORDER_ALREADY_ACCEPTED" || code === "OFFER_NOT_FOUND") {
         rememberDismissedOffer(offer.id, offer.orderId)
         setIncomingOffers((offers) => offers.filter((item) => item.id !== offer.id))
         setSelectedRequestPin(undefined)
-        setStep("duty")
       }
+      setStep("duty")
     } finally {
       setOfferSaving(false)
     }
@@ -1220,12 +1253,36 @@ export default function ProviderFlow({
   }
 
   useEffect(() => {
-    if (!providerAuthToken || activeOrder) return
+    if (!providerAuthToken) return
     let cancelled = false
     const restoreAssignedOrder = async () => {
       try {
         const session = await ensureProviderSession()
         if (cancelled) return
+        const stored = readActiveOrder()
+        if (stored?.orderId && (!activeOrder?.id || activeOrder.id === stored.orderId)) {
+          try {
+            const snapshot = await getOrder(stored.orderId)
+            if (!cancelled && snapshot?.id) {
+              const nextStatus = normalizeOrderStatus(snapshot.status)
+              setActiveOrder(snapshot)
+              persistActiveOrder(snapshot.id, nextStatus)
+              setProviderProfile((profile) => ({
+                ...profile,
+                status: "busy",
+                assignedOrderId: snapshot.id,
+              } as ProviderAvailability))
+              if (nextStatus === "accepted") setStep("awaiting_price")
+              else if (nextStatus === "arrived" || nextStatus === "in_progress") setStep("arrived")
+              else if (nextStatus === "completed") setStep("completed")
+              else if (nextStatus !== "cancelled" && nextStatus !== "searching") setStep("navigation")
+              return
+            }
+          } catch {
+            // Fall through to provider order history.
+          }
+        }
+        if (activeOrder?.id && activeOrder.service) return
         const orders = await getProviderOrders(session.providerId, session.token, 20)
         if (cancelled) return
         const active = pickLatestActiveOrder(orders)

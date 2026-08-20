@@ -727,7 +727,13 @@ def delete_message(
 def notify_order_created(chat_id: str | None, order: dict[str, Any]) -> dict[str, Any] | None:
     if not chat_id:
         return None
+    from bot.telegram_outbound import enqueue_telegram
 
+    enqueue_telegram("notify_order_created", _notify_order_created_sync, str(chat_id), order)
+    return {"ok": True, "queued": True}
+
+
+def _notify_order_created_sync(chat_id: str, order: dict[str, Any]) -> dict[str, Any] | None:
     service = str(order.get("service") or "Послуга")
     text = (
         f"✅ Заявку створено: #{order.get('id')}\n\n"
@@ -753,6 +759,13 @@ def _resolve_customer_telegram_chat_id(order: dict[str, Any]) -> str:
 
 
 def notify_order_accepted(order: dict[str, Any]) -> dict[str, Any] | None:
+    from bot.telegram_outbound import enqueue_telegram
+
+    enqueue_telegram("notify_order_accepted", _notify_order_accepted_sync, order)
+    return {"ok": True, "queued": True}
+
+
+def _notify_order_accepted_sync(order: dict[str, Any]) -> dict[str, Any] | None:
     chat_id = _resolve_customer_telegram_chat_id(order)
     if not chat_id:
         print(f"Skip accept notify: no telegram chat for order {order.get('id')}", flush=True)
@@ -781,6 +794,13 @@ def notify_order_accepted(order: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def notify_order_cancelled(order: dict[str, Any]) -> list[dict[str, Any]]:
+    from bot.telegram_outbound import enqueue_telegram
+
+    enqueue_telegram("notify_order_cancelled", _notify_order_cancelled_sync, order)
+    return [{"ok": True, "queued": True}]
+
+
+def _notify_order_cancelled_sync(order: dict[str, Any]) -> list[dict[str, Any]]:
     from bot.order_store import partner_telegram_user_ids_for_order
 
     order_id = str(order.get("id") or "").strip()
@@ -821,6 +841,13 @@ def notify_order_cancelled(order: dict[str, Any]) -> list[dict[str, Any]]:
 
 def notify_dispatch_offers(order: dict[str, Any], offers: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
     """Notify partners about new dispatch offers via the provider bot only."""
+    from bot.telegram_outbound import enqueue_telegram
+
+    enqueue_telegram("notify_dispatch_offers", _notify_dispatch_offers_sync, order, offers)
+    return [{"ok": True, "queued": True}]
+
+
+def _notify_dispatch_offers_sync(order: dict[str, Any], offers: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
     from bot.order_store import load_offers, resolve_provider_telegram_user_id
 
     order_id = str(order.get("id") or "").strip()

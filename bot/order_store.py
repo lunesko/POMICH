@@ -14,6 +14,14 @@ from bot.runtime_store import (
     save_collection,
     sql_accept_offer,
     sql_candidate_providers_for_order,
+    sql_customers_by_phone_lookup,
+    sql_get_customer,
+    sql_get_order,
+    sql_get_provider,
+    sql_offers_for_order,
+    sql_orders_for_provider,
+    sql_pending_offers_for_provider,
+    sql_providers_by_phone_lookup,
     sql_storage_enabled,
     sql_upsert_provider,
 )
@@ -32,6 +40,9 @@ OFFER_TIMEOUT_SECONDS = int(os.getenv("OFFER_TIMEOUT_SECONDS", "90"))
 ACCEPTED_IDLE_TIMEOUT_SECONDS = int(os.getenv("ACCEPTED_IDLE_TIMEOUT_SECONDS", "900"))
 OFFER_STATUSES = {"pending", "accepted", "declined", "expired", "lost", "cancelled"}
 STORE_LOCK = threading.RLock()
+_EXPIRE_STALE_LOCK = threading.Lock()
+_LAST_EXPIRE_STALE_MONOTONIC = 0.0
+_EXPIRE_STALE_MIN_INTERVAL_SECONDS = float(os.getenv("POMICH_EXPIRE_MIN_INTERVAL_SECONDS", "15") or "15")
 
 ORDER_STATUS_ALIASES = {
     "created": "searching",
@@ -789,6 +800,11 @@ def enrich_order_for_client(
 
 
 def get_order(order_id: str, store_path: Optional[Path] = None, provider_store_path: Optional[Path] = None) -> Optional[Dict[str, Any]]:
+    if _should_use_sql_store(store_path, _default_store_path):
+        found = sql_get_order(str(order_id))
+        if found is None:
+            return None
+        return enrich_order_for_client(found, provider_store_path)
     for order in load_orders(store_path):
         if str(order.get("id")) == str(order_id):
             return enrich_order_for_client(order, provider_store_path)
@@ -1256,6 +1272,15 @@ def save_customer_profiles(profiles: List[Dict[str, Any]], store_path: Optional[
 
 
 def get_customer_profile(customer_id: str, store_path: Optional[Path] = None) -> Dict[str, Any]:
+    if _should_use_sql_store(store_path, _default_customer_store_path):
+        found = sql_get_customer(str(customer_id))
+        if found is not None:
+            return _maybe_persist_phone_linked_verification(
+                _normalize_customer_profile(_decrypt_customer_record(found)),
+                store_path,
+            )
+        return _sync_phone_linked_verification(_default_customer_profile(customer_id), store_path)
+
     for profile in load_customer_profiles(store_path):
         if str(profile.get("id")) == str(customer_id):
             return _maybe_persist_phone_linked_verification(_normalize_customer_profile(profile), store_path)
@@ -1631,8 +1656,22 @@ def find_registered_customer_by_phone(
     excluded = set(exclude_ids or [])
     if exclude_id:
         excluded.add(str(exclude_id))
+
+    if profiles is None and _should_use_sql_store(store_path, _default_customer_store_path):
+        from bot.phone_lookup import phone_lookup_key
+
+        lookup = phone_lookup_key(target)
+        if lookup:
+            source = [
+                _normalize_customer_profile(_decrypt_customer_record(item))
+                for item in sql_customers_by_phone_lookup(lookup)
+            ]
+        else:
+            source = []
+    else:
+        source = profiles if profiles is not None else load_customer_profiles(store_path)
+
     candidates: List[Dict[str, Any]] = []
-    source = profiles if profiles is not None else load_customer_profiles(store_path)
     for profile in source:
         customer_id = str(profile.get("id") or "")
         if customer_id in excluded:
@@ -1654,13 +1693,20 @@ def find_registered_customer_by_phone(
         if telegram_user_id:
             preferred_id = f"tg-{telegram_user_id}"
             if preferred_id not in excluded:
-                for profile in source:
-                    if str(profile.get("id") or "") != preferred_id:
-                        continue
-                    normalized = _normalize_customer_profile(profile)
-                    if is_customer_client_registered(normalized) or str(normalized.get("phone") or "").strip():
-                        return normalized
-                    break
+                preferred: Optional[Dict[str, Any]] = None
+                if profiles is None and _should_use_sql_store(store_path, _default_customer_store_path):
+                    raw = sql_get_customer(preferred_id)
+                    if raw is not None:
+                        preferred = _normalize_customer_profile(_decrypt_customer_record(raw))
+                else:
+                    for profile in source:
+                        if str(profile.get("id") or "") != preferred_id:
+                            continue
+                        preferred = _normalize_customer_profile(profile)
+                        break
+                if preferred is not None:
+                    if is_customer_client_registered(preferred) or str(preferred.get("phone") or "").strip():
+                        return preferred
         # Web/guest partner: restore the customer row that owns provider-{customerId}.
         linked_customer_id = resolve_customer_id_for_provider(str(provider.get("id") or ""), store_path)
         if linked_customer_id and linked_customer_id not in excluded:
@@ -1702,7 +1748,15 @@ def find_registered_provider_by_phone(
     target = _normalize_ukraine_phone_digits(phone)
     if not target or len(target) != 12:
         return None
-    source = providers if providers is not None else load_providers(store_path)
+
+    if providers is None and _should_use_sql_store(store_path, _default_provider_store_path):
+        from bot.phone_lookup import phone_lookup_key
+
+        lookup = phone_lookup_key(target)
+        source = sql_providers_by_phone_lookup(lookup) if lookup else []
+    else:
+        source = providers if providers is not None else load_providers(store_path)
+
     for provider in source:
         provider_id = str(provider.get("id") or "")
         if exclude_id and provider_id == exclude_id:
@@ -2671,8 +2725,20 @@ def expire_stale_and_notify(
     order_store_path: Optional[Path] = None,
     offer_store_path: Optional[Path] = None,
     provider_store_path: Optional[Path] = None,
+    *,
+    force: bool = False,
 ) -> List[Dict[str, Any]]:
     """Expire stale dispatch state and notify parties about idle-accepted cancellations."""
+    global _LAST_EXPIRE_STALE_MONOTONIC
+    import time
+
+    if not force and _EXPIRE_STALE_MIN_INTERVAL_SECONDS > 0:
+        now_mono = time.monotonic()
+        with _EXPIRE_STALE_LOCK:
+            if (now_mono - _LAST_EXPIRE_STALE_MONOTONIC) < _EXPIRE_STALE_MIN_INTERVAL_SECONDS:
+                return []
+            _LAST_EXPIRE_STALE_MONOTONIC = now_mono
+
     cancelled = expire_stale_dispatch(
         order_store_path=order_store_path,
         offer_store_path=offer_store_path,
@@ -2910,7 +2976,12 @@ def dispatch_order(
 
 def attach_dispatch_to_order(order: Dict[str, Any], offers: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
     payload = enrich_order_for_client(order)
-    related_offers = [dict(offer) for offer in (offers if offers is not None else load_offers()) if str(offer.get("orderId")) == str(order.get("id"))]
+    if offers is not None:
+        related_offers = [dict(offer) for offer in offers if str(offer.get("orderId")) == str(order.get("id"))]
+    elif _should_use_sql_store(None, _default_offer_store_path):
+        related_offers = [dict(offer) for offer in sql_offers_for_order(str(order.get("id") or ""))]
+    else:
+        related_offers = [dict(offer) for offer in load_offers() if str(offer.get("orderId")) == str(order.get("id"))]
     payload["offers"] = related_offers
     return payload
 
@@ -2926,6 +2997,16 @@ def get_provider_offers(
     offer_store_path: Optional[Path] = None,
 ) -> List[Dict[str, Any]]:
     expire_stale_and_notify(order_store_path=order_store_path, offer_store_path=offer_store_path)
+    if _should_use_sql_runtime(order_store_path, None, offer_store_path):
+        provider_offers = []
+        for offer in sql_pending_offers_for_provider(str(provider_id)):
+            order = offer.get("order") if isinstance(offer.get("order"), dict) else None
+            if not isinstance(order, dict):
+                continue
+            bare = {key: value for key, value in offer.items() if key != "order"}
+            provider_offers.append(_public_offer_payload(bare, order))
+        return sorted(provider_offers, key=lambda item: item.get("createdAt") or "")
+
     with STORE_LOCK:
         orders = load_orders(order_store_path)
         offers = load_offers(offer_store_path)
@@ -3350,6 +3431,14 @@ def list_orders_for_provider(
     provider_store_path: Optional[Path] = None,
     limit: int = 50,
 ) -> List[Dict[str, Any]]:
+    if _should_use_sql_store(store_path, _default_store_path):
+        orders = [
+            enrich_order_for_client(order, provider_store_path)
+            for order in sql_orders_for_provider(str(provider_id), limit=limit)
+        ]
+        orders.sort(key=lambda item: str(item.get("updatedAt") or item.get("createdAt") or ""), reverse=True)
+        return orders[: max(1, min(int(limit or 50), 200))]
+
     orders = [
         enrich_order_for_client(order, provider_store_path)
         for order in load_orders(store_path)
