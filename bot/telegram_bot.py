@@ -787,12 +787,19 @@ def notify_order_cancelled(order: dict[str, Any]) -> list[dict[str, Any]]:
     if not order_id:
         return []
 
-    text = f"Заявку #{order_id} скасовано клієнтом"
+    idle_timeout = str(order.get("cancelReason") or "") == "accepted_idle_timeout"
+    if idle_timeout:
+        partner_text = f"Заявку #{order_id} скасовано: не оброблено протягом 15 хвилин після прийняття."
+        customer_text = f"Заявку #{order_id} скасовано автоматично: ціну не підтверджено протягом 15 хвилин."
+    else:
+        partner_text = f"Заявку #{order_id} скасовано клієнтом"
+        customer_text = f"Заявку #{order_id} скасовано."
+
     results: list[dict[str, Any]] = []
     # Provider audience → provider bot only.
     for telegram_user_id in partner_telegram_user_ids_for_order(order_id, order):
         try:
-            results.append(TelegramBotClient(kind="provider").send_message(str(telegram_user_id), text))
+            results.append(TelegramBotClient(kind="provider").send_message(str(telegram_user_id), partner_text))
         except TelegramApiError as exc:
             print(f"Telegram API error while notifying partner cancel: {exc}", flush=True)
             results.append({"ok": False, "error": str(exc), "chat_id": telegram_user_id})
@@ -803,7 +810,7 @@ def notify_order_cancelled(order: dict[str, Any]) -> list[dict[str, Any]]:
             results.append(
                 TelegramBotClient(kind="customer").send_message(
                     customer_chat,
-                    f"Заявку #{order_id} скасовано.",
+                    customer_text,
                 )
             )
         except TelegramApiError as exc:

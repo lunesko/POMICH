@@ -84,7 +84,7 @@ import { OrderFinalStep } from "../customer/OrderTerminalStep"
 import { DutyStatusToggle, PresenceToast, presenceErrorMessage } from "../ui/DutyStatusToggle"
 import { OrderRequestSheet } from "./OrderRequestSheet"
 import { IncomingOfferStep } from "./IncomingOfferStep"
-import { filterActiveMapRequestPins, filterActiveOffers, filterVisibleOffers, isOfferActive, isPresentableOffer, mergeRequestPins, offerActionErrorMessage, offerSecondsLeft, parseOfferPrice, pinFromOffer, readPersistedOfferDismissals, writePersistedOfferDismissals } from "../../lib/dispatchOffer"
+import { filterActiveMapRequestPins, filterActiveOffers, filterVisibleOffers, formatCountdown, acceptedIdleSecondsLeft, isOfferActive, isPresentableOffer, mergeRequestPins, offerActionErrorMessage, offerSecondsLeft, parseOfferPrice, pinFromOffer, readPersistedOfferDismissals, writePersistedOfferDismissals } from "../../lib/dispatchOffer"
 import { subscribeOrderEvents, subscribeProviderEvents } from "../../lib/realtime"
 import { getTelegramContext } from "../../telegram"
 import FormContainer, { FormFooterBar, FormHeader } from "../layout/FormContainer"
@@ -1828,14 +1828,20 @@ export default function ProviderFlow({
 
   if (step === "awaiting_price") {
     const proposed = activeOrder?.partnerProposedPrice
+    const idleSecondsLeft = acceptedIdleSecondsLeft(activeOrder, offerClock)
     return (
-      <ScreenLayout footer={<SecondaryButton label="Повернутись до карти" onClick={returnToDuty} />}>
+      <ScreenLayout>
         <Header title="Очікуємо клієнта" subtitle={activeOrder?.id ? `Замовлення #${activeOrder.id}` : undefined} status="accepted" />
         <div style={{ padding: "8px 16px 16px", display: "grid", gap: 12 }}>
           <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 18, padding: 16 }}>
             <div style={{ fontWeight: 950, fontSize: 20, color: DARK }}>Ціну надіслано клієнту</div>
             <div style={{ color: MUTED, fontWeight: 750, marginTop: 8, lineHeight: 1.45 }}>
               Ви запропонували {typeof proposed === "number" ? `${proposed.toLocaleString("uk-UA")} ₴` : "ціну"}. Клієнт підтвердить або зв'яжеться для обговорення.
+            </div>
+            <div style={{ marginTop: 14, background: "var(--pomich-warn-bg)", color: "var(--pomich-warn-text)", borderRadius: 14, padding: 12, fontWeight: 800, lineHeight: 1.45 }}>
+              {idleSecondsLeft > 0
+                ? `Якщо клієнт не підтвердить ціну за ${formatCountdown(idleSecondsLeft)}, заявку буде скасовано.`
+                : "Час очікування вийшов — заявку буде скасовано автоматично."}
             </div>
             <div style={{ marginTop: 14 }}>
               <Timeline status="accepted" />

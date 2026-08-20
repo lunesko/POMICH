@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest"
 
 import type { DispatchOffer } from "../api/client"
 import {
+  acceptedIdleSecondsLeft,
   filterActiveMapRequestPins,
   filterActiveOffers,
   filterVisibleOffers,
+  formatCountdown,
   isMapRequestPinActive,
   isOfferActive,
   isPresentableOffer,
@@ -41,6 +43,16 @@ describe("dispatchOffer helpers", () => {
     expect(isOfferActive(openEnded)).toBe(true)
     expect(offerSecondsLeft(openEnded)).toBeGreaterThan(0)
     expect(offerSecondsLeft({ ...baseOffer, expiresAt: "not-a-date" })).toBeGreaterThan(0)
+  })
+
+  it("counts down accepted idle timeout and formats mm:ss", () => {
+    const now = Date.now()
+    const acceptedAt = new Date(now - 60_000).toISOString()
+    expect(acceptedIdleSecondsLeft({ status: "accepted", acceptedAt, acceptedIdleTimeoutSeconds: 900 }, now)).toBe(840)
+    expect(acceptedIdleSecondsLeft({ status: "accepted", acceptedIdleExpiresAt: new Date(now + 90_000).toISOString() }, now)).toBe(90)
+    expect(acceptedIdleSecondsLeft({ status: "price_confirmed", acceptedAt }, now)).toBe(0)
+    expect(formatCountdown(125)).toBe("2:05")
+    expect(formatCountdown(0)).toBe("0:00")
   })
 
   it("builds a map pin from an offer", () => {
