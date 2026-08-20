@@ -3090,7 +3090,9 @@ def get_provider_offers(
     order_store_path: Optional[Path] = None,
     offer_store_path: Optional[Path] = None,
 ) -> List[Dict[str, Any]]:
-    expire_stale_and_notify(order_store_path=order_store_path, offer_store_path=offer_store_path)
+    # Always expire before listing — do not use throttled expire_stale_and_notify here,
+    # or recently-expired offers stay visible between throttle windows.
+    expire_stale_dispatch(order_store_path=order_store_path, offer_store_path=offer_store_path)
     if _should_use_sql_runtime(order_store_path, None, offer_store_path):
         provider_offers = []
         for offer in sql_pending_offers_for_provider(str(provider_id)):
