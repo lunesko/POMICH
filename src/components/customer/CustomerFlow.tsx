@@ -1338,10 +1338,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
   const pickupRef = useRef<Point>(PICKUP)
   const geoWatchDebounceRef = useRef<number | undefined>(undefined)
   const [destinationPoint, setDestinationPoint] = useState<Point>(DEFAULT_DESTINATION)
-  const {
-    providers: nearbyProviders,
-    loading: providersLoading,
-  } = useDirectoryScope({ enabled: false })
+  const { loading: providersLoading } = useDirectoryScope({ enabled: false })
   const [liveNearbyProviders, setLiveNearbyProviders] = useState<ProviderAvailability[]>([])
   const [liveNearbyLoading, setLiveNearbyLoading] = useState(false)
   const [customerReviewSaving, setCustomerReviewSaving] = useState(false)
