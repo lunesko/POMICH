@@ -440,6 +440,28 @@ def test_dispatch_reoffers_provider_after_offer_expires(tmp_path, monkeypatch):
     assert active_offers[0]["providerId"] == "p1"
 
 
+def test_dispatch_keeps_offers_sent_when_pending_already_exist(tmp_path):
+    order_path = tmp_path / "orders.json"
+    provider_path = tmp_path / "providers.json"
+    offer_path = tmp_path / "offers.json"
+    pickup = {"lat": 48.6208, "lng": 22.2879}
+
+    save_providers([_provider("p1", 48.6218, 22.2879)], provider_path)
+    order = save_order({"service": "tow", "customerCoordinates": pickup}, store_path=order_path)
+    first = dispatch_order(order["id"], order_path, provider_path, offer_path)
+    assert first is not None
+    assert first["dispatchState"] == "OFFERS_SENT"
+    pending_before = [offer for offer in load_offers(offer_path) if offer.get("status") == "pending"]
+    assert len(pending_before) == 1
+
+    # Block new candidates (same provider already offered as pending) — must not flip to NO_PROVIDERS.
+    again = dispatch_order(order["id"], order_path, provider_path, offer_path)
+    assert again is not None
+    assert again["dispatchState"] == "OFFERS_SENT"
+    pending_after = [offer for offer in load_offers(offer_path) if offer.get("status") == "pending"]
+    assert len(pending_after) == 1
+
+
 def test_expire_stale_auto_retries_exhausted_searching_offers(tmp_path, monkeypatch):
     order_path = tmp_path / "orders.json"
     provider_path = tmp_path / "providers.json"

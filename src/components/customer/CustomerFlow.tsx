@@ -127,7 +127,13 @@ function VerificationPill({ status }: { status?: VerificationStatus }) {
   )
 }
 
-const FLOW_STEP_LABELS = ["Оберіть проблему", "Де ви зараз?", "Куди / на місці", "Перевірте заявку"] as const
+const FLOW_STEP_LABELS = [
+  "Оберіть проблему",
+  "Де ви зараз?",
+  "Куди / на місці",
+  "Стан авто",
+  "Перевірте заявку",
+] as const
 
 type DirectoryMapRideProps = {
   providers: ProviderAvailability[]
@@ -145,7 +151,7 @@ type DirectoryMapRideProps = {
 function StepBadge({ step }: { step: 1 | 2 | 3 | 4 | 5 }) {
   return (
     <div className="pomich-step-badge">
-      Крок {step} з 4 · {FLOW_STEP_LABELS[step - 1]}
+      Крок {step} з {FLOW_STEP_LABELS.length} · {FLOW_STEP_LABELS[step - 1]}
     </div>
   )
 }
@@ -1031,26 +1037,9 @@ function SearchingStep({ orderId, status, order, pickup, destination, cancelErro
     pendingOffers === 0 &&
     offers.some((offer) => offer.status === "expired" || offer.status === "declined" || offer.status === "lost")
   const showRetry = noProviders || offersExhausted
-  const autoRetryAttemptedRef = useRef(false)
-
-  useEffect(() => {
-    autoRetryAttemptedRef.current = false
-  }, [orderId])
-
-  useEffect(() => {
-    if (pendingOffers > 0) autoRetryAttemptedRef.current = false
-  }, [pendingOffers])
-
-  useEffect(() => {
-    // Auto-retry once when the wave is exhausted; keep manual CTA for NO_PROVIDERS after that.
-    if (!offersExhausted || autoRetryAttemptedRef.current) return
-    autoRetryAttemptedRef.current = true
-    onRetryDispatch()
-  }, [offersExhausted, onRetryDispatch])
 
   return (
     <RideScreen pickup={pickup} destination={destination} providers={order?.assignedProvider ? [order.assignedProvider] : undefined} mapSubtitle={orderId ? `#${orderId}` : "Очікуємо партнера"}>
-      <StepBadge step={5} />
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
         <SheetHeading
           title={showRetry ? "Пошук не дав результату" : "Очікуємо партнера"}
@@ -1079,7 +1068,7 @@ function SearchingStep({ orderId, status, order, pickup, destination, cancelErro
         {noProviders
           ? "Можна повторити пошук без створення нової заявки."
           : offersExhausted
-            ? "Повторюємо пошук автоматично. Можна також натиснути «Спробувати ще раз»."
+            ? "Система повторює пошук автоматично. Можна також натиснути «Спробувати ще раз»."
             : offersSent > 0
               ? `Звернулися до ${offersSent} партнерів. Перший, хто підтвердить, отримає заявку.`
               : "Скануємо найближчих партнерів на лінії… Партнери бачать ваше місцезнаходження."}
@@ -1293,7 +1282,6 @@ function TrackingStep({ orderId, status, order, pickup, destination, cancelError
 function ArrivedStep({ orderId, status, order, pickup, destination, cancelError, cancelling, onCancel }: { orderId?: string; status: OrderStatus; order?: OrderResponse; pickup: Point; destination: Point; cancelError?: string; cancelling?: boolean; onCancel: () => void }) {
   return (
     <RideScreen pickup={pickup} destination={destination} providerPosition={pickup} mapSubtitle="Виконавець на місці">
-      <StepBadge step={5} />
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
         <SheetHeading title="Виконавець на місці" subtitle={orderId ? `Замовлення #${orderId}` : undefined} />
         <StatusPill status={status} />

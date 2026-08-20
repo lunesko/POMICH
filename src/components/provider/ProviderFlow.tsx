@@ -62,7 +62,7 @@ import { readCachedProviderProfile, writeCachedProviderProfile } from "../../lib
 import { clearActiveOrder, isActiveOrderStatus, persistActiveOrder, pickLatestActiveOrder, readActiveOrder } from "../../lib/customerSession"
 import { requestCurrentPosition } from "../../lib/mapGeo"
 import { validateUkraineMobilePhone } from "../../lib/ukrainePhone"
-import { isValidUkrainePlate, validateUkrainePlate } from "../../lib/ukrainePlate"
+import { validateUkrainePlate } from "../../lib/ukrainePlate"
 import { isPartnerProfileComplete } from "../../lib/partnerProfileComplete"
 import { validatePersonName } from "../../lib/personName"
 import { DEFAULT_SERVICE_CITY, validateServiceCity } from "../../lib/ukraineCities"

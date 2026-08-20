@@ -3127,8 +3127,22 @@ def dispatch_order(
                 break
 
         if not selected:
-            order["dispatchState"] = "NO_PROVIDERS_AVAILABLE"
+            pending_existing = _pending_offer_count_for_order(offers, order_id)
             prev_info = order.get("dispatchInfo") if isinstance(order.get("dispatchInfo"), dict) else {}
+            if pending_existing > 0:
+                # Another concurrent retry already sent offers — keep OFFERS_SENT.
+                order["dispatchState"] = "OFFERS_SENT"
+                order["dispatchInfo"] = {
+                    **prev_info,
+                    "eligibleProviders": len(candidates),
+                    "offersSent": max(int(prev_info.get("offersSent") or 0), pending_existing),
+                    "lastDispatchAt": now_iso,
+                }
+                order["updatedAt"] = now_iso
+                _write_json_atomic(order_path, orders)
+                save_offers(offers, offer_path)
+                return attach_dispatch_to_order(order, offers)
+            order["dispatchState"] = "NO_PROVIDERS_AVAILABLE"
             order["dispatchInfo"] = {
                 "eligibleProviders": len(candidates),
                 "offersSent": 0,
