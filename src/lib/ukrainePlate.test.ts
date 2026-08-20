@@ -19,6 +19,23 @@ describe("ukrainePlate", () => {
   it("accepts Cyrillic lookalikes and maps them to Latin", () => {
     expect(parseUkrainePlateInput("ВХ5874НХ")).toBe("BX5874HX")
     expect(formatUkrainePlateInput("ВХ5874НХ")).toBe("BX 5874 HX")
+    expect(isValidUkrainePlate("АО 3422 ТЕ")).toBe(true)
+    expect(validateUkrainePlate("АО3422ТЕ")).toEqual({
+      valid: true,
+      plate: "AO 3422 TE",
+    })
+  })
+
+  it("accepts mixed Latin and Cyrillic in one plate", () => {
+    expect(parseUkrainePlateInput("АO3422TЕ")).toBe("AO3422TE")
+    expect(formatUkrainePlateInput("АO 3422 TЕ")).toBe("AO 3422 TE")
+    expect(isValidUkrainePlate("АO 3422 TЕ")).toBe(true)
+  })
+
+  it("accepts lowercase Cyrillic and Latin interchangeably", () => {
+    expect(parseUkrainePlateInput("ао3422те")).toBe("AO3422TE")
+    expect(parseUkrainePlateInput("ao3422te")).toBe("AO3422TE")
+    expect(isValidUkrainePlate("ао 3422 те")).toBe(true)
   })
 
   it("rejects Cyrillic nonsense that is not a plate letter", () => {

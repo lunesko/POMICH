@@ -1,11 +1,18 @@
 /** Latin letters used on standard Ukrainian license plates (2004+). */
 export const UA_PLATE_LETTERS = "ABCEHIKMOPTX"
 
-export const UA_PLATE_PLACEHOLDER = "BX 5874 HX"
+export const UA_PLATE_PLACEHOLDER = "AA 0000 AA"
 
 export const UA_PLATE_VALIDATION_ERROR =
-  "Введіть коректний номер авто (формат: AA 0000 AA)"
+  "Введіть коректний номер авто (формат: AA 0000 AA). Можна латиницею або кирилицею."
 
+export const UA_PLATE_INPUT_HINT =
+  "Літери латиницею або кирилицею: A/А B/В C/С E/Е H/Н I/І K/К M/М O/О P/Р T/Т X/Х"
+
+/**
+ * Cyrillic plate lookalikes → canonical Latin plate alphabet.
+ * Includes common case variants; lookup is also done after uppercasing.
+ */
 const CYRILLIC_TO_LATIN: Record<string, string> = {
   А: "A",
   а: "A",
@@ -15,10 +22,14 @@ const CYRILLIC_TO_LATIN: Record<string, string> = {
   с: "C",
   Е: "E",
   е: "E",
+  Ё: "E",
+  ё: "E",
   Н: "H",
   н: "H",
   І: "I",
   і: "I",
+  Ї: "I",
+  ї: "I",
   К: "K",
   к: "K",
   М: "M",
@@ -34,7 +45,22 @@ const CYRILLIC_TO_LATIN: Record<string, string> = {
 }
 
 function normalizePlateChar(char: string): string {
-  return CYRILLIC_TO_LATIN[char] ?? char.toUpperCase()
+  const compact = char.normalize("NFKC")
+  const direct = CYRILLIC_TO_LATIN[compact]
+  if (direct) return direct
+
+  // Locale-safe uppercasing: Turkish `i` → `İ` must still become Latin I for plates.
+  const upperUk = compact.toLocaleUpperCase("uk-UA")
+  const mappedUpper = CYRILLIC_TO_LATIN[upperUk]
+  if (mappedUpper) return mappedUpper
+
+  const upper = compact.toUpperCase()
+  if (CYRILLIC_TO_LATIN[upper]) return CYRILLIC_TO_LATIN[upper]
+
+  // Latin dotted capital I (U+0130) from some mobile keyboards → I
+  if (upper === "İ" || upper === "I" || compact === "i" || compact === "ı") return "I"
+
+  return upper
 }
 
 function isPlateLetter(char: string): boolean {
@@ -48,9 +74,12 @@ function isPlateDigit(char: string): boolean {
 /** Strip to up to 8 plate characters (2 letters + 4 digits + 2 letters). */
 export function parseUkrainePlateInput(raw: string): string {
   const result: string[] = []
+  const source = String(raw || "").normalize("NFKC")
 
-  for (const char of raw) {
-    if (char === " " || char === "-") continue
+  for (const char of source) {
+    if (char === " " || char === "-" || char === "–" || char === "—" || char === "_") continue
+    // Ignore zero-width / BOM noise from mobile paste.
+    if (char === "\u200B" || char === "\uFEFF" || char === "\u00A0") continue
 
     const normalized = normalizePlateChar(char)
     const position = result.length

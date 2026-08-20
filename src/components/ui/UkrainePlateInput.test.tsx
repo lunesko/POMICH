@@ -41,6 +41,20 @@ describe("UkrainePlateInput", () => {
     expect(input).toHaveValue("AB")
   })
 
+  it("accepts Cyrillic plate letters and shows Latin canonical form", async () => {
+    const user = userEvent.setup()
+    render(<ControlledPlateInput />)
+
+    const input = screen.getByRole("textbox", { name: /Номер авто/i })
+    await user.type(input, "АО3422ТЕ")
+    expect(input).toHaveValue("AO 3422 TE")
+  })
+
+  it("shows bilingual letter hint", () => {
+    render(<UkrainePlateInput value="" onChange={vi.fn()} />)
+    expect(screen.getByText(/Літери латиницею або кирилицею/i)).toBeInTheDocument()
+  })
+
   it("shows validation error", () => {
     render(<UkrainePlateInput value="" onChange={vi.fn()} error="Введіть номер авто" />)
 
