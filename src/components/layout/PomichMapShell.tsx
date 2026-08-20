@@ -61,9 +61,11 @@ export function PomichMapBackground({
   fixed?: boolean
 }) {
   const heroProviders = providers && providers.length > 0 ? providers : fallbackProviders
-  /* Ken Burns only on landing hero — CSS transforms on Leaflet tiles cause visible grid seams /
-     flicker (worse on iOS + dark glass compositing). App shell stays static. */
-  const mapMotionClass = variant === "hero" ? "landing-hero-map" : "pomich-map-shell__map--static"
+  /* Never CSS-transform the Leaflet tile layer — scale/translate opens a visible square
+     grid between raster tiles on desktop Chrome/Firefox (and flicker on iOS). Motion stays
+     on atmosphere orbs / brand / CTAs instead. */
+  const mapLayerClass =
+    variant === "hero" ? "landing-hero-map pomich-map-shell__map--static" : "pomich-map-shell__map--static"
 
   return (
     <div
@@ -71,7 +73,7 @@ export function PomichMapBackground({
       aria-hidden="true"
     >
       <div className="pomich-map-shell__clip landing-hero-map-clip">
-        <div className={`pomich-map-shell__map ${mapMotionClass}`.trim()}>
+        <div className={`pomich-map-shell__map ${mapLayerClass}`.trim()}>
           <LazyRouteMap
             pickup={MAP_CENTER}
             destination={MAP_DESTINATION}

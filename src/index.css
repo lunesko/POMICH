@@ -1273,29 +1273,39 @@ html:not([data-pomich-theme]) .pomich-map-tools-panel__close {
   /* Avoid translateZ/GPU layer hacks — they open hairline tile seams on iOS Safari. */
   transform: none;
   backface-visibility: visible;
+  -webkit-font-smoothing: antialiased;
 }
-/* Hide 1px gaps between raster tiles (retina / subpixel rounding) */
+/* Hide 1px gaps between raster tiles (retina / subpixel rounding / Tailwind img max-width) */
 .pomich-route-map .leaflet-tile,
-.pomich-ride-screen__map .leaflet-tile {
+.pomich-ride-screen__map .leaflet-tile,
+.pomich-map-shell .leaflet-tile,
+.landing-hero-map-clip .leaflet-tile {
   border: none !important;
-  outline: 1px solid transparent;
+  outline: none !important;
   box-shadow: none !important;
+  /* Tailwind preflight sets max-width:100% on img — that opens tile seams */
+  max-width: none !important;
+  max-height: none !important;
 }
 .pomich-route-map .leaflet-tile-container img,
-.pomich-ride-screen__map .leaflet-tile-container img {
+.pomich-ride-screen__map .leaflet-tile-container img,
+.pomich-map-shell .leaflet-tile-container img,
+.landing-hero-map-clip .leaflet-tile-container img {
   /* Slight oversize closes subpixel gaps without visible stretch */
   width: 256.5px !important;
   height: 256.5px !important;
+  max-width: none !important;
+  max-height: none !important;
 }
-/* App-shell atmosphere map: static (no Ken Burns) so cabinet/forms never show blinking tile seams */
+/* Atmosphere / hero map: never animate transform — Ken Burns = square tile grid on PC */
 .pomich-map-shell__map--static {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   pointer-events: none;
-  transform: none;
-  animation: none;
+  transform: none !important;
+  animation: none !important;
   will-change: auto;
 }
 /* Ukraine mask / occupied overlay — below markers (600), above tiles (200) */
@@ -2118,16 +2128,16 @@ html:not([data-pomich-theme]) .pomich-map-shell--root .pomich-cabinet-footer {
   pointer-events: none;
   z-index: 0;
 }
-/* Hero copy floats on map — NO boxed card/plate */
+/* Hero map stays static (no Ken Burns). Oversized slightly so clip edges stay covered. */
 .landing-hero-map {
   position: absolute;
-  inset: -14%;
-  width: 128%;
-  height: 128%;
-  will-change: transform;
-  transform-origin: 58% 42%;
-  animation: landingHeroKenBurns 18s ease-in-out infinite alternate;
+  inset: -4%;
+  width: 108%;
+  height: 108%;
   pointer-events: none;
+  transform: none !important;
+  animation: none !important;
+  will-change: auto;
 }
 .landing-hero-atmosphere {
   position: absolute;
@@ -2577,9 +2587,9 @@ html:not([data-pomich-theme]) .landing-hero-eyebrow {
     right: 4%;
   }
   .landing-hero-map {
-    inset: -10%;
-    width: 120%;
-    height: 120%;
+    inset: -3%;
+    width: 106%;
+    height: 106%;
   }
   .pomich-landing .landing-hero-title {
     font-size: 20px !important;
@@ -2603,7 +2613,8 @@ html.mobile-compact .pomich-landing .landing-hero-title {
 }
 @media (prefers-reduced-motion: reduce) {
   .landing-hero-map {
-    animation: landingHeroKenBurns 48s linear infinite alternate;
+    animation: none !important;
+    transform: none !important;
   }
   .landing-hero-brand {
     animation: none;
