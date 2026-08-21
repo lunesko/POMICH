@@ -1,5 +1,7 @@
 import type { LatLngTuple, Map as LeafletMap } from "leaflet"
 
+import { requestTelegramLocation } from "../telegram"
+
 export type GeoPoint = { lat: number; lng: number }
 
 export type SheetSnapForPadding = "collapsed" | "half" | "expanded"
@@ -359,43 +361,64 @@ export function requestCurrentPosition(
     return
   }
 
-  // Explicit user gesture: clear sticky deny memory, then request a fresh fix.
+  // Explicit user gesture: Telegram LocationManager first, then browser GPS.
   try {
     window.localStorage.removeItem(GEO_PERMISSION_STORAGE_KEY)
   } catch {
     // ignore
   }
-  navigator.geolocation.getCurrentPosition(
-    (position) => {
-      finishGeoSuccess({ lat: position.coords.latitude, lng: position.coords.longitude }, onSuccess)
-    },
-    (firstError) => {
-      if (firstError.code === firstError.PERMISSION_DENIED) {
-        writeRememberedGeoPermission("denied")
-        const classified = classifyGeolocationError(firstError)
-        onError(
-          "Доступ заборонено. У Telegram: Налаштування → Telegram → Дозвіл на геолокацію. У браузері увімкніть гео в адресній стрічці, потім натисніть «Оновити» знову.",
-          classified.kind,
+
+  const requestBrowserExplicit = () => {
+    // Prefer low-accuracy first — more reliable permission prompt in Telegram/iOS WebViews.
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        finishGeoSuccess({ lat: position.coords.latitude, lng: position.coords.longitude }, onSuccess)
+      },
+      (firstError) => {
+        if (firstError.code === firstError.PERMISSION_DENIED) {
+          writeRememberedGeoPermission("denied")
+          onError(
+            "Доступ до геолокації заборонено. Натисніть «Налаштування гео», дозвольте доступ, потім «Оновити» ще раз.",
+            "permission-denied",
+          )
+          return
+        }
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            finishGeoSuccess({ lat: position.coords.latitude, lng: position.coords.longitude }, onSuccess)
+          },
+          (retryError) => {
+            const classified = classifyGeolocationError(retryError)
+            if (classified.kind === "permission-denied") writeRememberedGeoPermission("denied")
+            const cachedFallback = readCachedGeoPosition()
+            if (cachedFallback && classified.kind !== "permission-denied") {
+              onSuccess(cachedFallback)
+              return
+            }
+            onError(
+              classified.kind === "permission-denied"
+                ? "Доступ до геолокації заборонено. Натисніть «Налаштування гео», дозвольте доступ, потім «Оновити» ще раз."
+                : classified.message,
+              classified.kind,
+            )
+          },
+          { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
         )
-        return
-      }
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          finishGeoSuccess({ lat: position.coords.latitude, lng: position.coords.longitude }, onSuccess)
-        },
-        (retryError) => {
-          const classified = classifyGeolocationError(retryError)
-          if (classified.kind === "permission-denied") writeRememberedGeoPermission("denied")
-          const cachedFallback = readCachedGeoPosition()
-          if (cachedFallback && classified.kind !== "permission-denied") {
-            onSuccess(cachedFallback)
-            return
-          }
-          onError(classified.message, classified.kind)
-        },
-        { enableHighAccuracy: false, timeout: 20000, maximumAge: 0 },
+      },
+      { enableHighAccuracy: false, timeout: 12000, maximumAge: 0 },
+    )
+  }
+
+  const usedTelegram = requestTelegramLocation(
+    (point) => finishGeoSuccess(point, onSuccess),
+    () => {
+      writeRememberedGeoPermission("denied")
+      onError(
+        "Доступ до геолокації заборонено. Натисніть «Налаштування гео», дозвольте доступ у Telegram, потім «Оновити».",
+        "permission-denied",
       )
     },
-    { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
+    () => requestBrowserExplicit(),
   )
+  if (!usedTelegram) requestBrowserExplicit()
 }

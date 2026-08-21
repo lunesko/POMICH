@@ -179,4 +179,45 @@ describe("mapGeo", () => {
     expect(onSuccess).toHaveBeenCalledWith(uzhgorodCenter)
     await vi.waitFor(() => expect(onSuccess).toHaveBeenCalledWith({ lat: 48.64, lng: 22.3 }))
   })
+
+  it("explicit mode clears sticky deny and requests a fresh browser fix", () => {
+    writeRememberedGeoPermission("denied")
+    const getCurrentPosition = vi.fn((success: PositionCallback) => {
+      success({
+        coords: { latitude: 48.65, longitude: 22.31, accuracy: 12, altitude: null, altitudeAccuracy: null, heading: null, speed: null },
+        timestamp: Date.now(),
+      } as GeolocationPosition)
+    })
+    vi.stubGlobal("navigator", {
+      geolocation: { getCurrentPosition },
+      permissions: undefined,
+    })
+    const onSuccess = vi.fn()
+    requestCurrentPosition(onSuccess, vi.fn(), { mode: "explicit" })
+    expect(getCurrentPosition).toHaveBeenCalled()
+    expect(onSuccess).toHaveBeenCalledWith({ lat: 48.65, lng: 22.31 })
+    expect(readRememberedGeoPermission()).toBe("granted")
+  })
+
+  it("explicit mode prefers Telegram LocationManager when available", () => {
+    const getCurrentPosition = vi.fn()
+    vi.stubGlobal("navigator", {
+      geolocation: { getCurrentPosition },
+      permissions: undefined,
+    })
+    vi.stubGlobal("Telegram", {
+      WebApp: {
+        LocationManager: {
+          isInited: true,
+          getLocation: (callback: (location: { latitude: number; longitude: number } | null) => void) => {
+            callback({ latitude: 48.61, longitude: 22.27 })
+          },
+        },
+      },
+    })
+    const onSuccess = vi.fn()
+    requestCurrentPosition(onSuccess, vi.fn(), { mode: "explicit" })
+    expect(onSuccess).toHaveBeenCalledWith({ lat: 48.61, lng: 22.27 })
+    expect(getCurrentPosition).not.toHaveBeenCalled()
+  })
 })

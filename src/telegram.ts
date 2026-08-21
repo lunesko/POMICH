@@ -69,6 +69,28 @@ export interface TelegramContact {
   user_id?: number
 }
 
+export interface TelegramLocationManager {
+  isInited?: boolean
+  isLocationAvailable?: boolean
+  isAccessRequested?: boolean
+  isAccessGranted?: boolean
+  init?: (callback?: () => void) => void
+  getLocation?: (callback: (location: TelegramLocationCoords | null) => void) => void
+  openSettings?: () => void
+}
+
+export interface TelegramLocationCoords {
+  latitude: number
+  longitude: number
+  altitude?: number
+  course?: number
+  speed?: number
+  horizontal_accuracy?: number
+  vertical_accuracy?: number
+  course_accuracy?: number
+  speed_accuracy?: number
+}
+
 export interface TelegramWebApp {
   initData?: string
   initDataUnsafe?: {
@@ -92,6 +114,8 @@ export interface TelegramWebApp {
   MainButton?: TelegramMainButton
   BackButton?: TelegramBackButton
   HapticFeedback?: TelegramHapticFeedback
+  /** Bot API 8.0+ — native location permission + GPS. */
+  LocationManager?: TelegramLocationManager
   ready?: () => void
   expand?: () => void
   close?: () => void
@@ -476,4 +500,63 @@ export function requestTelegramContact(webApp?: TelegramWebApp): Promise<Telegra
 
     window.setTimeout(() => finish(null), 120_000)
   })
+}
+
+/** Open Telegram's native location permission settings (Bot API 8.0+). */
+export function openTelegramLocationSettings(webApp?: TelegramWebApp): boolean {
+  const manager = webApp?.LocationManager ?? (typeof window !== "undefined" ? window.Telegram?.WebApp?.LocationManager : undefined)
+  if (!manager || typeof manager.openSettings !== "function") return false
+  try {
+    manager.openSettings()
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Ask Telegram LocationManager for a fix (Bot API 8.0+).
+ * Returns false when the API is unavailable so the caller can fall back to browser geolocation.
+ */
+export function requestTelegramLocation(
+  onSuccess: (point: { lat: number; lng: number }) => void,
+  onDenied: () => void,
+  onUnavailable: () => void,
+  webApp?: TelegramWebApp,
+): boolean {
+  const manager = webApp?.LocationManager ?? (typeof window !== "undefined" ? window.Telegram?.WebApp?.LocationManager : undefined)
+  if (!manager || typeof manager.getLocation !== "function") return false
+
+  const readLocation = () => {
+    try {
+      manager.getLocation?.((location) => {
+        if (
+          location &&
+          Number.isFinite(location.latitude) &&
+          Number.isFinite(location.longitude)
+        ) {
+          onSuccess({ lat: location.latitude, lng: location.longitude })
+          return
+        }
+        if (manager.isAccessRequested && manager.isAccessGranted === false) {
+          onDenied()
+          return
+        }
+        onUnavailable()
+      })
+    } catch {
+      onUnavailable()
+    }
+  }
+
+  try {
+    if (!manager.isInited && typeof manager.init === "function") {
+      manager.init(() => readLocation())
+    } else {
+      readLocation()
+    }
+    return true
+  } catch {
+    return false
+  }
 }

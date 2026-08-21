@@ -31,7 +31,7 @@ import {
   type CustomerOrderInput,
   type ServiceKey,
 } from "../../lib/pomichDomain"
-import { getTelegramContext } from "../../telegram"
+import { getTelegramContext, openTelegramLocationSettings } from "../../telegram"
 import {
   getProfileChecklist,
   customerProfileStatusLabel,
@@ -335,7 +335,11 @@ function GeoRefreshButton({ loading, onClick }: { loading: boolean; onClick: () 
     <button
       type="button"
       aria-label="Оновити геолокацію"
-      onClick={onClick}
+      onClick={(event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        onClick()
+      }}
       disabled={loading}
       style={{
         minHeight: 36,
@@ -353,6 +357,7 @@ function GeoRefreshButton({ loading, onClick }: { loading: boolean; onClick: () 
         alignItems: "center",
         gap: 6,
         flexShrink: 0,
+        touchAction: "manipulation",
       }}
     >
       <span aria-hidden="true" style={{ fontSize: 14, lineHeight: 1 }}>{loading ? "…" : "↻"}</span>
@@ -366,12 +371,14 @@ function CurrentLocationCard({
   geoLoading,
   geoError,
   onRefreshGeo,
+  onOpenGeoSettings,
   children,
 }: {
   locationLabel: string
   geoLoading: boolean
   geoError?: string
   onRefreshGeo: () => void
+  onOpenGeoSettings?: () => void
   children?: ReactNode
 }) {
   return (
@@ -384,7 +391,33 @@ function CurrentLocationCard({
       </div>
       {geoError ? (
         <div style={{ background: "var(--pomich-warn-bg)", color: "var(--pomich-warn-text)", borderRadius: 12, padding: "10px 12px", fontSize: 12, fontWeight: 800, marginBottom: 4 }}>
-          {geoError}
+          <div>{geoError}</div>
+          {onOpenGeoSettings ? (
+            <button
+              type="button"
+              onClick={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+                onOpenGeoSettings()
+              }}
+              style={{
+                marginTop: 8,
+                minHeight: 34,
+                padding: "0 12px",
+                borderRadius: 10,
+                border: "1px solid currentColor",
+                background: "transparent",
+                color: "inherit",
+                fontWeight: 900,
+                fontSize: 12,
+                cursor: "pointer",
+                fontFamily: "inherit",
+                touchAction: "manipulation",
+              }}
+            >
+              Налаштування гео
+            </button>
+          ) : null}
         </div>
       ) : null}
       {children}
@@ -588,6 +621,7 @@ function HomeStep({
   onVerifyCustomer,
   onProfileVerified,
   onRetryGeo,
+  onOpenGeoSettings,
   onServiceCityChange,
   onSelect,
 }: {
@@ -608,6 +642,7 @@ function HomeStep({
   onVerifyCustomer: () => void
   onProfileVerified: (profile: CustomerProfile) => void
   onRetryGeo: () => void
+  onOpenGeoSettings?: () => void
   onServiceCityChange: (city: string) => void
   onSelect: (service: ServiceKey) => void
 }) {
@@ -635,7 +670,13 @@ function HomeStep({
       <StepBadge step={1} />
       <SheetHeading title="Потрібна допомога на дорозі?" subtitle="Спочатку заповніть профіль, потім оберіть проблему." />
 
-      <CurrentLocationCard locationLabel={locationLabel} geoLoading={geoLoading} geoError={geoError} onRefreshGeo={onRetryGeo}>
+      <CurrentLocationCard
+        locationLabel={locationLabel}
+        geoLoading={geoLoading}
+        geoError={geoError}
+        onRefreshGeo={onRetryGeo}
+        onOpenGeoSettings={geoError ? onOpenGeoSettings : undefined}
+      >
         <SheetDivider />
         <div className="pomich-location-hint" aria-disabled="true">
           <LocationRow icon="🏁" title="Куди везти або де ремонтувати" subtitle="Уточнимо після вибору послуги" />
@@ -1360,6 +1401,8 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
   const [pickup, setPickup] = useState<Point>(() => readCachedGeoPosition() ?? PICKUP)
   const explicitGeoRecenterRef = useRef(false)
   const skipNextAutoGeoRef = useRef(false)
+  /** True while an explicit «Оновити» request is in flight — blocks StrictMode auto re-entry. */
+  const explicitGeoInFlightRef = useRef(false)
   /** Bumped on each geo request so stale auto callbacks cannot overwrite «Оновити». */
   const geoRequestGenRef = useRef(0)
   const pickupRef = useRef<Point>(readCachedGeoPosition() ?? PICKUP)
@@ -1604,6 +1647,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
     if (screen === "cancelled" || screen === "completed") return
     if (geoState === "telegram") return
     if (geoState !== "requesting") return
+    if (explicitGeoInFlightRef.current) return
     if (skipNextAutoGeoRef.current) {
       skipNextAutoGeoRef.current = false
       return
@@ -1704,6 +1748,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
   const retryGeolocation = () => {
     explicitGeoRecenterRef.current = true
     skipNextAutoGeoRef.current = true
+    explicitGeoInFlightRef.current = true
     geoRequestGenRef.current += 1
     const requestGen = geoRequestGenRef.current
     /* Keep intentional city pick — locate only refreshes GPS/address. */
@@ -1714,6 +1759,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
     requestCurrentPosition(
       (nextPoint) => {
         if (requestGen !== geoRequestGenRef.current) return
+        explicitGeoInFlightRef.current = false
         setPickup(nextPoint)
         setGeoState("success")
         setGeoMessage("Місцезнаходження визначено.")
@@ -1724,11 +1770,22 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
       },
       (message, kind) => {
         if (requestGen !== geoRequestGenRef.current) return
+        explicitGeoInFlightRef.current = false
         setGeoState(kind === "permission-denied" ? "permission-denied" : "unavailable")
         setGeoMessage(message)
       },
       { mode: "explicit" },
     )
+  }
+
+  const openGeoSettings = () => {
+    const opened = openTelegramLocationSettings(telegramContext.webApp)
+    if (!opened) {
+      setGeoMessage(
+        "Увімкніть геолокацію в налаштуваннях телефону / браузера для pomich.help, потім натисніть «Оновити».",
+      )
+      setGeoState("permission-denied")
+    }
   }
 
   const geoLoading = geoState === "requesting"
@@ -2356,7 +2413,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
       return <OrderErrorStep pickup={pickup} destination={destinationPoint} onRetry={() => setScreen("review")} showAction={!isTelegram} />
     case "home":
     default:
-      return <HomeStep pickup={pickup} locationLabel={addressLabel || geoMessage} serviceCity={serviceCity} providers={liveNearbyProviders} providersLoading={liveNearbyLoading} customerProfile={customerProfile} customerVerificationSaving={customerVerificationSaving} customerVerificationError={customerVerificationError} customerToken={customerAuthToken} isTelegram={isTelegram} geoLoading={geoLoading} geoError={geoError} recenterTrigger={geoRecenterTrigger} onProfileChange={(patch) => setCustomerProfile((profile) => ({ ...profile, ...patch }))} onVerifyCustomer={verifyCustomerProfile} onProfileVerified={(saved) => setCustomerProfile((profile) => ({ ...profile, ...saved }))} onRetryGeo={retryGeolocation} onServiceCityChange={applyServiceCity} onSelect={(service) => { if (!isCustomerReadyForOrder(customerProfile)) return; setSelectedService(service); setDestination(""); setDestinationPoint(pickup); setScreen("location") }} />
+      return <HomeStep pickup={pickup} locationLabel={addressLabel || geoMessage} serviceCity={serviceCity} providers={liveNearbyProviders} providersLoading={liveNearbyLoading} customerProfile={customerProfile} customerVerificationSaving={customerVerificationSaving} customerVerificationError={customerVerificationError} customerToken={customerAuthToken} isTelegram={isTelegram} geoLoading={geoLoading} geoError={geoError} recenterTrigger={geoRecenterTrigger} onProfileChange={(patch) => setCustomerProfile((profile) => ({ ...profile, ...patch }))} onVerifyCustomer={verifyCustomerProfile} onProfileVerified={(saved) => setCustomerProfile((profile) => ({ ...profile, ...saved }))} onRetryGeo={retryGeolocation} onOpenGeoSettings={openGeoSettings} onServiceCityChange={applyServiceCity} onSelect={(service) => { if (!isCustomerReadyForOrder(customerProfile)) return; setSelectedService(service); setDestination(""); setDestinationPoint(pickup); setScreen("location") }} />
   }
   })()
 
