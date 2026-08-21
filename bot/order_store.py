@@ -1961,9 +1961,17 @@ def _ensure_provider_phone_available(
     )
     if registered_customer is not None:
         other_id = str(registered_customer.get("id") or "").strip()
-        # Block taking a Telegram client's phone; guest rows are reclaimable.
         if other_id.startswith("tg-"):
-            raise ValueError(PHONE_ALREADY_REGISTERED)
+            profiles = [
+                get_customer_profile(customer_id, customer_store_path) if customer_id else None,
+                registered_customer,
+            ]
+            if customer_id and _profiles_share_account(customer_id, other_id, [p for p in profiles if p]):
+                return
+            other_provider = resolve_linked_provider_id(other_id, registered_customer)
+            # Block only when that Telegram client already owns a different partner cabinet.
+            if other_provider and other_provider != str(provider_id):
+                raise ValueError(PHONE_ALREADY_REGISTERED)
 
 
 def sync_linked_provider_phone_verification_from_customer(
