@@ -84,7 +84,7 @@ import {
   resolveCustomerAuthSession,
 } from "../../lib/customerSession"
 import { reverseGeocodeAddress } from "../../lib/reverseGeocode"
-import { MAP_GEO_DEBOUNCE_MS, MAP_RECENTER_THRESHOLD_M, canRequestGeoSilently, readCachedGeoPosition, readRememberedGeoPermission, requestCurrentPosition, shouldRecenterMap, writeCachedGeoPosition } from "../../lib/mapGeo"
+import { MAP_GEO_DEBOUNCE_MS, MAP_RECENTER_THRESHOLD_M, canRequestGeoSilently, readCachedGeoPosition, readRememberedGeoPermission, requestCurrentPosition, resolveGroundSpeedMps, shouldRecenterMap, smoothSpeedMps, writeCachedGeoPosition } from "../../lib/mapGeo"
 import { syncProfileCityFromGeo } from "../../lib/syncProfileCityFromGeo"
 import { OrderErrorStep, OrderFinalStep } from "./OrderTerminalStep"
 import { useTelegramMainButton, useTelegramBackButton, useTelegramUx } from "../../hooks/useTelegramUx"
@@ -616,6 +616,7 @@ function HomeStep({
   geoLoading,
   geoError,
   recenterTrigger,
+  geoSpeedMps = null,
   onProfileChange,
   onVerifyCustomer,
   onProfileVerified,
@@ -637,6 +638,7 @@ function HomeStep({
   geoLoading: boolean
   geoError?: string
   recenterTrigger: number
+  geoSpeedMps?: number | null
   onProfileChange: (patch: Partial<CustomerProfile>) => void
   onVerifyCustomer: () => void
   onProfileVerified: (profile: CustomerProfile) => void
@@ -661,6 +663,7 @@ function HomeStep({
       mapSubtitle={`${locationLabel} · ${serviceCity}`}
       defaultSnap="half"
       recenterTrigger={recenterTrigger}
+      geoSpeedMps={geoSpeedMps}
       onRetryGeo={onRetryGeo}
       geoLoading={geoLoading}
       geoError={geoError}
@@ -788,6 +791,7 @@ function LocationStep({
   geoLoading,
   geoError,
   recenterTrigger,
+  geoSpeedMps = null,
   isTelegram,
   onPick,
   onRetryGeo,
@@ -800,6 +804,7 @@ function LocationStep({
   geoLoading: boolean
   geoError?: string
   recenterTrigger: number
+  geoSpeedMps?: number | null
   isTelegram?: boolean
   onPick: (point: Point) => void
   onRetryGeo: () => void
@@ -818,6 +823,7 @@ function LocationStep({
       geoLoading={geoLoading}
       geoError={geoError}
       recenterTrigger={recenterTrigger}
+      geoSpeedMps={geoSpeedMps}
     >
       <div data-sheet-peek>
         <SheetHeading title="Де ви зараз?" subtitle={geoLoading ? "Визначаємо адресу…" : addressLabel} />
@@ -1397,6 +1403,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
   })
   const [addressLabel, setAddressLabel] = useState("Визначаємо адресу…")
   const [geoRecenterTrigger, setGeoRecenterTrigger] = useState(0)
+  const [geoSpeedMps, setGeoSpeedMps] = useState<number | null>(null)
   const [pickup, setPickup] = useState<Point>(() => readCachedGeoPosition() ?? PICKUP)
   const explicitGeoRecenterRef = useRef(false)
   const skipNextAutoGeoRef = useRef(false)
@@ -1406,6 +1413,8 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
   const geoRequestGenRef = useRef(0)
   const pickupRef = useRef<Point>(readCachedGeoPosition() ?? PICKUP)
   const geoWatchDebounceRef = useRef<number | undefined>(undefined)
+  const geoMotionSampleRef = useRef<{ point: Point; at: number } | null>(null)
+  const geoSpeedSmoothRef = useRef<number | null>(null)
   const [destinationPoint, setDestinationPoint] = useState<Point>(PICKUP)
   const [liveNearbyProviders, setLiveNearbyProviders] = useState<ProviderAvailability[]>([])
   const [liveNearbyLoading, setLiveNearbyLoading] = useState(false)
@@ -1711,8 +1720,16 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
     let cancelled = false
     let watchId: number | undefined
 
-    const applyGeoPosition = (latitude: number, longitude: number) => {
-      const nextPoint = { lat: latitude, lng: longitude }
+    const applyGeoPosition = (position: GeolocationPosition) => {
+      const nextPoint = { lat: position.coords.latitude, lng: position.coords.longitude }
+      const rawSpeed = resolveGroundSpeedMps(position, geoMotionSampleRef.current)
+      const smoothed = smoothSpeedMps(geoSpeedSmoothRef.current, rawSpeed)
+      geoSpeedSmoothRef.current = smoothed
+      setGeoSpeedMps(smoothed)
+      geoMotionSampleRef.current = {
+        point: nextPoint,
+        at: typeof position.timestamp === "number" ? position.timestamp : Date.now(),
+      }
       writeCachedGeoPosition(nextPoint)
       if (!shouldRecenterMap(pickupRef.current, nextPoint, MAP_RECENTER_THRESHOLD_M)) return
       setPickup(nextPoint)
@@ -1725,11 +1742,11 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
         (position) => {
           window.clearTimeout(geoWatchDebounceRef.current)
           geoWatchDebounceRef.current = window.setTimeout(() => {
-            applyGeoPosition(position.coords.latitude, position.coords.longitude)
+            applyGeoPosition(position)
           }, MAP_GEO_DEBOUNCE_MS)
         },
         () => undefined,
-        { enableHighAccuracy: false, maximumAge: 60000, timeout: 20000 },
+        { enableHighAccuracy: true, maximumAge: 4000, timeout: 20000 },
       )
       if (cancelled && typeof watchId === "number") {
         navigator.geolocation.clearWatch(watchId)
@@ -2343,6 +2360,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
           geoLoading={geoLoading}
           geoError={geoError}
           recenterTrigger={geoRecenterTrigger}
+          geoSpeedMps={geoSpeedMps}
           isTelegram={isTelegram}
           onPick={(point) => applyPickup(point)}
           onRetryGeo={retryGeolocation}
@@ -2420,7 +2438,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
       return <OrderErrorStep pickup={pickup} destination={destinationPoint} onRetry={() => setScreen("review")} showAction={!isTelegram} />
     case "home":
     default:
-      return <HomeStep pickup={pickup} locationLabel={addressLabel || geoMessage} serviceCity={serviceCity} providers={liveNearbyProviders} providersLoading={liveNearbyLoading} customerProfile={customerProfile} customerVerificationSaving={customerVerificationSaving} customerVerificationError={customerVerificationError} customerToken={customerAuthToken} isTelegram={isTelegram} geoLoading={geoLoading} geoError={geoError} recenterTrigger={geoRecenterTrigger} onProfileChange={(patch) => setCustomerProfile((profile) => ({ ...profile, ...patch }))} onVerifyCustomer={verifyCustomerProfile} onProfileVerified={(saved) => setCustomerProfile((profile) => ({ ...profile, ...saved }))} onRetryGeo={retryGeolocation} onOpenGeoSettings={openGeoSettings} onServiceCityChange={applyServiceCity} onSelect={(service) => { if (!isCustomerReadyForOrder(customerProfile)) return; setSelectedService(service); setDestination(""); setDestinationPoint(pickup); setScreen("location") }} />
+      return <HomeStep pickup={pickup} locationLabel={addressLabel || geoMessage} serviceCity={serviceCity} providers={liveNearbyProviders} providersLoading={liveNearbyLoading} customerProfile={customerProfile} customerVerificationSaving={customerVerificationSaving} customerVerificationError={customerVerificationError} customerToken={customerAuthToken} isTelegram={isTelegram} geoLoading={geoLoading} geoError={geoError} recenterTrigger={geoRecenterTrigger} geoSpeedMps={geoSpeedMps} onProfileChange={(patch) => setCustomerProfile((profile) => ({ ...profile, ...patch }))} onVerifyCustomer={verifyCustomerProfile} onProfileVerified={(saved) => setCustomerProfile((profile) => ({ ...profile, ...saved }))} onRetryGeo={retryGeolocation} onOpenGeoSettings={openGeoSettings} onServiceCityChange={applyServiceCity} onSelect={(service) => { if (!isCustomerReadyForOrder(customerProfile)) return; setSelectedService(service); setDestination(""); setDestinationPoint(pickup); setScreen("location") }} />
   }
   })()
 

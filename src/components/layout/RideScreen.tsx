@@ -52,6 +52,8 @@ interface RideScreenProps {
   geoLoading?: boolean
   geoError?: string
   recenterTrigger?: number
+  /** Ground speed (m/s) for navigation-style map zoom while following. */
+  geoSpeedMps?: number | null
   directoryScope?: DirectoryScopeMode
   onDirectoryScopeChange?: (scope: DirectoryScopeMode) => void
   directoryScopeCity?: string
@@ -88,6 +90,7 @@ export function RideScreen({
   geoLoading = false,
   geoError,
   recenterTrigger = 0,
+  geoSpeedMps = null,
   directoryScope,
   onDirectoryScopeChange,
   directoryScopeCity,
@@ -170,6 +173,7 @@ export function RideScreen({
     geoLoading,
     geoError,
     recenterTrigger,
+    geoSpeedMps,
     directoryScope,
     onDirectoryScopeChange,
     directoryScopeCity,
@@ -205,6 +209,7 @@ export function RideScreen({
     geoLoading,
     geoError,
     recenterTrigger,
+    geoSpeedMps,
     directoryScope,
     onDirectoryScopeChange,
     directoryScopeCity,

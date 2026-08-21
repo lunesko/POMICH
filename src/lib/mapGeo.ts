@@ -15,6 +15,22 @@ export const MAP_GEO_DEBOUNCE_MS = 400
 /** Distances below this use instant panBy; larger moves use a single flyTo. */
 export const MAP_FLY_THRESHOLD_M = 200
 
+/** Follow-camera zoom by ground speed (navigation-style). */
+export const MAP_ZOOM_STATIONARY = 17
+export const MAP_ZOOM_SLOW = 16
+export const MAP_ZOOM_CITY = 15
+export const MAP_ZOOM_FAST = 14
+
+/** m/s — below this ≈ standing / parking crawl. */
+export const MAP_SPEED_STATIONARY_MPS = 1.2
+/** m/s — slow city crawl, lights, approach to turn (~16 km/h). */
+export const MAP_SPEED_SLOW_MPS = 4.5
+/** m/s — typical city traffic ceiling (~50 km/h). */
+export const MAP_SPEED_CITY_MPS = 13.9
+
+/** Ignore zoom flicker smaller than this many zoom levels. */
+export const MAP_ZOOM_HYSTERESIS = 0.55
+
 /** Default sheet heights (% of ride-screen) when CSS vars / DOM measurement are unavailable. */
 export const DEFAULT_SHEET_HEIGHTS_VH = {
   peek: 26,
@@ -65,6 +81,74 @@ export function toLatLngTuple(point: GeoPoint): LatLngTuple {
 
 export function shouldRecenterMap(from: GeoPoint, to: GeoPoint, thresholdM = MAP_RECENTER_THRESHOLD_M): boolean {
   return distanceMeters(from, to) >= thresholdM
+}
+
+/**
+ * Map zoom for navigation follow:
+ * - standing → close-in
+ * - slow (lights / before a turn) → detail
+ * - city speed → mid
+ * - fast → pull back
+ * Returns null when speed is unknown — caller keeps the current zoom.
+ */
+export function resolveMapZoomForSpeed(speedMps: number | null | undefined): number | null {
+  if (typeof speedMps !== "number" || !Number.isFinite(speedMps) || speedMps < 0) return null
+  if (speedMps < MAP_SPEED_STATIONARY_MPS) return MAP_ZOOM_STATIONARY
+  if (speedMps < MAP_SPEED_SLOW_MPS) return MAP_ZOOM_SLOW
+  if (speedMps < MAP_SPEED_CITY_MPS) return MAP_ZOOM_CITY
+  return MAP_ZOOM_FAST
+}
+
+/** Keep current zoom unless the speed-based target moved enough (reduces flicker). */
+export function resolveFollowZoom(
+  speedMps: number | null | undefined,
+  currentZoom: number,
+  hysteresis = MAP_ZOOM_HYSTERESIS,
+): number {
+  const target = resolveMapZoomForSpeed(speedMps)
+  if (target == null) {
+    return Number.isFinite(currentZoom) ? currentZoom : MAP_ZOOM_CITY
+  }
+  if (!Number.isFinite(currentZoom)) return target
+  if (Math.abs(currentZoom - target) < hysteresis) return currentZoom
+  return target
+}
+
+/** Prefer GeolocationCoordinates.speed; otherwise estimate from successive samples. */
+export function resolveGroundSpeedMps(
+  position: {
+    coords: { speed: number | null; latitude: number; longitude: number }
+    timestamp?: number
+  },
+  previous?: { point: GeoPoint; at: number } | null,
+): number {
+  const reported = position.coords.speed
+  if (typeof reported === "number" && Number.isFinite(reported) && reported >= 0) {
+    return reported
+  }
+  if (!previous) return 0
+  const at =
+    typeof position.timestamp === "number" && Number.isFinite(position.timestamp)
+      ? position.timestamp
+      : Date.now()
+  const dtSec = (at - previous.at) / 1000
+  if (!(dtSec > 0.35) || dtSec > 45) return 0
+  const meters = distanceMeters(previous.point, {
+    lat: position.coords.latitude,
+    lng: position.coords.longitude,
+  })
+  return Math.max(0, meters / dtSec)
+}
+
+/** Exponential moving average to calm GPS speed noise. */
+export function smoothSpeedMps(
+  previous: number | null | undefined,
+  next: number,
+  alpha = 0.35,
+): number {
+  const safeNext = Number.isFinite(next) && next >= 0 ? next : 0
+  if (typeof previous !== "number" || !Number.isFinite(previous)) return safeNext
+  return previous * (1 - alpha) + safeNext * alpha
 }
 
 export function readCachedGeoPosition(maxAgeMs = GEO_CACHE_MAX_AGE_MS): GeoPoint | null {
@@ -209,19 +293,27 @@ export function moveMapToPoint(
   {
     animateLarge = true,
     minZoom = 14,
+    targetZoom,
     paddingBottom = 0,
   }: {
     animateLarge?: boolean
     minZoom?: number
+    /** Absolute follow zoom (speed-based). When set, replaces the minZoom floor. */
+    targetZoom?: number
     /** Pixels covered by bottom sheet — target is offset so the point stays above it. */
     paddingBottom?: number
   } = {},
 ): void {
-  const zoom = Math.max(map.getZoom(), minZoom)
+  const currentZoom = map.getZoom()
+  const zoom =
+    typeof targetZoom === "number" && Number.isFinite(targetZoom)
+      ? targetZoom
+      : Math.max(currentZoom, minZoom)
   const target = offsetLatLngForBottomPadding(map, point, paddingBottom, zoom)
+  const zoomDelta = Math.abs(currentZoom - zoom)
 
-  if (animateLarge) {
-    map.flyTo(target, zoom, { duration: 0.55 })
+  if (animateLarge || zoomDelta >= 0.35) {
+    map.flyTo(target, zoom, { duration: zoomDelta >= 0.35 ? 0.5 : 0.55 })
     return
   }
 

@@ -124,6 +124,20 @@ describe("RouteMap recenter behavior", () => {
     expect(flyTo).toHaveBeenCalledTimes(1)
   })
 
+  it("adjusts follow zoom from ground speed without requiring a large move", () => {
+    const pickup = { lat: 48.6208, lng: 22.2879 }
+    const { rerender } = render(<RouteMap pickup={pickup} geoSpeedMps={0} />)
+    vi.runAllTimers()
+    flyTo.mockClear()
+
+    rerender(<RouteMap pickup={pickup} geoSpeedMps={16} />)
+    vi.runAllTimers()
+
+    expect(flyTo).toHaveBeenCalled()
+    const zoomArg = flyTo.mock.calls[0]?.[1]
+    expect(zoomArg).toBe(14)
+  })
+
   it("renders my-location control beside zoom and requests geolocation", async () => {
     vi.useRealTimers()
     vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {

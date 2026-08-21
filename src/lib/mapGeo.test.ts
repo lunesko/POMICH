@@ -8,13 +8,21 @@ import {
   GEO_POSITION_STORAGE_KEY,
   MAP_FLY_THRESHOLD_M,
   MAP_RECENTER_THRESHOLD_M,
+  MAP_ZOOM_CITY,
+  MAP_ZOOM_FAST,
+  MAP_ZOOM_SLOW,
+  MAP_ZOOM_STATIONARY,
   measureBottomSheetHeightPx,
   readCachedGeoPosition,
   readRememberedGeoPermission,
   requestCurrentPosition,
+  resolveFollowZoom,
+  resolveGroundSpeedMps,
+  resolveMapZoomForSpeed,
   resolveSheetBottomPaddingPx,
   shouldRecenterMap,
   SHEET_PADDING_SAFETY_PX,
+  smoothSpeedMps,
   writeCachedGeoPosition,
   writeRememberedGeoPermission,
 } from "./mapGeo"
@@ -53,6 +61,43 @@ describe("mapGeo", () => {
 
   it("defines fly threshold above recenter threshold", () => {
     expect(MAP_FLY_THRESHOLD_M).toBeGreaterThan(MAP_RECENTER_THRESHOLD_M)
+  })
+
+  it("picks closer zoom when stationary and pulls back at city/highway speed", () => {
+    expect(resolveMapZoomForSpeed(null)).toBeNull()
+    expect(resolveMapZoomForSpeed(undefined)).toBeNull()
+    expect(resolveMapZoomForSpeed(0)).toBe(MAP_ZOOM_STATIONARY)
+    expect(resolveMapZoomForSpeed(2)).toBe(MAP_ZOOM_SLOW)
+    expect(resolveMapZoomForSpeed(10)).toBe(MAP_ZOOM_CITY)
+    expect(resolveMapZoomForSpeed(20)).toBe(MAP_ZOOM_FAST)
+  })
+
+  it("keeps follow zoom stable within hysteresis", () => {
+    expect(resolveFollowZoom(null, 13)).toBe(13)
+    expect(resolveFollowZoom(0, MAP_ZOOM_STATIONARY)).toBe(MAP_ZOOM_STATIONARY)
+    expect(resolveFollowZoom(0.4, MAP_ZOOM_STATIONARY)).toBe(MAP_ZOOM_STATIONARY)
+    expect(resolveFollowZoom(10, MAP_ZOOM_STATIONARY)).toBe(MAP_ZOOM_CITY)
+  })
+
+  it("prefers reported GPS speed and otherwise estimates from samples", () => {
+    expect(
+      resolveGroundSpeedMps({
+        coords: { speed: 8, latitude: 48.62, longitude: 22.28 },
+      }),
+    ).toBe(8)
+    const estimated = resolveGroundSpeedMps(
+      {
+        coords: { speed: null, latitude: 48.621, longitude: 22.288 },
+        timestamp: 2_000,
+      },
+      { point: { lat: 48.62, lng: 22.287 }, at: 1_000 },
+    )
+    expect(estimated).toBeGreaterThan(0)
+  })
+
+  it("smooths noisy speed readings", () => {
+    expect(smoothSpeedMps(null, 10)).toBe(10)
+    expect(smoothSpeedMps(10, 0)).toBeCloseTo(10 * 0.65, 5)
   })
 
   it("pads for half and expanded sheets including safety margin", () => {

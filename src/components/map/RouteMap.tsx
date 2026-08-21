@@ -67,6 +67,7 @@ import {
   MAP_RECENTER_THRESHOLD_M,
   moveMapToPoint,
   requestCurrentPosition,
+  resolveFollowZoom,
   resolveSheetBottomPaddingPx,
   shouldRecenterMap,
 } from "../../lib/mapGeo"
@@ -214,18 +215,22 @@ function MapDebouncedFollow({
   point,
   enabled,
   recenterTrigger = 0,
+  speedMps = null,
   sheetSnap,
   overlayMode = false,
 }: {
   point: LatLngTuple
   enabled: boolean
   recenterTrigger?: number
+  /** Ground speed (m/s) for navigation-style zoom. */
+  speedMps?: number | null
   sheetSnap?: SheetSnap
   overlayMode?: boolean
 }) {
   const map = useMap()
   const lastCenterRef = useRef<LatLngTuple | null>(null)
   const lastTriggerRef = useRef(recenterTrigger)
+  const lastAppliedZoomRef = useRef<number | null>(null)
 
   useEffect(() => {
     if (recenterTrigger !== lastTriggerRef.current) {
@@ -245,17 +250,24 @@ function MapDebouncedFollow({
 
       const nextPoint = { lat: point[0], lng: point[1] }
       const fromPoint = { lat: from[0], lng: from[1] }
-      if (!shouldRecenterMap(fromPoint, nextPoint, MAP_RECENTER_THRESHOLD_M)) return
+      const currentZoom = map.getZoom()
+      const hasSpeed = typeof speedMps === "number" && Number.isFinite(speedMps)
+      const targetZoom = resolveFollowZoom(speedMps, currentZoom)
+      const zoomChanged = hasSpeed && Math.abs(currentZoom - targetZoom) >= 0.35
+      const moved = shouldRecenterMap(fromPoint, nextPoint, MAP_RECENTER_THRESHOLD_M)
+      if (!moved && !zoomChanged) return
 
       moveMapToPoint(map, point, {
         animateLarge: false,
+        targetZoom: hasSpeed ? targetZoom : undefined,
         paddingBottom: sheetPaddingBottomPx(map, sheetSnap, overlayMode),
       })
       lastCenterRef.current = point
+      if (hasSpeed) lastAppliedZoomRef.current = targetZoom
     }, MAP_GEO_DEBOUNCE_MS)
 
     return () => window.clearTimeout(timeoutId)
-  }, [enabled, map, point, sheetSnap, overlayMode])
+  }, [enabled, map, point, sheetSnap, overlayMode, speedMps])
 
   return null
 }
@@ -1178,6 +1190,9 @@ interface RouteMapProps {
 
   recenterTrigger?: number
 
+  /** Ground speed in m/s for follow-camera zoom (client + partner). */
+  geoSpeedMps?: number | null
+
   onRetryGeo?: () => void
 
   geoLoading?: boolean
@@ -1259,6 +1274,8 @@ export function RouteMap({
   sheetSnap,
 
   recenterTrigger = 0,
+
+  geoSpeedMps = null,
 
   onRetryGeo,
 
@@ -1572,16 +1589,21 @@ export function RouteMap({
 
 
   const center = providerPosition ? toTuple(providerPosition) : userLocation ? toTuple(userLocation) : toTuple(pickup)
-  const followMapCenter =
+  // Follow the moving actor (client GPS or partner GPS) with speed-based zoom.
+  // Prefer partner marker when present; otherwise follow the client while they have no destination pin yet.
+  // Keep following during partner navigation (navRouteCoords) so zoom can react to speed.
+  const followMotionPoint: LatLngTuple | null =
     !decorative &&
-    !destination &&
-    !providerPosition &&
     !directoryOnly &&
     !markerDragging &&
-    !navRouteCoords &&
     !locationPickMode &&
     !ukraineWideView
-
+      ? providerPosition
+        ? toTuple(providerPosition)
+        : !destination
+          ? center
+          : null
+      : null
 
 
   const { directoryProviders, liveProviders } = useMemo(() => {
@@ -1739,18 +1761,19 @@ export function RouteMap({
         {localLocateTrigger > 0 && localLocatePoint ? (
           <MapLocateFlyTo point={localLocatePoint} trigger={localLocateTrigger} sheetSnap={sheetSnap} overlayMode={overlayMode} />
         ) : null}
-        {followMapCenter ? (
+        {followMotionPoint ? (
           <MapDebouncedFollow
-            point={center}
-            enabled={followMapCenter}
+            point={followMotionPoint}
+            enabled
             recenterTrigger={recenterTrigger}
+            speedMps={geoSpeedMps}
             sheetSnap={sheetSnap}
             overlayMode={overlayMode}
           />
         ) : null}
-        {(followMapCenter || (recenterTrigger > 0 && !ukraineWideView) || localLocateTrigger > 0) && (overlayMode || sheetSnap) ? (
+        {(Boolean(followMotionPoint) || (recenterTrigger > 0 && !ukraineWideView) || localLocateTrigger > 0) && (overlayMode || sheetSnap) ? (
           <MapKeepVisibleAboveSheet
-            point={localLocatePoint ?? center}
+            point={localLocatePoint ?? followMotionPoint ?? center}
             sheetSnap={sheetSnap}
             overlayMode={overlayMode}
             active
@@ -1768,7 +1791,7 @@ export function RouteMap({
 
         {mapInteractive ? <ClickToPick onPick={handleMapPick} /> : null}
 
-        {navRouteCoords ? <FitRouteBounds coords={navRouteCoords} /> : null}
+        {navRouteCoords && !followMotionPoint ? <FitRouteBounds coords={navRouteCoords} /> : null}
 
         {!directoryOnly && !navRouteCoords && routeCoords ? (
           <FitRouteBounds coords={routeCoords} fitKey={routeRequestKey} />

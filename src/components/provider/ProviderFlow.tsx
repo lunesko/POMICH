@@ -58,7 +58,7 @@ import { readBootstrapProfile, resolveProviderIdForCustomer, storeLinkedProvider
 import { readCachedProviderProfile, writeCachedProviderProfile } from "../../lib/providerProfileCache"
 import { clearActiveOrder, isActiveOrderStatus, persistActiveOrder, pickLatestActiveOrder, readActiveOrder } from "../../lib/customerSession"
 import { clearPendingPartnerReview, persistPendingPartnerReview, readPendingPartnerReview } from "../../lib/appRole"
-import { canRequestGeoSilently, readCachedGeoPosition, requestCurrentPosition, writeCachedGeoPosition } from "../../lib/mapGeo"
+import { canRequestGeoSilently, readCachedGeoPosition, requestCurrentPosition, resolveGroundSpeedMps, smoothSpeedMps, writeCachedGeoPosition } from "../../lib/mapGeo"
 import { validateUkraineMobilePhone } from "../../lib/ukrainePhone"
 import { validateUkrainePlate } from "../../lib/ukrainePlate"
 import { isPartnerProfileComplete } from "../../lib/partnerProfileComplete"
@@ -390,6 +390,7 @@ export default function ProviderFlow({
   const [providerGeoLoading, setProviderGeoLoading] = useState(false)
   const [providerGeoError, setProviderGeoError] = useState<string | undefined>()
   const [providerRecenterTrigger, setProviderRecenterTrigger] = useState(0)
+  const [providerSpeedMps, setProviderSpeedMps] = useState<number | null>(null)
   const [providerProfile, setProviderProfile] = useState<ProviderAvailability>({
     id: providerId,
     name: "",
@@ -783,6 +784,8 @@ export default function ProviderFlow({
   ])
 
   const providerLocationRef = useRef(providerLocation)
+  const providerMotionSampleRef = useRef<{ point: Point; at: number } | null>(null)
+  const providerSpeedSmoothRef = useRef<number | null>(null)
   useEffect(() => {
     providerLocationRef.current = providerLocation
   }, [providerLocation])
@@ -798,11 +801,19 @@ export default function ProviderFlow({
       watchId = navigator.geolocation.watchPosition(
         (position) => {
           const point = { lat: position.coords.latitude, lng: position.coords.longitude }
+          const rawSpeed = resolveGroundSpeedMps(position, providerMotionSampleRef.current)
+          const smoothed = smoothSpeedMps(providerSpeedSmoothRef.current, rawSpeed)
+          providerSpeedSmoothRef.current = smoothed
+          setProviderSpeedMps(smoothed)
+          providerMotionSampleRef.current = {
+            point,
+            at: typeof position.timestamp === "number" ? position.timestamp : Date.now(),
+          }
           writeCachedGeoPosition(point)
           setProviderLocation(point)
         },
         () => undefined,
-        { enableHighAccuracy: false, maximumAge: 60000, timeout: 20000 },
+        { enableHighAccuracy: true, maximumAge: 4000, timeout: 20000 },
       )
       if (cancelled) {
         navigator.geolocation.clearWatch(watchId)
@@ -2023,6 +2034,7 @@ export default function ProviderFlow({
         geoLoading={providerGeoLoading}
         geoError={providerGeoError}
         recenterTrigger={providerRecenterTrigger}
+        geoSpeedMps={providerSpeedMps}
       >
         <div data-sheet-peek>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
@@ -2320,6 +2332,8 @@ export default function ProviderFlow({
               providerPosition={hasLiveGps ? providerLocation : undefined}
               subtitle={hasLiveGps ? "Ваша GPS-позиція" : "Очікуємо геолокацію"}
               mapTileTheme={mapTileTheme}
+              geoSpeedMps={providerSpeedMps}
+              recenterTrigger={providerRecenterTrigger}
             />
           ) : (
             <div style={{ background: CARD, borderRadius: 18, border: `1px solid ${BORDER}`, padding: 14, color: MUTED, fontWeight: 700 }}>
@@ -2398,6 +2412,7 @@ export default function ProviderFlow({
         geoLoading={providerGeoLoading}
         geoError={providerGeoError}
         recenterTrigger={providerRecenterTrigger}
+        geoSpeedMps={providerSpeedMps}
       >
         <div data-sheet-peek>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
