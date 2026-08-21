@@ -1913,3 +1913,83 @@ def test_history_aliases_use_linked_provider_phone_when_profile_phoneless(tmp_pa
         customer_store_path=customer_path,
     )
     assert any(item.get("id") == saved["id"] for item in history)
+
+
+def test_guest_cannot_claim_telegram_canonical_phone(tmp_path, monkeypatch):
+    customer_path = tmp_path / "customers.json"
+    monkeypatch.setenv("POMICH_CUSTOMER_STORE_PATH", str(customer_path))
+
+    from bot import order_store
+    from bot.order_store import _claim_conflicting_guest_phone, get_customer_profile
+
+    monkeypatch.setattr(order_store, "_default_customer_store_path", lambda: customer_path)
+
+    shared = "+380671112233"
+    order_store.save_customer_profiles(
+        [
+            {
+                "id": "tg-owner",
+                "name": "Owner",
+                "phone": shared,
+                "verificationStatus": "verified",
+                "rolesRegistered": ["customer"],
+            },
+            {"id": "guest-thief", "name": "Guest", "rolesRegistered": ["customer"]},
+        ],
+        customer_path,
+    )
+
+    claimed = _claim_conflicting_guest_phone("guest-thief", shared, customer_path)
+    assert claimed is False
+    owner = get_customer_profile("tg-owner", customer_path)
+    assert "380671112233" in "".join(ch for ch in str(owner.get("phone") or "") if ch.isdigit())
+
+
+def test_submit_order_review_allows_history_alias_customer(tmp_path, monkeypatch):
+    customer_path = tmp_path / "customers.json"
+    order_path = tmp_path / "orders.json"
+    provider_path = tmp_path / "providers.json"
+    provider_path.write_text("[]", encoding="utf-8")
+    monkeypatch.setenv("POMICH_CUSTOMER_STORE_PATH", str(customer_path))
+    monkeypatch.setenv("POMICH_PROVIDER_STORE_PATH", str(provider_path))
+    monkeypatch.setenv("POMICH_ORDER_STORE_PATH", str(order_path))
+
+    from bot import order_store
+    from bot.order_store import save_order, submit_order_review
+
+    monkeypatch.setattr(order_store, "_default_customer_store_path", lambda: customer_path)
+    monkeypatch.setattr(order_store, "_default_store_path", lambda: order_path)
+
+    order_store.save_customer_profiles(
+        [
+            {
+                "id": "tg-reviewer",
+                "name": "Client",
+                "phone": "+380501112233",
+                "verificationStatus": "verified",
+                "rolesRegistered": ["customer"],
+            },
+            {
+                "id": "guest-old",
+                "name": "Legacy",
+                "phone": "+380501112233",
+                "rolesRegistered": ["customer"],
+            },
+        ],
+        customer_path,
+    )
+    saved = save_order(
+        {"service": "tow", "status": "completed", "customerId": "guest-old"},
+        store_path=order_path,
+    )
+
+    reviewed = submit_order_review(
+        saved["id"],
+        author_role="customer",
+        rating=5,
+        comment="ok",
+        author_id="tg-reviewer",
+        store_path=order_path,
+        customer_store_path=customer_path,
+    )
+    assert reviewed.get("customerReview", {}).get("rating") == 5

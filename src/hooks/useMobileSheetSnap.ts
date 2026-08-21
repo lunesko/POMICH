@@ -14,8 +14,8 @@ export interface SheetHeights {
 }
 
 const DEFAULT_HEIGHTS: SheetHeights = {
-  peek: 26,
-  half: 52,
+  peek: 28,
+  half: 54,
   expanded: 74,
   min: 22,
   max: 82,

@@ -230,7 +230,6 @@ function MapDebouncedFollow({
   const map = useMap()
   const lastCenterRef = useRef<LatLngTuple | null>(null)
   const lastTriggerRef = useRef(recenterTrigger)
-  const lastAppliedZoomRef = useRef<number | null>(null)
 
   useEffect(() => {
     if (recenterTrigger !== lastTriggerRef.current) {
@@ -263,7 +262,6 @@ function MapDebouncedFollow({
         paddingBottom: sheetPaddingBottomPx(map, sheetSnap, overlayMode),
       })
       lastCenterRef.current = point
-      if (hasSpeed) lastAppliedZoomRef.current = targetZoom
     }, MAP_GEO_DEBOUNCE_MS)
 
     return () => window.clearTimeout(timeoutId)
@@ -1791,9 +1789,11 @@ export function RouteMap({
 
         {mapInteractive ? <ClickToPick onPick={handleMapPick} /> : null}
 
-        {navRouteCoords && !followMotionPoint ? <FitRouteBounds coords={navRouteCoords} /> : null}
+        {navRouteCoords && !(followMotionPoint && typeof geoSpeedMps === "number") ? (
+          <FitRouteBounds coords={navRouteCoords} />
+        ) : null}
 
-        {!directoryOnly && !navRouteCoords && routeCoords ? (
+        {!directoryOnly && !navRouteCoords && routeCoords && !(followMotionPoint && typeof geoSpeedMps === "number") ? (
           <FitRouteBounds coords={routeCoords} fitKey={routeRequestKey} />
         ) : null}
 

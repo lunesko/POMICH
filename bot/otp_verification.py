@@ -36,6 +36,7 @@ OTP_RATE_LIMIT_MAX_SENDS = 3
 # Cross-customer debounce: same phone / Telegram chat must not get two codes within this window.
 OTP_SEND_COOLDOWN_SECONDS = 45
 OTP_CODE_LENGTH = 6
+OTP_MAX_CONFIRM_ATTEMPTS = 5
 # Never use urllib/requests 60s default on the OTP path. Telegram delivery is backgrounded.
 OTP_TELEGRAM_TIMEOUT_SECONDS = 3
 
@@ -647,7 +648,15 @@ def confirm_customer_verification_code(
         channel = str(record.get("channel") or "telegram")
         expected_hash = str(record.get("codeHash") or "")
         actual_hash = _hash_otp_code(customer_id, channel, normalized_code)
+        failed_attempts = int(record.get("failedAttempts") or 0)
+        if failed_attempts >= OTP_MAX_CONFIRM_ATTEMPTS:
+            store.pop(customer_id, None)
+            _save_otp_store(store, otp_path)
+            raise OtpVerificationError("code_locked", "too many invalid verification attempts")
         if not hmac.compare_digest(expected_hash, actual_hash):
+            record["failedAttempts"] = failed_attempts + 1
+            store[customer_id] = record
+            _save_otp_store(store, otp_path)
             raise OtpVerificationError("code_invalid", "verification code is invalid")
 
         # Queue OTP bubble delete immediately on success (async — does not block confirm).

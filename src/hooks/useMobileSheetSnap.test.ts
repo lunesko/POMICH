@@ -12,13 +12,13 @@ describe("useMobileSheetSnap", () => {
   it("defaults to half on mobile sheets", () => {
     const { result } = renderHook(() => useMobileSheetSnap({ enabled: true }))
     expect(result.current.snap).toBe("half")
-    expect(result.current.heightVh).toBe(52)
+    expect(result.current.heightVh).toBe(54)
   })
 
   it("starts collapsed when mapFocus is enabled", () => {
     const { result } = renderHook(() => useMobileSheetSnap({ enabled: true, mapFocus: true }))
     expect(result.current.snap).toBe("collapsed")
-    expect(result.current.heightVh).toBe(26)
+    expect(result.current.heightVh).toBe(28)
   })
 
   it("starts expanded when expandedSheet is enabled", () => {
@@ -34,10 +34,10 @@ describe("useMobileSheetSnap", () => {
     expect(result.current.heightVh).toBe(74)
     act(() => result.current.cycleSnap())
     expect(result.current.snap).toBe("collapsed")
-    expect(result.current.heightVh).toBe(26)
+    expect(result.current.heightVh).toBe(28)
     act(() => result.current.cycleSnap())
     expect(result.current.snap).toBe("half")
-    expect(result.current.heightVh).toBe(52)
+    expect(result.current.heightVh).toBe(54)
   })
 
   it("setSnap updates both snap and height so expand is recoverable", () => {
@@ -45,13 +45,13 @@ describe("useMobileSheetSnap", () => {
     expect(result.current.snap).toBe("collapsed")
     act(() => result.current.setSnap("half"))
     expect(result.current.snap).toBe("half")
-    expect(result.current.heightVh).toBe(52)
-    expect(result.current.sheetStyle).toEqual({ "--pomich-sheet-height": "52%" })
+    expect(result.current.heightVh).toBe(54)
+    expect(result.current.sheetStyle).toEqual({ "--pomich-sheet-height": "54%" })
   })
 
   it("exposes sheet height style for drag resize", () => {
     const { result } = renderHook(() => useMobileSheetSnap({ enabled: true }))
-    expect(result.current.sheetStyle).toEqual({ "--pomich-sheet-height": "52%" })
+    expect(result.current.sheetStyle).toEqual({ "--pomich-sheet-height": "54%" })
   })
 
   it("updates height while dragging via pointer events", () => {

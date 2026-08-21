@@ -11,7 +11,6 @@ import {
   getProviderOffers,
   getProviderOrders,
   getProviderProfile,
-  getProviders,
   getNearbyMapOrders,
   messageFromFetchError,
   retryDispatch,
@@ -58,7 +57,7 @@ import { readBootstrapProfile, resolveProviderIdForCustomer, storeLinkedProvider
 import { readCachedProviderProfile, writeCachedProviderProfile } from "../../lib/providerProfileCache"
 import { clearActiveOrder, isActiveOrderStatus, persistActiveOrder, pickLatestActiveOrder, readActiveOrder } from "../../lib/customerSession"
 import { clearPendingPartnerReview, persistPendingPartnerReview, readPendingPartnerReview } from "../../lib/appRole"
-import { canRequestGeoSilently, readCachedGeoPosition, requestCurrentPosition, resolveGroundSpeedMps, smoothSpeedMps, writeCachedGeoPosition } from "../../lib/mapGeo"
+import { readCachedGeoPosition, requestCurrentPosition, resolveGroundSpeedMps, smoothSpeedMps, writeCachedGeoPosition } from "../../lib/mapGeo"
 import { validateUkraineMobilePhone } from "../../lib/ukrainePhone"
 import { validateUkrainePlate } from "../../lib/ukrainePlate"
 import { isPartnerProfileComplete } from "../../lib/partnerProfileComplete"
@@ -391,6 +390,7 @@ export default function ProviderFlow({
   const [providerGeoError, setProviderGeoError] = useState<string | undefined>()
   const [providerRecenterTrigger, setProviderRecenterTrigger] = useState(0)
   const [providerSpeedMps, setProviderSpeedMps] = useState<number | null>(null)
+  const [providerGeoWatchEpoch, setProviderGeoWatchEpoch] = useState(0)
   const [providerProfile, setProviderProfile] = useState<ProviderAvailability>({
     id: providerId,
     name: "",
@@ -562,21 +562,14 @@ export default function ProviderFlow({
   }, [providerId, mergeRegistrationFormFromSources])
 
   const loadCurrentProvider = useCallback(async (): Promise<ProviderAvailability | undefined> => {
-    if (providerAuthToken) {
-      try {
-        const profile = await getProviderProfile(providerId, providerAuthToken)
-        if (profile?.id) return profile
-      } catch {
-        return undefined
-      }
-      return undefined
-    }
+    if (!providerAuthToken) return undefined
     try {
-      const providers = await getProviders()
-      return Array.isArray(providers) ? providers.find((item) => item.id === providerId) : undefined
+      const profile = await getProviderProfile(providerId, providerAuthToken)
+      if (profile?.id) return profile
     } catch {
       return undefined
     }
+    return undefined
   }, [providerAuthToken, providerId])
 
   useEffect(() => {
@@ -821,14 +814,13 @@ export default function ProviderFlow({
       }
     }
 
-    // Hydrate / reopen: prefer cache + silent watch. Explicit acquire happens on go-online gesture.
+    // After any successful fix (auto cache or explicit go-online), start the watch.
+    // Do not gate on Permissions API — Telegram/Safari often omit it after a gesture grant.
     requestCurrentPosition(
       (point) => {
         if (cancelled) return
         setProviderLocation(point)
-        void canRequestGeoSilently().then((ok) => {
-          if (ok) startWatch()
-        })
+        startWatch()
       },
       () => undefined,
       { mode: "auto" },
@@ -838,7 +830,7 @@ export default function ProviderFlow({
       cancelled = true
       if (typeof watchId === "number") navigator.geolocation.clearWatch(watchId)
     }
-  }, [onDuty])
+  }, [onDuty, providerGeoWatchEpoch])
 
   const retryProviderGeolocation = () => {
     setProviderGeoLoading(true)
@@ -848,6 +840,7 @@ export default function ProviderFlow({
         setProviderLocation(point)
         setProviderGeoLoading(false)
         setProviderRecenterTrigger((value) => value + 1)
+        if (onDuty) setProviderGeoWatchEpoch((value) => value + 1)
       },
       (message) => {
         setProviderGeoLoading(false)
@@ -1627,6 +1620,7 @@ export default function ProviderFlow({
           (point) => {
             setProviderLocation(point)
             providerLocationRef.current = point
+            setProviderGeoWatchEpoch((value) => value + 1)
           },
           () => undefined,
           { mode: "explicit" },

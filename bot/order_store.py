@@ -1954,6 +1954,16 @@ def _ensure_provider_phone_available(
             if _profiles_share_account(customer_id, existing_customer_id, profiles):
                 return
         raise ValueError(PHONE_ALREADY_REGISTERED)
+    registered_customer = find_registered_customer_by_phone(
+        phone_value,
+        exclude_id=customer_id or None,
+        store_path=customer_store_path,
+    )
+    if registered_customer is not None:
+        other_id = str(registered_customer.get("id") or "").strip()
+        # Block taking a Telegram client's phone; guest rows are reclaimable.
+        if other_id.startswith("tg-"):
+            raise ValueError(PHONE_ALREADY_REGISTERED)
 
 
 def sync_linked_provider_phone_verification_from_customer(
@@ -3820,14 +3830,15 @@ def _claim_conflicting_guest_phone(
             continue
         if _customer_profile_phone_digits(profile) != target_digits:
             continue
-        # Never steal phone from another Telegram canonical account.
-        if other_id.startswith("tg-") and customer_id.startswith("tg-"):
+        # Never steal phone from a Telegram canonical account (even if claimer is guest).
+        if other_id.startswith("tg-"):
             return False
         conflict_ids.append(other_id)
     if not conflict_ids:
         return False
     for conflict_id in conflict_ids:
         _clear_customer_phone(conflict_id, store_path)
+    # Orders live in the order store (env/default), not the customer profiles path.
     rebind_customer_orders(set(conflict_ids), customer_id, store_path=None)
     return True
 
@@ -4051,9 +4062,10 @@ def submit_order_review(
             raise DispatchConflict("REVIEW_ALREADY_SUBMITTED", "Review already submitted for this order.")
 
         if role == "customer":
-            customer_id = str(order.get("customerId") or "").strip()
-            if author_id and customer_id and str(author_id) != customer_id and not _order_belongs_to_customer(order, str(author_id)):
-                raise DispatchConflict("REVIEW_FORBIDDEN", "Customer cannot review this order.")
+            if author_id:
+                aliases = _customer_ids_for_order_history(str(author_id), customer_store_path)
+                if not any(_order_belongs_to_customer(order, needle) for needle in aliases):
+                    raise DispatchConflict("REVIEW_FORBIDDEN", "Customer cannot review this order.")
         else:
             provider_id = str(order.get("assignedProviderId") or order.get("partnerId") or "").strip()
             if author_id and provider_id and str(author_id) != provider_id:

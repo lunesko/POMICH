@@ -1608,19 +1608,6 @@ html.mobile-compact .pomich-map-occupied-hint {
 }
 
 /* Keep primary duty/order CTAs visible above browser chrome without forcing expand */
-.pomich-sheet-cta-dock {
-  position: sticky;
-  bottom: 0;
-  z-index: 3;
-  margin-top: 12px;
-  padding: 10px 0 6px;
-  background: linear-gradient(
-    to top,
-    color-mix(in srgb, var(--pomich-surface, #fff) 96%, transparent) 55%,
-    color-mix(in srgb, var(--pomich-surface, #fff) 0%, transparent)
-  );
-}
-
 /* Mobile input auto-zoom prevention (iOS WebKit requires >=16px font to avoid scaling) */
 @media (max-width: 768px), (pointer: coarse) {
   input,

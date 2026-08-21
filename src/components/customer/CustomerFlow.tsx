@@ -84,7 +84,7 @@ import {
   resolveCustomerAuthSession,
 } from "../../lib/customerSession"
 import { reverseGeocodeAddress } from "../../lib/reverseGeocode"
-import { MAP_GEO_DEBOUNCE_MS, MAP_RECENTER_THRESHOLD_M, canRequestGeoSilently, readCachedGeoPosition, readRememberedGeoPermission, requestCurrentPosition, resolveGroundSpeedMps, shouldRecenterMap, smoothSpeedMps, writeCachedGeoPosition } from "../../lib/mapGeo"
+import { MAP_GEO_DEBOUNCE_MS, MAP_RECENTER_THRESHOLD_M, canRequestGeoSilently, readCachedGeoPosition, readRememberedGeoPermission, requestCurrentPosition, resolveGroundSpeedMps, shouldRecenterMap, smoothSpeedMps, writeCachedGeoPosition, writeRememberedGeoPermission } from "../../lib/mapGeo"
 import { syncProfileCityFromGeo } from "../../lib/syncProfileCityFromGeo"
 import { OrderErrorStep, OrderFinalStep } from "./OrderTerminalStep"
 import { useTelegramMainButton, useTelegramBackButton, useTelegramUx } from "../../hooks/useTelegramUx"
@@ -1579,6 +1579,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
         if (!session.location) return
         const point = { lat: session.location.latitude, lng: session.location.longitude }
         writeCachedGeoPosition(point)
+        writeRememberedGeoPermission("granted")
         setPickup(point)
         setGeoState("telegram")
         setGeoMessage("Геолокацію отримано з Telegram.")

@@ -33,8 +33,8 @@ export const MAP_ZOOM_HYSTERESIS = 0.55
 
 /** Default sheet heights (% of ride-screen) when CSS vars / DOM measurement are unavailable. */
 export const DEFAULT_SHEET_HEIGHTS_VH = {
-  peek: 26,
-  half: 52,
+  peek: 28,
+  half: 54,
   expanded: 74,
 } as const
 
@@ -73,10 +73,6 @@ export function distanceMeters(from: GeoPoint, to: GeoPoint): number {
 
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
   return EARTH_RADIUS_M * c
-}
-
-export function toLatLngTuple(point: GeoPoint): LatLngTuple {
-  return [point.lat, point.lng]
 }
 
 export function shouldRecenterMap(from: GeoPoint, to: GeoPoint, thresholdM = MAP_RECENTER_THRESHOLD_M): boolean {
@@ -121,18 +117,18 @@ export function resolveGroundSpeedMps(
     timestamp?: number
   },
   previous?: { point: GeoPoint; at: number } | null,
-): number {
+): number | null {
   const reported = position.coords.speed
   if (typeof reported === "number" && Number.isFinite(reported) && reported >= 0) {
     return reported
   }
-  if (!previous) return 0
+  if (!previous) return null
   const at =
     typeof position.timestamp === "number" && Number.isFinite(position.timestamp)
       ? position.timestamp
       : Date.now()
   const dtSec = (at - previous.at) / 1000
-  if (!(dtSec > 0.35) || dtSec > 45) return 0
+  if (!(dtSec > 0.35) || dtSec > 45) return null
   const meters = distanceMeters(previous.point, {
     lat: position.coords.latitude,
     lng: position.coords.longitude,
@@ -143,12 +139,14 @@ export function resolveGroundSpeedMps(
 /** Exponential moving average to calm GPS speed noise. */
 export function smoothSpeedMps(
   previous: number | null | undefined,
-  next: number,
+  next: number | null | undefined,
   alpha = 0.35,
-): number {
-  const safeNext = Number.isFinite(next) && next >= 0 ? next : 0
-  if (typeof previous !== "number" || !Number.isFinite(previous)) return safeNext
-  return previous * (1 - alpha) + safeNext * alpha
+): number | null {
+  if (typeof next !== "number" || !Number.isFinite(next) || next < 0) {
+    return typeof previous === "number" && Number.isFinite(previous) ? previous : null
+  }
+  if (typeof previous !== "number" || !Number.isFinite(previous)) return next
+  return previous * (1 - alpha) + next * alpha
 }
 
 export function readCachedGeoPosition(maxAgeMs = GEO_CACHE_MAX_AGE_MS): GeoPoint | null {

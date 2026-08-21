@@ -50,6 +50,21 @@ def test_confirm_rejects_invalid_code(otp_env) -> None:
     assert exc.value.code == "code_invalid"
 
 
+def test_confirm_locks_after_too_many_invalid_attempts(otp_env) -> None:
+    customer_path, _ = otp_env
+    update_customer_profile("tg-lock", {"name": "Lock", "phone": "+380661007435"}, customer_path)
+    otp_verification.send_customer_verification_code("tg-lock", "telegram", customer_store_path=customer_path)
+
+    for _ in range(otp_verification.OTP_MAX_CONFIRM_ATTEMPTS):
+        with pytest.raises(otp_verification.OtpVerificationError) as exc:
+            otp_verification.confirm_customer_verification_code("tg-lock", "000000", customer_store_path=customer_path)
+        assert exc.value.code == "code_invalid"
+
+    with pytest.raises(otp_verification.OtpVerificationError) as exc:
+        otp_verification.confirm_customer_verification_code("tg-lock", "000000", customer_store_path=customer_path)
+    assert exc.value.code == "code_locked"
+
+
 def test_expired_code_is_rejected(monkeypatch, otp_env) -> None:
     customer_path, otp_path = otp_env
     update_customer_profile("tg-7", {"name": "Olena", "phone": "+380931234567"}, customer_path)
