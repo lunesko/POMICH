@@ -86,7 +86,15 @@ import { OrderRequestSheet } from "./OrderRequestSheet"
 import { IncomingOfferStep } from "./IncomingOfferStep"
 import { filterActiveMapRequestPins, filterActiveOffers, filterVisibleOffers, isOfferActive, isPresentableOffer, mergeRequestPins, offerActionErrorMessage, offerSecondsLeft, parseOfferPrice, pinFromOffer, readPersistedOfferDismissals, writePersistedOfferDismissals } from "../../lib/dispatchOffer"
 import { subscribeOrderEvents, subscribeProviderEvents } from "../../lib/realtime"
-import { getTelegramContext } from "../../telegram"
+import {
+  ensurePartnerNotificationPermission,
+  formatNearbyRequestAlert,
+  formatOfferAlert,
+  showPartnerAlert,
+  takeNewAlertIds,
+} from "../../lib/partnerAlerts"
+import { useScreenWakeLock } from "../../hooks/useScreenWakeLock"
+import { getTelegramContext, telegramHaptic } from "../../telegram"
 import FormContainer, { FormFooterBar, FormHeader } from "../layout/FormContainer"
 import { AccountLoginStep } from "../views/AccountLoginStep"
 import { ProviderRegistrationStep } from "../views/ProviderRegistrationStep"
@@ -411,6 +419,11 @@ export default function ProviderFlow({
     providerKind: "dispatch",
   }
   const telegramContext = useMemo(() => getTelegramContext(), [])
+  const knownNearbyIdsRef = useRef<Set<string>>(new Set())
+  const knownOfferIdsRef = useRef<Set<string>>(new Set())
+
+  /* Keep screen awake while partner is on duty inside Telegram / browser WebApp. */
+  useScreenWakeLock(onDuty)
   const otpBotUsername = telegramContext.botKind === "provider" ? "pomich_help_bot" : "pomich_ua_bot"
   const customerAuthSession = useMemo(
     () => (typeof window !== "undefined" ? readStoredCustomerAuthSession({ telegramChatId: telegramContext.chatId }) : undefined),
@@ -762,7 +775,6 @@ export default function ProviderFlow({
     if (!onDuty || !providerAuthToken) return
 
     const heartbeat = () => {
-      if (document.visibilityState !== "visible") return
       const presenceId = readAuthSessionSubject(providerAuthToken) || providerId
       updateProviderPresence(presenceId, {
         status: "online",
@@ -787,7 +799,6 @@ export default function ProviderFlow({
     const subjectId = readAuthSessionSubject(providerAuthToken) || providerId
 
     const refreshOffers = () => {
-      if (document.visibilityState !== "visible") return
       getProviderOffers(subjectId, providerAuthToken)
         .then((offers) => {
           if (!cancelled) {
@@ -795,6 +806,19 @@ export default function ProviderFlow({
               dismissedOfferIds: dismissedOfferIdsRef.current,
               dismissedOrderIds: dismissedOrderIdsRef.current,
             })
+            const freshOfferIds = takeNewAlertIds(
+              knownOfferIdsRef.current,
+              activeOffers.map((item) => item.id),
+            )
+            if (freshOfferIds.length > 0) {
+              if (document.visibilityState !== "visible") {
+                const offer = activeOffers.find((item) => freshOfferIds.includes(item.id))
+                const serviceLabel = offer?.service ? getProviderCapabilityLabel(offer.service) : undefined
+                void showPartnerAlert(formatOfferAlert(serviceLabel))
+              } else {
+                telegramHaptic(telegramContext.webApp, "warning")
+              }
+            }
             setIncomingOffers((prev) => {
               if (
                 prev.length === activeOffers.length &&
@@ -840,18 +864,19 @@ export default function ProviderFlow({
       window.clearInterval(interval)
       stopRealtime()
     }
-  }, [activeOrder, onDuty, providerAuthToken, providerId, step])
+  }, [activeOrder, onDuty, providerAuthToken, providerId, step, telegramContext.webApp])
 
   useEffect(() => {
     if (!onDuty || !providerAuthToken || activeOrder || (step !== "duty" && step !== "offer")) {
       setNearbyRequestPins((pins) => (pins.length === 0 ? pins : []))
+      knownNearbyIdsRef.current.clear()
+      knownOfferIdsRef.current.clear()
       return
     }
     let cancelled = false
     const radiusKm = providerProfile.serviceRadiusKm ?? registrationForm.serviceRadiusKm ?? DEFAULT_SERVICE_RADIUS_KM
 
     const refreshNearby = () => {
-      if (document.visibilityState !== "visible") return
       const loc = providerLocationRef.current
       getNearbyMapOrders(loc.lat, loc.lng, radiusKm)
         .then((orders) => {
@@ -863,6 +888,13 @@ export default function ProviderFlow({
             }
             return true
           })
+          const freshIds = takeNewAlertIds(
+            knownNearbyIdsRef.current,
+            visible.map((pin) => pin.id),
+          )
+          if (freshIds.length > 0 && document.visibilityState !== "visible") {
+            void showPartnerAlert(formatNearbyRequestAlert(freshIds.length))
+          }
           setNearbyRequestPins((prev) => {
             if (prev.length === visible.length && prev.every((item, i) => item.id === visible[i]?.id)) {
               return prev
@@ -1363,13 +1395,18 @@ export default function ProviderFlow({
         setNearbyRequestPins([])
         setMapRequestPins([])
         setSelectedRequestPin(undefined)
+        knownNearbyIdsRef.current.clear()
+        knownOfferIdsRef.current.clear()
         setPresenceToast("Ви на лінії")
         setStep("duty")
+        void ensurePartnerNotificationPermission()
       } else {
         setIncomingOffers([])
         setNearbyRequestPins([])
         setMapRequestPins([])
         setSelectedRequestPin(undefined)
+        knownNearbyIdsRef.current.clear()
+        knownOfferIdsRef.current.clear()
       }
     } catch (error) {
       setOnDuty(false)
