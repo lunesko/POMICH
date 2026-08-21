@@ -1,7 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 
 import type { CustomerProfile } from '../api/client'
-import { enrichPartnerAccountStatus, hydrateClientFromPartner, isReturningClient, isReturningPartner, isStoredProfileNameMismatch, mergeAccountProfile, mergePreservedAccountStatus, type UserAccountStatus } from './userAccount'
+import { enrichPartnerAccountStatus, hydrateClientFromPartner, isReturningClient, isReturningPartner, isStoredProfileNameMismatch, mergeAccountProfile, mergePreservedAccountStatus, buildRoleSwitchPreservedAccount, type UserAccountStatus } from './userAccount'
 
 const baseStatus: UserAccountStatus = {
   customerId: 'guest-test',
@@ -21,6 +21,10 @@ const completeProfile: CustomerProfile = {
 }
 
 describe('userAccount helpers', () => {
+  beforeEach(() => {
+    window.sessionStorage.clear()
+    window.localStorage.clear()
+  })
   it('treats stored profile with name and phone as returning client', () => {
     expect(isReturningClient({ ...baseStatus, profile: completeProfile })).toBe(true)
   })
@@ -139,5 +143,31 @@ describe('userAccount helpers', () => {
     expect(merged.providerRegistered).toBe(true)
     expect(merged.profile?.phone).toBe('+380671112233')
     expect(isReturningClient(hydrateClientFromPartner(merged))).toBe(true)
+  })
+
+  it('buildRoleSwitchPreservedAccount hydrates client from provider cache when account is null', () => {
+    window.sessionStorage.setItem('pomichLinkedProviderId', 'provider-guest-test')
+    window.sessionStorage.setItem(
+      'pomichProviderProfileCache:provider-guest-test',
+      JSON.stringify({
+        id: 'provider-guest-test',
+        name: 'Віталій Партнер',
+        phone: '+380661007434',
+        city: 'Ужгород',
+        status: 'offline',
+        verificationStatus: 'verified',
+        specialties: ['tow'],
+        serviceRadiusKm: 15,
+      }),
+    )
+    window.localStorage.setItem('pomichCustomerId', 'guest-vitaliy')
+    window.sessionStorage.setItem('pomichCustomerId', 'guest-vitaliy')
+
+    const preserved = buildRoleSwitchPreservedAccount(null, 'guest-vitaliy')
+    expect(preserved.linkedProviderId).toBe('provider-guest-test')
+    expect(isReturningPartner(preserved)).toBe(true)
+    expect(isReturningClient(preserved)).toBe(true)
+    expect(preserved.profile?.name).toBe('Віталій Партнер')
+    expect(preserved.profile?.phone).toBe('+380661007434')
   })
 })

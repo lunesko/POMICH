@@ -1389,7 +1389,7 @@ describe('POMICH role-based flows', () => {
         expect.objectContaining({ method: 'PATCH' }),
       )
     })
-    expect(await screen.findByText('На лінії')).toBeInTheDocument()
+    expect(await screen.findAllByText('На лінії')).not.toHaveLength(0)
   })
 
   it('opens partner cabinet from ?screen=cabinet deep link', async () => {
@@ -1997,7 +1997,9 @@ describe('POMICH role-based flows', () => {
     await openCustomerHome(user)
 
     expect(await screen.findByText('2 на лінії поруч')).toBeInTheDocument()
-    expect(await screen.findByText(/Найближчий: Олександр/i)).toBeInTheDocument()
+    // Subtitle uses a middle-dot separator; match name from the live availability list.
+    expect(await screen.findByText(/Олександр · Volkswagen Transporter/i)).toBeInTheDocument()
+    expect(screen.getByText(/Михайло · Renault Master/i)).toBeInTheDocument()
   })
 
   it('lets a provider go on duty before seeing offers', async () => {
@@ -2071,7 +2073,7 @@ describe('POMICH role-based flows', () => {
 
     await user.click(screen.getByRole('switch', { name: /Поза лінією/i }))
 
-    expect(await screen.findByText('На лінії')).toBeInTheDocument()
+    expect(await screen.findAllByText('На лінії')).not.toHaveLength(0)
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
         expect.stringContaining('/providers/provider-oleksandr/presence'),
@@ -2346,7 +2348,7 @@ describe('POMICH role-based flows', () => {
 
     expect(await screen.findByText('Партнер POMICH')).toBeInTheDocument()
     await user.click(screen.getByRole('switch', { name: /Поза лінією/i }))
-    expect(await screen.findByText('На лінії')).toBeInTheDocument()
+    expect(await screen.findAllByText('На лінії')).not.toHaveLength(0)
 
     await user.click(screen.getByRole('button', { name: /^Кабінет$/i }))
     expect(await screen.findByText('Кабінет партнера')).toBeInTheDocument()

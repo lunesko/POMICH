@@ -59,6 +59,49 @@ export function isReturningPartner(status: UserAccountStatus): boolean {
   return Boolean((status.linkedProviderId || "").trim())
 }
 
+function readLinkedProviderIdFromStorage(): string {
+  if (typeof window === "undefined") return ""
+  try {
+    return String(
+      window.sessionStorage.getItem("pomichLinkedProviderId") ||
+        window.localStorage.getItem("pomichLinkedProviderId") ||
+        "",
+    ).trim()
+  } catch {
+    return ""
+  }
+}
+
+/** Resolve partner name/phone from account, provider cache, or bootstrap for role switch. */
+export function resolvePartnerIdentity(status: UserAccountStatus): {
+  name: string
+  phone: string
+  city?: string
+  verificationStatus?: CustomerProfile["verificationStatus"]
+  linkedProviderId: string
+} {
+  const linkedId =
+    (status.linkedProviderId || "").trim() ||
+    readLinkedProviderIdFromStorage() ||
+    resolveProviderIdForCustomer(status.customerId, status.linkedProviderId) ||
+    (typeof window !== "undefined" ? getActiveProviderId() : "")
+  const cached = typeof window !== "undefined" ? readCachedProviderProfile(linkedId) : undefined
+  const bootstrap = typeof window !== "undefined" ? readBootstrapProfile() : undefined
+  const profileName = (status.profile?.name || "").trim()
+  const name =
+    profileName && profileName !== DEFAULT_CUSTOMER_NAME
+      ? profileName
+      : (cached?.name || bootstrap?.name || "").trim()
+  const phone = (status.profile?.phone || cached?.phone || bootstrap?.phone || "").trim()
+  const city = status.profile?.city || cached?.city || bootstrap?.city
+  const verificationStatus =
+    status.profile?.verificationStatus ||
+    (cached?.verificationStatus === "verified" ? "verified" : undefined) ||
+    bootstrap?.verificationStatus ||
+    "unverified"
+  return { name, phone, city, verificationStatus, linkedProviderId: linkedId }
+}
+
 /** Fill client name/phone from cached partner profile when switching partner → client. */
 export function hydrateClientFromPartner(status: UserAccountStatus): UserAccountStatus {
   if (isReturningClient(status)) {
@@ -72,18 +115,18 @@ export function hydrateClientFromPartner(status: UserAccountStatus): UserAccount
       needsOnboarding: false,
     }
   }
-  if (!isReturningPartner(status)) return status
+  if (!isReturningPartner(status) && !readLinkedProviderIdFromStorage() && !status.linkedProviderId) {
+    return status
+  }
 
-  const linkedId = (status.linkedProviderId || "").trim() || resolveProviderIdForCustomer(status.customerId, status.linkedProviderId)
-  const cached = typeof window !== "undefined" ? readCachedProviderProfile(linkedId || getActiveProviderId()) : undefined
-  const bootstrap = typeof window !== "undefined" ? readBootstrapProfile() : undefined
-  const profileName = (status.profile?.name || "").trim()
-  const name =
-    profileName && profileName !== DEFAULT_CUSTOMER_NAME
-      ? profileName
-      : (cached?.name || bootstrap?.name || "").trim()
-  const phone = (status.profile?.phone || cached?.phone || bootstrap?.phone || "").trim()
-  if (!name || name === DEFAULT_CUSTOMER_NAME || !phone) return status
+  const { name, phone, city, verificationStatus, linkedProviderId } = resolvePartnerIdentity(status)
+  if (!name || name === DEFAULT_CUSTOMER_NAME || !phone) {
+    return {
+      ...status,
+      linkedProviderId: linkedProviderId || status.linkedProviderId,
+      providerRegistered: status.providerRegistered || Boolean(linkedProviderId),
+    }
+  }
 
   const rolesRegistered = status.rolesRegistered.includes("customer")
     ? status.rolesRegistered
@@ -91,6 +134,8 @@ export function hydrateClientFromPartner(status: UserAccountStatus): UserAccount
 
   return {
     ...status,
+    linkedProviderId: linkedProviderId || status.linkedProviderId,
+    providerRegistered: true,
     clientRegistered: true,
     rolesRegistered,
     needsOnboarding: false,
@@ -99,13 +144,52 @@ export function hydrateClientFromPartner(status: UserAccountStatus): UserAccount
       id: status.profile?.id || status.customerId,
       name,
       phone,
-      city: status.profile?.city || cached?.city || bootstrap?.city,
-      verificationStatus:
-        status.profile?.verificationStatus ||
-        (cached?.verificationStatus === "verified" ? "verified" : status.profile?.verificationStatus) ||
-        "unverified",
+      city,
+      verificationStatus: verificationStatus || "unverified",
     },
   }
+}
+
+/**
+ * Snapshot used when opening «Змінити роль» from partner UI.
+ * Works even when CustomerApp.account is still null (providerToken-only entry).
+ */
+export function buildRoleSwitchPreservedAccount(
+  account?: UserAccountStatus | null,
+  customerId?: string,
+): UserAccountStatus {
+  const storedLinked = readLinkedProviderIdFromStorage()
+  const id = String(account?.customerId || customerId || "").trim() || readStoredCustomerId()
+  const linkedId =
+    (account?.linkedProviderId || "").trim() ||
+    storedLinked ||
+    resolveProviderIdForCustomer(id)
+  const base: UserAccountStatus = {
+    customerId: id,
+    preferredRole: account?.preferredRole || "provider",
+    linkedProviderId: linkedId,
+    rolesRegistered: account?.rolesRegistered?.length
+      ? account.rolesRegistered
+      : linkedId
+        ? (["provider"] as UserRole[])
+        : [],
+    clientRegistered: Boolean(account?.clientRegistered),
+    providerRegistered: Boolean(account?.providerRegistered || linkedId),
+    needsOnboarding: false,
+    profile: account?.profile,
+  }
+  const enriched = enrichPartnerAccountStatus(base)
+  const hydrated = hydrateClientFromPartner(enriched)
+  /* Persist identity so OnboardingGate boot / API misses still recover. */
+  if (typeof window !== "undefined" && hydrated.profile && isClientProfileComplete(hydrated.profile)) {
+    try {
+      window.sessionStorage.setItem("pomichBootstrapProfile", JSON.stringify(hydrated.profile))
+    } catch {
+      // ignore
+    }
+  }
+  if (hydrated.linkedProviderId) storeLinkedProviderId(hydrated.linkedProviderId)
+  return hydrated
 }
 
 /** Restore partner flags dropped by a stale /account response during role switch. */

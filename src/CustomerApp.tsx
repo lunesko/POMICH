@@ -11,7 +11,7 @@ import { getActiveProviderId, type Role } from "./lib/constants"
 import { readCachedProviderProfile } from "./lib/providerProfileCache"
 import { mediaQueries } from "./lib/breakpoints"
 import { useMediaQuery } from "./hooks/useMediaQuery"
-import { enrichPartnerAccountStatus, hydrateClientFromPartner, isReturningClient, isReturningPartner, mergeAccountProfile, mergePreservedAccountStatus, resolveProviderIdForCustomer, storeLinkedProviderId } from "./lib/userAccount"
+import { buildRoleSwitchPreservedAccount, enrichPartnerAccountStatus, hydrateClientFromPartner, isReturningClient, isReturningPartner, mergeAccountProfile, mergePreservedAccountStatus, resolveProviderIdForCustomer, storeLinkedProviderId } from "./lib/userAccount"
 import {
   applyHiddenAdminEntry,
   isAdminEntryLocation,
@@ -416,10 +416,23 @@ export default function CustomerApp() {
   }
 
   const handleSwitchRole = () => {
-    // Keep the same customer identity + linkedProviderId so a registered partner
-    // profile is restored after picking «Партнер» again (logout is the only full wipe).
+    // Snapshot partner identity BEFORE clearing provider tokens so client switch
+    // can reuse name/phone even when CustomerApp.account was still null.
+    const preserved = buildRoleSwitchPreservedAccount(
+      account,
+      account?.customerId || readPersistedCustomerId(telegramContext.chatId),
+    )
     clearProviderAuthStorage({ includeAdmin: true })
-    setAccount((prev) => (prev ? hydrateClientFromPartner(enrichPartnerAccountStatus(prev)) : prev))
+    setAccount(preserved)
+    if (preserved.customerId) {
+      setCustomerToken(
+        readStoredAuthSession(
+          authSessionStorageKey("customer", preserved.customerId),
+          "customer",
+          preserved.customerId,
+        ) ?? customerToken,
+      )
+    }
     sanitizePublicAppUrl({ preserveAdminRole: false })
     setForceRolePicker(true)
     setRolePickerKey((value) => value + 1)
@@ -606,7 +619,12 @@ export default function CustomerApp() {
         loginMode={loginMode}
         initialRole={pendingRole}
         preservedAccount={
-          forceRolePicker && account ? hydrateClientFromPartner(enrichPartnerAccountStatus(account)) : undefined
+          forceRolePicker
+            ? buildRoleSwitchPreservedAccount(
+                account,
+                account?.customerId || readPersistedCustomerId(telegramContext.chatId),
+              )
+            : undefined
         }
         onShowLanding={() => {
           setForceRolePicker(false)

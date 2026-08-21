@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import {
   createGuestCustomerSession,
   createTelegramCustomerSession,
+  getProviderPublicProfile,
   getUserAccount,
   setUserPreferredRole,
   updateCustomerProfile,
@@ -35,6 +36,7 @@ import {
   mergeAccountProfile,
   mergePreservedAccountStatus,
   readBootstrapProfile,
+  resolvePartnerIdentity,
   resolveProviderIdForCustomer,
   storeLinkedProviderId,
   type UserAccountStatus,
@@ -42,7 +44,7 @@ import {
 } from "../../lib/userAccount"
 import { getTelegramContext } from "../../telegram"
 import { getActiveProviderId, type Role } from "../../lib/constants"
-import { readCachedProviderProfile } from "../../lib/providerProfileCache"
+import { readCachedProviderProfile, writeCachedProviderProfile } from "../../lib/providerProfileCache"
 import { writeCityUserPicked, writePreferredCity } from "../../lib/preferredCity"
 import ClientRegistrationScreen from "./ClientRegistrationScreen"
 import ClientLoginScreen from "./ClientLoginScreen"
@@ -404,39 +406,106 @@ export default function OnboardingGate({ skip, startAtRoleSelect, loginMode = fa
       }
 
       if (role === "customer" && !isReturningClient(mergedStatus)) {
-        // Registered partner without hydrated client profile: still avoid blank re-registration
-        // when partner identity is already known — ask OTP only if needed after hydrate retry.
-        if (isReturningPartner(mergedStatus)) {
-          const partnerHydrated = hydrateClientFromPartner(mergedStatus)
-          if (isReturningClient(partnerHydrated)) {
-            setAccount(partnerHydrated)
-            if (partnerHydrated.profile) setProfile(partnerHydrated.profile)
-            if (needsClientOtpVerification(partnerHydrated.profile, partnerHydrated)) {
-              setPhase("verify-client")
-              return
+        // Registered partner → client: never open empty «Реєстрація клієнта».
+        let partnerHydrated = hydrateClientFromPartner(mergedStatus)
+
+        if (!isReturningClient(partnerHydrated)) {
+          const identity = resolvePartnerIdentity(partnerHydrated)
+          if (identity.linkedProviderId && (!identity.name || !identity.phone)) {
+            try {
+              const publicProfile = await getProviderPublicProfile(identity.linkedProviderId)
+              const providerName = String(publicProfile?.name || "").trim()
+              const providerPhone = String(publicProfile?.phone || "").trim()
+              const providerCity = String(publicProfile?.city || "").trim()
+              if (providerName || providerPhone) {
+                writeCachedProviderProfile({
+                  id: identity.linkedProviderId,
+                  name: providerName || identity.name || "Партнер POMICH",
+                  phone: providerPhone || identity.phone,
+                  city: providerCity || identity.city,
+                  status: "offline",
+                  verificationStatus:
+                    publicProfile?.verificationStatus === "verified" ? "verified" : "unverified",
+                  specialties: [],
+                  serviceRadiusKm: 15,
+                })
+                partnerHydrated = hydrateClientFromPartner({
+                  ...partnerHydrated,
+                  linkedProviderId: identity.linkedProviderId,
+                  providerRegistered: true,
+                })
+              }
+            } catch {
+              // Public profile may omit phone — fall through to local identity.
             }
-            onReadyRef.current({ role, account: partnerHydrated, customerToken: token })
-            setPhase("ready")
+          }
+
+          if (!isReturningClient(partnerHydrated)) {
+            const retry = resolvePartnerIdentity(partnerHydrated)
+            if (retry.name && retry.name !== DEFAULT_CUSTOMER_NAME && retry.phone) {
+              partnerHydrated = hydrateClientFromPartner({
+                ...partnerHydrated,
+                linkedProviderId: retry.linkedProviderId || partnerHydrated.linkedProviderId,
+                providerRegistered: true,
+                profile: {
+                  ...(partnerHydrated.profile || { id: activeCustomerId }),
+                  id: partnerHydrated.profile?.id || activeCustomerId,
+                  name: retry.name,
+                  phone: retry.phone,
+                  city: retry.city,
+                  verificationStatus: retry.verificationStatus || "unverified",
+                },
+              })
+            }
+          }
+        }
+
+        if (isReturningClient(partnerHydrated)) {
+          setAccount(partnerHydrated)
+          if (partnerHydrated.profile) setProfile(partnerHydrated.profile)
+          if (partnerHydrated.profile && token) {
+            try {
+              await updateCustomerProfile(
+                activeCustomerId,
+                {
+                  name: partnerHydrated.profile.name,
+                  phone: partnerHydrated.profile.phone,
+                  city: partnerHydrated.profile.city,
+                },
+                token,
+              )
+            } catch {
+              // Local hydrate is enough to enter the client home; server sync can retry later.
+            }
+          }
+          if (needsClientOtpVerification(partnerHydrated.profile, partnerHydrated)) {
+            setPhase("verify-client")
             return
           }
-          /* Prefill client registration from partner identity instead of an empty form. */
+          onReadyRef.current({ role, account: partnerHydrated, customerToken: token })
+          setPhase("ready")
+          return
+        }
+
+        if (isReturningPartner(partnerHydrated) || isReturningPartner(mergedStatus)) {
+          /* Prefill only as last resort — still avoid a blank form. */
           const linkedId =
-            (mergedStatus.linkedProviderId || "").trim() ||
-            resolveProviderIdForCustomer(activeCustomerId, mergedStatus.linkedProviderId)
+            (partnerHydrated.linkedProviderId || "").trim() ||
+            resolveProviderIdForCustomer(activeCustomerId, partnerHydrated.linkedProviderId)
           const cached =
             typeof window !== "undefined"
               ? readCachedProviderProfile(linkedId || getActiveProviderId())
               : undefined
           const bootstrap = typeof window !== "undefined" ? readBootstrapProfile() : undefined
-          const prefillName = (mergedStatus.profile?.name || cached?.name || bootstrap?.name || "").trim()
-          const prefillPhone = (mergedStatus.profile?.phone || cached?.phone || bootstrap?.phone || "").trim()
+          const prefillName = (partnerHydrated.profile?.name || cached?.name || bootstrap?.name || "").trim()
+          const prefillPhone = (partnerHydrated.profile?.phone || cached?.phone || bootstrap?.phone || "").trim()
           if (prefillName || prefillPhone) {
             setProfile({
               id: activeCustomerId,
               name: prefillName || DEFAULT_CUSTOMER_NAME,
               phone: prefillPhone || "",
-              city: mergedStatus.profile?.city || cached?.city || bootstrap?.city,
-              verificationStatus: mergedStatus.profile?.verificationStatus || "unverified",
+              city: partnerHydrated.profile?.city || cached?.city || bootstrap?.city,
+              verificationStatus: partnerHydrated.profile?.verificationStatus || "unverified",
             })
           }
         }
