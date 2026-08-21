@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 
 import type { LatLngTuple } from "leaflet"
 
@@ -840,26 +840,210 @@ function RouteOriginSheet({
 
 
 
-function MapLegend({ directoryOnly, hasDestination, hasPartner }: { directoryOnly?: boolean; hasDestination?: boolean; hasPartner?: boolean; overlayMode?: boolean }) {
-  if (directoryOnly) {
+function MapLegendGlyph({
+  tone,
+  children,
+}: {
+  tone: "green" | "amber" | "blue" | "violet" | "red" | "slate"
+  children: ReactNode
+}) {
+  return (
+    <span className={`pomich-map-legend-glyph pomich-map-legend-glyph--${tone}`} aria-hidden="true">
+      {children}
+    </span>
+  )
+}
+
+function MapLegendItem({
+  tone,
+  label,
+  icon,
+  delayMs = 0,
+}: {
+  tone: "green" | "amber" | "blue" | "violet" | "red" | "slate"
+  label: string
+  icon: ReactNode
+  delayMs?: number
+}) {
+  return (
+    <span className="pomich-map-legend-item" style={{ animationDelay: `${delayMs}ms` }}>
+      <MapLegendGlyph tone={tone}>{icon}</MapLegendGlyph>
+      <span className="pomich-map-legend-item__label">{label}</span>
+    </span>
+  )
+}
+
+const LEGEND_ICONS = {
+  client: (
+    <svg viewBox="0 0 16 16" width="12" height="12" fill="none" aria-hidden="true">
+      <circle cx="8" cy="8" r="5.5" fill="currentColor" />
+      <circle cx="8" cy="8" r="2.2" fill="#fff" fillOpacity="0.92" />
+    </svg>
+  ),
+  partner: (
+    <svg viewBox="0 0 16 16" width="13" height="13" fill="none" aria-hidden="true">
+      <path d="M2.5 10.5h8.2l1.6-3.2H14v5.2H2.5v-2Z" fill="currentColor" />
+      <circle cx="5" cy="12.6" r="1.35" fill="#fff" />
+      <circle cx="11.2" cy="12.6" r="1.35" fill="#fff" />
+      <path d="M2.5 8.2h5.8V5.4H4.2L2.5 8.2Z" fill="currentColor" fillOpacity="0.85" />
+    </svg>
+  ),
+  destination: (
+    <svg viewBox="0 0 16 16" width="12" height="12" fill="none" aria-hidden="true">
+      <path d="M8 2.2c-2.4 0-4.3 1.9-4.3 4.3 0 3.2 4.3 7.3 4.3 7.3s4.3-4.1 4.3-7.3C12.3 4.1 10.4 2.2 8 2.2Z" fill="currentColor" />
+      <circle cx="8" cy="6.4" r="1.7" fill="#fff" />
+    </svg>
+  ),
+  service: (
+    <svg viewBox="0 0 16 16" width="12" height="12" fill="none" aria-hidden="true">
+      <path d="M10.8 2.4 9.2 4l1.8 1.8 1.6-1.6a2.2 2.2 0 0 1-1.8-1.8Z" fill="currentColor" />
+      <path d="M8.4 4.8 3.2 10l1.8 1.8 5.2-5.2L8.4 4.8Z" fill="currentColor" />
+      <path d="M2.6 12.2 3.8 13.4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  ),
+  request: (
+    <svg viewBox="0 0 16 16" width="12" height="12" fill="none" aria-hidden="true">
+      <circle cx="8" cy="8" r="5.5" fill="currentColor" />
+      <path d="M8 4.8v4.2M8 11.2h.01" stroke="#fff" strokeWidth="1.7" strokeLinecap="round" />
+    </svg>
+  ),
+  user: (
+    <svg viewBox="0 0 16 16" width="12" height="12" fill="none" aria-hidden="true">
+      <circle cx="8" cy="8" r="5.5" fill="currentColor" fillOpacity="0.25" />
+      <circle cx="8" cy="8" r="3.2" fill="currentColor" />
+    </svg>
+  ),
+  route: (
+    <svg viewBox="0 0 16 16" width="12" height="12" fill="none" aria-hidden="true">
+      <path d="M3.2 12.2c2.2-4.4 3.4-5.6 4.8-5.6 1.6 0 2.2 1.6 4.8 1.6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <circle cx="3.2" cy="12.2" r="1.5" fill="currentColor" />
+      <circle cx="12.8" cy="8.2" r="1.5" fill="currentColor" />
+    </svg>
+  ),
+} as const
+
+const MAP_LEGEND_COLLAPSED_KEY = "pomichMapLegendCollapsed"
+
+function readLegendCollapsed(): boolean {
+  if (typeof window === "undefined") return false
+  try {
+    return window.localStorage.getItem(MAP_LEGEND_COLLAPSED_KEY) === "1"
+  } catch {
+    return false
+  }
+}
+
+function writeLegendCollapsed(collapsed: boolean) {
+  if (typeof window === "undefined") return
+  try {
+    window.localStorage.setItem(MAP_LEGEND_COLLAPSED_KEY, collapsed ? "1" : "0")
+  } catch {
+    // ignore
+  }
+}
+
+function MapLegend({
+  directoryOnly,
+  hasDestination,
+  hasPartner,
+}: {
+  directoryOnly?: boolean
+  hasDestination?: boolean
+  hasPartner?: boolean
+  overlayMode?: boolean
+}) {
+  const [collapsed, setCollapsed] = useState(readLegendCollapsed)
+  const [entered, setEntered] = useState(false)
+
+  useEffect(() => {
+    if (collapsed) {
+      setEntered(false)
+      return
+    }
+    if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+      const id = window.requestAnimationFrame(() => setEntered(true))
+      return () => window.cancelAnimationFrame(id)
+    }
+    const id = window.setTimeout(() => setEntered(true), 0)
+    return () => window.clearTimeout(id)
+  }, [collapsed])
+
+  const toggle = () => {
+    setCollapsed((value) => {
+      const next = !value
+      writeLegendCollapsed(next)
+      return next
+    })
+  }
+
+  const items = directoryOnly
+    ? [
+        { tone: "green" as const, label: "Сервіс / СТО", icon: LEGEND_ICONS.service },
+        { tone: "blue" as const, label: "Ваше місце", icon: LEGEND_ICONS.user },
+        { tone: "slate" as const, label: "Маршрут", icon: LEGEND_ICONS.route },
+      ]
+    : [
+        { tone: "green" as const, label: "Клієнт", icon: LEGEND_ICONS.client },
+        {
+          tone: "amber" as const,
+          label: hasPartner ? "Партнер" : "Партнер на лінії",
+          icon: LEGEND_ICONS.partner,
+        },
+        ...(hasDestination
+          ? [{ tone: "blue" as const, label: "Пункт призначення", icon: LEGEND_ICONS.destination }]
+          : []),
+        { tone: "slate" as const, label: "Сервіс", icon: LEGEND_ICONS.service },
+        { tone: "red" as const, label: "Заявка", icon: LEGEND_ICONS.request },
+      ]
+
+  if (collapsed) {
     return (
-      <div className="pomich-map-legend-box">
-        <span className="pomich-map-legend-title">Легенда</span>
-        <span>🔧 Сервіс / СТО</span>
-        <span>🟣 Ваше місце</span>
-        <span>🔵 Маршрут</span>
-      </div>
+      <button
+        type="button"
+        className={`pomich-map-legend-fab${entered ? " is-entered" : ""}`}
+        onClick={toggle}
+        aria-expanded={false}
+        aria-label="Показати легенду карти"
+        title="Легенда"
+      >
+        <svg viewBox="0 0 20 20" width="16" height="16" fill="none" aria-hidden="true">
+          <rect x="3" y="4.5" width="3" height="3" rx="1" fill="currentColor" />
+          <rect x="3" y="8.5" width="3" height="3" rx="1" fill="currentColor" />
+          <rect x="3" y="12.5" width="3" height="3" rx="1" fill="currentColor" />
+          <path d="M8.5 6h8M8.5 10h8M8.5 14h8" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+        </svg>
+      </button>
     )
   }
 
   return (
-    <div className="pomich-map-legend-box">
-      <span className="pomich-map-legend-title">Легенда</span>
-      <span>🟢 Клієнт</span>
-      {hasPartner ? <span>🟠 Партнер</span> : <span>🚛 Партнер на лінії</span>}
-      {hasDestination ? <span>🔵 Пункт призначення</span> : null}
-      <span>🔧 Сервіс</span>
-      <span>🔴 Заявка</span>
+    <div className={`pomich-map-legend-box${entered ? " is-entered" : ""}`} role="group" aria-label="Легенда карти">
+      <div className="pomich-map-legend-head">
+        <span className="pomich-map-legend-title">Легенда</span>
+        <button
+          type="button"
+          className="pomich-map-legend-toggle"
+          onClick={toggle}
+          aria-expanded={true}
+          aria-label="Сховати легенду"
+          title="Сховати"
+        >
+          <svg viewBox="0 0 16 16" width="12" height="12" fill="none" aria-hidden="true">
+            <path d="M4 6.2 8 10l4-3.8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+      </div>
+      <div className="pomich-map-legend-list">
+        {items.map((item, index) => (
+          <MapLegendItem
+            key={item.label}
+            tone={item.tone}
+            label={item.label}
+            icon={item.icon}
+            delayMs={40 + index * 45}
+          />
+        ))}
+      </div>
     </div>
   )
 }

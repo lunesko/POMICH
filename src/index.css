@@ -3076,34 +3076,207 @@ html.mobile-compact-xs .pomich-tg-main .pomich-ride-screen__map .leaflet-contain
   -webkit-backdrop-filter: blur(14px) saturate(180%);
   border: 1px solid var(--pomich-glass-border);
   border-radius: 14px;
-  padding: 8px 12px;
+  padding: 8px 10px 10px;
   font-size: 10px;
   font-weight: 850;
   color: var(--pomich-text);
   box-shadow: var(--pomich-card-shadow);
   display: grid;
-  gap: 4px;
+  gap: 6px;
   pointer-events: auto;
+  min-width: 148px;
+  max-width: min(190px, calc(100vw - 28px));
+  opacity: 0;
+  transform: translateY(8px) scale(0.96);
+  transform-origin: top right;
+  transition:
+    opacity 0.28s ease,
+    transform 0.32s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.2s ease;
+}
+.pomich-map-legend-box.is-entered {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+.pomich-map-legend-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 .pomich-map-legend-title {
-  margin-bottom: 2px;
+  margin: 0;
   font-size: 9px;
   font-weight: 900;
   color: var(--pomich-subtle);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
+}
+.pomich-map-legend-toggle {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  border: 1px solid var(--pomich-glass-border);
+  background: color-mix(in srgb, var(--pomich-card-bg) 78%, transparent);
+  color: var(--pomich-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+  transition:
+    background 0.18s ease,
+    color 0.18s ease,
+    transform 0.18s ease,
+    border-color 0.18s ease;
+}
+.pomich-map-legend-toggle:hover {
+  color: var(--pomich-text);
+  border-color: color-mix(in srgb, var(--pomich-brand) 35%, var(--pomich-border));
+  background: color-mix(in srgb, var(--pomich-brand) 10%, var(--pomich-card-bg));
+  transform: translateY(-1px);
+}
+.pomich-map-legend-toggle:active {
+  transform: scale(0.94);
+}
+.pomich-map-legend-list {
+  display: grid;
+  gap: 5px;
+}
+.pomich-map-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  opacity: 0;
+  transform: translateX(6px);
+  animation: pomichLegendItemIn 0.34s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+.pomich-map-legend-item__label {
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--pomich-text);
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pomich-map-legend-glyph {
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: #fff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.16);
+  animation: pomichLegendGlyphPulse 2.4s ease-in-out infinite;
+}
+.pomich-map-legend-glyph--green {
+  background: linear-gradient(145deg, #22c55e, #16a36a);
+}
+.pomich-map-legend-glyph--amber {
+  background: linear-gradient(145deg, #fbbf24, #f59e0b);
+}
+.pomich-map-legend-glyph--blue {
+  background: linear-gradient(145deg, #60a5fa, #2563eb);
+}
+.pomich-map-legend-glyph--violet {
+  background: linear-gradient(145deg, #a78bfa, #7c3aed);
+}
+.pomich-map-legend-glyph--red {
+  background: linear-gradient(145deg, #fb7185, #ef4444);
+}
+.pomich-map-legend-glyph--slate {
+  background: linear-gradient(145deg, #94a3b8, #64748b);
+}
+.pomich-map-legend-fab {
+  position: absolute;
+  z-index: 1200;
+  right: var(--pomich-map-chrome-right, 12px);
+  top: var(--pomich-map-chrome-top, 78px);
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  border: 1px solid var(--pomich-glass-border);
+  background: var(--pomich-glass-card);
+  backdrop-filter: blur(14px) saturate(180%);
+  -webkit-backdrop-filter: blur(14px) saturate(180%);
+  color: var(--pomich-text);
+  box-shadow: var(--pomich-card-shadow);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  pointer-events: auto;
+  opacity: 0;
+  transform: scale(0.86);
+  transition:
+    opacity 0.24s ease,
+    transform 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    background 0.18s ease,
+    color 0.18s ease,
+    border-color 0.18s ease;
+}
+.pomich-map-legend-fab.is-entered {
+  opacity: 1;
+  transform: scale(1);
+}
+.pomich-map-legend-fab:hover {
+  color: var(--pomich-brand);
+  border-color: color-mix(in srgb, var(--pomich-brand) 40%, var(--pomich-border));
+  transform: translateY(-1px) scale(1.03);
+}
+.pomich-map-legend-fab:active {
+  transform: scale(0.94);
+}
+@keyframes pomichLegendItemIn {
+  from {
+    opacity: 0;
+    transform: translateX(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+@keyframes pomichLegendGlyphPulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.06);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pomich-map-legend-box,
+  .pomich-map-legend-fab,
+  .pomich-map-legend-item,
+  .pomich-map-legend-glyph,
+  .pomich-map-legend-toggle {
+    animation: none !important;
+    transition: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
 }
 /* Desktop split view: legend/filter share the same top as zoom/geo + side panel */
 .pomich-ride-screen--split .pomich-map-tools-toggle,
 .pomich-ride-screen--split .pomich-map-tools-panel,
-.pomich-ride-screen--split .pomich-map-legend-box {
+.pomich-ride-screen--split .pomich-map-legend-box,
+.pomich-ride-screen--split .pomich-map-legend-fab {
   right: calc(420px + 32px) !important;
   top: var(--pomich-map-chrome-top) !important;
 }
 @media (max-width: 1280px) {
   .pomich-ride-screen--split .pomich-map-tools-toggle,
   .pomich-ride-screen--split .pomich-map-tools-panel,
-  .pomich-ride-screen--split .pomich-map-legend-box {
+  .pomich-ride-screen--split .pomich-map-legend-box,
+  .pomich-ride-screen--split .pomich-map-legend-fab {
     right: calc(360px + 28px) !important;
   }
 }
@@ -3119,7 +3292,8 @@ html.mobile-compact-xs .pomich-tg-main .pomich-ride-screen__map .leaflet-contain
     top: var(--pomich-map-chrome-top);
     width: min(240px, calc(100vw - 24px));
   }
-  .pomich-map-legend-box {
+  .pomich-map-legend-box,
+  .pomich-map-legend-fab {
     right: var(--pomich-map-chrome-right, 12px);
     top: var(--pomich-map-chrome-top);
   }
@@ -5711,6 +5885,9 @@ html.tg-compact .pomich-ride-screen__map .leaflet-top.leaflet-left {
   scrollbar-width: none;
 }
 .pomich-map-legend-box {
+  z-index: 1100;
+}
+.pomich-map-legend-fab {
   z-index: 1100;
 }
 .pomich-comment-field {
