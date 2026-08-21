@@ -89,6 +89,12 @@ import { IncomingOfferStep } from "./IncomingOfferStep"
 import { filterActiveMapRequestPins, filterActiveOffers, filterVisibleOffers, formatCountdown, acceptedIdleSecondsLeft, isOfferActive, isPresentableOffer, mergeRequestPins, offerActionErrorMessage, offerSecondsLeft, parseOfferPrice, pinFromOffer, readPersistedOfferDismissals, writePersistedOfferDismissals } from "../../lib/dispatchOffer"
 import { subscribeOrderEvents, subscribeProviderEvents } from "../../lib/realtime"
 import { getTelegramContext } from "../../telegram"
+import { useScreenWakeLock } from "../../hooks/useScreenWakeLock"
+import {
+  alertPartnerNewRequest,
+  diffNewIds,
+  ensurePartnerAlertPermission,
+} from "../../lib/partnerDutyAlerts"
 import FormContainer, { FormFooterBar, FormHeader } from "../layout/FormContainer"
 import { AccountLoginStep } from "../views/AccountLoginStep"
 import { ProviderRegistrationStep } from "../views/ProviderRegistrationStep"
@@ -440,6 +446,8 @@ export default function ProviderFlow({
     providerKind: "dispatch",
   }
   const telegramContext = useMemo(() => getTelegramContext(), [])
+  useScreenWakeLock(onDuty)
+  const seenDutyAlertIdsRef = useRef<Set<string>>(new Set())
   const otpBotUsername = telegramContext.botKind === "provider" ? "pomich_help_bot" : "pomich_ua_bot"
   const customerAuthSession = useMemo(
     () => (typeof window !== "undefined" ? readStoredCustomerAuthSession({ telegramChatId: telegramContext.chatId }) : undefined),
@@ -820,7 +828,8 @@ export default function ProviderFlow({
     if (!onDuty || !providerAuthToken) return
 
     const heartbeat = () => {
-      if (document.visibilityState !== "visible") return
+      // Keep presence alive even with the screen off — otherwise partners drop offline
+      // and miss Telegram / map alerts while "На лінії".
       const presenceId = readAuthSessionSubject(providerAuthToken) || providerId
       updateProviderPresence(presenceId, {
         status: "online",
@@ -845,7 +854,8 @@ export default function ProviderFlow({
     const subjectId = readAuthSessionSubject(providerAuthToken) || providerId
 
     const refreshOffers = () => {
-      if (document.visibilityState !== "visible") return
+      // Poll while backgrounded so we can fire local notifications; Telegram bot
+      // messages still cover fully suspended Mini Apps (esp. iOS).
       getProviderOffers(subjectId, providerAuthToken)
         .then((offers) => {
           if (!cancelled) {
@@ -909,7 +919,6 @@ export default function ProviderFlow({
     const radiusKm = providerProfile.serviceRadiusKm ?? registrationForm.serviceRadiusKm ?? DEFAULT_SERVICE_RADIUS_KM
 
     const refreshNearby = () => {
-      if (document.visibilityState !== "visible") return
       const loc = providerLocationRef.current
       getNearbyMapOrders(loc.lat, loc.lng, radiusKm, undefined, providerAuthToken)
         .then((orders) => {
@@ -976,6 +985,42 @@ export default function ProviderFlow({
       return next
     })
   }, [incomingOffers, nearbyRequestPins, offerClock, onDuty, step])
+
+  /* Alert on newly seen offers / nearby requests while on duty (Web Notification + haptic). */
+  useEffect(() => {
+    if (!onDuty) {
+      seenDutyAlertIdsRef.current = new Set()
+      return
+    }
+    const nextIds = [
+      ...incomingOffers.map((offer) => `offer:${offer.id}`),
+      ...nearbyRequestPins.map((pin) => `order:${pin.id}`),
+    ]
+    const fresh = diffNewIds(seenDutyAlertIdsRef.current, nextIds)
+    if (seenDutyAlertIdsRef.current.size === 0) {
+      for (const id of nextIds) seenDutyAlertIdsRef.current.add(id)
+      return
+    }
+    for (const key of fresh) {
+      seenDutyAlertIdsRef.current.add(key)
+      const rawId = key.includes(":") ? key.slice(key.indexOf(":") + 1) : key
+      const offer = incomingOffers.find((item) => item.id === rawId || item.orderId === rawId)
+      const pin = nearbyRequestPins.find((item) => item.id === rawId)
+      const service = offer?.service || pin?.service
+      const serviceMeta = services.find((item) => item.key === service)
+      const serviceLabel = service
+        ? `${getServiceEmoji(service)} ${serviceMeta?.label || service}`
+        : undefined
+      const distanceKm = offer?.distanceKm ?? pin?.distanceKm
+      alertPartnerNewRequest({
+        orderId: String(offer?.orderId || pin?.id || rawId),
+        serviceLabel,
+        distanceLabel: typeof distanceKm === "number" ? `${distanceKm.toFixed(1)} км` : undefined,
+        webApp: telegramContext.webApp,
+        preferNotification: document.visibilityState !== "visible",
+      })
+    }
+  }, [incomingOffers, nearbyRequestPins, onDuty, telegramContext.webApp])
 
   useEffect(() => {
     if (!selectedRequestPin) return
@@ -1534,6 +1579,7 @@ export default function ProviderFlow({
         setSelectedRequestPin(undefined)
         setPresenceToast("Ви на лінії")
         setStep("duty")
+        void ensurePartnerAlertPermission()
       } else {
         setIncomingOffers([])
         setNearbyRequestPins([])
