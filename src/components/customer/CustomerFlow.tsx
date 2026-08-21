@@ -1362,9 +1362,9 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
   const applyServiceCity = useCallback(
     (nextCity: string) => {
       const normalized = normalizeServiceCity(nextCity)
-      if (normalized === serviceCity) return
       writePreferredCity(normalized)
       writeCityUserPicked(true)
+      if (normalized === serviceCity) return
       setCustomerProfile((profile) => ({ ...profile, city: normalized }))
       /* Keep real GPS pickup — only change the service-city preference. */
       setGeoMessage(`Місто сервісу: ${normalized}`)

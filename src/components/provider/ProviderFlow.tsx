@@ -35,7 +35,6 @@ import {
   DEFAULT_SERVICE_RADIUS_KM,
   PROVIDER_START,
   services,
-  provider,
   partnerRegistrationServices,
   getActiveProviderId,
   getServiceEmoji,
@@ -394,13 +393,11 @@ export default function ProviderFlow({
   const [providerProfile, setProviderProfile] = useState<ProviderAvailability>({
     id: providerId,
     name: "",
-    rating: provider.rating,
     vehicle: "",
     plate: "",
     phone: "",
     telegram: "",
     status: "offline",
-    etaMinutes: provider.etaMinutes,
     location: PROVIDER_START,
     specialties: [],
     serviceRadiusKm: DEFAULT_SERVICE_RADIUS_KM,
@@ -860,7 +857,7 @@ export default function ProviderFlow({
       updateProviderPresence(presenceId, {
         status: assigned ? "busy" : "online",
         location: providerLocationRef.current,
-        etaMinutes: providerProfile.etaMinutes ?? provider.etaMinutes,
+        ...(typeof providerProfile.etaMinutes === "number" ? { etaMinutes: providerProfile.etaMinutes } : {}),
       }, providerAuthToken).catch(() => undefined)
     }
 
@@ -1641,7 +1638,9 @@ export default function ProviderFlow({
       const updated = await updateProviderPresence(session.providerId, {
         status: nextDuty ? "online" : "offline",
         location: providerLocation,
-        etaMinutes: (fresh || providerProfile).etaMinutes ?? provider.etaMinutes,
+        ...(((fresh || providerProfile).etaMinutes != null)
+          ? { etaMinutes: (fresh || providerProfile).etaMinutes }
+          : {}),
       }, session.token)
       setOnDuty(nextDuty)
       setProviderProfile((profile) => ({ ...profile, ...updated, status: updated.status ?? (nextDuty ? "online" : "offline") }))

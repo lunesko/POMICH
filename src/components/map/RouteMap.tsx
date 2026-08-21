@@ -844,7 +844,7 @@ function MapLegendGlyph({
   tone,
   children,
 }: {
-  tone: "green" | "amber" | "blue" | "violet" | "red" | "slate"
+  tone: "green" | "amber" | "blue" | "red" | "slate"
   children: ReactNode
 }) {
   return (
@@ -860,7 +860,7 @@ function MapLegendItem({
   icon,
   delayMs = 0,
 }: {
-  tone: "green" | "amber" | "blue" | "violet" | "red" | "slate"
+  tone: "green" | "amber" | "blue" | "red" | "slate"
   label: string
   icon: ReactNode
   delayMs?: number
@@ -924,12 +924,15 @@ const LEGEND_ICONS = {
 
 const MAP_LEGEND_COLLAPSED_KEY = "pomichMapLegendCollapsed"
 
-function readLegendCollapsed(): boolean {
-  if (typeof window === "undefined") return false
+function readLegendCollapsed(defaultCollapsed = false): boolean {
+  if (typeof window === "undefined") return defaultCollapsed
   try {
-    return window.localStorage.getItem(MAP_LEGEND_COLLAPSED_KEY) === "1"
+    const raw = window.localStorage.getItem(MAP_LEGEND_COLLAPSED_KEY)
+    if (raw === "1") return true
+    if (raw === "0") return false
+    return defaultCollapsed
   } catch {
-    return false
+    return defaultCollapsed
   }
 }
 
@@ -946,18 +949,22 @@ function MapLegend({
   directoryOnly,
   hasDestination,
   hasPartner,
+  hasDirectory,
+  hasRequests,
   overlayMode,
 }: {
   directoryOnly?: boolean
   hasDestination?: boolean
   hasPartner?: boolean
+  hasDirectory?: boolean
+  hasRequests?: boolean
   overlayMode?: boolean
 }) {
-  const [collapsed, setCollapsed] = useState(readLegendCollapsed)
+  /* Overlay / TG: start collapsed so the legend does not eat the map band. */
+  const [collapsed, setCollapsed] = useState(() => readLegendCollapsed(Boolean(overlayMode)))
   const [entered, setEntered] = useState(false)
 
-  /* Enter animation for BOTH expanded box and collapsed FAB.
-     Previously collapsed set entered=false and never re-entered → FAB stayed opacity:0 (gone forever). */
+  /* Enter animation for BOTH expanded box and collapsed FAB. */
   useEffect(() => {
     setEntered(false)
     if (typeof window === "undefined") {
@@ -1003,17 +1010,17 @@ function MapLegend({
         { tone: "slate" as const, label: "Маршрут", icon: LEGEND_ICONS.route },
       ]
     : [
-        { tone: "green" as const, label: "Клієнт", icon: LEGEND_ICONS.client },
-        {
-          tone: "amber" as const,
-          label: hasPartner ? "Партнер" : "Партнер на лінії",
-          icon: LEGEND_ICONS.partner,
-        },
+        { tone: "green" as const, label: "Ви", icon: LEGEND_ICONS.client },
+        { tone: "amber" as const, label: "Партнер", icon: LEGEND_ICONS.partner },
         ...(hasDestination
-          ? [{ tone: "blue" as const, label: "Пункт призначення", icon: LEGEND_ICONS.destination }]
+          ? [{ tone: "blue" as const, label: "Куди", icon: LEGEND_ICONS.destination }]
           : []),
-        { tone: "slate" as const, label: "Сервіс", icon: LEGEND_ICONS.service },
-        { tone: "red" as const, label: "Заявка", icon: LEGEND_ICONS.request },
+        ...(hasDirectory
+          ? [{ tone: "slate" as const, label: "Сервіс", icon: LEGEND_ICONS.service }]
+          : []),
+        ...(hasRequests
+          ? [{ tone: "red" as const, label: "Заявка", icon: LEGEND_ICONS.request }]
+          : []),
       ]
 
   if (collapsed) {
@@ -2200,6 +2207,8 @@ export function RouteMap({
           directoryOnly={directoryOnly}
           hasDestination={Boolean(destination)}
           hasPartner={Boolean(providerPosition)}
+          hasDirectory={directoryProviders.length > 0 && !directoryMarkersHidden}
+          hasRequests={visibleRequestPins.length > 0}
           overlayMode={overlayMode}
         />
       ) : null}

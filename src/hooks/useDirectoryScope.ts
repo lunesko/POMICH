@@ -18,6 +18,7 @@ import {
   type DirectoryScopeMode,
 } from "../lib/directoryScope"
 import { isUkraineServiceCity, normalizeServiceCity, serviceCityCenter } from "../lib/ukraineCities"
+import { readPreferredCity } from "../lib/preferredCity"
 
 export type DirectoryGeoStatus = "idle" | "loading" | "ok" | "denied" | "error" | "occupied"
 
@@ -207,7 +208,7 @@ export function useDirectoryScope(options?: { refreshMs?: number; enabled?: bool
 
   const resolvePreferredCityFallback = useCallback(async (): Promise<boolean> => {
     if (typeof window === "undefined") return false
-    const raw = String(window.localStorage.getItem("pomichPreferredCity") || "").trim()
+    const raw = readPreferredCity()
     if (!isUkraineServiceCity(raw)) return false
     const preferred = normalizeServiceCity(raw)
     setResolvedCity(preferred)
