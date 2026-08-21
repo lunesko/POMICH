@@ -783,8 +783,11 @@ export default function ProviderFlow({
     providerLocationRef.current = providerLocation
   }, [providerLocation])
 
+  // Live GPS + speed HUD on the duty map even before «Вийти на лінію» — partners
+  // need the dial while parked/offline, same as clients on the home map.
   const providerLiveNav =
     onDuty ||
+    step === "duty" ||
     step === "navigation" ||
     step === "arrived" ||
     step === "awaiting_price" ||
@@ -862,7 +865,7 @@ export default function ProviderFlow({
         setProviderLocation(point)
         setProviderGeoLoading(false)
         setProviderRecenterTrigger((value) => value + 1)
-        if (onDuty) setProviderGeoWatchEpoch((value) => value + 1)
+        if (providerLiveNav) setProviderGeoWatchEpoch((value) => value + 1)
       },
       (message) => {
         setProviderGeoLoading(false)
