@@ -7,7 +7,11 @@ import {
   GEO_CACHE_MAX_AGE_MS,
   GEO_PERMISSION_STORAGE_KEY,
   GEO_POSITION_STORAGE_KEY,
+  formatSpeedKmh,
   MAP_FLY_THRESHOLD_M,
+  MAP_GEO_DEBOUNCE_MS,
+  MAP_GEO_WATCH_DEBOUNCE_MS,
+  MAP_LIVE_FOLLOW_THRESHOLD_M,
   MAP_RECENTER_THRESHOLD_M,
   MAP_ZOOM_CITY,
   MAP_ZOOM_FAST,
@@ -74,6 +78,14 @@ describe("mapGeo", () => {
 
   it("defines fly threshold above recenter threshold", () => {
     expect(MAP_FLY_THRESHOLD_M).toBeGreaterThan(MAP_RECENTER_THRESHOLD_M)
+    expect(MAP_LIVE_FOLLOW_THRESHOLD_M).toBeLessThan(MAP_RECENTER_THRESHOLD_M)
+    expect(MAP_GEO_WATCH_DEBOUNCE_MS).toBeLessThan(MAP_GEO_DEBOUNCE_MS)
+  })
+
+  it("formats speed HUD in km/h", () => {
+    expect(formatSpeedKmh(null)).toBe("0")
+    expect(formatSpeedKmh(0)).toBe("0")
+    expect(formatSpeedKmh(10)).toBe("36")
   })
 
   it("picks closer zoom when stationary and pulls back at city/highway speed", () => {

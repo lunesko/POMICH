@@ -96,7 +96,7 @@ describe("RouteMap recenter behavior", () => {
     vi.unstubAllGlobals()
   })
 
-  it("does not fly on pickup change when recenter trigger stays the same", () => {
+  it("does not fly on tiny pickup jitter when recenter trigger stays the same", () => {
     const pickup = { lat: 48.6208, lng: 22.2879 }
     const { rerender } = render(
       <RouteMap pickup={pickup} recenterTrigger={1} onPick={(point) => point} />,
@@ -106,8 +106,9 @@ describe("RouteMap recenter behavior", () => {
     flyTo.mockClear()
     panBy.mockClear()
 
+    // Sub-live-follow threshold (~1m) must not yank the camera.
     rerender(
-      <RouteMap pickup={{ lat: 48.621, lng: 22.288 }} recenterTrigger={1} onPick={(point) => point} />,
+      <RouteMap pickup={{ lat: 48.620809, lng: 22.287909 }} recenterTrigger={1} onPick={(point) => point} />,
     )
     vi.runAllTimers()
 
@@ -136,6 +137,13 @@ describe("RouteMap recenter behavior", () => {
     expect(flyTo).toHaveBeenCalled()
     const zoomArg = flyTo.mock.calls[0]?.[1]
     expect(zoomArg).toBe(14)
+  })
+
+  it("shows live speed HUD while following", () => {
+    const { getByLabelText } = render(
+      <RouteMap pickup={{ lat: 48.6208, lng: 22.2879 }} geoSpeedMps={8.5} />,
+    )
+    expect(getByLabelText(/Швидкість 31 кілометрів/i)).toBeTruthy()
   })
 
   it("applies speed zoom on an open map with onPick and no route", () => {

@@ -63,8 +63,9 @@ import UkraineMapLayers from "./UkraineMapLayers"
 import MapSizeController from "./MapSizeController"
 
 import {
-  MAP_GEO_DEBOUNCE_MS,
-  MAP_RECENTER_THRESHOLD_M,
+  MAP_GEO_WATCH_DEBOUNCE_MS,
+  MAP_LIVE_FOLLOW_THRESHOLD_M,
+  formatSpeedKmh,
   moveMapToPoint,
   requestCurrentPosition,
   resolveFollowZoom,
@@ -253,7 +254,7 @@ function MapDebouncedFollow({
       const hasSpeed = typeof speedMps === "number" && Number.isFinite(speedMps)
       const targetZoom = resolveFollowZoom(speedMps, currentZoom)
       const zoomChanged = hasSpeed && Math.abs(currentZoom - targetZoom) >= 0.35
-      const moved = shouldRecenterMap(fromPoint, nextPoint, MAP_RECENTER_THRESHOLD_M)
+      const moved = shouldRecenterMap(fromPoint, nextPoint, MAP_LIVE_FOLLOW_THRESHOLD_M)
       if (!moved && !zoomChanged) return
 
       moveMapToPoint(map, point, {
@@ -262,7 +263,7 @@ function MapDebouncedFollow({
         paddingBottom: sheetPaddingBottomPx(map, sheetSnap, overlayMode),
       })
       lastCenterRef.current = point
-    }, MAP_GEO_DEBOUNCE_MS)
+    }, MAP_GEO_WATCH_DEBOUNCE_MS)
 
     return () => window.clearTimeout(timeoutId)
   }, [enabled, map, point, sheetSnap, overlayMode, speedMps])
@@ -1644,6 +1645,7 @@ export function RouteMap({
 
 
   const hideMapChrome = sheetSnap === "expanded"
+  const showSpeedHud = !decorative && !directoryOnly && !hideMapChrome && Boolean(followMotionPoint)
 
   /* Scope selector must stay available even when the directory list is empty. */
   const showDirectoryScopeTools = Boolean(onDirectoryScopeChange)
@@ -2086,6 +2088,17 @@ export function RouteMap({
             setOriginError(undefined)
           }}
         />
+      ) : null}
+
+      {showSpeedHud ? (
+        <div
+          className="pomich-map-speed"
+          aria-live="polite"
+          aria-label={`Швидкість ${formatSpeedKmh(geoSpeedMps)} кілометрів на годину`}
+        >
+          <span className="pomich-map-speed__value">{formatSpeedKmh(geoSpeedMps)}</span>
+          <span className="pomich-map-speed__unit">км/год</span>
+        </div>
       ) : null}
 
       {showBadges && displaySubtitle && !hideMapChrome ? (

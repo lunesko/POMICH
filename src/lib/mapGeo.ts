@@ -6,11 +6,17 @@ export type GeoPoint = { lat: number; lng: number }
 
 export type SheetSnapForPadding = "collapsed" | "half" | "expanded"
 
-/** Minimum movement before the map recenters on passive geo updates. */
+/** Minimum movement before the map recenters on passive geo updates (address / city sync). */
 export const MAP_RECENTER_THRESHOLD_M = 40
 
-/** Debounce window for passive geolocation map updates. */
+/** Follow-camera / live marker: small moves still update like a navigator. */
+export const MAP_LIVE_FOLLOW_THRESHOLD_M = 5
+
+/** Debounce window for reverse-geocode / heavier geo side effects. */
 export const MAP_GEO_DEBOUNCE_MS = 400
+
+/** Short debounce for live watchPosition → marker/camera (navigator feel). */
+export const MAP_GEO_WATCH_DEBOUNCE_MS = 120
 
 /** Distances below this use instant panBy; larger moves use a single flyTo. */
 export const MAP_FLY_THRESHOLD_M = 200
@@ -110,7 +116,13 @@ export function resolveFollowZoom(
   return target
 }
 
-/** Prefer GeolocationCoordinates.speed; otherwise estimate from successive samples. */
+/** Format ground speed for the map HUD (Google/Waze style km/h). */
+export function formatSpeedKmh(speedMps: number | null | undefined): string {
+  if (typeof speedMps !== "number" || !Number.isFinite(speedMps) || speedMps < 0) return "0"
+  const kmh = Math.round(speedMps * 3.6)
+  return String(Math.max(0, kmh))
+}
+
 export function resolveGroundSpeedMps(
   position: {
     coords: { speed: number | null; latitude: number; longitude: number }

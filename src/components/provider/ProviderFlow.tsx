@@ -784,7 +784,13 @@ export default function ProviderFlow({
   }, [providerLocation])
 
   useEffect(() => {
-    if (!onDuty || typeof navigator === "undefined" || !("geolocation" in navigator)) return
+    const liveNav =
+      onDuty ||
+      step === "navigation" ||
+      step === "arrived" ||
+      step === "awaiting_price" ||
+      step === "offer"
+    if (!liveNav || typeof navigator === "undefined" || !("geolocation" in navigator)) return
 
     let cancelled = false
     let watchId: number | undefined
@@ -806,7 +812,7 @@ export default function ProviderFlow({
           setProviderLocation(point)
         },
         () => undefined,
-        { enableHighAccuracy: true, maximumAge: 4000, timeout: 20000 },
+        { enableHighAccuracy: true, maximumAge: 1000, timeout: 15000 },
       )
       if (cancelled) {
         navigator.geolocation.clearWatch(watchId)
@@ -833,7 +839,7 @@ export default function ProviderFlow({
       providerSpeedSmoothRef.current = null
       providerMotionSampleRef.current = null
     }
-  }, [onDuty, providerGeoWatchEpoch])
+  }, [onDuty, providerGeoWatchEpoch, step])
 
   const retryProviderGeolocation = () => {
     setProviderGeoLoading(true)

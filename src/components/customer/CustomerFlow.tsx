@@ -84,7 +84,7 @@ import {
   resolveCustomerAuthSession,
 } from "../../lib/customerSession"
 import { reverseGeocodeAddress } from "../../lib/reverseGeocode"
-import { MAP_GEO_DEBOUNCE_MS, MAP_RECENTER_THRESHOLD_M, canRequestGeoSilently, readCachedGeoPosition, readRememberedGeoPermission, requestCurrentPosition, resolveGroundSpeedMps, shouldRecenterMap, smoothSpeedMps, writeCachedGeoPosition, writeRememberedGeoPermission } from "../../lib/mapGeo"
+import { MAP_GEO_DEBOUNCE_MS, MAP_GEO_WATCH_DEBOUNCE_MS, MAP_RECENTER_THRESHOLD_M, canRequestGeoSilently, readCachedGeoPosition, readRememberedGeoPermission, requestCurrentPosition, resolveGroundSpeedMps, shouldRecenterMap, smoothSpeedMps, writeCachedGeoPosition, writeRememberedGeoPermission } from "../../lib/mapGeo"
 import { syncProfileCityFromGeo } from "../../lib/syncProfileCityFromGeo"
 import { OrderErrorStep, OrderFinalStep } from "./OrderTerminalStep"
 import { useTelegramMainButton, useTelegramBackButton, useTelegramUx } from "../../hooks/useTelegramUx"
@@ -1415,6 +1415,8 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
   const geoWatchDebounceRef = useRef<number | undefined>(undefined)
   const geoMotionSampleRef = useRef<{ point: Point; at: number } | null>(null)
   const geoSpeedSmoothRef = useRef<number | null>(null)
+  const lastGeocodedPickupRef = useRef<Point | null>(null)
+  const lastCitySyncPickupRef = useRef<Point | null>(null)
   const [destinationPoint, setDestinationPoint] = useState<Point>(PICKUP)
   const [liveNearbyProviders, setLiveNearbyProviders] = useState<ProviderAvailability[]>([])
   const [liveNearbyLoading, setLiveNearbyLoading] = useState(false)
@@ -1596,10 +1598,14 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
   useEffect(() => {
     if (screen === "cancelled" || screen === "completed") return
 
+    const previous = lastGeocodedPickupRef.current
+    if (previous && !shouldRecenterMap(previous, pickup, MAP_RECENTER_THRESHOLD_M)) return
+
     let cancelled = false
     const timeoutId = window.setTimeout(() => {
       reverseGeocodeAddress(pickup).then((label) => {
         if (cancelled) return
+        lastGeocodedPickupRef.current = pickup
         const looksLikeCoords = /^\s*-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?\s*$/.test(label)
         if (looksLikeCoords) {
           const nearest = nearestServiceCity(pickup)
@@ -1620,7 +1626,11 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
     if (screen === "cancelled" || screen === "completed") return
     if (geoState !== "success" && geoState !== "telegram") return
 
+    const previous = lastCitySyncPickupRef.current
+    if (previous && !shouldRecenterMap(previous, pickup, MAP_RECENTER_THRESHOLD_M)) return
+
     let cancelled = false
+    lastCitySyncPickupRef.current = pickup
     syncProfileCityFromGeo(pickup, customerId, customerAuthToken, customerProfile.city)
       .then((result) => {
         if (cancelled || !result) return
@@ -1731,7 +1741,8 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
         at: typeof position.timestamp === "number" ? position.timestamp : Date.now(),
       }
       writeCachedGeoPosition(nextPoint)
-      if (!shouldRecenterMap(pickupRef.current, nextPoint, MAP_RECENTER_THRESHOLD_M)) return
+      // Navigator-style: always move the live point; do not wait for a 40m jump.
+      pickupRef.current = nextPoint
       setPickup(nextPoint)
     }
 
@@ -1742,10 +1753,10 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
         window.clearTimeout(geoWatchDebounceRef.current)
         geoWatchDebounceRef.current = window.setTimeout(() => {
           applyGeoPosition(position)
-        }, MAP_GEO_DEBOUNCE_MS)
+        }, MAP_GEO_WATCH_DEBOUNCE_MS)
       },
       () => undefined,
-      { enableHighAccuracy: true, maximumAge: 4000, timeout: 20000 },
+      { enableHighAccuracy: true, maximumAge: 1000, timeout: 15000 },
     )
 
     return () => {
