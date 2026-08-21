@@ -1461,6 +1461,7 @@ export function RouteMap({
         setLocalGeoLoading(false)
         if (!onRetryGeo) setLocalGeoError(message)
       },
+      { mode: "explicit" },
     )
   }
 

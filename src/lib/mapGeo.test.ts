@@ -3,12 +3,20 @@ import { describe, expect, it, vi, afterEach } from "vitest"
 import {
   classifyGeolocationError,
   distanceMeters,
+  GEO_CACHE_MAX_AGE_MS,
+  GEO_PERMISSION_STORAGE_KEY,
+  GEO_POSITION_STORAGE_KEY,
   MAP_FLY_THRESHOLD_M,
   MAP_RECENTER_THRESHOLD_M,
   measureBottomSheetHeightPx,
+  readCachedGeoPosition,
+  readRememberedGeoPermission,
+  requestCurrentPosition,
   resolveSheetBottomPaddingPx,
   shouldRecenterMap,
   SHEET_PADDING_SAFETY_PX,
+  writeCachedGeoPosition,
+  writeRememberedGeoPermission,
 } from "./mapGeo"
 
 describe("mapGeo", () => {
@@ -16,6 +24,9 @@ describe("mapGeo", () => {
 
   afterEach(() => {
     document.body.innerHTML = ""
+    window.localStorage.removeItem(GEO_POSITION_STORAGE_KEY)
+    window.localStorage.removeItem(GEO_PERMISSION_STORAGE_KEY)
+    vi.unstubAllGlobals()
   })
 
   it("classifies permission denied separately from timeout", () => {
@@ -82,5 +93,44 @@ describe("mapGeo", () => {
 
     expect(measureBottomSheetHeightPx()).toBe(420)
     expect(resolveSheetBottomPaddingPx("half", 800)).toBe(420 + SHEET_PADDING_SAFETY_PX)
+  })
+
+  it("persists and restores cached geo without prompting again", () => {
+    writeCachedGeoPosition(uzhgorodCenter)
+    writeRememberedGeoPermission("granted")
+    expect(readCachedGeoPosition()).toEqual(uzhgorodCenter)
+    expect(readRememberedGeoPermission()).toBe("granted")
+    window.localStorage.setItem(
+      GEO_POSITION_STORAGE_KEY,
+      JSON.stringify({ ...uzhgorodCenter, at: Date.now() - 10_000 }),
+    )
+    expect(readCachedGeoPosition(1_000)).toBeNull()
+    expect(GEO_CACHE_MAX_AGE_MS).toBeGreaterThan(60_000)
+  })
+
+  it("auto mode reuses cache and does not call getCurrentPosition when permission unknown", () => {
+    writeCachedGeoPosition(uzhgorodCenter)
+    const getCurrentPosition = vi.fn()
+    vi.stubGlobal("navigator", {
+      geolocation: { getCurrentPosition },
+      permissions: undefined,
+    })
+
+    const onSuccess = vi.fn()
+    requestCurrentPosition(onSuccess, vi.fn(), { mode: "auto" })
+    expect(onSuccess).toHaveBeenCalledWith(uzhgorodCenter)
+    expect(getCurrentPosition).not.toHaveBeenCalled()
+  })
+
+  it("auto mode skips OS prompt when denial was remembered", () => {
+    writeRememberedGeoPermission("denied")
+    const getCurrentPosition = vi.fn()
+    vi.stubGlobal("navigator", {
+      geolocation: { getCurrentPosition },
+    })
+    const onError = vi.fn()
+    requestCurrentPosition(vi.fn(), onError, { mode: "auto" })
+    expect(getCurrentPosition).not.toHaveBeenCalled()
+    expect(onError).toHaveBeenCalledWith(expect.stringMatching(/заборонено|Оновити/i), "permission-denied")
   })
 })

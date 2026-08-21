@@ -59,7 +59,7 @@ import { readBootstrapProfile, resolveProviderIdForCustomer, storeLinkedProvider
 import { readCachedProviderProfile, writeCachedProviderProfile } from "../../lib/providerProfileCache"
 import { clearActiveOrder, isActiveOrderStatus, persistActiveOrder, pickLatestActiveOrder, readActiveOrder } from "../../lib/customerSession"
 import { clearPendingPartnerReview, persistPendingPartnerReview, readPendingPartnerReview } from "../../lib/appRole"
-import { requestCurrentPosition } from "../../lib/mapGeo"
+import { canRequestGeoSilently, readCachedGeoPosition, requestCurrentPosition, writeCachedGeoPosition } from "../../lib/mapGeo"
 import { validateUkraineMobilePhone } from "../../lib/ukrainePhone"
 import { validateUkrainePlate } from "../../lib/ukrainePlate"
 import { isPartnerProfileComplete } from "../../lib/partnerProfileComplete"
@@ -385,7 +385,7 @@ export default function ProviderFlow({
   const [proposedPrice, setProposedPrice] = useState("")
   const [priceNote, setPriceNote] = useState("")
   const [offerClock, setOfferClock] = useState(Date.now())
-  const [providerLocation, setProviderLocation] = useState<Point>(PROVIDER_START)
+  const [providerLocation, setProviderLocation] = useState<Point>(() => readCachedGeoPosition() ?? PROVIDER_START)
   const [partnerReviewSaving, setPartnerReviewSaving] = useState(false)
   const [partnerReviewError, setPartnerReviewError] = useState<string | undefined>()
   const [partnerReviewSubmitted, setPartnerReviewSubmitted] = useState(false)
@@ -794,15 +794,26 @@ export default function ProviderFlow({
   useEffect(() => {
     if (!onDuty || typeof navigator === "undefined" || !("geolocation" in navigator)) return
 
-    const watchId = navigator.geolocation.watchPosition(
-      (position) => {
-        setProviderLocation({ lat: position.coords.latitude, lng: position.coords.longitude })
-      },
-      () => undefined,
-      { enableHighAccuracy: true, maximumAge: 10000, timeout: 8000 },
-    )
+    let cancelled = false
+    let watchId: number | undefined
 
-    return () => navigator.geolocation.clearWatch(watchId)
+    void canRequestGeoSilently().then((silentOk) => {
+      if (cancelled || !silentOk) return
+      watchId = navigator.geolocation.watchPosition(
+        (position) => {
+          const point = { lat: position.coords.latitude, lng: position.coords.longitude }
+          writeCachedGeoPosition(point)
+          setProviderLocation(point)
+        },
+        () => undefined,
+        { enableHighAccuracy: false, maximumAge: 60000, timeout: 20000 },
+      )
+    })
+
+    return () => {
+      cancelled = true
+      if (typeof watchId === "number") navigator.geolocation.clearWatch(watchId)
+    }
   }, [onDuty])
 
   const retryProviderGeolocation = () => {
@@ -818,6 +829,7 @@ export default function ProviderFlow({
         setProviderGeoLoading(false)
         setProviderGeoError(message)
       },
+      { mode: "explicit" },
     )
   }
 

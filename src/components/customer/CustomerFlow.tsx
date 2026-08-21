@@ -85,7 +85,7 @@ import {
   resolveCustomerAuthSession,
 } from "../../lib/customerSession"
 import { reverseGeocodeAddress } from "../../lib/reverseGeocode"
-import { MAP_GEO_DEBOUNCE_MS, MAP_RECENTER_THRESHOLD_M, requestCurrentPosition, shouldRecenterMap } from "../../lib/mapGeo"
+import { MAP_GEO_DEBOUNCE_MS, MAP_RECENTER_THRESHOLD_M, canRequestGeoSilently, readCachedGeoPosition, readRememberedGeoPermission, requestCurrentPosition, shouldRecenterMap, writeCachedGeoPosition } from "../../lib/mapGeo"
 import { syncProfileCityFromGeo } from "../../lib/syncProfileCityFromGeo"
 import { OrderErrorStep, OrderFinalStep } from "./OrderTerminalStep"
 import { useTelegramMainButton, useTelegramBackButton, useTelegramUx } from "../../hooks/useTelegramUx"
@@ -1316,14 +1316,26 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
     const restoredStatus = restoredActiveOrder?.status
     return restoredStatus ? normalizeOrderStatus(restoredStatus) : "draft"
   })
-  const [geoState, setGeoState] = useState<GeoState>("requesting")
-  const [geoMessage, setGeoMessage] = useState("Визначаємо ваше місцезнаходження…")
+  const [geoState, setGeoState] = useState<GeoState>(() => {
+    if (typeof window === "undefined") return "requesting"
+    if (readCachedGeoPosition()) return "success"
+    if (readRememberedGeoPermission() === "denied") return "permission-denied"
+    return "requesting"
+  })
+  const [geoMessage, setGeoMessage] = useState(() => {
+    if (typeof window === "undefined") return "Визначаємо ваше місцезнаходження…"
+    if (readCachedGeoPosition()) return "Місцезнаходження з попереднього сеансу."
+    if (readRememberedGeoPermission() === "denied") {
+      return "Доступ до геолокації заборонено. Натисніть «Оновити», щоб дозволити знову."
+    }
+    return "Визначаємо ваше місцезнаходження…"
+  })
   const [addressLabel, setAddressLabel] = useState("Визначаємо адресу…")
   const [geoRecenterTrigger, setGeoRecenterTrigger] = useState(0)
-  const [pickup, setPickup] = useState<Point>(PICKUP)
+  const [pickup, setPickup] = useState<Point>(() => readCachedGeoPosition() ?? PICKUP)
   const explicitGeoRecenterRef = useRef(false)
   const skipNextAutoGeoRef = useRef(false)
-  const pickupRef = useRef<Point>(PICKUP)
+  const pickupRef = useRef<Point>(readCachedGeoPosition() ?? PICKUP)
   const geoWatchDebounceRef = useRef<number | undefined>(undefined)
   const [destinationPoint, setDestinationPoint] = useState<Point>(PICKUP)
   const [liveNearbyProviders, setLiveNearbyProviders] = useState<ProviderAvailability[]>([])
@@ -1594,12 +1606,35 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
         setGeoState(kind === "permission-denied" ? "permission-denied" : "unavailable")
         setGeoMessage(message)
       },
+      { mode: "auto" },
     )
 
     return () => {
       cancelled = true
     }
   }, [geoState, screen])
+
+  // Reopen with cached coords: quiet refresh only when OS permission is already granted.
+  useEffect(() => {
+    if (geoState !== "success") return
+    let cancelled = false
+    void canRequestGeoSilently().then((ok) => {
+      if (cancelled || !ok) return
+      requestCurrentPosition(
+        (nextPoint) => {
+          if (cancelled) return
+          setPickup(nextPoint)
+        },
+        () => undefined,
+        { mode: "auto" },
+      )
+    })
+    return () => {
+      cancelled = true
+    }
+    // Intentionally once when we first become successful (incl. cache restore).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     const mapScreens: Screen[] = ["home", "location", "destination"]
@@ -1608,26 +1643,35 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
     if (typeof navigator === "undefined" || !("geolocation" in navigator)) return
     if (typeof navigator.geolocation.watchPosition !== "function") return
 
+    let cancelled = false
+    let watchId: number | undefined
+
     const applyGeoPosition = (latitude: number, longitude: number) => {
       const nextPoint = { lat: latitude, lng: longitude }
+      writeCachedGeoPosition(nextPoint)
       if (!shouldRecenterMap(pickupRef.current, nextPoint, MAP_RECENTER_THRESHOLD_M)) return
       setPickup(nextPoint)
     }
 
-    const watchId = navigator.geolocation.watchPosition(
-      (position) => {
-        window.clearTimeout(geoWatchDebounceRef.current)
-        geoWatchDebounceRef.current = window.setTimeout(() => {
-          applyGeoPosition(position.coords.latitude, position.coords.longitude)
-        }, MAP_GEO_DEBOUNCE_MS)
-      },
-      () => undefined,
-      { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 },
-    )
+    // watchPosition also triggers OS prompts in Telegram — only when already granted.
+    void canRequestGeoSilently().then((silentOk) => {
+      if (cancelled || !silentOk) return
+      watchId = navigator.geolocation.watchPosition(
+        (position) => {
+          window.clearTimeout(geoWatchDebounceRef.current)
+          geoWatchDebounceRef.current = window.setTimeout(() => {
+            applyGeoPosition(position.coords.latitude, position.coords.longitude)
+          }, MAP_GEO_DEBOUNCE_MS)
+        },
+        () => undefined,
+        { enableHighAccuracy: false, maximumAge: 60000, timeout: 20000 },
+      )
+    })
 
     return () => {
-      navigator.geolocation.clearWatch(watchId)
+      cancelled = true
       window.clearTimeout(geoWatchDebounceRef.current)
+      if (typeof watchId === "number") navigator.geolocation.clearWatch(watchId)
     }
   }, [screen, geoState])
 
@@ -1652,6 +1696,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
         setGeoState(kind === "permission-denied" ? "permission-denied" : "unavailable")
         setGeoMessage(message)
       },
+      { mode: "explicit" },
     )
   }
 

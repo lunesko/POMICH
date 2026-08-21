@@ -47,6 +47,7 @@ import {
   readActiveAppRole,
 } from "./lib/appRole"
 import { syncProfileCityFromGeo } from "./lib/syncProfileCityFromGeo"
+import { canRequestGeoSilently, requestCurrentPosition } from "./lib/mapGeo"
 
 const CustomerFlow = lazy(() => import("./components/customer/CustomerFlow"))
 const ProviderFlow = lazy(() => import("./components/provider/ProviderFlow"))
@@ -554,30 +555,31 @@ export default function CustomerApp() {
 
   useEffect(() => {
     if (!showCabinet || role !== "customer" || !account?.customerId || !customerToken) return
-    if (typeof navigator === "undefined" || !("geolocation" in navigator)) return
 
     let cancelled = false
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        if (cancelled) return
-        const point = { lat: position.coords.latitude, lng: position.coords.longitude }
-        syncProfileCityFromGeo(point, account.customerId, customerToken, account.profile?.city)
-          .then((result) => {
-            if (cancelled || !result) return
-            setAccount((prev) => {
-              if (!prev?.profile) return prev
-              const profile = result.saved ?? { ...prev.profile, city: result.city }
-              if (typeof window !== "undefined") {
-                window.sessionStorage.setItem("pomichBootstrapProfile", JSON.stringify(profile))
-              }
-              return { ...prev, profile }
+    void canRequestGeoSilently().then((ok) => {
+      if (cancelled || !ok) return
+      requestCurrentPosition(
+        (point) => {
+          if (cancelled) return
+          syncProfileCityFromGeo(point, account.customerId, customerToken, account.profile?.city)
+            .then((result) => {
+              if (cancelled || !result) return
+              setAccount((prev) => {
+                if (!prev?.profile) return prev
+                const profile = result.saved ?? { ...prev.profile, city: result.city }
+                if (typeof window !== "undefined") {
+                  window.sessionStorage.setItem("pomichBootstrapProfile", JSON.stringify(profile))
+                }
+                return { ...prev, profile }
+              })
             })
-          })
-          .catch(() => undefined)
-      },
-      () => undefined,
-      { enableHighAccuracy: true, timeout: 12000 },
-    )
+            .catch(() => undefined)
+        },
+        () => undefined,
+        { mode: "auto" },
+      )
+    })
 
     return () => {
       cancelled = true

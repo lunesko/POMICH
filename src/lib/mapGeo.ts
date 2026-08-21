@@ -23,10 +23,24 @@ export const DEFAULT_SHEET_HEIGHTS_VH = {
 /** Extra clearance above the sheet edge so the marker sits in the visible map center. */
 export const SHEET_PADDING_SAFETY_PX = 52
 
+/** Persist last GPS across Telegram WebApp reopen (sessionStorage is wiped). */
+export const GEO_POSITION_STORAGE_KEY = "pomichLastGeoPosition"
+export const GEO_PERMISSION_STORAGE_KEY = "pomichGeoPermission"
+
+/** Prefer cached coords up to 24h so reopen does not force a new OS prompt. */
+export const GEO_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000
+
+/** Browser may return a cached fix without re-prompting when within this age. */
+export const GEO_BROWSER_MAX_AGE_AUTO_MS = 15 * 60 * 1000
+
 const EARTH_RADIUS_M = 6371000
 
 const SHEET_SELECTOR =
   ".pomich-ride-screen--overlay .pomich-sheet-panel--bottom, .pomich-ride-screen .pomich-sheet-panel--bottom"
+
+export type RememberedGeoPermission = "granted" | "denied"
+
+export type GeoRequestMode = "auto" | "explicit"
 
 export function distanceMeters(from: GeoPoint, to: GeoPoint): number {
   const toRadians = (value: number) => (value * Math.PI) / 180
@@ -49,6 +63,84 @@ export function toLatLngTuple(point: GeoPoint): LatLngTuple {
 
 export function shouldRecenterMap(from: GeoPoint, to: GeoPoint, thresholdM = MAP_RECENTER_THRESHOLD_M): boolean {
   return distanceMeters(from, to) >= thresholdM
+}
+
+export function readCachedGeoPosition(maxAgeMs = GEO_CACHE_MAX_AGE_MS): GeoPoint | null {
+  if (typeof window === "undefined") return null
+  try {
+    const raw = window.localStorage.getItem(GEO_POSITION_STORAGE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as { lat?: number; lng?: number; at?: number }
+    const lat = Number(parsed.lat)
+    const lng = Number(parsed.lng)
+    const at = Number(parsed.at)
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null
+    if (Number.isFinite(at) && maxAgeMs > 0 && Date.now() - at > maxAgeMs) return null
+    return { lat, lng }
+  } catch {
+    return null
+  }
+}
+
+export function writeCachedGeoPosition(point: GeoPoint): void {
+  if (typeof window === "undefined") return
+  if (!Number.isFinite(point.lat) || !Number.isFinite(point.lng)) return
+  try {
+    window.localStorage.setItem(
+      GEO_POSITION_STORAGE_KEY,
+      JSON.stringify({ lat: point.lat, lng: point.lng, at: Date.now() }),
+    )
+  } catch {
+    // ignore quota / private mode
+  }
+}
+
+export function readRememberedGeoPermission(): RememberedGeoPermission | null {
+  if (typeof window === "undefined") return null
+  try {
+    const value = window.localStorage.getItem(GEO_PERMISSION_STORAGE_KEY)
+    if (value === "granted" || value === "denied") return value
+  } catch {
+    // ignore
+  }
+  return null
+}
+
+export function writeRememberedGeoPermission(status: RememberedGeoPermission): void {
+  if (typeof window === "undefined") return
+  try {
+    window.localStorage.setItem(GEO_PERMISSION_STORAGE_KEY, status)
+  } catch {
+    // ignore
+  }
+}
+
+/** Query Permissions API when available (often missing inside Telegram WebViews). */
+export async function resolveGeoPermission(): Promise<"granted" | "denied" | "prompt" | "unknown"> {
+  const remembered = readRememberedGeoPermission()
+  if (typeof navigator === "undefined" || !navigator.permissions?.query) {
+    return remembered ?? "unknown"
+  }
+  try {
+    const result = await navigator.permissions.query({ name: "geolocation" as PermissionName })
+    if (result.state === "granted" || result.state === "denied" || result.state === "prompt") {
+      if (result.state === "granted" || result.state === "denied") {
+        writeRememberedGeoPermission(result.state)
+      }
+      return result.state
+    }
+  } catch {
+    // Telegram / Safari may reject geolocation permission queries.
+  }
+  return remembered ?? "unknown"
+}
+
+/**
+ * True when we can call getCurrentPosition without expecting a fresh OS prompt.
+ */
+export async function canRequestGeoSilently(): Promise<boolean> {
+  const state = await resolveGeoPermission()
+  return state === "granted"
 }
 
 /** Read the live bottom-sheet height in px (most accurate for Telegram overlay). */
@@ -168,30 +260,102 @@ export function classifyGeolocationError(error: GeolocationPositionError): {
   }
 }
 
+function finishGeoSuccess(point: GeoPoint, onSuccess: (point: GeoPoint) => void): void {
+  writeCachedGeoPosition(point)
+  writeRememberedGeoPermission("granted")
+  onSuccess(point)
+}
+
+/**
+ * Request device location.
+ * - `auto`: single low-accuracy call with long maximumAge; reuses localStorage cache so
+ *   Telegram WebApp reopen does not re-prompt when a recent fix exists.
+ * - `explicit`: user gesture — may try high accuracy then fall back once.
+ */
 export function requestCurrentPosition(
   onSuccess: (point: GeoPoint) => void,
   onError: (message: string, kind?: GeoRequestErrorKind) => void,
+  options: { mode?: GeoRequestMode } = {},
 ): void {
+  const mode: GeoRequestMode = options.mode ?? "explicit"
   if (typeof navigator === "undefined" || !("geolocation" in navigator)) {
     onError("Геолокація недоступна у цьому браузері.", "unavailable")
     return
   }
 
+  if (mode === "auto") {
+    const remembered = readRememberedGeoPermission()
+    if (remembered === "denied") {
+      const cachedDenied = readCachedGeoPosition()
+      if (cachedDenied) {
+        onSuccess(cachedDenied)
+        return
+      }
+      onError(
+        "Доступ до геолокації заборонено. Увімкніть його в налаштуваннях Telegram / браузера, потім натисніть «Оновити».",
+        "permission-denied",
+      )
+      return
+    }
+
+    const cached = readCachedGeoPosition()
+    if (cached) {
+      // Restore immediately — do not call getCurrentPosition unless permission is known-granted.
+      // Telegram iOS often re-prompts on every getCurrentPosition when state is unknown.
+      onSuccess(cached)
+      void resolveGeoPermission().then((state) => {
+        if (state !== "granted") return
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            writeCachedGeoPosition({
+              lat: position.coords.latitude,
+              lng: position.coords.longitude,
+            })
+            writeRememberedGeoPermission("granted")
+          },
+          () => undefined,
+          { enableHighAccuracy: false, timeout: 8000, maximumAge: GEO_BROWSER_MAX_AGE_AUTO_MS },
+        )
+      })
+      return
+    }
+
+    // First-time auto request — one attempt only (no high→low double prompt).
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        finishGeoSuccess({ lat: position.coords.latitude, lng: position.coords.longitude }, onSuccess)
+      },
+      (error) => {
+        const classified = classifyGeolocationError(error)
+        if (classified.kind === "permission-denied") writeRememberedGeoPermission("denied")
+        onError(classified.message, classified.kind)
+      },
+      { enableHighAccuracy: false, timeout: 15000, maximumAge: GEO_BROWSER_MAX_AGE_AUTO_MS },
+    )
+    return
+  }
+
+  // Explicit user gesture: try high accuracy, then one low-accuracy fallback.
   navigator.geolocation.getCurrentPosition(
     (position) => {
-      onSuccess({ lat: position.coords.latitude, lng: position.coords.longitude })
+      finishGeoSuccess({ lat: position.coords.latitude, lng: position.coords.longitude }, onSuccess)
     },
-    (error) => {
-      // Telegram / rough GPS often fails high-accuracy; retry once without it.
+    () => {
       navigator.geolocation.getCurrentPosition(
         (position) => {
-          onSuccess({ lat: position.coords.latitude, lng: position.coords.longitude })
+          finishGeoSuccess({ lat: position.coords.latitude, lng: position.coords.longitude }, onSuccess)
         },
         (retryError) => {
           const classified = classifyGeolocationError(retryError)
+          if (classified.kind === "permission-denied") writeRememberedGeoPermission("denied")
+          const cachedFallback = readCachedGeoPosition()
+          if (cachedFallback && classified.kind !== "permission-denied") {
+            onSuccess(cachedFallback)
+            return
+          }
           onError(classified.message, classified.kind)
         },
-        { enableHighAccuracy: false, timeout: 20000, maximumAge: 120000 },
+        { enableHighAccuracy: false, timeout: 20000, maximumAge: GEO_BROWSER_MAX_AGE_AUTO_MS },
       )
     },
     { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 },
