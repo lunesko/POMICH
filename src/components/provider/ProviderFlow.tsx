@@ -33,8 +33,6 @@ import LazyRouteMap from "../map/LazyRouteMap"
 import { RideScreen } from "../layout/RideScreen"
 import {
   DEFAULT_SERVICE_RADIUS_KM,
-  PICKUP,
-  DEFAULT_DESTINATION,
   PROVIDER_START,
   services,
   provider,
@@ -424,8 +422,6 @@ export default function ProviderFlow({
     dismissedOfferIdsRef.current = new Set(persisted.offerIds)
     dismissedOrderIdsRef.current = new Set(persisted.orderIds)
   }, [providerId])
-  const pickup = PICKUP
-  const destination = DEFAULT_DESTINATION
   const providerSpecialties = toServiceKeys(providerProfile.specialties)
   const providerPresence: ProviderAvailability = {
     id: providerId,
@@ -832,8 +828,9 @@ export default function ProviderFlow({
       // Keep presence alive even with the screen off — otherwise partners drop offline
       // and miss Telegram / map alerts while "На лінії".
       const presenceId = readAuthSessionSubject(providerAuthToken) || providerId
+      const assigned = Boolean(providerProfile.assignedOrderId || activeOrder?.id)
       updateProviderPresence(presenceId, {
-        status: "online",
+        status: assigned ? "busy" : "online",
         location: providerLocationRef.current,
         etaMinutes: providerProfile.etaMinutes ?? provider.etaMinutes,
       }, providerAuthToken).catch(() => undefined)
@@ -842,7 +839,7 @@ export default function ProviderFlow({
     heartbeat()
     const interval = window.setInterval(heartbeat, 12000)
     return () => window.clearInterval(interval)
-  }, [onDuty, providerAuthToken, providerId, providerProfile.etaMinutes])
+  }, [onDuty, providerAuthToken, providerId, providerProfile.etaMinutes, providerProfile.assignedOrderId, activeOrder?.id])
 
   useEffect(() => {
     const interval = window.setInterval(() => setOfferClock(Date.now()), 1000)
@@ -1006,7 +1003,10 @@ export default function ProviderFlow({
     for (const offer of incomingOffers) pushOrder(offer.orderId || offer.id)
     for (const pin of nearbyRequestPins) pushOrder(pin.id)
 
+    // Do not lock the seed on the empty post-go-online clear — otherwise the first
+    // poll marks every already-open request as "fresh" and spams notifications.
     if (!dutyAlertsSeededRef.current) {
+      if (nextOrderIds.length === 0) return
       for (const id of nextOrderIds) seenDutyAlertIdsRef.current.add(id)
       dutyAlertsSeededRef.current = true
       return
@@ -1031,6 +1031,12 @@ export default function ProviderFlow({
       })
     }
   }, [incomingOffers, nearbyRequestPins, onDuty, telegramContext.webApp])
+
+  useEffect(() => {
+    if (!onDuty) return
+    // Hydrate-online / restore session: ask once when duty becomes true.
+    void ensurePartnerAlertPermission()
+  }, [onDuty])
 
   useEffect(() => {
     if (!selectedRequestPin) return
@@ -1576,6 +1582,24 @@ export default function ProviderFlow({
         return
       }
 
+      if (nextDuty) {
+        // Request notification permission in the same user-gesture turn when possible.
+        void ensurePartnerAlertPermission()
+        seenDutyAlertIdsRef.current = new Set()
+        dutyAlertsSeededRef.current = false
+        setIncomingOffers([])
+        setNearbyRequestPins([])
+        setMapRequestPins([])
+        setSelectedRequestPin(undefined)
+        setPresenceToast("Ви на лінії")
+        setStep("duty")
+      } else {
+        setIncomingOffers([])
+        setNearbyRequestPins([])
+        setMapRequestPins([])
+        setSelectedRequestPin(undefined)
+      }
+
       const updated = await updateProviderPresence(session.providerId, {
         status: nextDuty ? "online" : "offline",
         location: providerLocation,
@@ -1583,20 +1607,6 @@ export default function ProviderFlow({
       }, session.token)
       setOnDuty(nextDuty)
       setProviderProfile((profile) => ({ ...profile, ...updated, status: updated.status ?? (nextDuty ? "online" : "offline") }))
-      if (nextDuty) {
-        setIncomingOffers([])
-        setNearbyRequestPins([])
-        setMapRequestPins([])
-        setSelectedRequestPin(undefined)
-        setPresenceToast("Ви на лінії")
-        setStep("duty")
-        void ensurePartnerAlertPermission()
-      } else {
-        setIncomingOffers([])
-        setNearbyRequestPins([])
-        setMapRequestPins([])
-        setSelectedRequestPin(undefined)
-      }
     } catch (error) {
       setOnDuty(false)
       const detail = (error as { detail?: string }).detail
@@ -2126,8 +2136,8 @@ export default function ProviderFlow({
 
   if (step === "completed") {
     const partnerReviewDone = partnerReviewSubmitted || Boolean(activeOrder?.partnerReview?.rating)
-    const completedPickup = activeOrder?.customerCoordinates ?? pickup
-    const completedDestination = activeOrder?.destinationCoordinates ?? destination
+    const completedPickup = activeOrder?.customerCoordinates ?? providerLocation
+    const completedDestination = activeOrder?.destinationCoordinates
     return (
       <OrderFinalStep
         orderId={activeOrder?.id}

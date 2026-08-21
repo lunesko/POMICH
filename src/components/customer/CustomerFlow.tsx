@@ -44,7 +44,6 @@ import {
 } from "../../lib/customerProfile"
 import {
   PICKUP,
-  DEFAULT_DESTINATION,
   services,
   provider,
   vehicleOptions,
@@ -145,8 +144,10 @@ function StepBadge({ step }: { step: 1 | 2 | 3 | 4 | 5 }) {
 }
 
 function resolveServiceDestination(service: ServiceKey, pickup: Point): { destination: string; destinationPoint: Point } {
+  // On-site services stay at pickup. Tow/destination services must be chosen by the user —
+  // never seed a hardcoded Uzhhorod demo pin.
   if (serviceRequiresDestination(service)) {
-    return { destination: "СТО «Авторемонт»", destinationPoint: DEFAULT_DESTINATION }
+    return { destination: "", destinationPoint: pickup }
   }
   return { destination: ON_SITE_DESTINATION_LABEL, destinationPoint: pickup }
 }
@@ -611,7 +612,7 @@ function HomeStep({
   return (
     <RideScreen
       pickup={pickup}
-      providers={[]}
+      providers={nearby}
       showDirectoryProviders={false}
       mapSubtitle={`${locationLabel} · ${serviceCity}`}
       defaultSnap="half"
@@ -1324,7 +1325,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
   const skipNextAutoGeoRef = useRef(false)
   const pickupRef = useRef<Point>(PICKUP)
   const geoWatchDebounceRef = useRef<number | undefined>(undefined)
-  const [destinationPoint, setDestinationPoint] = useState<Point>(DEFAULT_DESTINATION)
+  const [destinationPoint, setDestinationPoint] = useState<Point>(PICKUP)
   const [liveNearbyProviders, setLiveNearbyProviders] = useState<ProviderAvailability[]>([])
   const [liveNearbyLoading, setLiveNearbyLoading] = useState(false)
   const [customerReviewSaving, setCustomerReviewSaving] = useState(false)
@@ -1842,8 +1843,9 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
 
   const confirmPickupLocation = () => {
     if (serviceRequiresDestination(selectedService)) {
+      // Keep map centered on the client until they pick a real destination.
       setDestination("")
-      setDestinationPoint(DEFAULT_DESTINATION)
+      setDestinationPoint(pickup)
       setScreen("destination")
       return
     }

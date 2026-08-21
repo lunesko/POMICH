@@ -3895,19 +3895,32 @@ def submit_order_review(
                 raise DispatchConflict("REVIEW_FORBIDDEN", "Partner cannot review this order.")
 
         now = _now_iso()
-        order[review_key] = {
+        review_payload = {
             "rating": stars,
             "comment": note,
             "at": now,
             "authorId": str(author_id or "").strip() or None,
             "authorRole": role,
         }
-        order["updatedAt"] = now
-        _append_order_event(order, "REVIEW_SUBMITTED", now, {"role": role, "rating": stars})
 
         if use_sql:
+            # Re-read immediately before write so a concurrent opposite-role review is not clobbered.
+            latest = sql_get_order(str(order_id))
+            if latest is None:
+                raise DispatchConflict("ORDER_NOT_FOUND", "Order was not found.")
+            if normalize_order_status(latest.get("status")) != "completed":
+                raise DispatchConflict("ORDER_NOT_COMPLETED", "Reviews are available only for completed orders.")
+            if isinstance(latest.get(review_key), dict) and latest[review_key].get("rating") is not None:
+                raise DispatchConflict("REVIEW_ALREADY_SUBMITTED", "Review already submitted for this order.")
+            order = dict(latest)
+            order[review_key] = review_payload
+            order["updatedAt"] = now
+            _append_order_event(order, "REVIEW_SUBMITTED", now, {"role": role, "rating": stars})
             sql_upsert_order(order)
         else:
+            order[review_key] = review_payload
+            order["updatedAt"] = now
+            _append_order_event(order, "REVIEW_SUBMITTED", now, {"role": role, "rating": stars})
             assert path is not None and orders is not None
             _write_json_atomic(path, orders)
 

@@ -225,30 +225,38 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
     setLoading(true)
     setError(undefined)
     try {
-      const [nextStats, nextClients, nextProviders, nextOrders, nextSettings, nextOpsLog] = await Promise.all([
+      const [nextStats, nextClients, nextProviders, nextOrders, nextSettings] = await Promise.all([
         getAdminStats(adminAuthToken),
         getAdminClients(adminAuthToken, clientQuery || undefined, showGuestSessions),
         getAdminProviders(adminAuthToken, providerQuery || undefined),
         getAdminOrders(adminAuthToken, orderFilter === "all" ? undefined : orderFilter),
         getAdminSettings(adminAuthToken),
-        getAdminOpsLog(adminAuthToken, {
-          limit: 100,
-          severity: opsSeverity,
-          orderId: opsOrderQuery.trim() || undefined,
-        }).catch(() => null),
       ])
       setStats(nextStats)
       setClients(nextClients)
       setProviders(nextProviders)
       setOrders(nextOrders.slice().reverse())
       setSettings(nextSettings)
-      if (nextOpsLog) setOpsLog(nextOpsLog)
     } catch {
       setError("Не вдалося завантажити дані адмін-панелі.")
     } finally {
       setLoading(false)
     }
-  }, [adminAuthToken, clientQuery, providerQuery, orderFilter, showGuestSessions, opsSeverity, opsOrderQuery])
+  }, [adminAuthToken, clientQuery, providerQuery, orderFilter, showGuestSessions])
+
+  const refreshOpsLog = useCallback(async () => {
+    if (!adminAuthToken) return
+    try {
+      const nextOpsLog = await getAdminOpsLog(adminAuthToken, {
+        limit: 100,
+        severity: opsSeverity,
+        orderId: opsOrderQuery.trim() || undefined,
+      })
+      setOpsLog(nextOpsLog)
+    } catch {
+      setError("Не вдалося завантажити ops-лог.")
+    }
+  }, [adminAuthToken, opsSeverity, opsOrderQuery])
 
   const refreshMapProviders = useCallback(async () => {
     if (!adminAuthToken) return
@@ -266,6 +274,13 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
     const interval = window.setInterval(refreshAll, 15000)
     return () => window.clearInterval(interval)
   }, [refreshAll])
+
+  useEffect(() => {
+    if (section !== "logs") return
+    void refreshOpsLog()
+    const interval = window.setInterval(() => void refreshOpsLog(), 15000)
+    return () => window.clearInterval(interval)
+  }, [section, refreshOpsLog])
 
   useEffect(() => {
     if (section !== "map") return
@@ -431,7 +446,17 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
             <div className="admin-topbar-title">{sectionTitle}</div>
             <div className="admin-topbar-sub">Повний контроль системи POMICH</div>
           </div>
-          <button className="admin-ghost-btn" onClick={() => refreshAll()} disabled={loading}>Оновити</button>
+          <button
+            className="admin-ghost-btn"
+            onClick={() => {
+              void refreshAll()
+              if (section === "logs") void refreshOpsLog()
+              if (section === "map") void refreshMapProviders()
+            }}
+            disabled={loading}
+          >
+            Оновити
+          </button>
         </header>
 
         {error ? <div className="admin-alert admin-alert-error admin-alert-inline">{error}</div> : null}
@@ -706,7 +731,7 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
                       <div>
                         <strong>{provider.name}</strong>
                         <div className="admin-muted">{provider.city ?? "—"} · {provider.source ?? provider.providerKind ?? "dispatch"}</div>
-                        <div className="admin-muted">{provider.address ?? provider.location ? `${provider.location?.lat?.toFixed(4)}, ${provider.location?.lng?.toFixed(4)}` : "координати —"}</div>
+                        <div className="admin-muted">{provider.address ?? (provider.location ? `${provider.location?.lat?.toFixed(4)}, ${provider.location?.lng?.toFixed(4)}` : "координати —")}</div>
                       </div>
                       <div className="admin-inline-actions">
                         <button className="admin-chip admin-chip-danger" onClick={() => removeProvider(provider.id)} disabled={saving}>Видалити</button>

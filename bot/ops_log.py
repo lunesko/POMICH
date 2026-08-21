@@ -6,7 +6,7 @@ import uuid
 from typing import Any, Dict, List, Optional
 
 from bot.order_store import STORE_LOCK, _now_iso, load_orders, normalize_order_status
-from bot.runtime_store import load_collection, save_collection, sql_storage_enabled
+from bot.runtime_store import load_collection, save_collection, sql_get_order, sql_storage_enabled
 
 OPS_LOG_COLLECTION = "ops_log"
 OPS_LOG_MAX = 400
@@ -145,7 +145,7 @@ def _order_events_as_ops_rows(order: Dict[str, Any]) -> List[Dict[str, Any]]:
 
     history = order.get("statusHistory")
     if isinstance(history, list):
-        for entry in history:
+        for index, entry in enumerate(history):
             if not isinstance(entry, dict):
                 continue
             st = str(entry.get("status") or "").strip()
@@ -153,7 +153,8 @@ def _order_events_as_ops_rows(order: Dict[str, Any]) -> List[Dict[str, Any]]:
                 continue
             rows.append(
                 {
-                    "id": f"{order_id}:status:{st}:{entry.get('at')}",
+                    # Include index so identical status+at pairs are not silently dropped.
+                    "id": f"{order_id}:status:{index}:{st}:{entry.get('at')}",
                     "type": f"STATUS_{st.upper()}",
                     "at": entry.get("at") or order.get("updatedAt") or order.get("createdAt"),
                     "severity": "warn" if st == "cancelled" else "info",
@@ -194,6 +195,18 @@ def _order_events_as_ops_rows(order: Dict[str, Any]) -> List[Dict[str, Any]]:
     return rows
 
 
+def _resolve_order_for_ops(order_id: str, orders: List[Dict[str, Any]], order_store_path=None) -> Dict[str, Any] | None:
+    wanted = str(order_id or "").strip()
+    if not wanted:
+        return None
+    found = next((item for item in orders if str(item.get("id") or "") == wanted), None)
+    if found is not None:
+        return found
+    if sql_storage_enabled() and order_store_path is None:
+        return sql_get_order(wanted)
+    return None
+
+
 def build_admin_ops_log(
     *,
     limit: int = 80,
@@ -206,7 +219,11 @@ def build_admin_ops_log(
     if wanted_severity not in {"", "all", "error", "warn", "info"}:
         wanted_severity = "all"
     wanted_order = str(order_id or "").strip()
-    safe_limit = max(1, min(int(limit or 80), 200))
+    try:
+        raw_limit = 80 if limit is None else int(limit)
+    except (TypeError, ValueError):
+        raw_limit = 80
+    safe_limit = max(1, min(raw_limit if raw_limit > 0 else 80, 200))
 
     rows: List[Dict[str, Any]] = []
     for event in _load_ops_ring():
@@ -219,16 +236,20 @@ def build_admin_ops_log(
         )
 
     orders = load_orders(order_store_path)
-    # Prefer recently updated orders for stage extraction.
-    recent = sorted(
-        orders,
-        key=lambda item: str(item.get("updatedAt") or item.get("createdAt") or ""),
-        reverse=True,
-    )[:80]
-    for order in recent:
-        if wanted_order and str(order.get("id") or "") != wanted_order:
-            continue
-        rows.extend(_order_events_as_ops_rows(order))
+    if wanted_order:
+        # Always load the requested order by id — do not require it to be in the recent-80 window.
+        target = _resolve_order_for_ops(wanted_order, orders, order_store_path)
+        if target is not None:
+            rows.extend(_order_events_as_ops_rows(target))
+    else:
+        # Prefer recently updated orders for stage extraction.
+        recent = sorted(
+            orders,
+            key=lambda item: str(item.get("updatedAt") or item.get("createdAt") or ""),
+            reverse=True,
+        )[:80]
+        for order in recent:
+            rows.extend(_order_events_as_ops_rows(order))
 
     if wanted_order:
         rows = [row for row in rows if str(row.get("orderId") or "") == wanted_order]

@@ -19,6 +19,7 @@ export function useScreenWakeLock(enabled: boolean) {
     if (!wakeLockApi?.request) return
 
     let cancelled = false
+    let requestGen = 0
 
     const release = async () => {
       const current = sentinelRef.current
@@ -33,11 +34,12 @@ export function useScreenWakeLock(enabled: boolean) {
 
     const request = async () => {
       if (cancelled || document.visibilityState !== "visible") return
+      const gen = ++requestGen
       try {
         await release()
-        if (cancelled || document.visibilityState !== "visible") return
+        if (cancelled || gen !== requestGen || document.visibilityState !== "visible") return
         const sentinel = await wakeLockApi.request("screen")
-        if (cancelled) {
+        if (cancelled || gen !== requestGen) {
           await sentinel.release().catch(() => undefined)
           return
         }
@@ -59,6 +61,7 @@ export function useScreenWakeLock(enabled: boolean) {
 
     return () => {
       cancelled = true
+      requestGen += 1
       document.removeEventListener("visibilitychange", onVisibility)
       void release()
     }

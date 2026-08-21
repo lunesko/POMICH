@@ -83,6 +83,13 @@ def create_order(payload: dict, authorization: str | None = Header(default=None)
         plng = pickup.get("lng")
         if is_occupied_coordinates(plat, plng):
             zone = occupied_zone_name(plat, plng) or "occupied"
+            record_ops_event(
+                event_type="GEO_REJECTED",
+                message=f"Order pickup in occupied zone: {zone}",
+                code="occupied_pickup",
+                source="orders.create",
+                extra={"zone": zone},
+            )
             raise HTTPException(status_code=400, detail=f"order_location_in_{zone}")
 
     destination = payload.get("destinationCoordinates")
@@ -91,6 +98,13 @@ def create_order(payload: dict, authorization: str | None = Header(default=None)
         dlng = destination.get("lng")
         if is_occupied_coordinates(dlat, dlng):
             zone = occupied_zone_name(dlat, dlng) or "occupied"
+            record_ops_event(
+                event_type="GEO_REJECTED",
+                message=f"Order destination in occupied zone: {zone}",
+                code="occupied_destination",
+                source="orders.create",
+                extra={"zone": zone},
+            )
             raise HTTPException(status_code=400, detail=f"destination_in_{zone}")
 
     order = save_order(payload)
@@ -122,6 +136,13 @@ def read_order(
 ) -> dict:
     # Auth before existence check so anonymous clients cannot probe order ids.
     if not extract_bearer_token(authorization):
+        record_ops_event(
+            event_type="AUTH_DENIED",
+            message="Unauthenticated order read",
+            order_id=order_id,
+            code="auth_session_required",
+            source="orders.read",
+        )
         raise HTTPException(status_code=401, detail="auth_session_required")
     expire_stale_and_notify()
     order = get_order(order_id)

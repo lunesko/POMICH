@@ -50,9 +50,9 @@ export function alertPartnerNewRequest(options: {
   ].filter(Boolean)
   const body = parts.length > 0 ? parts.join(" · ") : "Відкрийте кабінет партнера"
   const hidden = typeof document !== "undefined" && document.visibilityState !== "visible"
-  if (hidden) {
-    showPartnerDutyNotification(title, body, `pomich-order-${options.orderId}`)
-  }
+  // Always attempt Web Notification when permitted — Telegram WebViews often keep
+  // the page "visible" while backgrounded, so gating on hidden alone missed alerts.
+  showPartnerDutyNotification(title, body, `pomich-order-${options.orderId}`)
   telegramHaptic(options.webApp, hidden ? "warning" : "heavy")
 }
 

@@ -1,5 +1,5 @@
-const TILE_CACHE = "pomich-map-tiles-v5"
-const ASSET_CACHE = "pomich-assets-v5"
+const TILE_CACHE = "pomich-map-tiles-v6"
+const ASSET_CACHE = "pomich-assets-v6"
 const TILE_CACHE_MAX = 350
 const TILE_HOST_PATTERN = /(^|\.)tile\.openstreetmap\.org$/
 
@@ -27,7 +27,7 @@ async function putWithTileCap(cache, request, response) {
   const keys = await cache.keys()
   if (keys.length <= TILE_CACHE_MAX) return
   const overflow = keys.length - TILE_CACHE_MAX
-  // Cache keys() is insertion-ordered in Chromium — drop oldest first.
+  // Cache keys() is insertion-ordered in Chromium — drop oldest (LRU-ish after hit re-put).
   await Promise.all(keys.slice(0, overflow).map((key) => cache.delete(key)))
 }
 
@@ -55,11 +55,14 @@ self.addEventListener("fetch", (event) => {
 
   if (!TILE_HOST_PATTERN.test(url.hostname)) return
 
-  // Strict cache-first — no background revalidate (that doubled tile traffic in DevTools).
+  // Cache-first with LRU-ish refresh: re-put hits so hot tiles stay newest.
   event.respondWith(
     caches.open(TILE_CACHE).then(async (cache) => {
       const cached = await cache.match(event.request)
-      if (cached) return cached
+      if (cached) {
+        event.waitUntil(putWithTileCap(cache, event.request, cached))
+        return cached
+      }
       const response = await fetch(event.request)
       if (response.ok || response.type === "opaque") {
         await putWithTileCap(cache, event.request, response)

@@ -81,3 +81,48 @@ def test_severity_filter_keeps_global_counts(monkeypatch) -> None:
     assert errors_only["counts"]["warn"] >= 1
     assert errors_only["counts"]["info"] >= 1
     assert errors_only["counts"]["total"] >= 3
+
+
+def test_ops_log_order_filter_loads_order_outside_recent_window(tmp_path, monkeypatch) -> None:
+    from bot import order_store
+    from bot import ops_log
+
+    order_path = tmp_path / "orders.json"
+    monkeypatch.setenv("POMICH_ORDER_STORE_PATH", str(order_path))
+    monkeypatch.setattr(order_store, "_default_store_path", lambda: order_path)
+    monkeypatch.setattr(ops_log, "sql_storage_enabled", lambda: False)
+    monkeypatch.setattr(ops_log, "_MEMORY_OPS_LOG", [])
+
+    orders = []
+    for index in range(85):
+        order = order_store.save_order(
+            {
+                "service": "tow",
+                "status": "searching",
+                "customerLocation": f"Loc {index}",
+                "customerCoordinates": {"lat": 48.62, "lng": 22.28},
+            },
+            store_path=order_path,
+        )
+        orders.append(order)
+
+    target = orders[0]
+    target["updatedAt"] = "2020-01-01T00:00:00+00:00"
+    target["statusHistory"] = [
+        {"status": "searching", "at": "2020-01-01T00:00:00+00:00"},
+        {"status": "searching", "at": "2020-01-01T00:00:00+00:00"},
+    ]
+    order_store._append_order_event(target, "NO_PROVIDERS_AVAILABLE", extra={"message": "old"})
+    all_orders = order_store.load_orders(order_path)
+    for item in all_orders:
+        if item["id"] == target["id"]:
+            item.clear()
+            item.update(target)
+    order_store._write_json_atomic(order_path, all_orders)
+
+    payload = ops_log.build_admin_ops_log(limit=50, order_id=target["id"], order_store_path=order_path)
+    assert payload["counts"]["total"] >= 1
+    assert any(event.get("type") == "NO_PROVIDERS_AVAILABLE" for event in payload["events"])
+    # Identical status+at pairs must not collapse when indexed.
+    status_rows = [event for event in payload["events"] if str(event.get("type") or "").startswith("STATUS_")]
+    assert len(status_rows) >= 2
