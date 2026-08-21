@@ -52,7 +52,6 @@ import {
   getServiceDescription,
   getProviderCapabilityLabel,
   toServiceKeys,
-  getServiceEmoji,
   providerStatusLabel,
   verificationLabel,
   verificationTone,

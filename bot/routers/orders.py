@@ -71,7 +71,12 @@ def create_order(payload: dict, authorization: str | None = Header(default=None)
             raise HTTPException(status_code=401, detail="telegram_user_mismatch")
         apply_verified_telegram_identity(payload, verified_telegram)
         if customer_principal is not None and payload.get("customerId") != customer_principal.subject_id:
-            raise HTTPException(status_code=403, detail="customer_identity_mismatch")
+            # Guest web session + verified Telegram Mini App: upgrade to tg-* owner.
+            guest_upgrade = str(customer_principal.subject_id).startswith("guest-") and str(
+                payload.get("customerId") or ""
+            ).startswith("tg-")
+            if not guest_upgrade:
+                raise HTTPException(status_code=403, detail="customer_identity_mismatch")
     elif customer_principal is None:
         raise HTTPException(status_code=401, detail="customer_session_required")
     else:

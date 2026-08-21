@@ -50,8 +50,6 @@ export function resolveCabinetHistoryCustomerId(customerId: string, customerToke
   return readAuthSessionSubject(customerToken) || String(customerId || "").trim()
 }
 
-export const resolveCabinetSessionCustomerId = resolveCabinetHistoryCustomerId
-
 export default function ClientCabinet({
   profile,
   customerId,
@@ -477,7 +475,7 @@ export default function ClientCabinet({
                 </div>
               ) : orderHistory.length === 0 ? (
                 <div className="pomich-cabinet-empty">
-                  Ще немає заявок. Натисніть «Викликати допомогу», коли потрібна допомога на дорозі.
+                  Ще немає заявок як клієнт. Натисніть «Викликати допомогу», коли потрібна допомога на дорозі.
                 </div>
               ) : (
                 <div className="pomich-cabinet-order-list">

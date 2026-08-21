@@ -1735,7 +1735,8 @@ def find_registered_customer_by_phone(
         candidates.append(normalized)
     # Prefer the Telegram owner of a partner cabinet that uses this phone
     # (guest web rows often hold the same number without a chat_id).
-    provider = find_registered_provider_by_phone(phone, store_path=store_path)
+    provider_lookup_path = _companion_provider_store_path(store_path) if store_path is not None else store_path
+    provider = find_registered_provider_by_phone(phone, store_path=provider_lookup_path)
     if provider is not None:
         telegram_user_id = resolve_provider_telegram_user_id(
             str(provider.get("id") or ""),
@@ -1899,6 +1900,7 @@ def _ensure_customer_phone_available(
         linked_provider_id = f"provider-{customer_id}"
     provider_store_path = _companion_provider_store_path(store_path)
     own_provider = get_provider_profile(linked_provider_id, provider_store_path) if linked_provider_id else None
+    # Own partner cabinet may already hold this phone (including when a tg-* duplicate exists).
     if own_provider is not None and own_provider.get("registeredAt"):
         own_provider_phone = _normalize_ukraine_phone_digits(str(own_provider.get("phone") or ""))
         if own_provider_phone == target:
@@ -2171,6 +2173,9 @@ def ensure_customer_client_from_linked_provider(
                 patch["preferredRole"] = preferred
             update_customer_profile(customer_id, patch, store_path)
         _maybe_persist_phone_linked_verification(get_customer_profile(customer_id, store_path), store_path)
+        phone = str((get_customer_profile(customer_id, store_path) or {}).get("phone") or "").strip()
+        if phone:
+            _claim_conflicting_guest_phone(customer_id, phone, store_path)
         return build_user_account_status(customer_id, store_path)
 
     provider_id = resolve_linked_provider_id(customer_id, profile)
@@ -2195,19 +2200,33 @@ def ensure_customer_client_from_linked_provider(
         update_customer_profile(customer_id, patch, store_path)
         mark_user_role_registered(customer_id, "customer", store_path)
         _maybe_persist_phone_linked_verification(get_customer_profile(customer_id, store_path), store_path)
-    except ValueError:
-        # Phone conflict on another row — still mark customer role + name for role-switch UX.
-        try:
-            soft_patch: Dict[str, Any] = {
-                "name": name,
-                "linkedProviderId": str(provider_id),
-            }
-            if city:
-                soft_patch["city"] = city
-            update_customer_profile(customer_id, soft_patch, store_path)
-            mark_user_role_registered(customer_id, "customer", store_path)
-        except ValueError:
-            pass
+        # Fold guest duplicates that share the partner phone into the canonical tg-* row.
+        _claim_conflicting_guest_phone(customer_id, phone, store_path)
+    except ValueError as exc:
+        claimed = False
+        if str(exc) == PHONE_ALREADY_REGISTERED:
+            claimed = _claim_conflicting_guest_phone(customer_id, phone, store_path)
+            if claimed:
+                try:
+                    update_customer_profile(customer_id, patch, store_path)
+                    mark_user_role_registered(customer_id, "customer", store_path)
+                    _maybe_persist_phone_linked_verification(get_customer_profile(customer_id, store_path), store_path)
+                    claimed = True
+                except ValueError:
+                    claimed = False
+        if not claimed:
+            # Phone still conflicted (another tg-* row) — keep role UX, expand history via provider phone.
+            try:
+                soft_patch: Dict[str, Any] = {
+                    "name": name,
+                    "linkedProviderId": str(provider_id),
+                }
+                if city:
+                    soft_patch["city"] = city
+                update_customer_profile(customer_id, soft_patch, store_path)
+                mark_user_role_registered(customer_id, "customer", store_path)
+            except ValueError:
+                pass
 
     status = build_user_account_status(customer_id, store_path)
     profile = dict(status.get("profile") or {})
@@ -3693,6 +3712,13 @@ def _customer_ids_for_order_history(
     profile = get_customer_profile(needle, customer_store_path) or {}
     phone_digits = _customer_profile_phone_digits(profile)
     if not phone_digits or len(phone_digits) != 12:
+        # Partner→client soft-patch may leave tg-* without phone; use linked provider phone.
+        provider_id = resolve_linked_provider_id(needle, profile)
+        if provider_id:
+            provider = get_provider_profile(provider_id)
+            if provider:
+                phone_digits = _normalize_ukraine_phone_digits(str(provider.get("phone") or ""))
+    if not phone_digits or len(phone_digits) != 12:
         return ids
     for other in load_customer_profiles(customer_store_path):
         other_id = str(other.get("id") or "").strip()
@@ -3701,6 +3727,109 @@ def _customer_ids_for_order_history(
         if _customer_profile_phone_digits(other) == phone_digits:
             ids.add(other_id)
     return ids
+
+
+def rebind_customer_orders(
+    from_customer_ids: set[str] | list[str],
+    to_customer_id: str,
+    store_path: Optional[Path] = None,
+) -> int:
+    """Rewrite order customerId from legacy guest/alias rows onto the canonical account."""
+    target = str(to_customer_id or "").strip()
+    sources = {str(item).strip() for item in from_customer_ids if str(item or "").strip()}
+    sources.discard(target)
+    if not target or not sources:
+        return 0
+
+    rebound = 0
+    with STORE_LOCK:
+        use_sql = _should_use_sql_store(store_path, _default_store_path)
+        if use_sql:
+            orders = load_orders(store_path)
+            for order in orders:
+                current = str(order.get("customerId") or "").strip()
+                if current not in sources:
+                    continue
+                order["customerId"] = target
+                identity = order.get("customerIdentity") if isinstance(order.get("customerIdentity"), dict) else {}
+                if identity:
+                    identity = dict(identity)
+                    identity["customerId"] = target
+                    order["customerIdentity"] = identity
+                order["updatedAt"] = _now_iso()
+                sql_upsert_order(order)
+                rebound += 1
+            return rebound
+
+        path = store_path or _default_store_path()
+        orders = load_orders(path)
+        changed = False
+        for order in orders:
+            current = str(order.get("customerId") or "").strip()
+            if current not in sources:
+                continue
+            order["customerId"] = target
+            identity = order.get("customerIdentity") if isinstance(order.get("customerIdentity"), dict) else {}
+            if identity:
+                identity = dict(identity)
+                identity["customerId"] = target
+                order["customerIdentity"] = identity
+            order["updatedAt"] = _now_iso()
+            rebound += 1
+            changed = True
+        if changed:
+            _write_json_atomic(path, orders)
+    return rebound
+
+
+def _clear_customer_phone(customer_id: str, store_path: Optional[Path] = None) -> None:
+    """Clear phone on a conflicting guest/alias row so the canonical profile can claim it."""
+    needle = str(customer_id or "").strip()
+    if not needle:
+        return
+    with STORE_LOCK:
+        path = store_path or _default_customer_store_path()
+        profiles = load_customer_profiles(path)
+        now = _now_iso()
+        for index, profile in enumerate(profiles):
+            if str(profile.get("id") or "").strip() != needle:
+                continue
+            payload = _normalize_customer_profile(profile)
+            payload["phone"] = ""
+            payload["updatedAt"] = now
+            payload["profileCompleteness"] = _customer_profile_completeness(payload)
+            profiles[index] = payload
+            save_customer_profiles(profiles, path)
+            return
+
+
+def _claim_conflicting_guest_phone(
+    customer_id: str,
+    phone: str,
+    store_path: Optional[Path] = None,
+) -> bool:
+    """If phone is held by a guest/non-tg row, clear it, rebind orders, return True when claimed."""
+    target_digits = _normalize_ukraine_phone_digits(phone)
+    if not target_digits or len(target_digits) != 12:
+        return False
+    profiles = load_customer_profiles(store_path)
+    conflict_ids: list[str] = []
+    for profile in profiles:
+        other_id = str(profile.get("id") or "").strip()
+        if not other_id or other_id == customer_id:
+            continue
+        if _customer_profile_phone_digits(profile) != target_digits:
+            continue
+        # Never steal phone from another Telegram canonical account.
+        if other_id.startswith("tg-") and customer_id.startswith("tg-"):
+            return False
+        conflict_ids.append(other_id)
+    if not conflict_ids:
+        return False
+    for conflict_id in conflict_ids:
+        _clear_customer_phone(conflict_id, store_path)
+    rebind_customer_orders(set(conflict_ids), customer_id, store_path=None)
+    return True
 
 
 def list_orders_for_customer(

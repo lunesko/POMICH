@@ -1781,3 +1781,135 @@ def test_switching_preferred_role_to_customer_reuses_partner_profile(tmp_path, m
     assert "provider" in status["rolesRegistered"]
     assert profile["name"] == "Іван Партнер"
     assert "+380671998877" in str(profile.get("phone") or "")
+
+
+def test_role_switch_claims_guest_phone_and_rebinds_orders(tmp_path, monkeypatch):
+    customer_path = tmp_path / "customers.json"
+    provider_path = tmp_path / "providers.json"
+    order_path = tmp_path / "orders.json"
+    provider_path.write_text("[]", encoding="utf-8")
+    monkeypatch.setenv("POMICH_CUSTOMER_STORE_PATH", str(customer_path))
+    monkeypatch.setenv("POMICH_PROVIDER_STORE_PATH", str(provider_path))
+    monkeypatch.setenv("POMICH_ORDER_STORE_PATH", str(order_path))
+
+    from bot.order_store import (
+        get_customer_profile,
+        list_orders_for_customer,
+        save_order,
+        set_user_preferred_role,
+        update_customer_profile,
+        update_provider_profile,
+    )
+
+    guest_id = "guest-old-rides"
+    customer_id = "tg-history-fix"
+    provider_id = f"provider-{customer_id}"
+    shared_phone = "+380671556677"
+    update_customer_profile(
+        guest_id,
+        {"name": "Guest", "phone": shared_phone, "city": "Ужгород"},
+        store_path=customer_path,
+    )
+    update_customer_profile(
+        customer_id,
+        {"preferredRole": "provider", "linkedProviderId": provider_id},
+        store_path=customer_path,
+    )
+    update_provider_profile(
+        provider_id,
+        {
+            "name": "Partner",
+            "phone": shared_phone,
+            "vehicle": "Van",
+            "plate": "AO 2222 BB",
+            "specialties": ["tow"],
+            "city": "Ужгород",
+        },
+        store_path=provider_path,
+    )
+    saved = save_order(
+        {"service": "tow", "status": "completed", "customerId": guest_id},
+        store_path=order_path,
+    )
+
+    status = set_user_preferred_role(customer_id, "customer")
+    profile = get_customer_profile(customer_id)
+    guest = get_customer_profile(guest_id)
+
+    assert status["clientRegistered"] is True
+    assert "380671556677" in "".join(ch for ch in str(profile.get("phone") or "") if ch.isdigit())
+    assert not str(guest.get("phone") or "").strip()
+    history = list_orders_for_customer(
+        customer_id,
+        store_path=order_path,
+        customer_store_path=customer_path,
+    )
+    assert any(item.get("id") == saved["id"] for item in history)
+    rebound = next(item for item in history if item.get("id") == saved["id"])
+    assert rebound.get("customerId") == customer_id
+
+
+def test_history_aliases_use_linked_provider_phone_when_profile_phoneless(tmp_path, monkeypatch):
+    customer_path = tmp_path / "customers.json"
+    provider_path = tmp_path / "providers.json"
+    order_path = tmp_path / "orders.json"
+    provider_path.write_text("[]", encoding="utf-8")
+    monkeypatch.setenv("POMICH_CUSTOMER_STORE_PATH", str(customer_path))
+    monkeypatch.setenv("POMICH_PROVIDER_STORE_PATH", str(provider_path))
+
+    from bot import order_store
+    from bot.order_store import (
+        list_orders_for_customer,
+        save_order,
+        update_customer_profile,
+        update_provider_profile,
+    )
+
+    monkeypatch.setattr(order_store, "_default_customer_store_path", lambda: customer_path)
+    monkeypatch.setattr(order_store, "_default_store_path", lambda: order_path)
+    monkeypatch.setattr(order_store, "_default_provider_store_path", lambda: provider_path)
+
+    customer_id = "tg-phoneless"
+    provider_id = f"provider-{customer_id}"
+    shared_phone = "+380509998877"
+    update_customer_profile(
+        customer_id,
+        {"name": "Partner", "linkedProviderId": provider_id, "rolesRegistered": ["provider", "customer"]},
+        store_path=customer_path,
+    )
+    update_provider_profile(
+        provider_id,
+        {
+            "name": "Partner",
+            "phone": shared_phone,
+            "vehicle": "Van",
+            "plate": "AO 3333 CC",
+            "specialties": ["mechanic"],
+            "city": "Ужгород",
+        },
+        store_path=provider_path,
+    )
+    # Guest row keeps the same phone (legacy duplicate); tg row has no phone persisted.
+    profiles = order_store.load_customer_profiles(customer_path)
+    profiles.append(
+        {
+            "id": "guest-legacy",
+            "name": "Legacy",
+            "phone": shared_phone,
+            "city": "Ужгород",
+            "verificationStatus": "verified",
+            "rolesRegistered": ["customer"],
+        }
+    )
+    order_store.save_customer_profiles(profiles, customer_path)
+    saved = save_order(
+        {"service": "mechanic", "status": "completed", "customerId": "guest-legacy"},
+        store_path=order_path,
+    )
+
+    history = list_orders_for_customer(
+        customer_id,
+        store_path=order_path,
+        customer_store_path=customer_path,
+    )
+    assert any(item.get("id") == saved["id"] for item in history)

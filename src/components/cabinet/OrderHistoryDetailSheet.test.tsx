@@ -51,6 +51,7 @@ describe("resolveHistoryRoutePoints", () => {
         assignedProvider: {
           id: "p1",
           name: "Partner",
+          status: "online",
           location: { lat: 50.46, lng: 30.53 },
         },
       }),
@@ -77,7 +78,7 @@ describe("resolveHistoryRoutePoints", () => {
       baseOrder({
         customerCoordinates: { lat: 50.45, lng: 30.52 },
         distanceKm: 9,
-        assignedProvider: { id: "p1", name: "Partner", distanceKm: 0.5 },
+        assignedProvider: { id: "p1", name: "Partner", status: "online", distanceKm: 0.5 },
       }),
     )
     expect(points.partner).toEqual(estimatePartnerApproachPoint({ lat: 50.45, lng: 30.52 }, 0.5))

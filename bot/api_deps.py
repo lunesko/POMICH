@@ -444,9 +444,17 @@ def order_customer_id(order: dict | None) -> str:
 def require_order_customer_owner(order: dict, authorization: str | None = None) -> AuthPrincipal:
     principal = require_customer_auth_from_bearer(authorization)
     customer_id = order_customer_id(order)
-    if not customer_id or principal.subject_id != customer_id:
-        raise HTTPException(status_code=403, detail="customer_identity_mismatch")
-    return principal
+    if customer_id and principal.subject_id == customer_id:
+        return principal
+    try:
+        from bot.order_store import _customer_ids_for_order_history, _order_belongs_to_customer
+
+        aliases = _customer_ids_for_order_history(principal.subject_id)
+        if any(_order_belongs_to_customer(order, alias) for alias in aliases):
+            return principal
+    except Exception:
+        pass
+    raise HTTPException(status_code=403, detail="customer_identity_mismatch")
 
 
 def require_order_owner_or_admin(
@@ -559,9 +567,11 @@ def apply_verified_telegram_identity(payload: dict, verified_telegram: dict | No
     if not telegram_user_id:
         return
 
+    canonical_customer_id = f"tg-{telegram_user_id}"
     payload["telegramUserId"] = telegram_user_id
     payload["chatId"] = str(payload.get("chatId") or telegram_user_id)
-    payload["customerId"] = str(payload.get("customerId") or f"tg-{telegram_user_id}")
+    # Always bind Mini App creates to the Telegram canonical id (not a prior guest id).
+    payload["customerId"] = canonical_customer_id
     if user.get("username") and not payload.get("telegramUsername"):
         payload["telegramUsername"] = str(user.get("username"))
     payload["customerIdentity"] = {
@@ -570,6 +580,7 @@ def apply_verified_telegram_identity(payload: dict, verified_telegram: dict | No
         "username": user.get("username"),
         "firstName": user.get("first_name"),
         "lastName": user.get("last_name"),
+        "customerId": canonical_customer_id,
     }
 
 
