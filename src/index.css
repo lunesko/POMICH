@@ -1823,10 +1823,10 @@ html.mobile-compact .pomich-map-occupied-hint {
 }
 .pomich-role-icon {
   position: relative;
-  width: 56px;
-  height: 56px;
+  width: 64px;
+  height: 64px;
   flex-shrink: 0;
-  border-radius: 16px;
+  border-radius: 18px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1837,10 +1837,10 @@ html.mobile-compact .pomich-map-occupied-hint {
   animation: pomichRoleIconFloat 3.2s ease-in-out infinite;
 }
 .pomich-role-icon--client {
-  background: linear-gradient(145deg, #34d399 0%, #16a36a 48%, #1d6fd4 100%);
+  background: linear-gradient(145deg, #6ee7b7 0%, #16a36a 55%, #047857 100%);
 }
 .pomich-role-icon--partner {
-  background: linear-gradient(145deg, #fbbf24 0%, #2f80ed 52%, #0b7a4d 100%);
+  background: linear-gradient(145deg, #93c5fd 0%, #2f80ed 52%, #1d4ed8 100%);
   animation-delay: 0.35s;
 }
 .pomich-role-icon__glow {
@@ -1849,11 +1849,40 @@ html.mobile-compact .pomich-map-occupied-hint {
   border-radius: 12px;
   background: radial-gradient(circle at 30% 25%, rgba(255, 255, 255, 0.45), transparent 60%);
   pointer-events: none;
+  animation: pomichRoleGlowPulse 3.6s ease-in-out infinite;
 }
 .pomich-role-icon-svg {
   position: relative;
   z-index: 1;
+  overflow: visible;
   filter: drop-shadow(0 4px 6px rgba(15, 23, 42, 0.28));
+}
+.pomich-role-icon-vehicle {
+  transform-origin: 40px 50px;
+  animation: pomichRoleVehicleIdle 4.8s ease-in-out infinite;
+}
+.pomich-role-icon-svg--partner .pomich-role-icon-vehicle {
+  animation-delay: 0.6s;
+}
+.pomich-role-icon-shadow {
+  transform-origin: 40px 66px;
+  animation: pomichRoleShadowIdle 4.8s ease-in-out infinite;
+}
+.pomich-role-card:hover .pomich-role-icon,
+.pomich-role-card:focus-visible .pomich-role-icon {
+  animation-play-state: paused;
+  transform: translateZ(36px) scale(1.06);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.5) inset,
+    0 16px 32px rgba(15, 23, 42, 0.28);
+}
+.pomich-role-card:hover .pomich-role-icon-vehicle,
+.pomich-role-card:focus-visible .pomich-role-icon-vehicle {
+  animation: pomichRoleVehicleHover 0.9s ease-in-out infinite;
+}
+.pomich-role-card:hover .pomich-role-icon__glow,
+.pomich-role-card:focus-visible .pomich-role-icon__glow {
+  animation: pomichRoleGlowPulse 1.4s ease-in-out infinite;
 }
 .pomich-role-card-stack {
   perspective: 1100px;
@@ -1933,6 +1962,44 @@ html.mobile-compact .pomich-map-occupied-hint {
     transform: translateZ(28px) translateY(-3px);
   }
 }
+@keyframes pomichRoleVehicleIdle {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-1.5px);
+  }
+}
+@keyframes pomichRoleVehicleHover {
+  0%,
+  100% {
+    transform: translateY(0) translateX(0);
+  }
+  50% {
+    transform: translateY(-2px) translateX(1px);
+  }
+}
+@keyframes pomichRoleShadowIdle {
+  0%,
+  100% {
+    transform: scaleX(1);
+    opacity: 0.9;
+  }
+  50% {
+    transform: scaleX(0.88);
+    opacity: 0.55;
+  }
+}
+@keyframes pomichRoleGlowPulse {
+  0%,
+  100% {
+    opacity: 0.75;
+  }
+  50% {
+    opacity: 1;
+  }
+}
 @keyframes pomichRoleShine {
   from {
     transform: translateX(-45%) rotate(8deg);
@@ -1955,6 +2022,9 @@ html.mobile-compact .pomich-map-occupied-hint {
 @media (prefers-reduced-motion: reduce) {
   .pomich-role-card,
   .pomich-role-icon,
+  .pomich-role-icon-vehicle,
+  .pomich-role-icon-shadow,
+  .pomich-role-icon__glow,
   .pomich-role-badge,
   .pomich-role-badge__dot,
   .pomich-role-hero-title,
@@ -1964,7 +2034,9 @@ html.mobile-compact .pomich-map-occupied-hint {
     transition: none !important;
   }
   .pomich-role-card:hover,
-  .pomich-role-card:active {
+  .pomich-role-card:active,
+  .pomich-role-card:hover .pomich-role-icon,
+  .pomich-role-card:focus-visible .pomich-role-icon {
     transform: none;
   }
 }
@@ -3548,15 +3620,15 @@ html.mobile-compact-xs .pomich-tg-main .pomich-ride-screen__map .leaflet-contain
   left: auto !important;
   z-index: 1250;
   min-width: 0;
-  max-width: min(118px, 34vw);
-  padding: 4px 6px 5px;
-  gap: 2px;
+  max-width: min(168px, 46vw);
+  padding: 6px 8px 7px;
+  gap: 3px;
   border-radius: 10px;
   transform-origin: top right;
 }
 .pomich-ride-screen--overlay .pomich-map-legend-box .pomich-map-legend-title,
 .pomich-map-legend-box--overlay .pomich-map-legend-title {
-  font-size: 8px;
+  font-size: 9px;
   letter-spacing: 0.04em;
 }
 .pomich-ride-screen--overlay .pomich-map-legend-box .pomich-map-legend-toggle,
@@ -3574,7 +3646,7 @@ html.mobile-compact-xs .pomich-tg-main .pomich-ride-screen__map .leaflet-contain
 }
 .pomich-ride-screen--overlay .pomich-map-legend-box .pomich-map-legend-item__label,
 .pomich-map-legend-box--overlay .pomich-map-legend-item__label {
-  font-size: 9px;
+  font-size: 10px;
 }
 .pomich-ride-screen--overlay .pomich-map-legend-box .pomich-map-legend-glyph,
 .pomich-map-legend-box--overlay .pomich-map-legend-glyph {
@@ -5032,6 +5104,24 @@ html.mobile-compact .pomich-plate-input .pomich-plate__field {
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
 }
+button.pomich-cabinet-order-item--button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
+}
+button.pomich-cabinet-order-item--button:hover,
+button.pomich-cabinet-order-item--button:focus-visible {
+  border-color: color-mix(in srgb, var(--pomich-brand) 40%, var(--pomich-glass-border));
+  background: color-mix(in srgb, var(--pomich-brand) 10%, var(--pomich-service-tone-default));
+  outline: none;
+}
+button.pomich-cabinet-order-item--button:active {
+  transform: scale(0.985);
+}
 .pomich-cabinet-order-item:last-child {
   margin-bottom: 0;
 }
@@ -5051,6 +5141,183 @@ html.mobile-compact .pomich-plate-input .pomich-plate__field {
   color: var(--pomich-muted);
   font-size: 11px;
   font-weight: 700;
+}
+
+.pomich-history-detail {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 12px;
+  padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  background: rgba(8, 12, 18, 0.52);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+.pomich-history-detail__panel {
+  width: min(100%, 440px);
+  max-height: min(88dvh, 720px);
+  display: flex;
+  flex-direction: column;
+  border-radius: 22px 22px 18px 18px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 28%),
+    var(--pomich-card, #101820);
+  border: 1px solid var(--pomich-glass-border, rgba(255, 255, 255, 0.12));
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+  animation: pomichHistoryDetailIn 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.pomich-history-detail__scroll {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 10px 16px 8px;
+  -webkit-overflow-scrolling: touch;
+}
+.pomich-history-detail__handle {
+  width: 42px;
+  height: 4px;
+  border-radius: 999px;
+  margin: 2px auto 12px;
+  background: var(--pomich-sheet-handle, rgba(120, 140, 150, 0.55));
+}
+.pomich-history-detail__eyebrow {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--pomich-muted);
+}
+.pomich-history-detail__title {
+  margin: 4px 0 0;
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  color: var(--pomich-text);
+}
+.pomich-history-detail__status {
+  margin-top: 6px;
+  display: inline-flex;
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 800;
+  background: color-mix(in srgb, var(--pomich-brand) 16%, transparent);
+  color: var(--pomich-brand);
+}
+.pomich-history-detail__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 14px;
+}
+.pomich-history-detail__stat {
+  border-radius: 14px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--pomich-glass-border) 80%, transparent);
+  background: color-mix(in srgb, var(--pomich-service-tone-default) 50%, transparent);
+}
+.pomich-history-detail__stat-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--pomich-muted);
+}
+.pomich-history-detail__stat-value {
+  display: block;
+  margin-top: 3px;
+  font-size: 15px;
+  font-weight: 900;
+  color: var(--pomich-text);
+}
+.pomich-history-detail__block {
+  display: grid;
+  gap: 6px;
+  margin-top: 14px;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.4;
+  color: var(--pomich-text);
+}
+.pomich-history-detail__block strong {
+  font-weight: 900;
+}
+.pomich-history-detail__map {
+  margin-top: 14px;
+  height: 200px;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--pomich-glass-border) 80%, transparent);
+}
+.pomich-history-detail__map .pomich-route-map,
+.pomich-history-detail__map .leaflet-container {
+  height: 100% !important;
+  min-height: 200px;
+  border-radius: 16px;
+}
+.pomich-history-detail__map-fallback,
+.pomich-history-detail__map-empty {
+  margin-top: 14px;
+  height: 120px;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--pomich-muted);
+  background: color-mix(in srgb, var(--pomich-subtle, #e8edf2) 70%, transparent);
+  border: 1px dashed color-mix(in srgb, var(--pomich-glass-border) 80%, transparent);
+}
+.pomich-history-detail__timeline {
+  margin-top: 14px;
+  margin-bottom: 6px;
+}
+.pomich-history-detail__timeline-title {
+  font-size: 12px;
+  font-weight: 900;
+  color: var(--pomich-muted);
+  margin-bottom: 8px;
+}
+.pomich-history-detail__timeline ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.pomich-history-detail__timeline li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+  font-weight: 750;
+  color: var(--pomich-text);
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--pomich-service-tone-default) 45%, transparent);
+}
+.pomich-history-detail__footer {
+  padding: 10px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid color-mix(in srgb, var(--pomich-glass-border) 70%, transparent);
+}
+@keyframes pomichHistoryDetailIn {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@media (min-width: 768px) {
+  .pomich-history-detail {
+    align-items: center;
+  }
+  .pomich-history-detail__panel {
+    border-radius: 22px;
+  }
 }
 .pomich-cabinet-footer {
   flex-shrink: 0;
@@ -6636,216 +6903,6 @@ html.tg-compact .pomich-ride-screen__map .leaflet-top.leaflet-left {
   .admin-split { grid-template-columns: 1fr; }
   .admin-panel-detail { position: static; }
   .admin-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
-
-/* Client map: partner profile + reviews (mobile bottom sheet / desktop side card) */
-.pomich-partner-profile-sheet {
-  position: fixed;
-  inset: 0;
-  z-index: 3600;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  background: rgba(17, 19, 21, 0.52);
-  padding: 0;
-  padding-bottom: calc(
-    env(safe-area-inset-bottom, 0px) + var(--tg-content-safe-area-inset-bottom, 0px)
-  );
-  max-height: var(--tg-viewport-stable-height, 100dvh);
-  box-sizing: border-box;
-  pointer-events: auto;
-  touch-action: manipulation;
-}
-.pomich-partner-profile-sheet--desktop {
-  --pomich-partner-sheet-top: calc(
-    var(--pomich-app-header-height, 3.875rem) + env(safe-area-inset-top, 0px) + var(--tg-content-safe-area-inset-top, 0px)
-  );
-  --pomich-partner-sheet-bottom: calc(
-    12px + env(safe-area-inset-bottom, 0px) + var(--tg-content-safe-area-inset-bottom, 0px)
-  );
-  top: var(--pomich-partner-sheet-top);
-  right: 0;
-  bottom: 0;
-  left: 0;
-  align-items: flex-start;
-  justify-content: flex-end;
-  background: transparent;
-  pointer-events: none;
-  padding: 8px var(--pomich-map-chrome-right, 16px) var(--pomich-partner-sheet-bottom) 16px;
-}
-.pomich-partner-profile-sheet--desktop .pomich-partner-profile-sheet__panel {
-  pointer-events: auto;
-  width: min(380px, 36vw);
-  max-height: min(72dvh, calc(var(--tg-viewport-stable-height, 100dvh) - 120px));
-  border-radius: 20px;
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.18);
-}
-.pomich-partner-profile-sheet__panel {
-  width: 100%;
-  max-width: 100%;
-  max-height: min(
-    85dvh,
-    calc(
-      var(--tg-viewport-stable-height, 100dvh) - var(--pomich-app-header-height, 3.875rem) - env(safe-area-inset-top, 0px) - 16px
-    )
-  );
-  overflow: hidden;
-  border-radius: 20px 20px 0 0;
-  background: var(--pomich-card-bg);
-  border: 1px solid var(--pomich-border);
-  border-bottom: none;
-  padding: 14px 16px 16px;
-  box-shadow: 0 -8px 40px rgba(0, 0, 0, 0.22);
-  display: flex;
-  flex-direction: column;
-  -webkit-overflow-scrolling: touch;
-}
-.pomich-partner-profile-sheet__scroll {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-x: hidden;
-  overflow-y: auto;
-  display: grid;
-  gap: 12px;
-  overscroll-behavior: contain;
-  -webkit-overflow-scrolling: touch;
-  padding-bottom: 4px;
-}
-.pomich-partner-profile-sheet__handle {
-  width: 42px;
-  height: 4px;
-  border-radius: 999px;
-  background: var(--pomich-sheet-handle);
-  margin: 0 auto 2px;
-}
-.pomich-partner-profile-sheet__header {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  align-items: flex-start;
-}
-.pomich-partner-profile-sheet__title {
-  font-weight: 950;
-  font-size: var(--pomich-text-xl);
-  color: var(--pomich-text);
-  line-height: 1.2;
-  overflow-wrap: anywhere;
-}
-.pomich-partner-profile-sheet__meta {
-  margin-top: 4px;
-  color: var(--pomich-muted);
-  font-weight: 800;
-  font-size: var(--pomich-text-sm);
-}
-.pomich-partner-profile-sheet__pill {
-  margin-top: 8px;
-}
-.pomich-partner-profile-sheet__close {
-  flex-shrink: 0;
-  width: 36px;
-  height: 36px;
-  border-radius: 12px;
-  border: 1px solid var(--pomich-border);
-  background: var(--pomich-ghost-bg, #f3f4f6);
-  color: var(--pomich-text);
-  font-size: 14px;
-  font-weight: 900;
-  cursor: pointer;
-  font-family: inherit;
-}
-.pomich-partner-profile-sheet__vehicle,
-.pomich-partner-profile-sheet__address {
-  color: var(--pomich-text);
-  font-size: var(--pomich-text-sm);
-  font-weight: 750;
-  line-height: 1.4;
-  overflow-wrap: anywhere;
-}
-.pomich-partner-profile-sheet__tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.pomich-partner-profile-sheet__tags span {
-  border-radius: 999px;
-  padding: 5px 9px;
-  background: var(--pomich-selected-bg, #e8f8f1);
-  color: var(--pomich-brand);
-  font-size: 11px;
-  font-weight: 900;
-}
-.pomich-partner-profile-sheet__phone {
-  display: inline-block;
-  color: var(--pomich-brand);
-  font-weight: 900;
-  font-size: var(--pomich-text-sm);
-  text-decoration: none;
-}
-.pomich-partner-profile-sheet__section-title {
-  font-weight: 950;
-  font-size: var(--pomich-text-base);
-  color: var(--pomich-text);
-  margin-top: 4px;
-}
-.pomich-partner-profile-sheet__empty,
-.pomich-partner-profile-sheet__error {
-  border-radius: 14px;
-  padding: 12px;
-  font-size: var(--pomich-text-sm);
-  font-weight: 800;
-  line-height: 1.4;
-}
-.pomich-partner-profile-sheet__empty {
-  background: var(--pomich-ghost-bg, #f3f4f6);
-  color: var(--pomich-muted);
-}
-.pomich-partner-profile-sheet__error {
-  background: var(--pomich-error-bg, #fff1f2);
-  color: var(--pomich-error-text, #be123c);
-}
-.pomich-partner-profile-sheet__reviews {
-  display: grid;
-  gap: 10px;
-}
-.pomich-partner-profile-sheet__review {
-  border: 1px solid var(--pomich-border);
-  border-radius: 14px;
-  padding: 10px 12px;
-  background: var(--pomich-bg, #fff);
-}
-.pomich-partner-profile-sheet__review-head {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-  justify-content: space-between;
-}
-.pomich-partner-profile-sheet__stars {
-  color: var(--pomich-brand);
-  font-weight: 900;
-  letter-spacing: 1px;
-}
-.pomich-partner-profile-sheet__stars-empty {
-  color: var(--pomich-subtle, #d1d5db);
-}
-.pomich-partner-profile-sheet__review-service {
-  color: var(--pomich-muted);
-  font-size: 11px;
-  font-weight: 800;
-}
-.pomich-partner-profile-sheet__review-comment {
-  margin: 8px 0 0;
-  color: var(--pomich-text);
-  font-size: var(--pomich-text-sm);
-  font-weight: 700;
-  line-height: 1.4;
-  overflow-wrap: anywhere;
-}
-.pomich-partner-profile-sheet__review-date {
-  margin-top: 6px;
-  color: var(--pomich-muted);
-  font-size: 11px;
-  font-weight: 750;
 }
 
 /* Leaflet popups stay inside the map layer — never above app chrome (header ~3200) */

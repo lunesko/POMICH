@@ -34,8 +34,6 @@ import {
 
   normalizeTelegramHref,
 
-  provider,
-
   providerPoint,
 
   isProviderAvailable,
@@ -436,9 +434,7 @@ function DirectoryProviderMarkers({
                       onProviderSelect({
                         ...item,
                         distanceKm: Number.isFinite(distanceKm) ? Number(distanceKm.toFixed(1)) : undefined,
-                        etaMinutes:
-                          item.etaMinutes ??
-                          (Number.isFinite(distanceKm) ? Math.max(5, Math.ceil(distanceKm * 4)) : undefined),
+                        etaMinutes: item.etaMinutes,
                       })
                     },
                   }
@@ -1891,7 +1887,7 @@ export function RouteMap({
                             onProviderSelect({
                               ...item,
                               distanceKm: Number.isFinite(distanceKm) ? Number(distanceKm.toFixed(1)) : undefined,
-                              etaMinutes: item.etaMinutes ?? (Number.isFinite(distanceKm) ? Math.max(5, Math.ceil(distanceKm * 4)) : undefined),
+                              etaMinutes: item.etaMinutes,
                             })
                           },
                         }
@@ -1945,7 +1941,12 @@ export function RouteMap({
 
                       {pin.customerComment ? <div style={{ marginTop: 6, fontSize: 12, fontStyle: "italic", lineHeight: 1.35 }}>{pin.customerComment}</div> : null}
 
-                      {typeof pin.distanceKm === "number" ? <div style={{ marginTop: 4, fontSize: 12 }}>{pin.distanceKm.toFixed(1)} км · ~{pin.etaMinutes ?? Math.ceil(pin.distanceKm * 4)} хв</div> : null}
+                      {typeof pin.distanceKm === "number" ? (
+                        <div style={{ marginTop: 4, fontSize: 12 }}>
+                          {pin.distanceKm.toFixed(1)} км
+                          {typeof pin.etaMinutes === "number" ? ` · ~${pin.etaMinutes} хв` : ""}
+                        </div>
+                      ) : null}
 
                       {onRequestPinSelect ? (
                         <button type="button" onClick={() => onRequestPinSelect(pin)} style={{ width: "100%", marginTop: 10, border: "none", borderRadius: 10, background: BRAND, color: "#fff", padding: "8px 10px", fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>
@@ -2003,7 +2004,15 @@ export function RouteMap({
 
           <Marker position={toTuple(providerPosition)} icon={partnerIcon}>
 
-            <Popup>{provider.name} · партнер у дорозі</Popup>
+            <Popup>
+              {(providers ?? []).find(
+                (item) =>
+                  item.location &&
+                  Math.abs(item.location.lat - providerPosition.lat) < 1e-5 &&
+                  Math.abs(item.location.lng - providerPosition.lng) < 1e-5,
+              )?.name || "Партнер"}{" "}
+              · у дорозі
+            </Popup>
 
           </Marker>
 

@@ -17,7 +17,7 @@ import {
   writeDirectoryScope,
   type DirectoryScopeMode,
 } from "../lib/directoryScope"
-import { isUkraineServiceCity, normalizeServiceCity, serviceCityCenter } from "../lib/ukraineCities"
+import { isUkraineServiceCity, normalizeServiceCity, resolveServiceCityFromGeo, serviceCityCenter } from "../lib/ukraineCities"
 import { readPreferredCity } from "../lib/preferredCity"
 
 export type DirectoryGeoStatus = "idle" | "loading" | "ok" | "denied" | "error" | "occupied"
@@ -180,9 +180,17 @@ export function useDirectoryScope(options?: { refreshMs?: number; enabled?: bool
               resolve(true)
               return
             }
-            setResolvedCity(nearest.name)
+            const serviceCity =
+              resolveServiceCityFromGeo({ lat, lng }, nearest.name) ||
+              (isUkraineServiceCity(nearest.name) ? normalizeServiceCity(nearest.name) : "")
+            if (!serviceCity) {
+              await applyGeoRadiusScope({ lat, lng })
+              resolve(true)
+              return
+            }
+            setResolvedCity(serviceCity)
             setGeoRadiusPoint(null)
-            setCityCenter(nearest.center ?? { lat, lng })
+            setCityCenter(serviceCityCenter(serviceCity) ?? nearest.center ?? { lat, lng })
             setGeoStatus("ok")
             setGeoError(undefined)
             resolve(true)

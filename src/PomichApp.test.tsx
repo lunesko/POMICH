@@ -2164,6 +2164,24 @@ describe('POMICH role-based flows', () => {
       if (url.includes('/providers/provider-oleksandr/offers')) {
         return Promise.resolve({ ok: true, json: async () => [pendingOffer] })
       }
+      if (url.includes('/providers/provider-oleksandr/profile')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: 'provider-oleksandr',
+            name: 'Олександр',
+            phone: '+380671112233',
+            city: 'Ужгород',
+            vehicle: 'Volkswagen Crafter',
+            plate: 'BX5874HX',
+            status: 'online',
+            registeredAt: '2026-08-09T00:00:00',
+            verificationStatus: 'verified',
+            specialties: ['tow', 'fuel'],
+            serviceRadiusKm: 9,
+          }),
+        })
+      }
       if (url.includes('/map/orders/nearby')) {
         return Promise.resolve({
           ok: true,
@@ -2178,7 +2196,7 @@ describe('POMICH role-based flows', () => {
           }],
         })
       }
-      if (url.includes('/providers')) {
+      if (url.endsWith('/providers') || /\/providers(\?|$)/.test(url)) {
         return Promise.resolve({
           ok: true,
           json: async () => [{

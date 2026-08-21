@@ -27,6 +27,7 @@ import { OtpVerificationPanel } from "../ui/OtpVerificationPanel"
 import { PhoneInput } from "../ui/PhoneInput"
 import { PrimaryButton } from "../ui/PrimaryButton"
 import { VerificationPill } from "../ui/VerificationPill"
+import OrderHistoryDetailSheet from "./OrderHistoryDetailSheet"
 
 interface ClientCabinetProps {
   profile: CustomerProfile
@@ -76,6 +77,7 @@ export default function ClientCabinet({
   const [orderHistory, setOrderHistory] = useState<OrderResponse[]>(orders)
   const [ordersLoading, setOrdersLoading] = useState(false)
   const [ordersError, setOrdersError] = useState<string>()
+  const [selectedHistoryOrder, setSelectedHistoryOrder] = useState<OrderResponse | undefined>()
   const [mismatchDismissed, setMismatchDismissed] = useState(false)
   const [form, setForm] = useState({
     name: profile.name?.trim() && profile.name !== "Клієнт POMICH" ? profile.name : "",
@@ -483,8 +485,15 @@ export default function ClientCabinet({
                     const ownReview = formatCabinetReviewStars(order.customerReview?.rating)
                     const partnerReview = formatCabinetReviewStars(order.partnerReview?.rating)
                     const partnerName = order.providerName || order.assignedProvider?.name
+                    const orderKey = order.id || `${order.createdAt}-${order.status}`
                     return (
-                      <div key={order.id || `${order.createdAt}-${order.status}`} className="pomich-cabinet-order-item">
+                      <button
+                        key={orderKey}
+                        type="button"
+                        className="pomich-cabinet-order-item pomich-cabinet-order-item--button"
+                        onClick={() => setSelectedHistoryOrder(order)}
+                        aria-label={`Відкрити заявку ${order.id || ""}`}
+                      >
                         <div className="pomich-cabinet-order-title">
                           {getServiceLabel(order.service)} · #{order.id || "—"}
                         </div>
@@ -501,7 +510,7 @@ export default function ClientCabinet({
                         {partnerReview ? (
                           <div className="pomich-cabinet-order-meta">Оцінка від партнера: {partnerReview}</div>
                         ) : null}
-                      </div>
+                      </button>
                     )
                   })}
                 </div>
@@ -510,6 +519,14 @@ export default function ClientCabinet({
           </div>
         </div>
       </div>
+
+      {selectedHistoryOrder ? (
+        <OrderHistoryDetailSheet
+          order={selectedHistoryOrder}
+          viewer="customer"
+          onClose={() => setSelectedHistoryOrder(undefined)}
+        />
+      ) : null}
 
       <div className="pomich-cabinet-footer">
         <div className="pomich-cabinet-footer-inner">

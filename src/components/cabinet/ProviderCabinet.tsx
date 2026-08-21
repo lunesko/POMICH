@@ -37,6 +37,7 @@ import { presenceErrorMessage } from "../ui/DutyStatusToggle"
 import { getTelegramContext } from "../../telegram"
 import { Header } from "../layout/Header"
 import { formatCabinetOrderStatus, formatCabinetReviewStars } from "../customer/OrderTerminalStep"
+import OrderHistoryDetailSheet from "./OrderHistoryDetailSheet"
 import { CitySelect } from "../ui/CitySelect"
 import { OtpVerificationPanel } from "../ui/OtpVerificationPanel"
 import { PhoneInput } from "../ui/PhoneInput"
@@ -136,6 +137,7 @@ export default function ProviderCabinet({
   })
   const [offers, setOffers] = useState<DispatchOffer[]>([])
   const [orderHistory, setOrderHistory] = useState<OrderResponse[]>([])
+  const [selectedHistoryOrder, setSelectedHistoryOrder] = useState<OrderResponse | undefined>()
   const [offersLoading, setOffersLoading] = useState(true)
   const [ordersLoading, setOrdersLoading] = useState(false)
   const [ordersError, setOrdersError] = useState<string>()
@@ -748,8 +750,15 @@ export default function ProviderCabinet({
                     const ownReview = formatCabinetReviewStars(order.partnerReview?.rating)
                     const clientReview = formatCabinetReviewStars(order.customerReview?.rating)
                     const clientName = order.customerName
+                    const orderKey = order.id || `${order.createdAt}-${order.status}`
                     return (
-                      <div key={order.id || `${order.createdAt}-${order.status}`} className="pomich-cabinet-order-item">
+                      <button
+                        key={orderKey}
+                        type="button"
+                        className="pomich-cabinet-order-item pomich-cabinet-order-item--button"
+                        onClick={() => setSelectedHistoryOrder(order)}
+                        aria-label={`Відкрити заявку ${order.id || ""}`}
+                      >
                         <div className="pomich-cabinet-order-title">
                           {getServiceLabel(order.service)} · #{order.id || "—"}
                         </div>
@@ -766,7 +775,7 @@ export default function ProviderCabinet({
                         {clientReview ? (
                           <div className="pomich-cabinet-order-meta">Оцінка від клієнта: {clientReview}</div>
                         ) : null}
-                      </div>
+                      </button>
                     )
                   })
                 )}
@@ -775,6 +784,14 @@ export default function ProviderCabinet({
           )}
         </div>
       </div>
+
+      {selectedHistoryOrder ? (
+        <OrderHistoryDetailSheet
+          order={selectedHistoryOrder}
+          viewer="partner"
+          onClose={() => setSelectedHistoryOrder(undefined)}
+        />
+      ) : null}
 
       <div className="pomich-cabinet-footer">
         <div className="pomich-cabinet-footer-inner">

@@ -539,15 +539,23 @@ export default function OnboardingGate({ skip, startAtRoleSelect, loginMode = fa
         )
         if (isReturningClient(fallback) || isReturningPartner(fallback)) {
           setAccount(fallback)
+          if (fallback.profile) setProfile(fallback.profile)
           if (needsClientOtpVerification(fallback.profile, fallback)) {
-            if (fallback.profile) setProfile(fallback.profile)
             setPhase("verify-client")
             return
           }
-          if (isReturningClient(fallback)) {
-            onReadyRef.current({ role: "customer", account: fallback, customerToken: customerToken })
-            setPhase("ready")
-            return
+          if (isReturningClient(fallback) || isReturningPartner(fallback)) {
+            /* Partner identity is enough to enter client home — never blank registration. */
+            const readyAccount = isReturningClient(fallback)
+              ? fallback
+              : hydrateClientFromPartner(fallback)
+            if (isReturningClient(readyAccount)) {
+              setAccount(readyAccount)
+              if (readyAccount.profile) setProfile(readyAccount.profile)
+              onReadyRef.current({ role: "customer", account: readyAccount, customerToken: customerToken })
+              setPhase("ready")
+              return
+            }
           }
         }
         setPhase("register-client")

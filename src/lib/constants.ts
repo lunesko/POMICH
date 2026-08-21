@@ -276,7 +276,7 @@ export function toServiceKeys(value?: string[]): ServiceKey[] {
 }
 
 export function getActiveProviderId(): string {
-  if (typeof window === "undefined") return provider.id
+  if (typeof window === "undefined") return ""
   const fromQuery = new URLSearchParams(window.location.search).get("providerId")
   if (fromQuery) return fromQuery
   const customerId =
@@ -291,7 +291,14 @@ export function getActiveProviderId(): string {
   }
   if (linked) return linked
   if (derived) return derived
-  return provider.id
+  /* Legacy ?providerToken= deep links (tests/demo) still need the seed id until session resolves. */
+  if (new URLSearchParams(window.location.search).get("providerToken")) return provider.id
+  try {
+    if (window.sessionStorage.getItem("pomichProviderToken")) return provider.id
+  } catch {
+    /* ignore storage access errors */
+  }
+  return ""
 }
 
 export function getServiceEmoji(service?: string): string {

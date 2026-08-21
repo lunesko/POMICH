@@ -359,7 +359,7 @@ export function requestCurrentPosition(
     return
   }
 
-  // Explicit user gesture: try high accuracy, then one low-accuracy fallback (skip after deny).
+  // Explicit user gesture: fresh fix only (no stale browser cache).
   navigator.geolocation.getCurrentPosition(
     (position) => {
       finishGeoSuccess({ lat: position.coords.latitude, lng: position.coords.longitude }, onSuccess)
@@ -385,9 +385,9 @@ export function requestCurrentPosition(
           }
           onError(classified.message, classified.kind)
         },
-        { enableHighAccuracy: false, timeout: 20000, maximumAge: GEO_BROWSER_MAX_AGE_AUTO_MS },
+        { enableHighAccuracy: false, timeout: 20000, maximumAge: 0 },
       )
     },
-    { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 },
+    { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
   )
 }

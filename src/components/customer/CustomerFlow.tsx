@@ -400,7 +400,13 @@ function AvailabilityPanel({ pickup, providers, loading }: { pickup: Point; prov
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
         <div>
           <div style={{ fontWeight: 950, color: DARK }}>{loading ? "Перевіряємо партнерів" : nearby.length > 0 ? `${nearby.length} на лінії поруч` : "Партнерів поруч не видно"}</div>
-          <div style={{ color: MUTED, fontWeight: 700, fontSize: 12, marginTop: 4 }}>{nearest ? `Найближчий: ${nearest.name} · ~${nearest.etaMinutes ?? Math.ceil(distanceToProvider(pickup, nearest) * 4)} хв` : "Можна створити заявку, диспетчер підключить найближчого вручну."}</div>
+          <div style={{ color: MUTED, fontWeight: 700, fontSize: 12, marginTop: 4 }}>
+            {nearest
+              ? typeof nearest.etaMinutes === "number"
+                ? `Найближчий: ${nearest.name} · ~${nearest.etaMinutes} хв`
+                : `Найближчий: ${nearest.name} · ${distanceToProvider(pickup, nearest).toFixed(1)} км`
+              : "Можна створити заявку, диспетчер підключить найближчого вручну."}
+          </div>
         </div>
         <div style={{ borderRadius: 999, padding: "7px 10px", background: nearby.length > 0 ? SELECTED : "var(--pomich-warn-bg)", color: nearby.length > 0 ? BRAND : "var(--pomich-warn-text)", fontSize: 12, fontWeight: 950 }}>
           {nearby.length > 0 ? "Live" : "Очікування"}
@@ -416,7 +422,11 @@ function AvailabilityPanel({ pickup, providers, loading }: { pickup: Point; prov
                 <div style={{ color: MUTED, fontSize: 11, fontWeight: 800, marginTop: 3 }}>{toServiceKeys(item.specialties).map(getProviderCapabilityLabel).join(" · ") || "Послуги уточнюються"}</div>
                 <div style={{ marginTop: 7 }}><VerificationPill status={item.verificationStatus} /></div>
               </div>
-              <div style={{ color: BRAND, fontWeight: 950, whiteSpace: "nowrap" }}>~{item.etaMinutes ?? Math.ceil(distanceToProvider(pickup, item) * 4)} хв</div>
+              <div style={{ color: BRAND, fontWeight: 950, whiteSpace: "nowrap" }}>
+                {typeof item.etaMinutes === "number"
+                  ? `~${item.etaMinutes} хв`
+                  : `${distanceToProvider(pickup, item).toFixed(1)} км`}
+              </div>
             </div>
           ))}
         </div>
@@ -1172,7 +1182,11 @@ function AssignedStep({ orderId, status, order, pickup, destination, isTelegram,
         <div style={{ background: CARD, borderRadius: 18, padding: 14, border: `1px solid ${BORDER}` }}>
           <Timeline status={status} />
         </div>
-        <div style={{ background: SELECTED, borderRadius: 18, padding: 14, color: DARK, fontWeight: 800 }}>{assignedProvider?.name ?? "Партнер"} їде до вас. ETA ~{eta} хв, узгоджена ціна {typeof confirmedPrice === "number" ? `${confirmedPrice.toLocaleString("uk-UA")} ₴` : ""}.</div>
+        <div style={{ background: SELECTED, borderRadius: 18, padding: 14, color: DARK, fontWeight: 800 }}>
+          {assignedProvider?.name ?? "Партнер"} їде до вас
+          {typeof eta === "number" ? `. ETA ~${eta} хв` : ""}
+          {typeof confirmedPrice === "number" ? `, узгоджена ціна ${confirmedPrice.toLocaleString("uk-UA")} ₴` : ""}.
+        </div>
       </div>
       <div style={{ display: "grid", gap: 10, marginTop: 16 }}>
         {cancelError ? <div style={{ background: "var(--pomich-error-bg)", color: "var(--pomich-error-text)", borderRadius: 14, padding: 12, fontWeight: 800 }}>{cancelError}</div> : null}
@@ -1190,11 +1204,7 @@ function TrackingStep({ orderId, status, order, pickup, destination, cancelError
     ? { lat: liveProviderLocation!.lat, lng: liveProviderLocation!.lng }
     : undefined
   const distanceKm = typeof order?.assignedProvider?.distanceKm === "number" ? order.assignedProvider.distanceKm : undefined
-  const eta = typeof order?.assignedProvider?.etaMinutes === "number"
-    ? order.assignedProvider.etaMinutes
-    : typeof distanceKm === "number"
-      ? Math.max(1, Math.ceil(distanceKm * 4))
-      : undefined
+  const eta = typeof order?.assignedProvider?.etaMinutes === "number" ? order.assignedProvider.etaMinutes : undefined
   const distanceLabel =
     typeof distanceKm === "number"
       ? distanceKm < 0.15
@@ -1330,6 +1340,8 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
   const [pickup, setPickup] = useState<Point>(() => readCachedGeoPosition() ?? PICKUP)
   const explicitGeoRecenterRef = useRef(false)
   const skipNextAutoGeoRef = useRef(false)
+  /** Bumped on each geo request so stale auto callbacks cannot overwrite «Оновити». */
+  const geoRequestGenRef = useRef(0)
   const pickupRef = useRef<Point>(readCachedGeoPosition() ?? PICKUP)
   const geoWatchDebounceRef = useRef<number | undefined>(undefined)
   const [destinationPoint, setDestinationPoint] = useState<Point>(PICKUP)
@@ -1494,7 +1506,9 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
           })
         }
         if (!session.location) return
-        setPickup({ lat: session.location.latitude, lng: session.location.longitude })
+        const point = { lat: session.location.latitude, lng: session.location.longitude }
+        writeCachedGeoPosition(point)
+        setPickup(point)
         setGeoState("telegram")
         setGeoMessage("Геолокацію отримано з Telegram.")
       })
@@ -1576,9 +1590,10 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
     }
 
     let cancelled = false
+    const requestGen = geoRequestGenRef.current
     requestCurrentPosition(
       (nextPoint) => {
-        if (cancelled) return
+        if (cancelled || requestGen !== geoRequestGenRef.current) return
         setPickup(nextPoint)
         setGeoState("success")
         setGeoMessage("Місцезнаходження визначено.")
@@ -1588,7 +1603,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
         }
       },
       (message, kind) => {
-        if (cancelled) return
+        if (cancelled || requestGen !== geoRequestGenRef.current) return
         setGeoState(kind === "permission-denied" ? "permission-denied" : "unavailable")
         setGeoMessage(message)
       },
@@ -1604,11 +1619,12 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
   useEffect(() => {
     if (geoState !== "success") return
     let cancelled = false
+    const requestGen = geoRequestGenRef.current
     void canRequestGeoSilently().then((ok) => {
       if (cancelled || !ok) return
       requestCurrentPosition(
         (nextPoint) => {
-          if (cancelled) return
+          if (cancelled || requestGen !== geoRequestGenRef.current) return
           setPickup(nextPoint)
         },
         () => undefined,
@@ -1668,6 +1684,8 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
   const retryGeolocation = () => {
     explicitGeoRecenterRef.current = true
     skipNextAutoGeoRef.current = true
+    geoRequestGenRef.current += 1
+    const requestGen = geoRequestGenRef.current
     /* Keep intentional city pick — locate only refreshes GPS/address. */
     setGeoState("requesting")
     setGeoMessage("Визначаємо ваше місцезнаходження…")
@@ -1675,6 +1693,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
     // Call from the click gesture so iOS Safari / Telegram can show the permission prompt.
     requestCurrentPosition(
       (nextPoint) => {
+        if (requestGen !== geoRequestGenRef.current) return
         setPickup(nextPoint)
         setGeoState("success")
         setGeoMessage("Місцезнаходження визначено.")
@@ -1684,6 +1703,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
         }
       },
       (message, kind) => {
+        if (requestGen !== geoRequestGenRef.current) return
         setGeoState(kind === "permission-denied" ? "permission-denied" : "unavailable")
         setGeoMessage(message)
       },

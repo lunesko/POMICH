@@ -34,7 +34,7 @@ export function OrderRequestSheet({
   const parsedPrice = parseOfferPrice(proposedPrice)
   const priceValid = typeof parsedPrice === "number"
   const offerExpired = typeof secondsLeft === "number" && secondsLeft <= 0
-  const eta = pin.etaMinutes ?? (typeof pin.distanceKm === "number" ? Math.ceil(pin.distanceKm * 4) : undefined)
+  const eta = typeof pin.etaMinutes === "number" ? pin.etaMinutes : undefined
   const distanceLabel = typeof pin.distanceKm === "number" ? `${pin.distanceKm.toFixed(1)} км` : "—"
 
   useEffect(() => {
