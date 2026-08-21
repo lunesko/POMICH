@@ -58,7 +58,7 @@ import { readBootstrapProfile, resolveProviderIdForCustomer, storeLinkedProvider
 import { readCachedProviderProfile, writeCachedProviderProfile } from "../../lib/providerProfileCache"
 import { clearActiveOrder, isActiveOrderStatus, persistActiveOrder, pickLatestActiveOrder, readActiveOrder } from "../../lib/customerSession"
 import { clearPendingPartnerReview, persistPendingPartnerReview, readPendingPartnerReview } from "../../lib/appRole"
-import { canRequestGeoSilently, readCachedGeoPosition, requestCurrentPosition, writeCachedGeoPosition } from "../../lib/mapGeo"
+import { canRequestGeoSilently, normalizeGpsSpeedMps, readCachedGeoPosition, requestCurrentPosition, writeCachedGeoPosition } from "../../lib/mapGeo"
 import { validateUkraineMobilePhone } from "../../lib/ukrainePhone"
 import { validateUkrainePlate } from "../../lib/ukrainePlate"
 import { isPartnerProfileComplete } from "../../lib/partnerProfileComplete"
@@ -390,6 +390,8 @@ export default function ProviderFlow({
   const [providerGeoLoading, setProviderGeoLoading] = useState(false)
   const [providerGeoError, setProviderGeoError] = useState<string | undefined>()
   const [providerRecenterTrigger, setProviderRecenterTrigger] = useState(0)
+  const [motionSpeedMps, setMotionSpeedMps] = useState<number | null>(null)
+  const [motionHeadingDeg, setMotionHeadingDeg] = useState<number | null>(null)
   const [providerProfile, setProviderProfile] = useState<ProviderAvailability>({
     id: providerId,
     name: "",
@@ -800,9 +802,12 @@ export default function ProviderFlow({
           const point = { lat: position.coords.latitude, lng: position.coords.longitude }
           writeCachedGeoPosition(point)
           setProviderLocation(point)
+          setMotionSpeedMps(normalizeGpsSpeedMps(position.coords.speed))
+          const heading = position.coords.heading
+          setMotionHeadingDeg(typeof heading === "number" && Number.isFinite(heading) && heading >= 0 ? heading : null)
         },
         () => undefined,
-        { enableHighAccuracy: false, maximumAge: 60000, timeout: 20000 },
+        { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 },
       )
       if (cancelled) {
         navigator.geolocation.clearWatch(watchId)
@@ -2023,6 +2028,8 @@ export default function ProviderFlow({
         geoLoading={providerGeoLoading}
         geoError={providerGeoError}
         recenterTrigger={providerRecenterTrigger}
+        motionSpeedMps={motionSpeedMps}
+        motionHeadingDeg={motionHeadingDeg}
       >
         <div data-sheet-peek>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
@@ -2320,6 +2327,9 @@ export default function ProviderFlow({
               providerPosition={hasLiveGps ? providerLocation : undefined}
               subtitle={hasLiveGps ? "Ваша GPS-позиція" : "Очікуємо геолокацію"}
               mapTileTheme={mapTileTheme}
+              enableMotionZoom
+              motionSpeedMps={motionSpeedMps}
+              motionHeadingDeg={motionHeadingDeg}
             />
           ) : (
             <div style={{ background: CARD, borderRadius: 18, border: `1px solid ${BORDER}`, padding: 14, color: MUTED, fontWeight: 700 }}>
@@ -2398,6 +2408,8 @@ export default function ProviderFlow({
         geoLoading={providerGeoLoading}
         geoError={providerGeoError}
         recenterTrigger={providerRecenterTrigger}
+        motionSpeedMps={motionSpeedMps}
+        motionHeadingDeg={motionHeadingDeg}
       >
         <div data-sheet-peek>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>

@@ -62,6 +62,9 @@ interface RideScreenProps {
   directoryScopeCityCenter?: Point
   showUkraineMask?: boolean
   mapZoom?: number
+  enableMotionZoom?: boolean
+  motionSpeedMps?: number | null
+  motionHeadingDeg?: number | null
   children: ReactNode
 }
 
@@ -98,6 +101,9 @@ export function RideScreen({
   directoryScopeCityCenter,
   showUkraineMask = false,
   mapZoom,
+  enableMotionZoom,
+  motionSpeedMps,
+  motionHeadingDeg,
   children,
 }: RideScreenProps) {
   /* Interactive ride map owns the viewport — don't stack decorative shell map underneath. */
@@ -180,6 +186,9 @@ export function RideScreen({
     directoryScopeCityCenter,
     showUkraineMask,
     mapZoom,
+    enableMotionZoom,
+    motionSpeedMps,
+    motionHeadingDeg,
     full: true as const,
     mapTileTheme,
     overlayMode: mobileSheet,
@@ -215,6 +224,9 @@ export function RideScreen({
     directoryScopeCityCenter,
     showUkraineMask,
     mapZoom,
+    enableMotionZoom,
+    motionSpeedMps,
+    motionHeadingDeg,
     mobileSheet,
     snap,
     mapTileTheme,

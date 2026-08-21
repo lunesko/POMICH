@@ -3,15 +3,25 @@ import { describe, expect, it, vi, afterEach } from "vitest"
 import {
   classifyGeolocationError,
   distanceMeters,
+  estimateSpeedMps,
   GEO_CACHE_MAX_AGE_MS,
   GEO_PERMISSION_STORAGE_KEY,
   GEO_POSITION_STORAGE_KEY,
+  headingDeltaDegrees,
+  isRouteTurnAhead,
   MAP_FLY_THRESHOLD_M,
   MAP_RECENTER_THRESHOLD_M,
   measureBottomSheetHeightPx,
+  MOTION_ZOOM_CITY,
+  MOTION_ZOOM_FAST,
+  MOTION_ZOOM_SLOW,
+  MOTION_ZOOM_STATIONARY,
+  nearestRouteIndex,
+  normalizeGpsSpeedMps,
   readCachedGeoPosition,
   readRememberedGeoPermission,
   requestCurrentPosition,
+  resolveMotionZoom,
   resolveSheetBottomPaddingPx,
   shouldRecenterMap,
   SHEET_PADDING_SAFETY_PX,
@@ -53,6 +63,66 @@ describe("mapGeo", () => {
 
   it("defines fly threshold above recenter threshold", () => {
     expect(MAP_FLY_THRESHOLD_M).toBeGreaterThan(MAP_RECENTER_THRESHOLD_M)
+  })
+
+  it("normalizes GPS speed and estimates from point deltas", () => {
+    expect(normalizeGpsSpeedMps(null)).toBeNull()
+    expect(normalizeGpsSpeedMps(-1)).toBeNull()
+    expect(normalizeGpsSpeedMps(0)).toBe(0)
+    expect(normalizeGpsSpeedMps(12.5)).toBe(12.5)
+
+    const far = { lat: 48.625, lng: 22.295 }
+    const estimated = estimateSpeedMps(uzhgorodCenter, far, 1000)
+    expect(estimated).toBeGreaterThan(5)
+    expect(estimateSpeedMps(uzhgorodCenter, far, 50)).toBeNull()
+  })
+
+  it("zooms in when stationary and pulls back at city or faster speeds", () => {
+    expect(resolveMotionZoom({ speedMps: 0 })).toBe(MOTION_ZOOM_STATIONARY)
+    expect(resolveMotionZoom({ speedMps: 3 })).toBe(MOTION_ZOOM_SLOW)
+    expect(resolveMotionZoom({ speedMps: 12 })).toBe(MOTION_ZOOM_CITY)
+    expect(resolveMotionZoom({ speedMps: 25 })).toBe(MOTION_ZOOM_FAST)
+  })
+
+  it("zooms in when decelerating for lights or heading into a turn", () => {
+    const cruising = resolveMotionZoom({ speedMps: 12 })
+    const braking = resolveMotionZoom({
+      speedMps: 4,
+      recentPeakSpeedMps: 14,
+    })
+    expect(braking).toBeGreaterThan(cruising)
+
+    const turning = resolveMotionZoom({
+      speedMps: 10,
+      headingDeltaDeg: 40,
+    })
+    expect(turning).toBeGreaterThan(cruising)
+
+    const routeTurn = resolveMotionZoom({
+      speedMps: 11,
+      routeTurnAhead: true,
+    })
+    expect(routeTurn).toBeGreaterThan(cruising)
+  })
+
+  it("keeps zoom stable within hysteresis", () => {
+    const first = resolveMotionZoom({ speedMps: 12 })
+    const second = resolveMotionZoom({ speedMps: 12.2, previousZoom: first })
+    expect(second).toBe(first)
+  })
+
+  it("detects sharp bends on a route look-ahead", () => {
+    const route = [
+      { lat: 48.62, lng: 22.28 },
+      { lat: 48.6203, lng: 22.28 },
+      { lat: 48.6206, lng: 22.28 },
+      { lat: 48.6206, lng: 22.2804 },
+      { lat: 48.6206, lng: 22.2808 },
+    ]
+    expect(headingDeltaDegrees(0, 90)).toBe(90)
+    expect(nearestRouteIndex(route, { lat: 48.6203, lng: 22.28 })).toBe(1)
+    expect(isRouteTurnAhead(route, 0)).toBe(true)
+    expect(isRouteTurnAhead(route.slice(0, 3), 0)).toBe(false)
   })
 
   it("pads for half and expanded sheets including safety margin", () => {

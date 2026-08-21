@@ -84,7 +84,7 @@ import {
   resolveCustomerAuthSession,
 } from "../../lib/customerSession"
 import { reverseGeocodeAddress } from "../../lib/reverseGeocode"
-import { MAP_GEO_DEBOUNCE_MS, MAP_RECENTER_THRESHOLD_M, canRequestGeoSilently, readCachedGeoPosition, readRememberedGeoPermission, requestCurrentPosition, shouldRecenterMap, writeCachedGeoPosition } from "../../lib/mapGeo"
+import { MAP_GEO_DEBOUNCE_MS, MAP_RECENTER_THRESHOLD_M, canRequestGeoSilently, normalizeGpsSpeedMps, readCachedGeoPosition, readRememberedGeoPermission, requestCurrentPosition, shouldRecenterMap, writeCachedGeoPosition } from "../../lib/mapGeo"
 import { syncProfileCityFromGeo } from "../../lib/syncProfileCityFromGeo"
 import { OrderErrorStep, OrderFinalStep } from "./OrderTerminalStep"
 import { useTelegramMainButton, useTelegramBackButton, useTelegramUx } from "../../hooks/useTelegramUx"
@@ -616,6 +616,8 @@ function HomeStep({
   geoLoading,
   geoError,
   recenterTrigger,
+  motionSpeedMps,
+  motionHeadingDeg,
   onProfileChange,
   onVerifyCustomer,
   onProfileVerified,
@@ -637,6 +639,8 @@ function HomeStep({
   geoLoading: boolean
   geoError?: string
   recenterTrigger: number
+  motionSpeedMps?: number | null
+  motionHeadingDeg?: number | null
   onProfileChange: (patch: Partial<CustomerProfile>) => void
   onVerifyCustomer: () => void
   onProfileVerified: (profile: CustomerProfile) => void
@@ -664,6 +668,8 @@ function HomeStep({
       onRetryGeo={onRetryGeo}
       geoLoading={geoLoading}
       geoError={geoError}
+      motionSpeedMps={motionSpeedMps}
+      motionHeadingDeg={motionHeadingDeg}
     >
       <div data-sheet-full>
       <StepBadge step={1} />
@@ -789,6 +795,8 @@ function LocationStep({
   geoError,
   recenterTrigger,
   isTelegram,
+  motionSpeedMps,
+  motionHeadingDeg,
   onPick,
   onRetryGeo,
   onBack,
@@ -801,6 +809,8 @@ function LocationStep({
   geoError?: string
   recenterTrigger: number
   isTelegram?: boolean
+  motionSpeedMps?: number | null
+  motionHeadingDeg?: number | null
   onPick: (point: Point) => void
   onRetryGeo: () => void
   onBack: () => void
@@ -818,6 +828,8 @@ function LocationStep({
       geoLoading={geoLoading}
       geoError={geoError}
       recenterTrigger={recenterTrigger}
+      motionSpeedMps={motionSpeedMps}
+      motionHeadingDeg={motionHeadingDeg}
     >
       <div data-sheet-peek>
         <SheetHeading title="Де ви зараз?" subtitle={geoLoading ? "Визначаємо адресу…" : addressLabel} />
@@ -1406,6 +1418,8 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
   const geoRequestGenRef = useRef(0)
   const pickupRef = useRef<Point>(readCachedGeoPosition() ?? PICKUP)
   const geoWatchDebounceRef = useRef<number | undefined>(undefined)
+  const [motionSpeedMps, setMotionSpeedMps] = useState<number | null>(null)
+  const [motionHeadingDeg, setMotionHeadingDeg] = useState<number | null>(null)
   const [destinationPoint, setDestinationPoint] = useState<Point>(PICKUP)
   const [liveNearbyProviders, setLiveNearbyProviders] = useState<ProviderAvailability[]>([])
   const [liveNearbyLoading, setLiveNearbyLoading] = useState(false)
@@ -1711,9 +1725,11 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
     let cancelled = false
     let watchId: number | undefined
 
-    const applyGeoPosition = (latitude: number, longitude: number) => {
+    const applyGeoPosition = (latitude: number, longitude: number, speed: number | null, heading: number | null) => {
       const nextPoint = { lat: latitude, lng: longitude }
       writeCachedGeoPosition(nextPoint)
+      setMotionSpeedMps(normalizeGpsSpeedMps(speed))
+      setMotionHeadingDeg(typeof heading === "number" && Number.isFinite(heading) && heading >= 0 ? heading : null)
       if (!shouldRecenterMap(pickupRef.current, nextPoint, MAP_RECENTER_THRESHOLD_M)) return
       setPickup(nextPoint)
     }
@@ -1725,11 +1741,16 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
         (position) => {
           window.clearTimeout(geoWatchDebounceRef.current)
           geoWatchDebounceRef.current = window.setTimeout(() => {
-            applyGeoPosition(position.coords.latitude, position.coords.longitude)
+            applyGeoPosition(
+              position.coords.latitude,
+              position.coords.longitude,
+              position.coords.speed,
+              position.coords.heading,
+            )
           }, MAP_GEO_DEBOUNCE_MS)
         },
         () => undefined,
-        { enableHighAccuracy: false, maximumAge: 60000, timeout: 20000 },
+        { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 },
       )
       if (cancelled && typeof watchId === "number") {
         navigator.geolocation.clearWatch(watchId)
@@ -2344,6 +2365,8 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
           geoError={geoError}
           recenterTrigger={geoRecenterTrigger}
           isTelegram={isTelegram}
+          motionSpeedMps={motionSpeedMps}
+          motionHeadingDeg={motionHeadingDeg}
           onPick={(point) => applyPickup(point)}
           onRetryGeo={retryGeolocation}
           onBack={() => setScreen("home")}
@@ -2420,7 +2443,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
       return <OrderErrorStep pickup={pickup} destination={destinationPoint} onRetry={() => setScreen("review")} showAction={!isTelegram} />
     case "home":
     default:
-      return <HomeStep pickup={pickup} locationLabel={addressLabel || geoMessage} serviceCity={serviceCity} providers={liveNearbyProviders} providersLoading={liveNearbyLoading} customerProfile={customerProfile} customerVerificationSaving={customerVerificationSaving} customerVerificationError={customerVerificationError} customerToken={customerAuthToken} isTelegram={isTelegram} geoLoading={geoLoading} geoError={geoError} recenterTrigger={geoRecenterTrigger} onProfileChange={(patch) => setCustomerProfile((profile) => ({ ...profile, ...patch }))} onVerifyCustomer={verifyCustomerProfile} onProfileVerified={(saved) => setCustomerProfile((profile) => ({ ...profile, ...saved }))} onRetryGeo={retryGeolocation} onOpenGeoSettings={openGeoSettings} onServiceCityChange={applyServiceCity} onSelect={(service) => { if (!isCustomerReadyForOrder(customerProfile)) return; setSelectedService(service); setDestination(""); setDestinationPoint(pickup); setScreen("location") }} />
+      return <HomeStep pickup={pickup} locationLabel={addressLabel || geoMessage} serviceCity={serviceCity} providers={liveNearbyProviders} providersLoading={liveNearbyLoading} customerProfile={customerProfile} customerVerificationSaving={customerVerificationSaving} customerVerificationError={customerVerificationError} customerToken={customerAuthToken} isTelegram={isTelegram} geoLoading={geoLoading} geoError={geoError} recenterTrigger={geoRecenterTrigger} motionSpeedMps={motionSpeedMps} motionHeadingDeg={motionHeadingDeg} onProfileChange={(patch) => setCustomerProfile((profile) => ({ ...profile, ...patch }))} onVerifyCustomer={verifyCustomerProfile} onProfileVerified={(saved) => setCustomerProfile((profile) => ({ ...profile, ...saved }))} onRetryGeo={retryGeolocation} onOpenGeoSettings={openGeoSettings} onServiceCityChange={applyServiceCity} onSelect={(service) => { if (!isCustomerReadyForOrder(customerProfile)) return; setSelectedService(service); setDestination(""); setDestinationPoint(pickup); setScreen("location") }} />
   }
   })()
 

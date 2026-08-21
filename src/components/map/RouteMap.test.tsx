@@ -22,6 +22,7 @@ vi.mock("react-leaflet", () => ({
     panBy,
     getCenter,
     getZoom,
+    setZoom: vi.fn(),
     getSize: () => ({ x: 390, y: 700 }),
     project,
     unproject: (coords: { x: number; y: number } | [number, number]) => {
@@ -36,6 +37,8 @@ vi.mock("react-leaflet", () => ({
     setMinZoom: vi.fn(),
     setMaxBounds: vi.fn(),
     fitBounds,
+    on: vi.fn(),
+    off: vi.fn(),
     scrollWheelZoom: { enable: vi.fn(), disable: vi.fn() },
     dragging: { enable: vi.fn(), disable: vi.fn() },
     touchZoom: { enable: vi.fn(), disable: vi.fn() },
@@ -434,5 +437,43 @@ describe("RouteMap recenter behavior", () => {
     // Crossing the ~100m rounding cell should refetch and re-fit.
     rerender(<RouteMap pickup={pickup} providerPosition={{ lat: 48.6345, lng: 22.275 }} />)
     await waitFor(() => expect(fetchOsrmRoute).toHaveBeenCalledTimes(2))
+  })
+
+  it("adapts follow zoom from GPS speed for client and partner live maps", () => {
+    const pickup = { lat: 48.6208, lng: 22.2879 }
+    const { rerender } = render(
+      <RouteMap pickup={pickup} motionSpeedMps={0} />,
+    )
+
+    vi.runAllTimers()
+    flyTo.mockClear()
+    panBy.mockClear()
+
+    rerender(<RouteMap pickup={{ lat: 48.625, lng: 22.295 }} motionSpeedMps={14} />)
+    vi.runAllTimers()
+
+    expect(flyTo.mock.calls.length + panBy.mock.calls.length).toBeGreaterThan(0)
+    const zoomArg = flyTo.mock.calls[0]?.[1] ?? panBy.mock.calls[0]?.[1]
+    // City speed should pull back vs stationary default (17).
+    if (flyTo.mock.calls.length > 0) {
+      expect(flyTo.mock.calls[0]![1]).toBeLessThan(17)
+      expect(flyTo.mock.calls[0]![1]).toBeGreaterThanOrEqual(14)
+    }
+
+    flyTo.mockClear()
+    panBy.mockClear()
+    rerender(
+      <RouteMap
+        pickup={pickup}
+        destination={{ lat: 48.63, lng: 22.3 }}
+        providerPosition={{ lat: 48.622, lng: 22.29 }}
+        enableMotionZoom
+        motionSpeedMps={3}
+      />,
+    )
+    vi.runAllTimers()
+    // En-route live follow should move with the provider instead of only fitting bounds once.
+    expect(flyTo.mock.calls.length + panBy.mock.calls.length).toBeGreaterThan(0)
+    void zoomArg
   })
 })

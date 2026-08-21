@@ -35,9 +35,13 @@ vi.mock('react-leaflet', () => ({
       getContainer: () => document.createElement('div'),
       getSize: () => ({ x: 390, y: 700 }),
       getZoom: () => 13,
+      setZoom: noop,
       getCenter: () => ({ lat: 48.62, lng: 22.28 }),
       flyTo: noop,
+      panBy: noop,
       fitBounds: noop,
+      on: noop,
+      off: noop,
       project: (coords: [number, number]) => ({ x: coords[0] * 1000, y: coords[1] * 1000 }),
       unproject: (coords: { x: number; y: number } | [number, number]) => {
         const x = Array.isArray(coords) ? coords[0] : coords.x

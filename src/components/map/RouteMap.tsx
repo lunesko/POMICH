@@ -65,10 +65,19 @@ import MapSizeController from "./MapSizeController"
 import {
   MAP_GEO_DEBOUNCE_MS,
   MAP_RECENTER_THRESHOLD_M,
+  MOTION_STATIONARY_MPS,
+  bearingDegrees,
+  estimateSpeedMps,
+  headingDeltaDegrees,
+  isRouteTurnAhead,
   moveMapToPoint,
+  nearestRouteIndex,
+  normalizeGpsSpeedMps,
   requestCurrentPosition,
+  resolveMotionZoom,
   resolveSheetBottomPaddingPx,
   shouldRecenterMap,
+  type GeoPoint,
 } from "../../lib/mapGeo"
 
 import { readSheetHeights, type SheetSnap } from "../../hooks/useMobileSheetSnap"
@@ -216,23 +225,50 @@ function MapDebouncedFollow({
   recenterTrigger = 0,
   sheetSnap,
   overlayMode = false,
+  motionSpeedMps,
+  motionHeadingDeg,
+  motionRoute,
 }: {
   point: LatLngTuple
   enabled: boolean
   recenterTrigger?: number
   sheetSnap?: SheetSnap
   overlayMode?: boolean
+  motionSpeedMps?: number | null
+  motionHeadingDeg?: number | null
+  motionRoute?: GeoPoint[] | null
 }) {
   const map = useMap()
   const lastCenterRef = useRef<LatLngTuple | null>(null)
   const lastTriggerRef = useRef(recenterTrigger)
+  const lastZoomRef = useRef<number | null>(null)
+  const lastHeadingRef = useRef<number | null>(null)
+  const peakSpeedRef = useRef(0)
+  const userZoomPauseUntilRef = useRef(0)
+  const programmaticZoomRef = useRef(false)
 
   useEffect(() => {
     if (recenterTrigger !== lastTriggerRef.current) {
       lastTriggerRef.current = recenterTrigger
       lastCenterRef.current = point
+      userZoomPauseUntilRef.current = 0
     }
   }, [point, recenterTrigger])
+
+  useEffect(() => {
+    if (!enabled) return
+    if (typeof map.on !== "function" || typeof map.off !== "function") return
+
+    const onZoomStart = () => {
+      if (programmaticZoomRef.current) return
+      // Manual pinch/buttons — pause adaptive zoom briefly so we don't fight the user.
+      userZoomPauseUntilRef.current = Date.now() + 8000
+    }
+    map.on("zoomstart", onZoomStart)
+    return () => {
+      map.off("zoomstart", onZoomStart)
+    }
+  }, [enabled, map])
 
   useEffect(() => {
     if (!enabled) return
@@ -245,17 +281,87 @@ function MapDebouncedFollow({
 
       const nextPoint = { lat: point[0], lng: point[1] }
       const fromPoint = { lat: from[0], lng: from[1] }
-      if (!shouldRecenterMap(fromPoint, nextPoint, MAP_RECENTER_THRESHOLD_M)) return
+      const moved = shouldRecenterMap(fromPoint, nextPoint, MAP_RECENTER_THRESHOLD_M)
 
+      const reportedSpeed = normalizeGpsSpeedMps(motionSpeedMps)
+      const estimatedSpeed = moved ? estimateSpeedMps(fromPoint, nextPoint, MAP_GEO_DEBOUNCE_MS) : null
+      const hasMotionSignal = reportedSpeed != null || estimatedSpeed != null
+
+      // No speed signal yet — keep classic recenter-only behavior (ignore GPS jitter).
+      if (!hasMotionSignal) {
+        if (!moved) return
+        moveMapToPoint(map, point, {
+          animateLarge: false,
+          paddingBottom: sheetPaddingBottomPx(map, sheetSnap, overlayMode),
+        })
+        lastCenterRef.current = point
+        return
+      }
+
+      const speed = reportedSpeed ?? estimatedSpeed ?? 0
+
+      if (speed > peakSpeedRef.current) peakSpeedRef.current = speed
+      // Decay peak so a long highway stretch does not keep “decel” forever after stopping.
+      else if (speed < MOTION_STATIONARY_MPS) peakSpeedRef.current = Math.max(speed, peakSpeedRef.current * 0.85)
+
+      let headingDelta: number | null = null
+      if (typeof motionHeadingDeg === "number" && Number.isFinite(motionHeadingDeg)) {
+        if (lastHeadingRef.current != null) {
+          headingDelta = headingDeltaDegrees(lastHeadingRef.current, motionHeadingDeg)
+        }
+        lastHeadingRef.current = motionHeadingDeg
+      } else if (moved) {
+        const nextHeading = bearingDegrees(fromPoint, nextPoint)
+        if (lastHeadingRef.current != null) {
+          headingDelta = headingDeltaDegrees(lastHeadingRef.current, nextHeading)
+        }
+        lastHeadingRef.current = nextHeading
+      }
+
+      const route = motionRoute && motionRoute.length >= 3 ? motionRoute : null
+      const routeTurnAhead = route
+        ? isRouteTurnAhead(route, nearestRouteIndex(route, nextPoint))
+        : false
+
+      const pauseMotionZoom = Date.now() < userZoomPauseUntilRef.current
+      const targetZoom = pauseMotionZoom
+        ? map.getZoom()
+        : resolveMotionZoom({
+            speedMps: speed,
+            recentPeakSpeedMps: peakSpeedRef.current,
+            headingDeltaDeg: headingDelta,
+            routeTurnAhead,
+            previousZoom: lastZoomRef.current,
+          })
+
+      if (!moved && lastZoomRef.current != null && Math.abs(targetZoom - lastZoomRef.current) < 0.2) {
+        return
+      }
+      if (!moved && pauseMotionZoom) return
+
+      programmaticZoomRef.current = true
       moveMapToPoint(map, point, {
         animateLarge: false,
+        zoom: targetZoom,
         paddingBottom: sheetPaddingBottomPx(map, sheetSnap, overlayMode),
       })
+      programmaticZoomRef.current = false
       lastCenterRef.current = point
+      lastZoomRef.current = targetZoom
+      if (speed < MOTION_STATIONARY_MPS) peakSpeedRef.current = speed
     }, MAP_GEO_DEBOUNCE_MS)
 
     return () => window.clearTimeout(timeoutId)
-  }, [enabled, map, point, sheetSnap, overlayMode])
+  }, [
+    enabled,
+    map,
+    point,
+    sheetSnap,
+    overlayMode,
+    motionSpeedMps,
+    motionHeadingDeg,
+    motionRoute,
+  ])
 
   return null
 }
@@ -1198,6 +1304,18 @@ interface RouteMapProps {
   /** Override map zoom (defaults to 6 for all-ukraine directory, else 13). */
   mapZoom?: number
 
+  /**
+   * Adaptive zoom from GPS speed (stand still → zoom in, city/fast → pull back,
+   * slow / braking / turns → zoom in). Defaults on for interactive ride maps.
+   */
+  enableMotionZoom?: boolean
+
+  /** Ground speed m/s from geolocation (null/omit → estimate from point deltas). */
+  motionSpeedMps?: number | null
+
+  /** Compass heading degrees from geolocation, when available. */
+  motionHeadingDeg?: number | null
+
   /** Directory scope selector — «Вся Україна» vs «Моє місто». */
   directoryScope?: DirectoryScopeMode
   onDirectoryScopeChange?: (scope: DirectoryScopeMode) => void
@@ -1276,6 +1394,12 @@ export function RouteMap({
 
   mapZoom,
 
+  enableMotionZoom,
+
+  motionSpeedMps,
+
+  motionHeadingDeg,
+
   directoryScope,
 
   onDirectoryScopeChange,
@@ -1299,6 +1423,10 @@ export function RouteMap({
     !onPick && (directoryOnly || directoryScope === "all-ukraine")
   const effectiveShowOccupiedOverlay = showUkraineMask
   const effectiveZoom = mapZoom ?? (ukraineWideView ? 6 : 13)
+  const motionZoomActive =
+    enableMotionZoom ?? (mapInteractive && !directoryOnly && !ukraineWideView)
+  /** Explicit opt-in for live GPS follow during an active route (partner navigation). */
+  const liveRouteFollow = enableMotionZoom === true && Boolean(providerPosition) && Boolean(destination)
   const effectiveCenter: LatLngTuple = ukraineWideView ? [48.5, 31.5] : toTuple(providerPosition ?? userLocation ?? pickup)
   const initialCenterRef = useRef<LatLngTuple>(effectiveCenter)
   const [markerDragging, setMarkerDragging] = useState(false)
@@ -1572,15 +1700,26 @@ export function RouteMap({
 
 
   const center = providerPosition ? toTuple(providerPosition) : userLocation ? toTuple(userLocation) : toTuple(pickup)
+  /* Follow live GPS: client/partner idle maps, or explicit partner en-route navigation. */
   const followMapCenter =
     !decorative &&
-    !destination &&
-    !providerPosition &&
     !directoryOnly &&
     !markerDragging &&
     !navRouteCoords &&
     !locationPickMode &&
-    !ukraineWideView
+    !ukraineWideView &&
+    ((!destination && !providerPosition) || liveRouteFollow)
+
+  const motionRoutePoints = useMemo((): GeoPoint[] | null => {
+    if (!motionZoomActive) return null
+    if (routeCoords && routeCoords.length >= 3) {
+      return routeCoords.map(([lat, lng]) => ({ lat, lng }))
+    }
+    if (navRouteCoords && navRouteCoords.length >= 3) {
+      return navRouteCoords.map(([lat, lng]) => ({ lat, lng }))
+    }
+    return null
+  }, [motionZoomActive, routeCoords, navRouteCoords])
 
 
 
@@ -1746,6 +1885,9 @@ export function RouteMap({
             recenterTrigger={recenterTrigger}
             sheetSnap={sheetSnap}
             overlayMode={overlayMode}
+            motionSpeedMps={motionZoomActive ? motionSpeedMps : undefined}
+            motionHeadingDeg={motionZoomActive ? motionHeadingDeg : undefined}
+            motionRoute={motionRoutePoints}
           />
         ) : null}
         {(followMapCenter || (recenterTrigger > 0 && !ukraineWideView) || localLocateTrigger > 0) && (overlayMode || sheetSnap) ? (
@@ -1770,7 +1912,8 @@ export function RouteMap({
 
         {navRouteCoords ? <FitRouteBounds coords={navRouteCoords} /> : null}
 
-        {!directoryOnly && !navRouteCoords && routeCoords ? (
+        {/* Partner live navigation (enableMotionZoom): skip continuous fit so speed zoom can follow. */}
+        {!directoryOnly && !navRouteCoords && routeCoords && !liveRouteFollow ? (
           <FitRouteBounds coords={routeCoords} fitKey={routeRequestKey} />
         ) : null}
 

@@ -15,6 +15,45 @@ export const MAP_GEO_DEBOUNCE_MS = 400
 /** Distances below this use instant panBy; larger moves use a single flyTo. */
 export const MAP_FLY_THRESHOLD_M = 200
 
+/** Speed (m/s) below this counts as standing still — map zooms in. ~3 km/h. */
+export const MOTION_STATIONARY_MPS = 0.85
+
+/** Slow crawl / lights / approaching a turn. ~18 km/h. */
+export const MOTION_SLOW_MPS = 5
+
+/** Typical city driving. ~50 km/h. */
+export const MOTION_CITY_MPS = 14
+
+/** Faster than city traffic. ~80 km/h. */
+export const MOTION_FAST_MPS = 22
+
+/** Leaflet zoom when stopped (street-level detail). */
+export const MOTION_ZOOM_STATIONARY = 17
+
+/** Zoom when crawling / at lights. */
+export const MOTION_ZOOM_SLOW = 16
+
+/** Zoom at city speeds — slight pull-back for context. */
+export const MOTION_ZOOM_CITY = 15
+
+/** Zoom when moving faster than city traffic. */
+export const MOTION_ZOOM_FAST = 14
+
+/** Extra zoom-in when decelerating or heading into a turn (clamped). */
+export const MOTION_ZOOM_TURN_BOOST = 0.75
+
+/** Ignore zoom tweaks smaller than this to avoid flicker. */
+export const MOTION_ZOOM_HYSTERESIS = 0.35
+
+/** Heading delta (degrees) that counts as entering a turn. */
+export const MOTION_TURN_HEADING_DEG = 28
+
+/** Look-ahead along a route polyline when detecting turns (meters). */
+export const MOTION_TURN_LOOKAHEAD_M = 80
+
+/** Min speed drop ratio vs recent peak to treat as decelerating (lights / turn). */
+export const MOTION_DECEL_RATIO = 0.55
+
 /** Default sheet heights (% of ride-screen) when CSS vars / DOM measurement are unavailable. */
 export const DEFAULT_SHEET_HEIGHTS_VH = {
   peek: 26,
@@ -65,6 +104,132 @@ export function toLatLngTuple(point: GeoPoint): LatLngTuple {
 
 export function shouldRecenterMap(from: GeoPoint, to: GeoPoint, thresholdM = MAP_RECENTER_THRESHOLD_M): boolean {
   return distanceMeters(from, to) >= thresholdM
+}
+
+/** Normalize GPS speed (m/s). Negative / NaN → null (device did not report speed). */
+export function normalizeGpsSpeedMps(speed: number | null | undefined): number | null {
+  if (typeof speed !== "number" || !Number.isFinite(speed) || speed < 0) return null
+  return speed
+}
+
+/** Estimate ground speed from two fixes when `coords.speed` is missing. */
+export function estimateSpeedMps(from: GeoPoint, to: GeoPoint, elapsedMs: number): number | null {
+  if (!Number.isFinite(elapsedMs) || elapsedMs < 200) return null
+  const meters = distanceMeters(from, to)
+  if (!Number.isFinite(meters)) return null
+  return meters / (elapsedMs / 1000)
+}
+
+/** Initial bearing from A→B in degrees [0, 360). */
+export function bearingDegrees(from: GeoPoint, to: GeoPoint): number {
+  const toRadians = (value: number) => (value * Math.PI) / 180
+  const toDegrees = (value: number) => (value * 180) / Math.PI
+  const lat1 = toRadians(from.lat)
+  const lat2 = toRadians(to.lat)
+  const deltaLng = toRadians(to.lng - from.lng)
+  const y = Math.sin(deltaLng) * Math.cos(lat2)
+  const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(deltaLng)
+  return (toDegrees(Math.atan2(y, x)) + 360) % 360
+}
+
+export function headingDeltaDegrees(fromHeading: number, toHeading: number): number {
+  const raw = Math.abs(toHeading - fromHeading) % 360
+  return raw > 180 ? 360 - raw : raw
+}
+
+/**
+ * True when the upcoming route segment bends sharply (street turn / exit).
+ * `route` is ordered along travel; `fromIndex` is the closest point behind the user.
+ */
+export function isRouteTurnAhead(
+  route: GeoPoint[],
+  fromIndex: number,
+  lookAheadM = MOTION_TURN_LOOKAHEAD_M,
+  turnDeg = MOTION_TURN_HEADING_DEG,
+): boolean {
+  if (route.length < 3 || fromIndex < 0 || fromIndex >= route.length - 2) return false
+  let traveled = 0
+  let maxBend = 0
+  for (let i = fromIndex; i < route.length - 2; i += 1) {
+    const a = route[i]!
+    const b = route[i + 1]!
+    const c = route[i + 2]!
+    const bend = headingDeltaDegrees(bearingDegrees(a, b), bearingDegrees(b, c))
+    if (bend > maxBend) maxBend = bend
+    traveled += distanceMeters(a, b)
+    if (traveled > lookAheadM) break
+  }
+  return maxBend >= turnDeg
+}
+
+/** Nearest route vertex index to `point` (linear scan — routes are short). */
+export function nearestRouteIndex(route: GeoPoint[], point: GeoPoint): number {
+  if (route.length === 0) return -1
+  let bestIndex = 0
+  let bestDist = Number.POSITIVE_INFINITY
+  for (let i = 0; i < route.length; i += 1) {
+    const dist = distanceMeters(point, route[i]!)
+    if (dist < bestDist) {
+      bestDist = dist
+      bestIndex = i
+    }
+  }
+  return bestIndex
+}
+
+export type MotionZoomInput = {
+  /** Ground speed in m/s (GPS or estimated). */
+  speedMps: number | null | undefined
+  /** Recent peak speed used to detect braking for lights / turns. */
+  recentPeakSpeedMps?: number | null
+  /** Absolute heading change since the last sample (degrees). */
+  headingDeltaDeg?: number | null
+  /** Sharp bend on the active route within look-ahead. */
+  routeTurnAhead?: boolean
+  /** Last applied motion zoom — used for hysteresis. */
+  previousZoom?: number | null
+}
+
+/**
+ * Map speed → Leaflet zoom.
+ * Standing still → close in; city/fast → pull back a little; slow / braking / turns → zoom in.
+ */
+export function resolveMotionZoom({
+  speedMps,
+  recentPeakSpeedMps,
+  headingDeltaDeg,
+  routeTurnAhead = false,
+  previousZoom,
+}: MotionZoomInput): number {
+  const speed = typeof speedMps === "number" && Number.isFinite(speedMps) && speedMps >= 0 ? speedMps : 0
+
+  let zoom: number
+  if (speed < MOTION_STATIONARY_MPS) zoom = MOTION_ZOOM_STATIONARY
+  else if (speed < MOTION_SLOW_MPS) zoom = MOTION_ZOOM_SLOW
+  else if (speed < MOTION_CITY_MPS) zoom = MOTION_ZOOM_CITY
+  else if (speed < MOTION_FAST_MPS) zoom = (MOTION_ZOOM_CITY + MOTION_ZOOM_FAST) / 2
+  else zoom = MOTION_ZOOM_FAST
+
+  const peak =
+    typeof recentPeakSpeedMps === "number" && Number.isFinite(recentPeakSpeedMps) ? recentPeakSpeedMps : null
+  const decelerating =
+    peak != null && peak >= MOTION_SLOW_MPS && speed <= peak * MOTION_DECEL_RATIO && speed < MOTION_CITY_MPS
+
+  const turningByHeading =
+    typeof headingDeltaDeg === "number" &&
+    Number.isFinite(headingDeltaDeg) &&
+    headingDeltaDeg >= MOTION_TURN_HEADING_DEG &&
+    speed >= MOTION_STATIONARY_MPS
+
+  if (decelerating || turningByHeading || routeTurnAhead) {
+    zoom = Math.min(MOTION_ZOOM_STATIONARY, zoom + MOTION_ZOOM_TURN_BOOST)
+  }
+
+  if (typeof previousZoom === "number" && Number.isFinite(previousZoom)) {
+    if (Math.abs(zoom - previousZoom) < MOTION_ZOOM_HYSTERESIS) return previousZoom
+  }
+
+  return zoom
 }
 
 export function readCachedGeoPosition(maxAgeMs = GEO_CACHE_MAX_AGE_MS): GeoPoint | null {
@@ -209,32 +374,41 @@ export function moveMapToPoint(
   {
     animateLarge = true,
     minZoom = 14,
+    zoom,
     paddingBottom = 0,
   }: {
     animateLarge?: boolean
     minZoom?: number
+    /** When set, use this zoom instead of max(current, minZoom). */
+    zoom?: number
     /** Pixels covered by bottom sheet — target is offset so the point stays above it. */
     paddingBottom?: number
   } = {},
 ): void {
-  const zoom = Math.max(map.getZoom(), minZoom)
-  const target = offsetLatLngForBottomPadding(map, point, paddingBottom, zoom)
+  const nextZoom =
+    typeof zoom === "number" && Number.isFinite(zoom) ? zoom : Math.max(map.getZoom(), minZoom)
+  const target = offsetLatLngForBottomPadding(map, point, paddingBottom, nextZoom)
 
   if (animateLarge) {
-    map.flyTo(target, zoom, { duration: 0.55 })
+    map.flyTo(target, nextZoom, { duration: 0.55 })
     return
   }
 
   const mapCenter = map.getCenter()
   const meters = distanceMeters({ lat: mapCenter.lat, lng: mapCenter.lng }, { lat: target[0], lng: target[1] })
+  const zoomDelta = Math.abs(map.getZoom() - nextZoom)
 
-  if (meters >= MAP_FLY_THRESHOLD_M) {
-    map.flyTo(target, zoom, { duration: 0.55 })
+  if (meters >= MAP_FLY_THRESHOLD_M || zoomDelta >= MOTION_ZOOM_HYSTERESIS) {
+    map.flyTo(target, nextZoom, { duration: 0.45 })
     return
   }
 
-  const projectedTarget = map.project(target, zoom)
-  const current = map.project(mapCenter, zoom)
+  if (zoomDelta > 0.05 && typeof map.setZoom === "function") {
+    map.setZoom(nextZoom, { animate: false })
+  }
+
+  const projectedTarget = map.project(target, nextZoom)
+  const current = map.project(mapCenter, nextZoom)
   map.panBy([projectedTarget.x - current.x, projectedTarget.y - current.y], { animate: false })
 }
 
