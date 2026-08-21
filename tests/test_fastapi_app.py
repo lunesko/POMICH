@@ -1427,6 +1427,9 @@ def test_dispatch_list_excludes_directory_and_map_is_slim(monkeypatch, tmp_path)
         assert item["name"]
         assert item["location"]["lat"]
 
+    dispatch_only = client.get("/api/map/providers?kind=dispatch&scope=all").json()
+    assert {item["id"] for item in dispatch_only} == {"p-dispatch"}
+
 
 def test_map_nearby_orders_excludes_completed_and_cancelled(monkeypatch, tmp_path) -> None:
     _use_temp_store(monkeypatch, tmp_path)

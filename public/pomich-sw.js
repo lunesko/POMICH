@@ -1,5 +1,6 @@
-const TILE_CACHE = "pomich-map-tiles-v4"
-const ASSET_CACHE = "pomich-assets-v4"
+const TILE_CACHE = "pomich-map-tiles-v5"
+const ASSET_CACHE = "pomich-assets-v5"
+const TILE_CACHE_MAX = 350
 const TILE_HOST_PATTERN = /(^|\.)tile\.openstreetmap\.org$/
 
 self.addEventListener("install", () => {
@@ -20,6 +21,15 @@ self.addEventListener("activate", (event) => {
       .then(() => self.clients.claim()),
   )
 })
+
+async function putWithTileCap(cache, request, response) {
+  await cache.put(request, response.clone())
+  const keys = await cache.keys()
+  if (keys.length <= TILE_CACHE_MAX) return
+  const overflow = keys.length - TILE_CACHE_MAX
+  // Cache keys() is insertion-ordered in Chromium — drop oldest first.
+  await Promise.all(keys.slice(0, overflow).map((key) => cache.delete(key)))
+}
 
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return
@@ -52,7 +62,7 @@ self.addEventListener("fetch", (event) => {
       if (cached) return cached
       const response = await fetch(event.request)
       if (response.ok || response.type === "opaque") {
-        cache.put(event.request, response.clone())
+        await putWithTileCap(cache, event.request, response)
       }
       return response
     }),

@@ -43,4 +43,24 @@ describe("useScreenWakeLock", () => {
     await new Promise((resolve) => setTimeout(resolve, 20))
     expect(request).not.toHaveBeenCalled()
   })
+
+  it("re-acquires wake lock when visibility returns to visible", async () => {
+    let visibility: DocumentVisibilityState = "visible"
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => visibility,
+    })
+
+    renderHook(() => useScreenWakeLock(true))
+    await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(1))
+
+    visibility = "hidden"
+    document.dispatchEvent(new Event("visibilitychange"))
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(request).toHaveBeenCalledTimes(1)
+
+    visibility = "visible"
+    document.dispatchEvent(new Event("visibilitychange"))
+    await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(2))
+  })
 })

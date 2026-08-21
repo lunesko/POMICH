@@ -225,13 +225,12 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
     setLoading(true)
     setError(undefined)
     try {
-      const [nextStats, nextClients, nextProviders, nextOrders, nextSettings, nextMapProviders, nextOpsLog] = await Promise.all([
+      const [nextStats, nextClients, nextProviders, nextOrders, nextSettings, nextOpsLog] = await Promise.all([
         getAdminStats(adminAuthToken),
         getAdminClients(adminAuthToken, clientQuery || undefined, showGuestSessions),
         getAdminProviders(adminAuthToken, providerQuery || undefined),
         getAdminOrders(adminAuthToken, orderFilter === "all" ? undefined : orderFilter),
         getAdminSettings(adminAuthToken),
-        getMapProviders(),
         getAdminOpsLog(adminAuthToken, {
           limit: 100,
           severity: opsSeverity,
@@ -243,7 +242,6 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
       setProviders(nextProviders)
       setOrders(nextOrders.slice().reverse())
       setSettings(nextSettings)
-      setMapProviders(nextMapProviders)
       if (nextOpsLog) setOpsLog(nextOpsLog)
     } catch {
       setError("Не вдалося завантажити дані адмін-панелі.")
@@ -252,11 +250,27 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
     }
   }, [adminAuthToken, clientQuery, providerQuery, orderFilter, showGuestSessions, opsSeverity, opsOrderQuery])
 
+  const refreshMapProviders = useCallback(async () => {
+    if (!adminAuthToken) return
+    try {
+      // Map tab only — never pull ~6k directory pins on every 15s admin poll.
+      const nextMapProviders = await getMapProviders({ scope: "all" })
+      setMapProviders(Array.isArray(nextMapProviders) ? nextMapProviders : [])
+    } catch {
+      setError("Не вдалося завантажити піни карти.")
+    }
+  }, [adminAuthToken])
+
   useEffect(() => {
     refreshAll()
     const interval = window.setInterval(refreshAll, 15000)
     return () => window.clearInterval(interval)
   }, [refreshAll])
+
+  useEffect(() => {
+    if (section !== "map") return
+    void refreshMapProviders()
+  }, [section, refreshMapProviders])
 
   const selectedClient = clients.find((item) => item.id === selectedClientId) ?? clients[0]
   const selectedProvider = providers.find((item) => item.id === selectedProviderId) ?? providers[0]
@@ -353,6 +367,7 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
       const result = await importUzhgorodProviders(adminAuthToken, { seedOnly, preferOsm: !seedOnly })
       setImportStatus(`Імпорт: ${result.source}, додано ${result.merge.added}, оновлено ${result.merge.updated}`)
       await refreshAll()
+      if (section === "map") await refreshMapProviders()
     } catch {
       setImportStatus("Помилка імпорту провайдерів.")
     } finally {
@@ -594,7 +609,7 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
                 <StatCard label="Помилки" value={opsLog?.counts?.error ?? 0} tone="warn" />
                 <StatCard label="Попередження" value={opsLog?.counts?.warn ?? 0} tone="warn" />
                 <StatCard label="Етапи" value={opsLog?.counts?.info ?? 0} />
-                <StatCard label="Усього в вибірці" value={opsLog?.counts?.total ?? 0} tone="brand" />
+                <StatCard label="Усього подій" value={opsLog?.counts?.total ?? 0} tone="brand" />
               </div>
               <div className="admin-panel">
                 <div className="admin-panel-head">
@@ -674,6 +689,7 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
                 <div className="admin-panel-head">
                   <h2>Карта / OSM провайдери</h2>
                   <div className="admin-inline-actions">
+                    <button className="admin-ghost-btn" onClick={() => void refreshMapProviders()} disabled={saving}>Оновити піни</button>
                     <button className="admin-ghost-btn" onClick={() => runMapImport(false)} disabled={saving}>Імпорт OSM</button>
                     <button className="admin-ghost-btn" onClick={() => runMapImport(true)} disabled={saving}>Seed</button>
                   </div>

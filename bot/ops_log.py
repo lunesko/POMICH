@@ -233,9 +233,6 @@ def build_admin_ops_log(
     if wanted_order:
         rows = [row for row in rows if str(row.get("orderId") or "") == wanted_order]
 
-    if wanted_severity in {"error", "warn", "info"}:
-        rows = [row for row in rows if str(row.get("severity") or "") == wanted_severity]
-
     rows.sort(key=lambda item: str(item.get("at") or ""), reverse=True)
 
     # De-dupe identical ids while preserving order.
@@ -249,11 +246,18 @@ def build_admin_ops_log(
             seen.add(row_id)
         unique.append(row)
 
-    trimmed = unique[:safe_limit]
+    # Counts stay global for the order filter (not the severity chip), so admin
+    # severity cards don't collapse to zeroes when viewing errors-only.
     counts = {
         "error": sum(1 for row in unique if row.get("severity") == "error"),
         "warn": sum(1 for row in unique if row.get("severity") == "warn"),
         "info": sum(1 for row in unique if row.get("severity") == "info"),
         "total": len(unique),
     }
+
+    filtered = unique
+    if wanted_severity in {"error", "warn", "info"}:
+        filtered = [row for row in unique if str(row.get("severity") or "") == wanted_severity]
+
+    trimmed = filtered[:safe_limit]
     return {"events": trimmed, "counts": counts, "limit": safe_limit}

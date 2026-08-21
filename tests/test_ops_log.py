@@ -45,6 +45,9 @@ def test_record_and_build_admin_ops_log_includes_api_and_order_events(tmp_path, 
     errors_only = build_admin_ops_log(limit=50, severity="error", order_store_path=order_path)
     assert errors_only["events"]
     assert all(event["severity"] == "error" for event in errors_only["events"])
+    # Severity filter must not zero the global warn/info counters.
+    assert errors_only["counts"]["error"] >= 1
+    assert errors_only["counts"]["total"] >= errors_only["counts"]["error"]
 
 
 def test_record_ops_event_ids_are_unique_within_same_second(monkeypatch) -> None:
@@ -60,3 +63,21 @@ def test_record_ops_event_ids_are_unique_within_same_second(monkeypatch) -> None
     ids = [event["id"] for event in payload["events"] if event.get("type") == "API_ERROR"]
     assert first["id"] in ids
     assert second["id"] in ids
+
+
+def test_severity_filter_keeps_global_counts(monkeypatch) -> None:
+    from bot import ops_log
+
+    monkeypatch.setattr(ops_log, "_MEMORY_OPS_LOG", [])
+    monkeypatch.setattr(ops_log, "sql_storage_enabled", lambda: False)
+
+    ops_log.record_ops_event(event_type="STATUS_UPDATE_FAILED", message="bad", source="test")
+    ops_log.record_ops_event(event_type="OFFER_EXPIRED", message="stale", source="test")
+    ops_log.record_ops_event(event_type="ORDER_CREATED", message="ok", source="test")
+
+    errors_only = ops_log.build_admin_ops_log(limit=50, severity="error")
+    assert all(event["severity"] == "error" for event in errors_only["events"])
+    assert errors_only["counts"]["error"] >= 1
+    assert errors_only["counts"]["warn"] >= 1
+    assert errors_only["counts"]["info"] >= 1
+    assert errors_only["counts"]["total"] >= 3
