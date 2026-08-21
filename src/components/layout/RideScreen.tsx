@@ -16,7 +16,7 @@ function isolatePanelWheel(event: WheelEvent<HTMLElement>) {
   event.stopPropagation()
 }
 
-function filterSheetChildren(children: ReactNode, mobileSheet: boolean, snap: "collapsed" | "half" | "expanded") {
+export function filterSheetChildren(children: ReactNode, mobileSheet: boolean, snap: "collapsed" | "half" | "expanded") {
   return Children.toArray(children).filter((child) => {
     if (!isValidElement<{ "data-sheet-peek"?: boolean; "data-sheet-full"?: boolean }>(child)) return true
     if (child.props["data-sheet-peek"] !== undefined) {
@@ -122,7 +122,7 @@ export function RideScreen({
   const mobileSheet = compactChrome && !splitView
   const sheetCompact = compactChrome
 
-  const { snap, heightVh, isDragging, handleProps, sheetStyle } = useMobileSheetSnap({
+  const { snap, heightVh, isDragging, setSnap, handleProps, sheetStyle } = useMobileSheetSnap({
     enabled: mobileSheet,
     mapFocus,
     expandedSheet,
@@ -272,6 +272,24 @@ export function RideScreen({
       >
         <div className="pomich-sheet-handle" {...(mobileSheet ? handleProps : {})}>
           <span className="pomich-sheet-handle__bar" aria-hidden="true" />
+          {mobileSheet && snap === "collapsed" ? (
+            <button
+              type="button"
+              className="pomich-sheet-handle__expand"
+              onClick={(event) => {
+                event.stopPropagation()
+                setSnap("half")
+              }}
+              onPointerDown={(event) => event.stopPropagation()}
+            >
+              <span className="pomich-sheet-handle__expand-chevron" aria-hidden="true">
+                <svg viewBox="0 0 16 16" width="12" height="12" fill="none">
+                  <path d="M3.5 10.2 8 5.8l4.5 4.4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </span>
+              Розгорнути
+            </button>
+          ) : null}
         </div>
         <div className="pomich-sheet-panel__scroll pomich-sheet-panel__scroll--bottom" onWheel={isolatePanelWheel}>
           <div className="pomich-sheet-panel__body">{sheetChildren}</div>

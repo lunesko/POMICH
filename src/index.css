@@ -166,10 +166,10 @@ html:not([data-pomich-theme]) {
   --pomich-card-radius: 1.125rem;
   --pomich-card-padding: 0.875rem;
   /* % of ride-screen — survives mobile browser chrome better than vh/dvh */
-  --pomich-sheet-peek: 15%;
+  --pomich-sheet-peek: 22%;
   --pomich-sheet-half: 44%;
   --pomich-sheet-expanded: 72%;
-  --pomich-sheet-min: 14%;
+  --pomich-sheet-min: 18%;
   --pomich-sheet-max: 78%;
   --pomich-service-row-height: 4rem;
   --pomich-service-icon: 2.75rem;
@@ -191,7 +191,7 @@ html:not([data-pomich-theme]) {
     --pomich-app-header-height: clamp(2.625rem, 2.5rem + 0.5vw, 2.75rem);
     --pomich-card-radius: clamp(0.875rem, 0.82rem + 0.28vw, 1rem);
     --pomich-card-padding: clamp(0.625rem, 0.58rem + 0.22vw, 0.75rem);
-    --pomich-sheet-peek: 14%;
+    --pomich-sheet-peek: 20%;
     --pomich-sheet-half: 42%;
     --pomich-sheet-expanded: 70%;
     --pomich-sheet-max: 76%;
@@ -216,7 +216,7 @@ html:not([data-pomich-theme]) {
     --pomich-app-header-height: 2.625rem;
     --pomich-card-radius: 0.875rem;
     --pomich-card-padding: 0.625rem;
-    --pomich-sheet-peek: 13%;
+    --pomich-sheet-peek: 20%;
     --pomich-sheet-half: 40%;
     --pomich-sheet-expanded: 68%;
     --pomich-sheet-max: 74%;
@@ -1490,8 +1490,10 @@ html.mobile-compact .pomich-map-occupied-hint {
 .pomich-sheet-handle {
   flex-shrink: 0;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 4px;
   /* Invisible hit area larger than the thin bar */
   min-height: 28px;
   padding: 10px 16px 6px;
@@ -1515,6 +1517,48 @@ html.mobile-compact .pomich-map-occupied-hint {
   transform-origin: center;
   animation: pomich-sheet-handle-pulse 2.8s ease-in-out infinite;
 }
+.pomich-sheet-handle__expand {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  border: 0;
+  padding: 4px 10px 2px;
+  background: transparent;
+  color: var(--pomich-brand);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 850;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.pomich-sheet-panel--bottom[data-snap="collapsed"] .pomich-sheet-handle__expand {
+  display: inline-flex;
+  animation: pomichSheetExpandHint 1.6s ease-in-out infinite;
+}
+.pomich-sheet-handle__expand-chevron {
+  display: inline-flex;
+  animation: pomichSheetChevronBob 1.6s ease-in-out infinite;
+}
+@keyframes pomichSheetExpandHint {
+  0%,
+  100% {
+    opacity: 0.72;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+@keyframes pomichSheetChevronBob {
+  0%,
+  100% {
+    transform: translateY(2px);
+  }
+  50% {
+    transform: translateY(-2px);
+  }
+}
 .pomich-sheet-handle__bar--legacy {
   margin: 0 auto 8px;
 }
@@ -1530,9 +1574,11 @@ html.mobile-compact .pomich-map-occupied-hint {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .pomich-sheet-handle__bar {
+  .pomich-sheet-handle__bar,
+  .pomich-sheet-handle__expand,
+  .pomich-sheet-handle__expand-chevron {
     animation: none;
-    opacity: 0.7;
+    opacity: 0.85;
     transform: none;
   }
 }
@@ -1647,6 +1693,22 @@ html.mobile-compact .pomich-map-occupied-hint {
 }
 .pomich-ride-screen--overlay .pomich-sheet-panel--bottom[data-snap="collapsed"] [data-sheet-peek] {
   display: block;
+  animation: pomichSheetPeekIn 0.34s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes pomichSheetPeekIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pomich-ride-screen--overlay .pomich-sheet-panel--bottom[data-snap="collapsed"] [data-sheet-peek] {
+    animation: none;
+  }
 }
 .pomich-sheet-panel--side {
   max-height: none !important;
@@ -3197,29 +3259,33 @@ html.mobile-compact-xs .pomich-tg-main .pomich-ride-screen__map .leaflet-contain
   z-index: 1200;
   right: var(--pomich-map-chrome-right, 12px);
   top: var(--pomich-map-chrome-top, 78px);
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   border-radius: 999px;
-  border: 1px solid var(--pomich-glass-border);
+  border: 1px solid color-mix(in srgb, var(--pomich-brand) 28%, var(--pomich-glass-border));
   background: var(--pomich-glass-card);
   backdrop-filter: blur(14px) saturate(180%);
   -webkit-backdrop-filter: blur(14px) saturate(180%);
-  color: var(--pomich-text);
-  box-shadow: var(--pomich-card-shadow);
+  color: var(--pomich-brand);
+  box-shadow:
+    var(--pomich-card-shadow),
+    0 0 0 0 color-mix(in srgb, var(--pomich-brand) 35%, transparent);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   padding: 0;
   pointer-events: auto;
-  opacity: 0;
-  transform: scale(0.86);
+  /* Always recoverable: never stay at opacity 0 if enter class fails */
+  opacity: 1;
+  transform: scale(0.92);
+  animation: pomichLegendFabPulse 2.2s ease-in-out infinite;
   transition:
-    opacity 0.24s ease,
     transform 0.28s cubic-bezier(0.22, 1, 0.36, 1),
     background 0.18s ease,
     color 0.18s ease,
-    border-color 0.18s ease;
+    border-color 0.18s ease,
+    box-shadow 0.2s ease;
 }
 .pomich-map-legend-fab.is-entered {
   opacity: 1;
@@ -3227,11 +3293,26 @@ html.mobile-compact-xs .pomich-tg-main .pomich-ride-screen__map .leaflet-contain
 }
 .pomich-map-legend-fab:hover {
   color: var(--pomich-brand);
-  border-color: color-mix(in srgb, var(--pomich-brand) 40%, var(--pomich-border));
-  transform: translateY(-1px) scale(1.03);
+  border-color: color-mix(in srgb, var(--pomich-brand) 50%, var(--pomich-border));
+  transform: translateY(-1px) scale(1.05);
+  animation: none;
 }
 .pomich-map-legend-fab:active {
   transform: scale(0.94);
+  animation: none;
+}
+@keyframes pomichLegendFabPulse {
+  0%,
+  100% {
+    box-shadow:
+      var(--pomich-card-shadow),
+      0 0 0 0 color-mix(in srgb, var(--pomich-brand) 30%, transparent);
+  }
+  55% {
+    box-shadow:
+      var(--pomich-card-shadow),
+      0 0 0 8px color-mix(in srgb, var(--pomich-brand) 0%, transparent);
+  }
 }
 @keyframes pomichLegendItemIn {
   from {
@@ -3262,6 +3343,9 @@ html.mobile-compact-xs .pomich-tg-main .pomich-ride-screen__map .leaflet-contain
     transition: none !important;
     opacity: 1 !important;
     transform: none !important;
+  }
+  .pomich-map-legend-fab {
+    box-shadow: var(--pomich-card-shadow);
   }
 }
 /* Desktop split view: legend/filter share the same top as zoom/geo + side panel */

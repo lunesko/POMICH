@@ -955,17 +955,36 @@ function MapLegend({
   const [collapsed, setCollapsed] = useState(readLegendCollapsed)
   const [entered, setEntered] = useState(false)
 
+  /* Enter animation for BOTH expanded box and collapsed FAB.
+     Previously collapsed set entered=false and never re-entered → FAB stayed opacity:0 (gone forever). */
   useEffect(() => {
-    if (collapsed) {
-      setEntered(false)
+    setEntered(false)
+    if (typeof window === "undefined") {
+      setEntered(true)
       return
     }
-    if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
-      const id = window.requestAnimationFrame(() => setEntered(true))
-      return () => window.cancelAnimationFrame(id)
+    let cancelled = false
+    let outer = 0
+    let inner = 0
+    if (typeof window.requestAnimationFrame === "function") {
+      outer = window.requestAnimationFrame(() => {
+        inner = window.requestAnimationFrame(() => {
+          if (!cancelled) setEntered(true)
+        })
+      })
+      return () => {
+        cancelled = true
+        window.cancelAnimationFrame(outer)
+        window.cancelAnimationFrame(inner)
+      }
     }
-    const id = window.setTimeout(() => setEntered(true), 0)
-    return () => window.clearTimeout(id)
+    const id = window.setTimeout(() => {
+      if (!cancelled) setEntered(true)
+    }, 16)
+    return () => {
+      cancelled = true
+      window.clearTimeout(id)
+    }
   }, [collapsed])
 
   const toggle = () => {

@@ -14,10 +14,10 @@ export interface SheetHeights {
 }
 
 const DEFAULT_HEIGHTS: SheetHeights = {
-  peek: 15,
+  peek: 22,
   half: 44,
   expanded: 72,
-  min: 14,
+  min: 18,
   max: 78,
 }
 
@@ -217,6 +217,17 @@ export function useMobileSheetSnap(options: {
     })
   }, [refreshHeights])
 
+  const goToSnap = useCallback(
+    (nextSnap: SheetSnap) => {
+      refreshHeights()
+      const nextHeight = snapToHeightPct(nextSnap, heightsRef.current)
+      heightRef.current = nextHeight
+      setHeightVh(nextHeight)
+      setSnap(nextSnap)
+    },
+    [refreshHeights],
+  )
+
   const onHandlePointerDown = useCallback(
     (event: ReactPointerEvent<HTMLElement>) => {
       if (!enabled) return
@@ -306,7 +317,7 @@ export function useMobileSheetSnap(options: {
     snap,
     heightVh,
     isDragging,
-    setSnap,
+    setSnap: goToSnap,
     cycleSnap,
     handleProps: {
       role: "button" as const,
