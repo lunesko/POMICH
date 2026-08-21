@@ -132,31 +132,97 @@ DATABASE_URL=postgresql://pomich:pomich-db-pass-2026@postgres:5432/pomich
 
 
 def setup_nginx(ssh):
-    # Disabled: POMICH uses IP:port only; do not add nginx vhosts on shared server.
-    print("  Skipping Nginx (IP:port deploy only)")
-    return
-    
-    nginx_conf = f"""server {{
+    """Keep pomich.help vhost pointing at the app with a Mini App–friendly 502 retry page."""
+    retry_html = """<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta http-equiv="refresh" content="2" />
+  <title>POMICH · оновлення</title>
+  <style>
+    body{margin:0;min-height:100vh;display:grid;place-items:center;font-family:system-ui,sans-serif;
+      background:#0F172A;color:#F8FAFC;padding:24px;text-align:center}
+    h1{font-size:1.25rem;margin:0 0 8px}
+    p{margin:0;opacity:.75;font-size:.95rem}
+  </style>
+</head>
+<body>
+  <div>
+    <h1>POMICH оновлюється</h1>
+    <p>Зачекайте кілька секунд — сторінка відкриється сама.</p>
+  </div>
+  <script>setTimeout(function(){location.reload()},2000)</script>
+</body>
+</html>
+"""
+    nginx_conf = """server {
     listen 80;
-    server_name {DOMAIN};
+    listen [::]:80;
+    server_name pomich.help www.pomich.help;
 
-    location / {{
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/html;
+        default_type "text/plain";
+        allow all;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name pomich.help www.pomich.help;
+
+    ssl_certificate /etc/letsencrypt/live/pomich.help/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/pomich.help/privkey.pem;
+    include /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+
+    add_header X-Content-Type-Options nosniff always;
+    add_header X-Frame-Options SAMEORIGIN always;
+    add_header Referrer-Policy strict-origin-when-cross-origin always;
+
+    error_page 502 503 504 = @pomich_retry;
+
+    location @pomich_retry {
+        default_type text/html;
+        charset utf-8;
+        add_header Cache-Control "no-store" always;
+        add_header Retry-After 2 always;
+        root /var/www/pomich;
+        try_files /retry.html =502;
+    }
+
+    location / {
         proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
-    }}
-}}
+        proxy_connect_timeout 3s;
+        proxy_read_timeout 120s;
+        proxy_send_timeout 120s;
+        client_max_body_size 25m;
+    }
+}
 """
-    run(ssh, f"cat > /etc/nginx/sites-available/pomich << 'NGINXEOF'\n{nginx_conf}\nNGINXEOF")
-    run(ssh, "ln -sf /etc/nginx/sites-available/pomich /etc/nginx/sites-enabled/pomich")
-    run(ssh, "nginx -t")
-    run(ssh, "systemctl reload nginx")
-    print("  Nginx configured for POMICH")
+    run(ssh, "mkdir -p /var/www/pomich", check=False)
+    run(ssh, f"cat > /var/www/pomich/retry.html << 'HTMLEOF'\n{retry_html}\nHTMLEOF", check=False)
+    run(ssh, f"cat > /etc/nginx/sites-available/pomich.help << 'NGINXEOF'\n{nginx_conf}\nNGINXEOF", check=False)
+    run(ssh, "ln -sfn /etc/nginx/sites-available/pomich.help /etc/nginx/sites-enabled/pomich.help", check=False)
+    out, err, rc = run(ssh, "nginx -t", check=False)
+    if rc == 0:
+        run(ssh, "systemctl reload nginx", check=False)
+        print("  Nginx pomich.help updated (502 auto-retry)")
+    else:
+        print(f"  [WARN] nginx -t failed; left previous vhost in place ({err or out})")
 
 
 def main():
@@ -186,29 +252,36 @@ def main():
     print("\n5) Making start.sh executable...")
     run(ssh, f"chmod +x {REMOTE_DIR}/start.sh")
 
-    print("\n6) Building and starting containers (keep postgres up to avoid downtime)...")
+    print("\n6) Building image while current container keeps serving...")
     run(
         ssh,
         f"cd {REMOTE_DIR} && docker compose -f docker-compose.production.yml --env-file .env.production up -d postgres",
         check=False,
     )
-    run(ssh, f"cd {REMOTE_DIR} && docker compose -f docker-compose.production.yml --env-file .env.production build pomich-app")
+    # Build first so recreate only swaps to an already-built image (shorter 502 window).
+    run(
+        ssh,
+        f"cd {REMOTE_DIR} && docker compose -f docker-compose.production.yml --env-file .env.production build pomich-app",
+        timeout=900,
+    )
+    print("\n6b) Recreating app container...")
     run(
         ssh,
         f"cd {REMOTE_DIR} && docker compose -f docker-compose.production.yml --env-file .env.production up -d --no-deps --wait pomich-app",
         check=False,
+        timeout=300,
     )
 
     print("\n7) Waiting for app health...")
     healthy = False
-    for attempt in range(12):
+    for attempt in range(18):
         out, _, rc = run(ssh, "curl -sf http://127.0.0.1:8000/api/health", check=False)
         if rc == 0 and out:
             healthy = True
             break
         time.sleep(5)
     if not healthy:
-        print("  [WARN] health check did not pass within 60s")
+        print("  [WARN] health check did not pass within 90s")
 
     print("\n8) Checking container status...")
     run(ssh, "docker ps --filter name=pomich --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'")
@@ -245,14 +318,20 @@ def main():
         check=False,
     )
 
-    print("\n12) Skipping Nginx/SSL (use WEB_APP_BASE IP:port + polling bot)")
+    print("\n12) Ensuring nginx 502 auto-retry for Telegram Mini App...")
+    setup_nginx(ssh)
+    run(
+        ssh,
+        "curl -sf https://pomich.help/api/health || echo 'PUBLIC_HEALTH_FAILED'",
+        check=False,
+    )
 
     ssh.close()
 
     print(f"\n{'='*50}")
     print(f"Deploy complete!")
-    print(f"App URL: http://{HOST}:8000")
-    print(f"App base: {WEB_APP_BASE}/")
+    print(f"App URL: https://pomich.help")
+    print(f"Direct: http://{HOST}:8000")
     print(f"{'='*50}")
 
 
