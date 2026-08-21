@@ -58,18 +58,18 @@ describe("mapGeo", () => {
   it("pads for half and expanded sheets including safety margin", () => {
     const half = resolveSheetBottomPaddingPx("half", 800)
     const expanded = resolveSheetBottomPaddingPx("expanded", 800)
-    expect(half).toBeCloseTo(0.44 * 800 + SHEET_PADDING_SAFETY_PX, 5)
+    expect(half).toBeCloseTo(0.52 * 800 + SHEET_PADDING_SAFETY_PX, 5)
     expect(expanded).toBeGreaterThan(half)
   })
 
   it("pads collapsed peek so the point stays above the sheet", () => {
     const peek = resolveSheetBottomPaddingPx("collapsed", 800)
-    expect(peek).toBeCloseTo(0.22 * 800 + SHEET_PADDING_SAFETY_PX, 5)
+    expect(peek).toBeCloseTo(0.26 * 800 + SHEET_PADDING_SAFETY_PX, 5)
   })
 
   it("assumes half sheet in overlay mode when snap is missing", () => {
     const pad = resolveSheetBottomPaddingPx(undefined, 800, undefined, { overlayMode: true })
-    expect(pad).toBeCloseTo(0.44 * 800 + SHEET_PADDING_SAFETY_PX, 5)
+    expect(pad).toBeCloseTo(0.52 * 800 + SHEET_PADDING_SAFETY_PX, 5)
   })
 
   it("prefers live DOM sheet height over vh estimates", () => {

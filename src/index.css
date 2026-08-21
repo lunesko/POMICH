@@ -166,12 +166,12 @@ html:not([data-pomich-theme]) {
   );
   --pomich-card-radius: 1.125rem;
   --pomich-card-padding: 0.875rem;
-  /* % of ride-screen — survives mobile browser chrome better than vh/dvh */
-  --pomich-sheet-peek: 22%;
-  --pomich-sheet-half: 44%;
-  --pomich-sheet-expanded: 72%;
-  --pomich-sheet-min: 18%;
-  --pomich-sheet-max: 78%;
+  /* % of ride-screen — taller half so primary CTAs stay above Safari/Chrome toolbars */
+  --pomich-sheet-peek: 26%;
+  --pomich-sheet-half: 52%;
+  --pomich-sheet-expanded: 74%;
+  --pomich-sheet-min: 22%;
+  --pomich-sheet-max: 82%;
   --pomich-service-row-height: 4rem;
   --pomich-service-icon: 3rem;
 }
@@ -192,10 +192,11 @@ html:not([data-pomich-theme]) {
     --pomich-app-header-height: clamp(2.625rem, 2.5rem + 0.5vw, 2.75rem);
     --pomich-card-radius: clamp(0.875rem, 0.82rem + 0.28vw, 1rem);
     --pomich-card-padding: clamp(0.625rem, 0.58rem + 0.22vw, 0.75rem);
-    --pomich-sheet-peek: 20%;
-    --pomich-sheet-half: 42%;
-    --pomich-sheet-expanded: 70%;
-    --pomich-sheet-max: 76%;
+    --pomich-sheet-peek: 28%;
+    --pomich-sheet-half: 54%;
+    --pomich-sheet-expanded: 76%;
+    --pomich-sheet-min: 24%;
+    --pomich-sheet-max: 84%;
     --pomich-service-row-height: clamp(3rem, 2.85rem + 0.65vw, 3.25rem);
     --pomich-service-icon: clamp(2.25rem, 2.12rem + 0.55vw, 2.5rem);
   }
@@ -217,10 +218,11 @@ html:not([data-pomich-theme]) {
     --pomich-app-header-height: 2.625rem;
     --pomich-card-radius: 0.875rem;
     --pomich-card-padding: 0.625rem;
-    --pomich-sheet-peek: 20%;
-    --pomich-sheet-half: 40%;
-    --pomich-sheet-expanded: 68%;
-    --pomich-sheet-max: 74%;
+    --pomich-sheet-peek: 30%;
+    --pomich-sheet-half: 56%;
+    --pomich-sheet-expanded: 78%;
+    --pomich-sheet-min: 26%;
+    --pomich-sheet-max: 86%;
     --pomich-service-row-height: 3.125rem;
     --pomich-service-icon: 2.125rem;
   }
@@ -1603,6 +1605,20 @@ html.mobile-compact .pomich-map-occupied-hint {
 }
 .pomich-sheet-panel__body {
   padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px) + var(--tg-content-safe-area-inset-bottom, 0px));
+}
+
+/* Keep primary duty/order CTAs visible above browser chrome without forcing expand */
+.pomich-sheet-cta-dock {
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
+  margin-top: 12px;
+  padding: 10px 0 6px;
+  background: linear-gradient(
+    to top,
+    color-mix(in srgb, var(--pomich-surface, #fff) 96%, transparent) 55%,
+    color-mix(in srgb, var(--pomich-surface, #fff) 0%, transparent)
+  );
 }
 
 /* Mobile input auto-zoom prevention (iOS WebKit requires >=16px font to avoid scaling) */

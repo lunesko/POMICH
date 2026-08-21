@@ -2074,6 +2074,51 @@ export default function ProviderFlow({
         </div>
         <div data-sheet-full>
         <SheetHeading title="Партнер POMICH" subtitle={onDuty ? "Ви на лінії — заявки на карті" : "Вийдіть на лінію, щоб бачити заявки"} />
+        <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
+          {onDuty ? (
+            <>
+              <PrimaryButton
+                label={offerSaving ? "Приймаємо…" : activeOffer ? "Відкрити заявку" : "Оновити карту"}
+                onClick={() => {
+                  if (activeOffer) {
+                    openOfferDetail(activeOffer)
+                    return
+                  }
+                  const subjectId = readAuthSessionSubject(providerAuthToken || "") || providerId
+                  if (!providerAuthToken) return
+                  getProviderOffers(subjectId, providerAuthToken)
+                    .then((offers) => {
+                      setIncomingOffers(filterVisibleOffers(Array.isArray(offers) ? offers : [], {
+                        dismissedOfferIds: dismissedOfferIdsRef.current,
+                        dismissedOrderIds: dismissedOrderIdsRef.current,
+                      }))
+                    })
+                    .catch(() => undefined)
+                  const radiusKm = providerProfile.serviceRadiusKm ?? registrationForm.serviceRadiusKm ?? DEFAULT_SERVICE_RADIUS_KM
+                  getNearbyMapOrders(providerLocation.lat, providerLocation.lng, radiusKm, undefined, providerAuthToken)
+                    .then((orders) => setNearbyRequestPins(Array.isArray(orders) ? orders : []))
+                    .catch(() => undefined)
+                }}
+                disabled={offerSaving}
+              />
+              <SecondaryButton label="Піти з лінії" onClick={() => setDuty(false)} disabled={!providerAuthToken} />
+            </>
+          ) : (
+            <PrimaryButton
+              label={
+                !isPartnerRegisteredAndCompleted
+                  ? "Завершити профіль"
+                  : !providerCanGoOnline
+                    ? "Підтвердити телефон"
+                    : presenceSaving
+                      ? "Оновлюємо статус…"
+                      : "Вийти на лінію"
+              }
+              onClick={() => void setDuty(true)}
+              disabled={presenceSaving}
+            />
+          )}
+        </div>
         <div style={{ marginTop: 14, display: "grid", gap: 12 }}>
           {authError ? <div style={{ background: "var(--pomich-error-bg)", color: "var(--pomich-error-text)", borderRadius: 14, padding: 12, fontWeight: 800 }}>{authError}</div> : null}
           {activeOffer ? (
@@ -2099,51 +2144,6 @@ export default function ProviderFlow({
                 <div style={{ color: DARK, fontWeight: 950, marginTop: 4 }}>{incomingOffers.filter((offer) => isPresentableOffer(offer, offerClock)).length}</div>
               </div>
             </div>
-          </div>
-          <div style={{ display: "grid", gap: 10 }}>
-            {onDuty ? (
-              <>
-                <PrimaryButton
-                  label={offerSaving ? "Приймаємо…" : activeOffer ? "Відкрити заявку" : "Оновити карту"}
-                  onClick={() => {
-                    if (activeOffer) {
-                      openOfferDetail(activeOffer)
-                      return
-                    }
-                    const subjectId = readAuthSessionSubject(providerAuthToken || "") || providerId
-                    if (!providerAuthToken) return
-                    getProviderOffers(subjectId, providerAuthToken)
-                      .then((offers) => {
-                        setIncomingOffers(filterVisibleOffers(Array.isArray(offers) ? offers : [], {
-                          dismissedOfferIds: dismissedOfferIdsRef.current,
-                          dismissedOrderIds: dismissedOrderIdsRef.current,
-                        }))
-                      })
-                      .catch(() => undefined)
-                    const radiusKm = providerProfile.serviceRadiusKm ?? registrationForm.serviceRadiusKm ?? DEFAULT_SERVICE_RADIUS_KM
-                    getNearbyMapOrders(providerLocation.lat, providerLocation.lng, radiusKm, undefined, providerAuthToken)
-                      .then((orders) => setNearbyRequestPins(Array.isArray(orders) ? orders : []))
-                      .catch(() => undefined)
-                  }}
-                  disabled={offerSaving}
-                />
-                <SecondaryButton label="Піти з лінії" onClick={() => setDuty(false)} disabled={!providerAuthToken} />
-              </>
-            ) : (
-              <PrimaryButton
-                label={
-                  !isPartnerRegisteredAndCompleted
-                    ? "Завершити профіль"
-                    : !providerCanGoOnline
-                      ? "Підтвердити телефон"
-                      : presenceSaving
-                        ? "Оновлюємо статус…"
-                        : "Вийти на лінію"
-                }
-                onClick={() => void setDuty(true)}
-                disabled={presenceSaving}
-              />
-            )}
           </div>
           {offerError && offerError !== "Вкажіть вартість послуги в гривнях." ? <div style={{ background: "var(--pomich-warn-bg)", color: "var(--pomich-warn-text)", borderRadius: 14, padding: 12, fontWeight: 850 }}>{offerError}</div> : null}
         </div>

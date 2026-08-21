@@ -17,9 +17,9 @@ export const MAP_FLY_THRESHOLD_M = 200
 
 /** Default sheet heights (% of ride-screen) when CSS vars / DOM measurement are unavailable. */
 export const DEFAULT_SHEET_HEIGHTS_VH = {
-  peek: 22,
-  half: 44,
-  expanded: 72,
+  peek: 26,
+  half: 52,
+  expanded: 74,
 } as const
 
 /** Extra clearance above the sheet edge so the marker sits in the visible map center. */

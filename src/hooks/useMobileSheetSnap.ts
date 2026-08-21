@@ -14,11 +14,11 @@ export interface SheetHeights {
 }
 
 const DEFAULT_HEIGHTS: SheetHeights = {
-  peek: 22,
-  half: 44,
-  expanded: 72,
-  min: 18,
-  max: 78,
+  peek: 26,
+  half: 52,
+  expanded: 74,
+  min: 22,
+  max: 82,
 }
 
 function resolveDefaultSnap(mapFocus?: boolean, expandedSheet?: boolean, defaultSnap: SheetSnap = "half"): SheetSnap {

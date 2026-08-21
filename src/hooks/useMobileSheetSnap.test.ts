@@ -12,32 +12,32 @@ describe("useMobileSheetSnap", () => {
   it("defaults to half on mobile sheets", () => {
     const { result } = renderHook(() => useMobileSheetSnap({ enabled: true }))
     expect(result.current.snap).toBe("half")
-    expect(result.current.heightVh).toBe(44)
+    expect(result.current.heightVh).toBe(52)
   })
 
   it("starts collapsed when mapFocus is enabled", () => {
     const { result } = renderHook(() => useMobileSheetSnap({ enabled: true, mapFocus: true }))
     expect(result.current.snap).toBe("collapsed")
-    expect(result.current.heightVh).toBe(22)
+    expect(result.current.heightVh).toBe(26)
   })
 
   it("starts expanded when expandedSheet is enabled", () => {
     const { result } = renderHook(() => useMobileSheetSnap({ enabled: true, expandedSheet: true }))
     expect(result.current.snap).toBe("expanded")
-    expect(result.current.heightVh).toBe(72)
+    expect(result.current.heightVh).toBe(74)
   })
 
   it("cycles snap states on cycleSnap", () => {
     const { result } = renderHook(() => useMobileSheetSnap({ enabled: true }))
     act(() => result.current.cycleSnap())
     expect(result.current.snap).toBe("expanded")
-    expect(result.current.heightVh).toBe(72)
+    expect(result.current.heightVh).toBe(74)
     act(() => result.current.cycleSnap())
     expect(result.current.snap).toBe("collapsed")
-    expect(result.current.heightVh).toBe(22)
+    expect(result.current.heightVh).toBe(26)
     act(() => result.current.cycleSnap())
     expect(result.current.snap).toBe("half")
-    expect(result.current.heightVh).toBe(44)
+    expect(result.current.heightVh).toBe(52)
   })
 
   it("setSnap updates both snap and height so expand is recoverable", () => {
@@ -45,13 +45,13 @@ describe("useMobileSheetSnap", () => {
     expect(result.current.snap).toBe("collapsed")
     act(() => result.current.setSnap("half"))
     expect(result.current.snap).toBe("half")
-    expect(result.current.heightVh).toBe(44)
-    expect(result.current.sheetStyle).toEqual({ "--pomich-sheet-height": "44%" })
+    expect(result.current.heightVh).toBe(52)
+    expect(result.current.sheetStyle).toEqual({ "--pomich-sheet-height": "52%" })
   })
 
   it("exposes sheet height style for drag resize", () => {
     const { result } = renderHook(() => useMobileSheetSnap({ enabled: true }))
-    expect(result.current.sheetStyle).toEqual({ "--pomich-sheet-height": "44%" })
+    expect(result.current.sheetStyle).toEqual({ "--pomich-sheet-height": "52%" })
   })
 
   it("updates height while dragging via pointer events", () => {
@@ -98,7 +98,7 @@ describe("useMobileSheetSnap", () => {
 
     expect(result.current.isDragging).toBe(false)
     expect(result.current.snap).toBe("expanded")
-    expect(result.current.heightVh).toBe(72)
+    expect(result.current.heightVh).toBe(74)
     vi.unstubAllGlobals()
   })
 })
