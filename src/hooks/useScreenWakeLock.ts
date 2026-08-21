@@ -34,6 +34,8 @@ export function useScreenWakeLock(enabled: boolean) {
     const request = async () => {
       if (cancelled || document.visibilityState !== "visible") return
       try {
+        await release()
+        if (cancelled || document.visibilityState !== "visible") return
         const sentinel = await wakeLockApi.request("screen")
         if (cancelled) {
           await sentinel.release().catch(() => undefined)

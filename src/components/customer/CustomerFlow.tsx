@@ -8,7 +8,6 @@ import {
   getCustomerOrders,
   getMapProviders,
   getOrder,
-  getProviders,
   getTelegramSession,
   messageFromFetchError,
   retryDispatch,
@@ -21,8 +20,6 @@ import {
   type VerificationStatus,
 } from "../../api/client"
 import { RideScreen } from "../layout/RideScreen"
-import { useDirectoryScope } from "../../hooks/useDirectoryScope"
-import type { DirectoryScopeMode } from "../../lib/directoryScope"
 import {
   calculateDistanceKm,
   calculatePrice,
@@ -102,7 +99,6 @@ import { OtpVerificationPanel } from "../ui/OtpVerificationPanel"
 import { formatLocalPhoneDisplay, nationalDigitsFromPhone, phoneInputValueFromStored, validateUkraineMobilePhone } from "../../lib/ukrainePhone"
 import { validatePersonName } from "../../lib/personName"
 import { ThemeToggle } from "../ui/ThemeToggle"
-import { PartnerProfileSheet } from "../ui/PartnerProfileSheet"
 import { CitySelect } from "../ui/CitySelect"
 import { DEFAULT_SERVICE_CITY, normalizeServiceCity, serviceCityCenter } from "../../lib/ukraineCities"
 import { subscribeOrderEvents } from "../../lib/realtime"
@@ -138,15 +134,6 @@ const FLOW_STEP_LABELS = [
 
 type DirectoryMapRideProps = {
   providers: ProviderAvailability[]
-  directoryScope?: DirectoryScopeMode
-  onDirectoryScopeChange?: (scope: DirectoryScopeMode) => void
-  directoryScopeCity?: string
-  directoryScopeGeoLoading?: boolean
-  directoryScopeGeoError?: string
-  onDirectoryScopeGeoRetry?: () => void
-  directoryScopeRecenterTrigger?: number
-  directoryScopeCityCenter?: Point
-  onProviderSelect?: (provider: ProviderAvailability) => void
 }
 
 function StepBadge({ step }: { step: 1 | 2 | 3 | 4 | 5 }) {
@@ -1338,7 +1325,6 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
   const pickupRef = useRef<Point>(PICKUP)
   const geoWatchDebounceRef = useRef<number | undefined>(undefined)
   const [destinationPoint, setDestinationPoint] = useState<Point>(DEFAULT_DESTINATION)
-  const { loading: providersLoading } = useDirectoryScope({ enabled: false })
   const [liveNearbyProviders, setLiveNearbyProviders] = useState<ProviderAvailability[]>([])
   const [liveNearbyLoading, setLiveNearbyLoading] = useState(false)
   const [customerReviewSaving, setCustomerReviewSaving] = useState(false)
@@ -1354,7 +1340,6 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
   })
   const [customerVerificationSaving, setCustomerVerificationSaving] = useState(false)
   const [customerVerificationError, setCustomerVerificationError] = useState<string | undefined>()
-  const [selectedPartnerProfile, setSelectedPartnerProfile] = useState<ProviderAvailability | null>(null)
   const userInitiatedCancelRef = useRef(false)
 
   const serviceCity = useMemo(
@@ -1397,7 +1382,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
   }, [screen, serviceCity])
 
   useEffect(() => {
-    if (screen !== "home" && screen !== "location" && screen !== "destination" && screen !== "review") return
+    if (screen !== "home") return
     let cancelled = false
     setLiveNearbyLoading(true)
     getMapProviders({
@@ -1425,7 +1410,6 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
     (): DirectoryMapRideProps => ({
       /* Order flow map stays light: no OSM-directory catalog fetch / pins. */
       providers: [],
-      onProviderSelect: setSelectedPartnerProfile,
     }),
     [],
   )
@@ -2204,10 +2188,6 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
     onClick: goBackScreen,
   })
 
-  const partnerProfileOverlay = selectedPartnerProfile ? (
-    <PartnerProfileSheet provider={selectedPartnerProfile} onClose={() => setSelectedPartnerProfile(null)} />
-  ) : null
-
   const screenContent = (() => {
   switch (screen) {
     case "location":
@@ -2299,14 +2279,9 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
       return <OrderErrorStep pickup={pickup} destination={destinationPoint} onRetry={() => setScreen("review")} showAction={!isTelegram} />
     case "home":
     default:
-      return <HomeStep pickup={pickup} locationLabel={addressLabel || geoMessage} serviceCity={serviceCity} providers={liveNearbyProviders} providersLoading={liveNearbyLoading || providersLoading} customerProfile={customerProfile} customerVerificationSaving={customerVerificationSaving} customerVerificationError={customerVerificationError} customerToken={customerAuthToken} isTelegram={isTelegram} geoLoading={geoLoading} geoError={geoError} recenterTrigger={geoRecenterTrigger} onProfileChange={(patch) => setCustomerProfile((profile) => ({ ...profile, ...patch }))} onVerifyCustomer={verifyCustomerProfile} onProfileVerified={(saved) => setCustomerProfile((profile) => ({ ...profile, ...saved }))} onRetryGeo={retryGeolocation} onServiceCityChange={applyServiceCity} onSelect={(service) => { if (!isCustomerReadyForOrder(customerProfile)) return; setSelectedService(service); setDestination(""); setDestinationPoint(pickup); setScreen("location") }} />
+      return <HomeStep pickup={pickup} locationLabel={addressLabel || geoMessage} serviceCity={serviceCity} providers={liveNearbyProviders} providersLoading={liveNearbyLoading} customerProfile={customerProfile} customerVerificationSaving={customerVerificationSaving} customerVerificationError={customerVerificationError} customerToken={customerAuthToken} isTelegram={isTelegram} geoLoading={geoLoading} geoError={geoError} recenterTrigger={geoRecenterTrigger} onProfileChange={(patch) => setCustomerProfile((profile) => ({ ...profile, ...patch }))} onVerifyCustomer={verifyCustomerProfile} onProfileVerified={(saved) => setCustomerProfile((profile) => ({ ...profile, ...saved }))} onRetryGeo={retryGeolocation} onServiceCityChange={applyServiceCity} onSelect={(service) => { if (!isCustomerReadyForOrder(customerProfile)) return; setSelectedService(service); setDestination(""); setDestinationPoint(pickup); setScreen("location") }} />
   }
   })()
 
-  return (
-    <>
-      {screenContent}
-      {partnerProfileOverlay}
-    </>
-  )
+  return screenContent
 }

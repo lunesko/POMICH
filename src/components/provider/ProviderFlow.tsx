@@ -448,6 +448,7 @@ export default function ProviderFlow({
   const telegramContext = useMemo(() => getTelegramContext(), [])
   useScreenWakeLock(onDuty)
   const seenDutyAlertIdsRef = useRef<Set<string>>(new Set())
+  const dutyAlertsSeededRef = useRef(false)
   const otpBotUsername = telegramContext.botKind === "provider" ? "pomich_help_bot" : "pomich_ua_bot"
   const customerAuthSession = useMemo(
     () => (typeof window !== "undefined" ? readStoredCustomerAuthSession({ telegramChatId: telegramContext.chatId }) : undefined),
@@ -990,22 +991,32 @@ export default function ProviderFlow({
   useEffect(() => {
     if (!onDuty) {
       seenDutyAlertIdsRef.current = new Set()
+      dutyAlertsSeededRef.current = false
       return
     }
-    const nextIds = [
-      ...incomingOffers.map((offer) => `offer:${offer.id}`),
-      ...nearbyRequestPins.map((pin) => `order:${pin.id}`),
-    ]
-    const fresh = diffNewIds(seenDutyAlertIdsRef.current, nextIds)
-    if (seenDutyAlertIdsRef.current.size === 0) {
-      for (const id of nextIds) seenDutyAlertIdsRef.current.add(id)
+    // Dedupe by order id so nearby pin + personal offer don't double-fire.
+    const nextOrderIds: string[] = []
+    const seenNext = new Set<string>()
+    const pushOrder = (orderId?: string) => {
+      const id = String(orderId || "").trim()
+      if (!id || seenNext.has(id)) return
+      seenNext.add(id)
+      nextOrderIds.push(id)
+    }
+    for (const offer of incomingOffers) pushOrder(offer.orderId || offer.id)
+    for (const pin of nearbyRequestPins) pushOrder(pin.id)
+
+    if (!dutyAlertsSeededRef.current) {
+      for (const id of nextOrderIds) seenDutyAlertIdsRef.current.add(id)
+      dutyAlertsSeededRef.current = true
       return
     }
-    for (const key of fresh) {
-      seenDutyAlertIdsRef.current.add(key)
-      const rawId = key.includes(":") ? key.slice(key.indexOf(":") + 1) : key
-      const offer = incomingOffers.find((item) => item.id === rawId || item.orderId === rawId)
-      const pin = nearbyRequestPins.find((item) => item.id === rawId)
+
+    const fresh = diffNewIds(seenDutyAlertIdsRef.current, nextOrderIds)
+    for (const orderId of fresh) {
+      seenDutyAlertIdsRef.current.add(orderId)
+      const offer = incomingOffers.find((item) => item.orderId === orderId || item.id === orderId)
+      const pin = nearbyRequestPins.find((item) => item.id === orderId)
       const service = offer?.service || pin?.service
       const serviceMeta = services.find((item) => item.key === service)
       const serviceLabel = service
@@ -1013,11 +1024,10 @@ export default function ProviderFlow({
         : undefined
       const distanceKm = offer?.distanceKm ?? pin?.distanceKm
       alertPartnerNewRequest({
-        orderId: String(offer?.orderId || pin?.id || rawId),
+        orderId,
         serviceLabel,
         distanceLabel: typeof distanceKm === "number" ? `${distanceKm.toFixed(1)} км` : undefined,
         webApp: telegramContext.webApp,
-        preferNotification: document.visibilityState !== "visible",
       })
     }
   }, [incomingOffers, nearbyRequestPins, onDuty, telegramContext.webApp])

@@ -41,7 +41,6 @@ export function alertPartnerNewRequest(options: {
   serviceLabel?: string
   distanceLabel?: string
   webApp?: TelegramWebApp
-  preferNotification?: boolean
 }) {
   const title = "POMICH · нова заявка"
   const parts = [
@@ -51,7 +50,7 @@ export function alertPartnerNewRequest(options: {
   ].filter(Boolean)
   const body = parts.length > 0 ? parts.join(" · ") : "Відкрийте кабінет партнера"
   const hidden = typeof document !== "undefined" && document.visibilityState !== "visible"
-  if (hidden || options.preferNotification) {
+  if (hidden) {
     showPartnerDutyNotification(title, body, `pomich-order-${options.orderId}`)
   }
   telegramHaptic(options.webApp, hidden ? "warning" : "heavy")

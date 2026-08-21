@@ -45,3 +45,18 @@ def test_record_and_build_admin_ops_log_includes_api_and_order_events(tmp_path, 
     errors_only = build_admin_ops_log(limit=50, severity="error", order_store_path=order_path)
     assert errors_only["events"]
     assert all(event["severity"] == "error" for event in errors_only["events"])
+
+
+def test_record_ops_event_ids_are_unique_within_same_second(monkeypatch) -> None:
+    from bot import ops_log
+
+    monkeypatch.setattr(ops_log, "_MEMORY_OPS_LOG", [])
+    monkeypatch.setattr(ops_log, "sql_storage_enabled", lambda: False)
+
+    first = ops_log.record_ops_event(event_type="API_ERROR", message="one", source="test")
+    second = ops_log.record_ops_event(event_type="API_ERROR", message="two", source="test")
+    assert first["id"] != second["id"]
+    payload = ops_log.build_admin_ops_log(limit=10)
+    ids = [event["id"] for event in payload["events"] if event.get("type") == "API_ERROR"]
+    assert first["id"] in ids
+    assert second["id"] in ids

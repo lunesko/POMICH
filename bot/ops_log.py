@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from typing import Any, Dict, List, Optional
 
 from bot.order_store import STORE_LOCK, _now_iso, load_orders, normalize_order_status
@@ -103,7 +104,7 @@ def record_ops_event(
 ) -> Dict[str, Any]:
     """Append a durable ops breadcrumb (ring buffer in SQL runtime collections)."""
     payload: Dict[str, Any] = {
-        "id": f"ops-{_now_iso()}-{str(event_type or 'EVENT')[:32]}",
+        "id": f"ops-{_now_iso()}-{uuid.uuid4().hex[:10]}-{str(event_type or 'EVENT')[:32]}",
         "type": str(event_type or "API_ERROR").strip().upper() or "API_ERROR",
         "at": _now_iso(),
         "severity": classify_ops_severity(event_type),
