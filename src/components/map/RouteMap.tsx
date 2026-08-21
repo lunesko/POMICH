@@ -946,6 +946,7 @@ function MapLegend({
   directoryOnly,
   hasDestination,
   hasPartner,
+  overlayMode,
 }: {
   directoryOnly?: boolean
   hasDestination?: boolean
@@ -1019,7 +1020,7 @@ function MapLegend({
     return (
       <button
         type="button"
-        className={`pomich-map-legend-fab${entered ? " is-entered" : ""}`}
+        className={`pomich-map-legend-fab${entered ? " is-entered" : ""}${overlayMode ? " pomich-map-legend-fab--overlay" : ""}`}
         onClick={toggle}
         aria-expanded={false}
         aria-label="Показати легенду карти"
@@ -1036,7 +1037,11 @@ function MapLegend({
   }
 
   return (
-    <div className={`pomich-map-legend-box${entered ? " is-entered" : ""}`} role="group" aria-label="Легенда карти">
+    <div
+      className={`pomich-map-legend-box${entered ? " is-entered" : ""}${overlayMode ? " pomich-map-legend-box--overlay" : ""}`}
+      role="group"
+      aria-label="Легенда карти"
+    >
       <div className="pomich-map-legend-head">
         <span className="pomich-map-legend-title">Легенда</span>
         <button
@@ -2205,8 +2210,15 @@ export function RouteMap({
             Допомога поруч
           </button>
         )
-      ) : showBadges && !hideMapChrome && directoryProviders.length === 0 && !showDirectoryScopeTools ? (
-        <MapLegend directoryOnly={directoryOnly} hasDestination={Boolean(destination)} hasPartner={Boolean(providerPosition)} overlayMode={overlayMode} />
+      ) : null}
+
+      {showBadges && !hideMapChrome && !showMapTools ? (
+        <MapLegend
+          directoryOnly={directoryOnly}
+          hasDestination={Boolean(destination)}
+          hasPartner={Boolean(providerPosition)}
+          overlayMode={overlayMode}
+        />
       ) : null}
 
       {occupiedPickHint ? (

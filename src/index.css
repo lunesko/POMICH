@@ -3301,6 +3301,14 @@ html.mobile-compact-xs .pomich-tg-main .pomich-ride-screen__map .leaflet-contain
   transform: scale(0.94);
   animation: none;
 }
+/* Overlay ride maps: keep legend in the visible map band above the sheet + address pill */
+.pomich-map-legend-box--overlay,
+.pomich-map-legend-fab--overlay {
+  top: auto;
+  bottom: calc(var(--pomich-sheet-height, 44%) + 52px + env(safe-area-inset-bottom, 0px));
+  right: var(--pomich-map-chrome-right, 12px);
+  z-index: 1250;
+}
 @keyframes pomichLegendFabPulse {
   0%,
   100% {

@@ -1,6 +1,20 @@
 import { updateCustomerProfile, type CustomerProfile } from "../api/client"
 
 import { reverseGeocodeCity, type GeoPoint } from "./reverseGeocode"
+import { isUkraineServiceCity, resolveServiceCityFromGeo } from "./ukraineCities"
+
+/** Default scaffold / bootstrap cities that GPS should be allowed to replace. */
+const STALE_DEFAULT_CITIES = new Set(["Київ", "Kyiv", "Kiev", "Киев"])
+
+function shouldReplaceProfileCity(profileCity: string, resolvedCity: string): boolean {
+  const current = String(profileCity || "").trim()
+  if (!current) return true
+  if (current === resolvedCity) return true
+  if (STALE_DEFAULT_CITIES.has(current)) return true
+  /* Village / district from Nominatim that is not in the service dropdown */
+  if (!isUkraineServiceCity(current)) return true
+  return false
+}
 
 export async function syncProfileCityFromGeo(
   point: GeoPoint,
@@ -8,10 +22,15 @@ export async function syncProfileCityFromGeo(
   token: string | undefined,
   profileCity?: string,
 ): Promise<{ city: string; saved?: CustomerProfile } | null> {
-  const city = await reverseGeocodeCity(point)
+  const geocodedPlace = await reverseGeocodeCity(point)
+  const city = resolveServiceCityFromGeo(point, geocodedPlace)
   if (!city) return null
 
   const normalizedProfileCity = String(profileCity || "").trim()
+  if (!shouldReplaceProfileCity(normalizedProfileCity, city)) {
+    return null
+  }
+
   const localChanged = city !== normalizedProfileCity
 
   if (!token || !customerId) {

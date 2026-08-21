@@ -123,3 +123,74 @@ export function serviceCityCenter(city: string | undefined | null, fallback = DE
   const normalized = normalizeServiceCity(city, fallback)
   return UKRAINE_SERVICE_CITY_CENTERS[normalized as UkraineServiceCity]
 }
+
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const radius = 6371
+  const dLat = ((lat2 - lat1) * Math.PI) / 180
+  const dLng = ((lng2 - lng1) * Math.PI) / 180
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2
+  return radius * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+}
+
+/** Max distance when snapping GPS / reverse-geocode places (e.g. Перечин) to a service city. */
+export const NEAREST_SERVICE_CITY_MAX_KM = 80
+
+/**
+ * Closest city from the service dropdown to a map point.
+ * Перечин → Ужгород, etc. Returns null when nothing is within maxKm.
+ */
+export function nearestServiceCity(
+  point: { lat: number; lng: number },
+  maxKm = NEAREST_SERVICE_CITY_MAX_KM,
+): { city: UkraineServiceCity; distanceKm: number } | null {
+  if (!Number.isFinite(point.lat) || !Number.isFinite(point.lng)) return null
+
+  let bestCity: UkraineServiceCity | null = null
+  let bestKm = Number.POSITIVE_INFINITY
+  for (const city of UKRAINE_SERVICE_CITIES) {
+    const center = UKRAINE_SERVICE_CITY_CENTERS[city]
+    const km = haversineKm(point.lat, point.lng, center.lat, center.lng)
+    if (km < bestKm) {
+      bestKm = km
+      bestCity = city
+    }
+  }
+  if (!bestCity || bestKm > maxKm) return null
+  return { city: bestCity, distanceKm: bestKm }
+}
+
+/**
+ * Resolve a dropdown service city from GPS + optional Nominatim place name.
+ * Never falls back to Київ just because the village is not in the list.
+ */
+export function resolveServiceCityFromGeo(
+  point: { lat: number; lng: number },
+  geocodedPlace?: string | null,
+): string | null {
+  const place = String(geocodedPlace || "").trim()
+  if (isUkraineServiceCity(place)) return place
+
+  /* Common aliases / districts that map onto a service city */
+  const aliases: Record<string, UkraineServiceCity> = {
+    Kyiv: "Київ",
+    Kiev: "Київ",
+    "Киев": "Київ",
+    Lviv: "Львів",
+    Lvov: "Львів",
+    Odesa: "Одеса",
+    Odessa: "Одеса",
+    Kharkiv: "Харків",
+    Kharkov: "Харків",
+    Dnipro: "Дніпро",
+    Dnepr: "Дніпро",
+    Uzhhorod: "Ужгород",
+    Uzhgorod: "Ужгород",
+    Mukachevo: "Мукачево",
+    Berehove: "Берегове",
+  }
+  if (place && aliases[place]) return aliases[place]
+
+  return nearestServiceCity(point)?.city ?? null
+}

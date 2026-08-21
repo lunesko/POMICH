@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest"
 import {
   DEFAULT_SERVICE_CITY,
   isUkraineServiceCity,
+  nearestServiceCity,
+  resolveServiceCityFromGeo,
   ukraineCityOptions,
   validateServiceCity,
   serviceCityCenter,
@@ -31,5 +33,14 @@ describe("ukraineCities", () => {
     expect(kyiv.lat).toBeGreaterThan(49)
     expect(kyiv.lng).toBeGreaterThan(29)
     expect(serviceCityCenter("unknown")).toEqual(serviceCityCenter(DEFAULT_SERVICE_CITY))
+  })
+
+  it("snaps Perechyn GPS to nearest service city (Uzhhorod), not Kyiv", () => {
+    const perechyn = { lat: 48.73242, lng: 22.47778 }
+    const nearest = nearestServiceCity(perechyn)
+    expect(nearest?.city).toBe("Ужгород")
+    expect(nearest!.distanceKm).toBeLessThan(40)
+    expect(resolveServiceCityFromGeo(perechyn, "Перечин")).toBe("Ужгород")
+    expect(resolveServiceCityFromGeo(perechyn, "Ужгород")).toBe("Ужгород")
   })
 })

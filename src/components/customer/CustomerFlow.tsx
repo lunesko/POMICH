@@ -99,7 +99,7 @@ import { formatLocalPhoneDisplay, nationalDigitsFromPhone, phoneInputValueFromSt
 import { validatePersonName } from "../../lib/personName"
 import { ThemeToggle } from "../ui/ThemeToggle"
 import { CitySelect } from "../ui/CitySelect"
-import { DEFAULT_SERVICE_CITY, normalizeServiceCity, serviceCityCenter } from "../../lib/ukraineCities"
+import { DEFAULT_SERVICE_CITY, isUkraineServiceCity, normalizeServiceCity, nearestServiceCity, resolveServiceCityFromGeo, serviceCityCenter } from "../../lib/ukraineCities"
 import { subscribeOrderEvents } from "../../lib/realtime"
 
 const BRAND = "var(--pomich-brand)"
@@ -1347,14 +1347,21 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
   const [customerVerificationError, setCustomerVerificationError] = useState<string | undefined>()
   const userInitiatedCancelRef = useRef(false)
 
-  const serviceCity = useMemo(
-    () =>
-      normalizeServiceCity(
-        customerProfile.city ||
-          (typeof window !== "undefined" ? window.localStorage.getItem("pomichPreferredCity") : null),
-      ),
-    [customerProfile.city],
-  )
+  const serviceCity = useMemo(() => {
+    const raw = String(
+      customerProfile.city ||
+        (typeof window !== "undefined" ? window.localStorage.getItem("pomichPreferredCity") : "") ||
+        "",
+    ).trim()
+    /* Explicit non-default city from profile/dropdown wins. */
+    if (isUkraineServiceCity(raw) && raw !== DEFAULT_SERVICE_CITY) return raw
+
+    /* Stale Київ / empty / village name: snap to nearest service city from GPS. */
+    const nearest = nearestServiceCity(pickup)
+    if (nearest && nearest.city !== DEFAULT_SERVICE_CITY) return nearest.city
+
+    return normalizeServiceCity(raw)
+  }, [customerProfile.city, pickup.lat, pickup.lng])
 
 
   const applyServiceCity = useCallback(
@@ -1375,16 +1382,6 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
     },
     [serviceCity, customerId, customerAuthToken],
   )
-
-  useEffect(() => {
-    if (screen !== "home") return
-    const center = serviceCityCenter(serviceCity)
-    if (shouldRecenterMap(pickupRef.current, center, 25_000)) {
-      pickupRef.current = center
-      setPickup(center)
-      setGeoRecenterTrigger((value) => value + 1)
-    }
-  }, [screen, serviceCity])
 
   useEffect(() => {
     if (screen !== "home") return
@@ -1524,7 +1521,14 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
     let cancelled = false
     const timeoutId = window.setTimeout(() => {
       reverseGeocodeAddress(pickup).then((label) => {
-        if (!cancelled) setAddressLabel(label)
+        if (cancelled) return
+        const looksLikeCoords = /^\s*-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?\s*$/.test(label)
+        if (looksLikeCoords) {
+          const nearest = nearestServiceCity(pickup)
+          setAddressLabel(nearest ? `${label} · біля ${nearest.city}` : label)
+          return
+        }
+        setAddressLabel(label)
       })
     }, MAP_GEO_DEBOUNCE_MS)
 
@@ -1542,15 +1546,21 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
     syncProfileCityFromGeo(pickup, customerId, customerAuthToken, customerProfile.city)
       .then((result) => {
         if (cancelled || !result) return
+        if (typeof window !== "undefined") {
+          window.localStorage.setItem("pomichPreferredCity", result.city)
+        }
         setCustomerProfile((profile) => {
           const targetCity = result.saved?.city || result.city
+          const resolvedTarget = resolveServiceCityFromGeo(pickup, targetCity) || result.city
           if (
-            profile.city === targetCity &&
+            profile.city === resolvedTarget &&
             (!result.saved || profile.verificationStatus === result.saved.verificationStatus)
           ) {
             return profile
           }
-          const next = result.saved ? mergeCustomerProfiles(profile, result.saved) : { ...profile, city: result.city }
+          const next = result.saved
+            ? mergeCustomerProfiles(profile, { ...result.saved, city: resolvedTarget })
+            : { ...profile, city: resolvedTarget }
           if (typeof window !== "undefined") {
             window.sessionStorage.setItem("pomichBootstrapProfile", JSON.stringify(next))
           }
