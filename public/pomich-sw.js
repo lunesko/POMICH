@@ -1,5 +1,5 @@
-const TILE_CACHE = "pomich-map-tiles-v20"
-const ASSET_CACHE = "pomich-assets-v20"
+const TILE_CACHE = "pomich-map-tiles-v21"
+const ASSET_CACHE = "pomich-assets-v21"
 const TILE_CACHE_MAX = 350
 const TILE_HOST_PATTERN = /(^|\.)tile\.openstreetmap\.org$/
 

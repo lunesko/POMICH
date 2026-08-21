@@ -1645,7 +1645,8 @@ export function RouteMap({
 
 
   const hideMapChrome = sheetSnap === "expanded"
-  const showSpeedHud = !decorative && !directoryOnly && !hideMapChrome && Boolean(followMotionPoint)
+  /* Google/Waze-style speed: always on live interactive maps (0 when standing / no fix yet). */
+  const showSpeedHud = !decorative && !directoryOnly && mapInteractive
 
   /* Scope selector must stay available even when the directory list is empty. */
   const showDirectoryScopeTools = Boolean(onDirectoryScopeChange)
@@ -1730,7 +1731,7 @@ export function RouteMap({
 
   return (
 
-    <div className={`pomich-route-map${full ? " pomich-route-map--full" : ""}${ukraineWideView ? " pomich-route-map--ukraine-wide" : ""}`} style={{ height: full ? "100%" : 244, minHeight: full ? 0 : undefined, borderRadius: full ? 0 : 22, overflow: full ? "visible" : "hidden", border: full ? "none" : `1px solid ${BORDER}`, position: "relative", ...(decorative ? { pointerEvents: "none" } : {}) }}>
+    <div className={`pomich-route-map${full ? " pomich-route-map--full" : ""}${ukraineWideView ? " pomich-route-map--ukraine-wide" : ""}${showSpeedHud ? " pomich-route-map--live-speed" : ""}`} style={{ height: full ? "100%" : 244, minHeight: full ? 0 : undefined, borderRadius: full ? 0 : 22, overflow: full ? "visible" : "hidden", border: full ? "none" : `1px solid ${BORDER}`, position: "relative", ...(decorative ? { pointerEvents: "none" } : {}) }}>
 
       <MapContainer center={initialCenterRef.current} zoom={effectiveZoom} zoomControl={mapInteractive} scrollWheelZoom={mapInteractive} dragging={mapInteractive} touchZoom={mapInteractive} doubleClickZoom={mapInteractive} boxZoom={mapInteractive} keyboard={mapInteractive} style={{ width: "100%", height: "100%" }}>
 

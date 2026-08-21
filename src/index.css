@@ -877,21 +877,21 @@ html:not([data-pomich-theme]) .pomich-map-chip--brand {
 }
 .pomich-map-speed {
   position: absolute;
-  z-index: 1200;
-  /* Below zoom/tools/legend row so it stays readable like Google/Waze. */
-  top: calc(var(--pomich-map-chrome-top, 78px) + 52px);
+  z-index: 1300;
+  top: var(--pomich-map-chrome-top, 78px);
   right: var(--pomich-map-chrome-right, 12px);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  min-width: 52px;
-  padding: 8px 10px 6px;
-  border-radius: 14px;
-  border: 1px solid var(--pomich-glass-border);
-  background: var(--pomich-glass-card);
-  backdrop-filter: blur(14px) saturate(180%);
-  -webkit-backdrop-filter: blur(14px) saturate(180%);
+  width: 64px;
+  height: 64px;
+  padding: 0;
+  border-radius: 999px;
+  border: 2px solid color-mix(in srgb, var(--pomich-brand) 55%, var(--pomich-glass-border));
+  background: color-mix(in srgb, var(--pomich-glass-card) 92%, #fff);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
   box-shadow: var(--pomich-card-shadow);
   color: var(--pomich-text);
   pointer-events: none;
@@ -900,15 +900,25 @@ html:not([data-pomich-theme]) .pomich-map-chip--brand {
 .pomich-map-speed__value {
   font-size: 22px;
   font-weight: 950;
-  letter-spacing: -0.03em;
+  letter-spacing: -0.04em;
   font-variant-numeric: tabular-nums;
 }
 .pomich-map-speed__unit {
-  margin-top: 3px;
-  font-size: 10px;
+  margin-top: 2px;
+  font-size: 9px;
   font-weight: 800;
-  opacity: 0.72;
+  opacity: 0.7;
   text-transform: lowercase;
+}
+.pomich-route-map--live-speed .pomich-map-legend-box,
+.pomich-route-map--live-speed .pomich-map-legend-fab,
+.pomich-route-map--live-speed .pomich-map-tools-toggle,
+.pomich-route-map--live-speed .pomich-map-tools-panel {
+  top: calc(var(--pomich-map-chrome-top, 78px) + 76px);
+}
+[data-pomich-theme="dark"] .pomich-map-speed {
+  background: color-mix(in srgb, var(--pomich-glass-card) 94%, #0b1220);
+  border-color: color-mix(in srgb, var(--pomich-brand) 45%, var(--pomich-glass-border));
 }
 .pomich-map-locate__btn {
   pointer-events: auto;

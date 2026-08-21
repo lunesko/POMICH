@@ -146,6 +146,13 @@ describe("RouteMap recenter behavior", () => {
     expect(getByLabelText(/Швидкість 31 кілометрів/i)).toBeTruthy()
   })
 
+  it("shows zero speed HUD when standing still", () => {
+    const { getByLabelText } = render(
+      <RouteMap pickup={{ lat: 48.6208, lng: 22.2879 }} geoSpeedMps={0} />,
+    )
+    expect(getByLabelText(/Швидкість 0 кілометрів/i)).toBeTruthy()
+  })
+
   it("applies speed zoom on an open map with onPick and no route", () => {
     const pickup = { lat: 48.6208, lng: 22.2879 }
     const { rerender } = render(
