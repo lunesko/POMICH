@@ -334,12 +334,12 @@ function GeoRefreshButton({ loading, onClick }: { loading: boolean; onClick: () 
     <button
       type="button"
       aria-label="Оновити геолокацію"
+      aria-busy={loading || undefined}
       onClick={(event) => {
         event.preventDefault()
         event.stopPropagation()
         onClick()
       }}
-      disabled={loading}
       style={{
         minHeight: 36,
         padding: "0 12px",
@@ -349,7 +349,7 @@ function GeoRefreshButton({ loading, onClick }: { loading: boolean; onClick: () 
         color: loading ? SUBTLE : DARK,
         fontWeight: 900,
         fontSize: 12,
-        cursor: loading ? "not-allowed" : "pointer",
+        cursor: "pointer",
         fontFamily: "inherit",
         whiteSpace: "nowrap",
         display: "inline-flex",
@@ -1754,6 +1754,14 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
     setGeoState("requesting")
     setGeoMessage("Визначаємо ваше місцезнаходження…")
     setAddressLabel("Визначаємо адресу…")
+    // Safety: never leave the button stuck on «Оновлюємо…» if the OS never answers.
+    window.setTimeout(() => {
+      if (requestGen !== geoRequestGenRef.current) return
+      if (!explicitGeoInFlightRef.current) return
+      explicitGeoInFlightRef.current = false
+      setGeoState((current) => (current === "requesting" ? "unavailable" : current))
+      setGeoMessage("Не вдалося визначити місцезнаходження вчасно. Натисніть «Оновити» ще раз або оберіть точку на карті.")
+    }, 20_000)
     // Call from the click gesture so iOS Safari / Telegram can show the permission prompt.
     requestCurrentPosition(
       (nextPoint) => {

@@ -517,6 +517,7 @@ export function openTelegramLocationSettings(webApp?: TelegramWebApp): boolean {
 /**
  * Ask Telegram LocationManager for a fix (Bot API 8.0+).
  * Returns false when the API is unavailable so the caller can fall back to browser geolocation.
+ * Only runs inside a real Telegram Mini App session (non-empty initData) — never on the public website.
  */
 export function requestTelegramLocation(
   onSuccess: (point: { lat: number; lng: number }) => void,
@@ -524,8 +525,22 @@ export function requestTelegramLocation(
   onUnavailable: () => void,
   webApp?: TelegramWebApp,
 ): boolean {
-  const manager = webApp?.LocationManager ?? (typeof window !== "undefined" ? window.Telegram?.WebApp?.LocationManager : undefined)
+  const resolved =
+    webApp ?? (typeof window !== "undefined" ? window.Telegram?.WebApp : undefined)
+  const initData = String(resolved?.initData || "").trim()
+  if (!initData) return false
+
+  const manager = resolved?.LocationManager
   if (!manager || typeof manager.getLocation !== "function") return false
+
+  let settled = false
+  let hangGuard: number | undefined
+  const settle = (fn: () => void) => {
+    if (settled) return
+    settled = true
+    if (typeof hangGuard === "number") window.clearTimeout(hangGuard)
+    fn()
+  }
 
   const readLocation = () => {
     try {
@@ -535,21 +550,23 @@ export function requestTelegramLocation(
           Number.isFinite(location.latitude) &&
           Number.isFinite(location.longitude)
         ) {
-          onSuccess({ lat: location.latitude, lng: location.longitude })
+          settle(() => onSuccess({ lat: location.latitude, lng: location.longitude }))
           return
         }
         if (manager.isAccessRequested && manager.isAccessGranted === false) {
-          onDenied()
+          settle(() => onDenied())
           return
         }
-        onUnavailable()
+        settle(() => onUnavailable())
       })
     } catch {
-      onUnavailable()
+      settle(() => onUnavailable())
     }
   }
 
   try {
+    // If init/getLocation hangs (stub / broken bridge), fall through to browser GPS.
+    hangGuard = window.setTimeout(() => settle(() => onUnavailable()), 8_000)
     if (!manager.isInited && typeof manager.init === "function") {
       manager.init(() => readLocation())
     } else {
@@ -557,6 +574,7 @@ export function requestTelegramLocation(
     }
     return true
   } catch {
+    if (typeof hangGuard === "number") window.clearTimeout(hangGuard)
     return false
   }
 }

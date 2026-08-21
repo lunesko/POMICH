@@ -346,18 +346,40 @@ export function requestCurrentPosition(
       return
     }
 
-    // First-time auto request — one attempt only (no high→low double prompt).
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        finishGeoSuccess({ lat: position.coords.latitude, lng: position.coords.longitude }, onSuccess)
-      },
-      (error) => {
-        const classified = classifyGeolocationError(error)
-        if (classified.kind === "permission-denied") writeRememberedGeoPermission("denied")
-        onError(classified.message, classified.kind)
-      },
-      { enableHighAccuracy: false, timeout: 15000, maximumAge: GEO_BROWSER_MAX_AGE_AUTO_MS },
-    )
+    // No cache: only auto-call getCurrentPosition when permission is already granted,
+    // or inside Telegram Mini App (WebView prompts work without a website gesture).
+    // Public Safari/Chrome often suppress the OS prompt without a tap — leave UI idle for «Оновити».
+    void resolveGeoPermission().then((state) => {
+      const inTelegramMiniApp = Boolean(
+        typeof window !== "undefined" && String(window.Telegram?.WebApp?.initData || "").trim(),
+      )
+      if (state === "granted" || inTelegramMiniApp) {
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            finishGeoSuccess({ lat: position.coords.latitude, lng: position.coords.longitude }, onSuccess)
+          },
+          (error) => {
+            const classified = classifyGeolocationError(error)
+            if (classified.kind === "permission-denied") writeRememberedGeoPermission("denied")
+            onError(classified.message, classified.kind)
+          },
+          { enableHighAccuracy: false, timeout: 15000, maximumAge: GEO_BROWSER_MAX_AGE_AUTO_MS },
+        )
+        return
+      }
+      if (state === "denied") {
+        writeRememberedGeoPermission("denied")
+        onError(
+          "Доступ до геолокації заборонено. Увімкніть його в налаштуваннях браузера, потім натисніть «Оновити».",
+          "permission-denied",
+        )
+        return
+      }
+      onError(
+        "Натисніть «Оновити», щоб дозволити геолокацію в браузері.",
+        "unavailable",
+      )
+    })
     return
   }
 

@@ -207,6 +207,7 @@ describe("mapGeo", () => {
     })
     vi.stubGlobal("Telegram", {
       WebApp: {
+        initData: "query_id=1&user=%7B%7D",
         LocationManager: {
           isInited: true,
           getLocation: (callback: (location: { latitude: number; longitude: number } | null) => void) => {
@@ -219,5 +220,45 @@ describe("mapGeo", () => {
     requestCurrentPosition(onSuccess, vi.fn(), { mode: "explicit" })
     expect(onSuccess).toHaveBeenCalledWith({ lat: 48.61, lng: 22.27 })
     expect(getCurrentPosition).not.toHaveBeenCalled()
+  })
+
+  it("explicit mode skips Telegram LocationManager without Mini App initData", () => {
+    const getCurrentPosition = vi.fn((success: PositionCallback) => {
+      success({
+        coords: { latitude: 48.66, longitude: 22.32, accuracy: 12, altitude: null, altitudeAccuracy: null, heading: null, speed: null },
+        timestamp: Date.now(),
+      } as GeolocationPosition)
+    })
+    vi.stubGlobal("navigator", {
+      geolocation: { getCurrentPosition },
+      permissions: undefined,
+    })
+    vi.stubGlobal("Telegram", {
+      WebApp: {
+        initData: "",
+        LocationManager: {
+          isInited: true,
+          getLocation: vi.fn(),
+        },
+      },
+    })
+    const onSuccess = vi.fn()
+    requestCurrentPosition(onSuccess, vi.fn(), { mode: "explicit" })
+    expect(getCurrentPosition).toHaveBeenCalled()
+    expect(onSuccess).toHaveBeenCalledWith({ lat: 48.66, lng: 22.32 })
+  })
+
+  it("auto mode asks for an explicit tap on the public website when permission is unknown", async () => {
+    const getCurrentPosition = vi.fn()
+    vi.stubGlobal("navigator", {
+      geolocation: { getCurrentPosition },
+      permissions: undefined,
+    })
+    vi.stubGlobal("Telegram", { WebApp: { initData: "" } })
+    const onError = vi.fn()
+    requestCurrentPosition(vi.fn(), onError, { mode: "auto" })
+    await vi.waitFor(() => expect(onError).toHaveBeenCalled())
+    expect(getCurrentPosition).not.toHaveBeenCalled()
+    expect(onError).toHaveBeenCalledWith(expect.stringMatching(/Оновити/i), "unavailable")
   })
 })

@@ -796,7 +796,7 @@ function RouteOriginSheet({
           <button
             type="button"
             onClick={onRequestGeo}
-            disabled={geoRequesting}
+            aria-busy={geoRequesting || undefined}
             style={{
               minHeight: 44,
               border: `1px solid ${BORDER}`,
@@ -806,7 +806,7 @@ function RouteOriginSheet({
               WebkitBackdropFilter: "blur(14px)",
               color: DARK,
               fontWeight: 900,
-              cursor: geoRequesting ? "wait" : "pointer",
+              cursor: "pointer",
               fontFamily: "inherit",
             }}
           >
@@ -2076,8 +2076,8 @@ export function RouteMap({
               className={`pomich-map-locate__btn${locateLoading ? " is-loading" : ""}${locateError ? " is-error" : ""}`}
               aria-label="Моє місцезнаходження"
               title="Моє місцезнаходження"
+              aria-busy={locateLoading || undefined}
               onClick={handleLocateClick}
-              disabled={locateLoading}
             >
               <LocateCrosshairIcon spinning={locateLoading} />
             </button>
