@@ -101,7 +101,13 @@ export function sanitizeLocation(value: string): string {
   const withoutStreetNumber = trimmed.replace(/,\s*\d{1,4}([\/\-]\d{1,4})?/g, '')
   const withoutExactHouse = withoutStreetNumber.replace(/\b\d{1,4}([\/\-]\d{1,4})?\b/g, '')
 
-  return withoutExactHouse.replace(/\s+/g, ' ').trim() || 'Не вказано'
+  const cleaned = withoutExactHouse
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join(', ')
+
+  return cleaned || 'Не вказано'
 }
 
 export function getStateTransition(state: OrderState, event: 'accept' | 'cancel' | 'complete' | 'arrive' | 'track'): OrderState {

@@ -1130,6 +1130,7 @@ export default function ProviderFlow({
       partnerProposedPrice: parsedPrice,
       partnerPriceNote: noteForAccept,
       customerCoordinates: offer.customerCoordinates,
+      customerLocation: offer.approximateLocation,
       customerComment: offer.customerComment,
     } as OrderResponse
     persistActiveOrder(offer.orderId, "accepted")
@@ -2233,8 +2234,10 @@ export default function ProviderFlow({
     const activeStatus = normalizeOrderStatus(activeOrder?.status)
     const nextStatus: OrderStatus = activeStatus === "price_confirmed" || activeStatus === "assigned" || activeStatus === "accepted" ? "en_route" : "arrived"
     const hasLiveGps = Number.isFinite(providerLocation.lat) && Number.isFinite(providerLocation.lng)
-    const routePickup = activeOrder?.customerCoordinates ?? pickup
-    const routeDestination = activeOrder?.destinationCoordinates ?? destination
+    // Never fall back to hardcoded Uzhhorod demo points — that drew a fake blue destination
+    // and/or routed to the wrong pickup after accept.
+    const routePickup = activeOrder?.customerCoordinates
+    const routeDestination = activeOrder?.destinationCoordinates
     const customerLabel = activeOrder?.customerLocation || "Точка подачі клієнта"
     return (
       <ScreenLayout
@@ -2263,13 +2266,19 @@ export default function ProviderFlow({
       >
         <Header title="Маршрут до клієнта" subtitle={activeOrder?.id ? `Активне замовлення #${activeOrder.id}` : "Активне замовлення"} status={activeStatus === "en_route" ? "en_route" : "price_confirmed"} />
         <div style={{ padding: "0 16px 16px", display: "grid", gap: 12 }}>
-          <LazyRouteMap
-            pickup={routePickup}
-            destination={routeDestination}
-            providerPosition={hasLiveGps ? providerLocation : undefined}
-            subtitle={hasLiveGps ? "Ваша GPS-позиція" : "Очікуємо геолокацію"}
-            mapTileTheme={mapTileTheme}
-          />
+          {routePickup ? (
+            <LazyRouteMap
+              pickup={routePickup}
+              destination={routeDestination}
+              providerPosition={hasLiveGps ? providerLocation : undefined}
+              subtitle={hasLiveGps ? "Ваша GPS-позиція" : "Очікуємо геолокацію"}
+              mapTileTheme={mapTileTheme}
+            />
+          ) : (
+            <div style={{ background: CARD, borderRadius: 18, border: `1px solid ${BORDER}`, padding: 14, color: MUTED, fontWeight: 700 }}>
+              Немає координат клієнта для побудови маршруту. Оновіть заявку або попросіть клієнта надіслати геолокацію ще раз.
+            </div>
+          )}
           <div style={{ background: "var(--pomich-accent-panel-bg)", color: "#fff", borderRadius: 18, padding: 16 }}>
             <div style={{ fontWeight: 950, fontSize: 20 }}>{hasLiveGps ? "Навігація за GPS" : "Немає GPS"}</div>
             <div style={{ color: "#CBD5E1", marginTop: 6, fontWeight: 700 }}>Клієнт: {customerLabel}</div>

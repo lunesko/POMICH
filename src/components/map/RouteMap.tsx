@@ -160,13 +160,24 @@ function MapThemeTileLayer({ mapTileTheme }: { mapTileTheme: MapTileTheme }) {
   )
 }
 
-function FitRouteBounds({ coords }: { coords: LatLngTuple[] }) {
+function FitRouteBounds({ coords, fitKey }: { coords: LatLngTuple[]; fitKey?: string }) {
   const map = useMap()
+  const lastKeyRef = useRef<string>("")
   useEffect(() => {
     if (coords.length < 2) return
-    map.fitBounds(L.latLngBounds(coords), { padding: [52, 52] })
-  }, [coords, map])
+    const key =
+      fitKey ??
+      `${coords[0][0].toFixed(4)},${coords[0][1].toFixed(4)}|${coords[coords.length - 1][0].toFixed(4)},${coords[coords.length - 1][1].toFixed(4)}|${coords.length}`
+    if (key === lastKeyRef.current) return
+    lastKeyRef.current = key
+    map.fitBounds(L.latLngBounds(coords), { padding: [48, 48], maxZoom: 16 })
+  }, [coords, fitKey, map])
   return null
+}
+
+/** Round GPS jitter so OSRM is not cancelled on every watchPosition tick. */
+function routePointKey(point: Point, digits = 3): string {
+  return `${point.lat.toFixed(digits)},${point.lng.toFixed(digits)}`
 }
 
 function MapExplicitRecenter({
@@ -1270,91 +1281,76 @@ export function RouteMap({
 
 
 
-  const routeEndpoints = useMemo(() => {
+  const routeRequestKey = useMemo(() => {
+    if (directoryOnly) return ""
+    if (providerPosition) {
+      return `provider:${routePointKey(providerPosition, 3)}>${routePointKey(pickup, 4)}`
+    }
+    if (destination) {
+      return `trip:${routePointKey(pickup, 4)}>${routePointKey(destination, 4)}`
+    }
+    return ""
+  }, [
+    destination?.lat,
+    destination?.lng,
+    directoryOnly,
+    pickup.lat,
+    pickup.lng,
+    providerPosition?.lat,
+    providerPosition?.lng,
+  ])
 
-    if (directoryOnly) return null
-
-    if (providerPosition) return { from: providerPosition, to: pickup }
-
-    if (destination) return { from: pickup, to: destination }
-
-    return null
-
-  }, [destination, directoryOnly, pickup, providerPosition])
-
-
+  const routeEndpointsRef = useRef<{ from: Point; to: Point } | null>(null)
+  if (directoryOnly) {
+    routeEndpointsRef.current = null
+  } else if (providerPosition) {
+    routeEndpointsRef.current = { from: providerPosition, to: pickup }
+  } else if (destination) {
+    routeEndpointsRef.current = { from: pickup, to: destination }
+  } else {
+    routeEndpointsRef.current = null
+  }
 
   useEffect(() => {
-
-    if (!routeEndpoints) {
-
+    const endpoints = routeRequestKey ? routeEndpointsRef.current : null
+    if (!endpoints) {
       setRouteCoords(null)
-
       setRouteFallback(false)
-
       setRouteInfo(null)
-
       return
-
     }
-
-
 
     let cancelled = false
-
-    const { from, to } = routeEndpoints
-
+    const { from, to } = endpoints
     const fallbackLine: LatLngTuple[] = [toTuple(from), toTuple(to)]
 
-
-
     fetchOsrmRoute(from, to)
-
       .then((result) => {
-
         if (cancelled) return
-
         if (result) {
-
           setRouteCoords(result.coordinates)
-
           setRouteFallback(false)
-
           setRouteInfo({ distanceMeters: result.distanceMeters, durationSeconds: result.durationSeconds })
-
         } else {
-
           setRouteCoords(fallbackLine)
-
           setRouteFallback(true)
-
           setRouteInfo(null)
-
         }
-
       })
-
       .catch(() => {
-
         if (cancelled) return
-
         setRouteCoords(fallbackLine)
-
         setRouteFallback(true)
-
         setRouteInfo(null)
-
       })
-
-
 
     return () => {
-
       cancelled = true
-
     }
+  }, [routeRequestKey])
 
-  }, [routeEndpoints])
+  // Used for fallback label / presence checks without re-subscribing to GPS object identity.
+  const routeEndpoints = routeRequestKey ? routeEndpointsRef.current : null
 
 
 
@@ -1555,6 +1551,10 @@ export function RouteMap({
         {mapInteractive ? <ClickToPick onPick={handleMapPick} /> : null}
 
         {navRouteCoords ? <FitRouteBounds coords={navRouteCoords} /> : null}
+
+        {!directoryOnly && !navRouteCoords && routeCoords ? (
+          <FitRouteBounds coords={routeCoords} fitKey={routeRequestKey} />
+        ) : null}
 
         {!directoryOnly && routeCoords ? (
 

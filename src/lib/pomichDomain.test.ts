@@ -68,6 +68,8 @@ describe('pomichDomain', () => {
   it('masks locations for privacy before displaying them', () => {
     expect(sanitizeLocation('вул. Собранецька, 12/3, Ужгород')).toMatch(/Ужгород/)
     expect(sanitizeLocation('вул. Собранецька, 12/3, Ужгород')).not.toContain('12/3')
+    expect(sanitizeLocation('12, Срібляста вулиця, Червениця')).toBe('Срібляста вулиця, Червениця')
+    expect(sanitizeLocation('12, Срібляста вулиця, Червениця')).not.toMatch(/^,/)
   })
 
   it('builds a stable fingerprint for duplicate-request protection', () => {

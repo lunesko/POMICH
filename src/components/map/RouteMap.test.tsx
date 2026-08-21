@@ -73,6 +73,7 @@ vi.mock("../../lib/osrmRoute", () => ({
   forwardGeocodeAddress: vi.fn(async () => null),
 }))
 
+import { fetchOsrmRoute } from "../../lib/osrmRoute"
 import RouteMap from "./RouteMap"
 
 describe("RouteMap recenter behavior", () => {
@@ -81,6 +82,8 @@ describe("RouteMap recenter behavior", () => {
     flyTo.mockClear()
     panBy.mockClear()
     fitBounds.mockClear()
+    vi.mocked(fetchOsrmRoute).mockReset()
+    vi.mocked(fetchOsrmRoute).mockResolvedValue(null)
     vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
       cb(0)
       return 1
@@ -401,5 +404,35 @@ describe("RouteMap recenter behavior", () => {
 
     fireEvent.click(getByRole("button", { name: /Допомога поруч/i }))
     expect(getByRole("button", { name: /Усі сервіси \(1\)/i })).toBeTruthy()
+  })
+
+  it("fetches partner→client OSRM once for GPS jitter and fits the route bounds", async () => {
+    vi.useRealTimers()
+    vi.mocked(fetchOsrmRoute).mockResolvedValue({
+      coordinates: [
+        [48.632, 22.271],
+        [48.628, 22.28],
+        [48.6208, 22.2879],
+      ],
+      distanceMeters: 2100,
+      durationSeconds: 240,
+    })
+
+    const pickup = { lat: 48.6208, lng: 22.2879 }
+    const { rerender } = render(
+      <RouteMap pickup={pickup} providerPosition={{ lat: 48.63201, lng: 22.27102 }} />,
+    )
+
+    await waitFor(() => expect(fetchOsrmRoute).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(fitBounds).toHaveBeenCalled())
+
+    // Sub-cell GPS noise must not cancel/refetch OSRM (was leaving the polyline empty).
+    rerender(<RouteMap pickup={pickup} providerPosition={{ lat: 48.63209, lng: 22.27108 }} />)
+    await new Promise((resolve) => setTimeout(resolve, 40))
+    expect(fetchOsrmRoute).toHaveBeenCalledTimes(1)
+
+    // Crossing the ~100m rounding cell should refetch and re-fit.
+    rerender(<RouteMap pickup={pickup} providerPosition={{ lat: 48.6345, lng: 22.275 }} />)
+    await waitFor(() => expect(fetchOsrmRoute).toHaveBeenCalledTimes(2))
   })
 })
