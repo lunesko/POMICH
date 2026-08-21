@@ -1587,21 +1587,10 @@ export function RouteMap({
 
 
   const center = providerPosition ? toTuple(providerPosition) : userLocation ? toTuple(userLocation) : toTuple(pickup)
-  // Follow the moving actor (client GPS or partner GPS) with speed-based zoom.
-  // Prefer partner marker when present; otherwise follow the client while they have no destination pin yet.
-  // Keep following during partner navigation (navRouteCoords) so zoom can react to speed.
+  // Follow live GPS with speed-based zoom on any open map (with or without a route polyline).
+  // Prefer the partner marker when present; otherwise follow the viewer (client/partner) point.
   const followMotionPoint: LatLngTuple | null =
-    !decorative &&
-    !directoryOnly &&
-    !markerDragging &&
-    !locationPickMode &&
-    !ukraineWideView
-      ? providerPosition
-        ? toTuple(providerPosition)
-        : !destination
-          ? center
-          : null
-      : null
+    !decorative && !directoryOnly && !markerDragging && !ukraineWideView ? center : null
 
 
   const { directoryProviders, liveProviders } = useMemo(() => {

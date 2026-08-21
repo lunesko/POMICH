@@ -138,6 +138,21 @@ describe("RouteMap recenter behavior", () => {
     expect(zoomArg).toBe(14)
   })
 
+  it("applies speed zoom on an open map with onPick and no route", () => {
+    const pickup = { lat: 48.6208, lng: 22.2879 }
+    const { rerender } = render(
+      <RouteMap pickup={pickup} geoSpeedMps={0} onPick={(point) => point} />,
+    )
+    vi.runAllTimers()
+    flyTo.mockClear()
+
+    rerender(<RouteMap pickup={pickup} geoSpeedMps={3} onPick={(point) => point} />)
+    vi.runAllTimers()
+
+    expect(flyTo).toHaveBeenCalled()
+    expect(flyTo.mock.calls[0]?.[1]).toBe(16)
+  })
+
   it("renders my-location control beside zoom and requests geolocation", async () => {
     vi.useRealTimers()
     vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
