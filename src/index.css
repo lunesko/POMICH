@@ -1463,7 +1463,7 @@ html.mobile-compact .pomich-map-occupied-hint {
   z-index: 450;
   /* Cap against parent ride-screen so content stays above browser/TG chrome */
   max-height: min(var(--pomich-sheet-max, 78%), 100%) !important;
-  min-height: min(var(--pomich-sheet-min, 14%), 7.5rem);
+  min-height: min(var(--pomich-sheet-min, 18%), 8.5rem);
   height: var(--pomich-sheet-height, var(--pomich-sheet-half));
   transition: height 0.28s cubic-bezier(0.32, 0.72, 0, 1);
   will-change: height;
