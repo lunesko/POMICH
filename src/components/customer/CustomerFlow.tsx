@@ -859,6 +859,7 @@ function DestinationStep({
   destination,
   value,
   serviceKey,
+  geoSpeedMps = null,
   onPick,
   onChange,
   onNext,
@@ -869,6 +870,7 @@ function DestinationStep({
   destination: Point
   value: string
   serviceKey: ServiceKey
+  geoSpeedMps?: number | null
   onPick: (point: Point) => void
   onChange: (value: string) => void
   onNext: () => void
@@ -888,6 +890,7 @@ function DestinationStep({
       mapSubtitle={needsDestination ? "Оберіть точку на карті" : "Ваше місцезнаходження"}
       onPick={needsDestination ? onPick : undefined}
       mapFocus={needsDestination}
+      geoSpeedMps={geoSpeedMps}
     >
       <div data-sheet-peek>
         <SheetHeading title={title} subtitle={value.trim() || (needsDestination ? "Оберіть точку на карті" : ON_SITE_DESTINATION_LABEL)} />
@@ -1581,7 +1584,8 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
         if (!session.location) return
         const point = { lat: session.location.latitude, lng: session.location.longitude }
         writeCachedGeoPosition(point)
-        writeRememberedGeoPermission("granted")
+        // Session coords are not an OS browser geolocation grant — do not sticky-grant
+        // or Safari/Chrome watchPosition may fail silently while HUD stuck at "0"/"—".
         setPickup(point)
         setGeoState("telegram")
         setGeoMessage("Геолокацію отримано з Telegram.")
@@ -1755,7 +1759,21 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
           applyGeoPosition(position)
         }, MAP_GEO_WATCH_DEBOUNCE_MS)
       },
-      () => undefined,
+      (error) => {
+        if (error.code === error.PERMISSION_DENIED) {
+          writeRememberedGeoPermission("denied")
+          setGeoSpeedMps(null)
+          geoSpeedSmoothRef.current = null
+          setGeoState("permission-denied")
+          setGeoMessage(
+            "Дозвольте доступ до геолокації в браузері або Telegram, потім натисніть «Оновити».",
+          )
+          return
+        }
+        // Transient timeout / unavailable — keep last point; clear speed so HUD shows "—".
+        setGeoSpeedMps(null)
+        geoSpeedSmoothRef.current = null
+      },
       { enableHighAccuracy: true, maximumAge: 1000, timeout: 15000 },
     )
 
@@ -2382,6 +2400,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
           destination={destinationPoint}
           value={destination}
           serviceKey={selectedService}
+          geoSpeedMps={geoSpeedMps}
           onPick={setDestinationFromMap}
           onChange={setDestination}
           onBack={() => setScreen("location")}

@@ -1661,12 +1661,14 @@ export function RouteMap({
 
   const handleLocateClick = () => {
     setLocalGeoError(undefined)
+    // Parent owns explicit geo (gesture + Telegram race). Do not double-fire
+    // getCurrentPosition in the same tap — Safari/Chrome can drop the second prompt.
     if (onRetryGeo) {
       onRetryGeo()
-      // Also resolve locally so flyTo+sheet padding runs even if parent state is slow.
+      return
     }
     if (typeof navigator === "undefined" || !("geolocation" in navigator)) {
-      if (!onRetryGeo) setLocalGeoError("Геолокація недоступна у цьому браузері.")
+      setLocalGeoError("Геолокація недоступна у цьому браузері.")
       return
     }
     setLocalGeoLoading(true)
@@ -1688,7 +1690,7 @@ export function RouteMap({
       },
       (message) => {
         setLocalGeoLoading(false)
-        if (!onRetryGeo) setLocalGeoError(message)
+        setLocalGeoError(message)
       },
       { mode: "explicit" },
     )

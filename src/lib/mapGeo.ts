@@ -118,7 +118,8 @@ export function resolveFollowZoom(
 
 /** Format ground speed for the map HUD (Google/Waze style km/h). */
 export function formatSpeedKmh(speedMps: number | null | undefined): string {
-  if (typeof speedMps !== "number" || !Number.isFinite(speedMps) || speedMps < 0) return "0"
+  // null/undefined = no live GPS speed yet — do not fake a stationary "0".
+  if (typeof speedMps !== "number" || !Number.isFinite(speedMps) || speedMps < 0) return "—"
   const kmh = Math.round(speedMps * 3.6)
   return String(Math.max(0, kmh))
 }
@@ -369,9 +370,17 @@ export function classifyGeolocationError(error: GeolocationPositionError): {
   }
 }
 
-function finishGeoSuccess(point: GeoPoint, onSuccess: (point: GeoPoint) => void): void {
+function finishGeoSuccess(
+  point: GeoPoint,
+  onSuccess: (point: GeoPoint) => void,
+  options: { rememberGrant?: boolean } = {},
+): void {
   writeCachedGeoPosition(point)
-  writeRememberedGeoPermission("granted")
+  // Only sticky-grant after a real browser Geolocation fix — Telegram LocationManager /
+  // bot session coords are not the same as OS browser permission (Safari/Chrome watch).
+  if (options.rememberGrant !== false) {
+    writeRememberedGeoPermission("granted")
+  }
   onSuccess(point)
 }
 
@@ -489,46 +498,96 @@ export function requestCurrentPosition(
     return
   }
 
-  // Explicit user gesture: Telegram LocationManager first, then browser GPS.
+  // Explicit user gesture: start browser GPS immediately (same tap stack — required by
+  // Safari/Chrome), and race Telegram LocationManager when available. First success wins.
+  // One source failing must not abort the other until both have finished.
   try {
     window.localStorage.removeItem(GEO_PERMISSION_STORAGE_KEY)
   } catch {
     // ignore
   }
 
+  let settled = false
+  let raceReady = false
+  let browserDone = false
+  let telegramDone = false
+  let browserFailure: { message: string; kind?: GeoRequestErrorKind } | null = null
+  let telegramStarted = false
+
+  const settleSuccess = (point: GeoPoint, rememberGrant: boolean) => {
+    if (settled) return
+    settled = true
+    finishGeoSuccess(point, onSuccess, { rememberGrant })
+  }
+  const trySettleError = () => {
+    if (settled || !raceReady) return
+    if (!browserDone) return
+    if (telegramStarted && !telegramDone) return
+    settled = true
+    const failure = browserFailure
+    if (failure) {
+      onError(failure.message, failure.kind)
+      return
+    }
+    onError(
+      "Не вдалося визначити місцезнаходження. Спробуйте ще раз або оберіть точку на карті.",
+      "unavailable",
+    )
+  }
+  const markBrowserDone = (failure?: { message: string; kind?: GeoRequestErrorKind }) => {
+    browserDone = true
+    if (failure) browserFailure = failure
+    trySettleError()
+  }
+  const markTelegramDone = () => {
+    telegramDone = true
+    trySettleError()
+  }
+
   const requestBrowserExplicit = () => {
     // Prefer low-accuracy first — more reliable permission prompt in Telegram/iOS WebViews.
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        finishGeoSuccess({ lat: position.coords.latitude, lng: position.coords.longitude }, onSuccess)
+        settleSuccess(
+          { lat: position.coords.latitude, lng: position.coords.longitude },
+          true,
+        )
+        markBrowserDone()
       },
       (firstError) => {
         if (firstError.code === firstError.PERMISSION_DENIED) {
           writeRememberedGeoPermission("denied")
-          onError(
-            "Доступ до геолокації заборонено. Натисніть «Налаштування гео», дозвольте доступ, потім «Оновити» ще раз.",
-            "permission-denied",
-          )
+          markBrowserDone({
+            message:
+              "Доступ до геолокації заборонено. Натисніть «Налаштування гео», дозвольте доступ, потім «Оновити» ще раз.",
+            kind: "permission-denied",
+          })
           return
         }
         navigator.geolocation.getCurrentPosition(
           (position) => {
-            finishGeoSuccess({ lat: position.coords.latitude, lng: position.coords.longitude }, onSuccess)
+            settleSuccess(
+              { lat: position.coords.latitude, lng: position.coords.longitude },
+              true,
+            )
+            markBrowserDone()
           },
           (retryError) => {
             const classified = classifyGeolocationError(retryError)
             if (classified.kind === "permission-denied") writeRememberedGeoPermission("denied")
             const cachedFallback = readCachedGeoPosition()
             if (cachedFallback && classified.kind !== "permission-denied") {
-              onSuccess(cachedFallback)
+              settleSuccess(cachedFallback, false)
+              markBrowserDone()
               return
             }
-            onError(
-              classified.kind === "permission-denied"
-                ? "Доступ до геолокації заборонено. Натисніть «Налаштування гео», дозвольте доступ, потім «Оновити» ще раз."
-                : classified.message,
-              classified.kind,
-            )
+            markBrowserDone({
+              message:
+                classified.kind === "permission-denied"
+                  ? "Доступ до геолокації заборонено. Натисніть «Налаштування гео», дозвольте доступ, потім «Оновити» ще раз."
+                  : classified.message,
+              kind: classified.kind,
+            })
           },
           { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
         )
@@ -537,16 +596,21 @@ export function requestCurrentPosition(
     )
   }
 
-  const usedTelegram = requestTelegramLocation(
-    (point) => finishGeoSuccess(point, onSuccess),
-    () => {
-      writeRememberedGeoPermission("denied")
-      onError(
-        "Доступ до геолокації заборонено. Натисніть «Налаштування гео», дозвольте доступ у Telegram, потім «Оновити».",
-        "permission-denied",
-      )
+  // Always kick browser GPS in this gesture first (public site + TG WebView).
+  requestBrowserExplicit()
+
+  // Optionally race Telegram LocationManager; do not treat LM as browser grant.
+  telegramStarted = requestTelegramLocation(
+    (point) => {
+      settleSuccess(point, false)
+      markTelegramDone()
     },
-    () => requestBrowserExplicit(),
+    () => markTelegramDone(),
+    () => markTelegramDone(),
   )
-  if (!usedTelegram) requestBrowserExplicit()
+  if (!telegramStarted) {
+    telegramDone = true
+  }
+  raceReady = true
+  trySettleError()
 }

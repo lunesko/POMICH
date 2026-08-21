@@ -811,7 +811,15 @@ export default function ProviderFlow({
           writeCachedGeoPosition(point)
           setProviderLocation(point)
         },
-        () => undefined,
+        (error) => {
+          setProviderSpeedMps(null)
+          providerSpeedSmoothRef.current = null
+          if (error.code === error.PERMISSION_DENIED) {
+            setProviderGeoError(
+              "Дозвольте доступ до геолокації в браузері або Telegram, потім натисніть «Оновити».",
+            )
+          }
+        },
         { enableHighAccuracy: true, maximumAge: 1000, timeout: 15000 },
       )
       if (cancelled) {
@@ -1573,6 +1581,32 @@ export default function ProviderFlow({
     setPresenceSaving(true)
     setOfferError(undefined)
     setPresenceToast(undefined)
+    // Kick browser/Telegram GPS in the same tap turn before any await — Safari/Chrome
+    // suppress the prompt once the user-gesture stack is gone.
+    const freshGeoPromise =
+      nextDuty
+        ? new Promise<{ lat: number; lng: number } | null>((resolve) => {
+            let done = false
+            const finish = (point: { lat: number; lng: number } | null) => {
+              if (done) return
+              done = true
+              resolve(point)
+            }
+            window.setTimeout(() => finish(null), 18_000)
+            void ensurePartnerAlertPermission()
+            requestCurrentPosition(
+              (point) => finish(point),
+              (message, kind) => {
+                setProviderGeoError(message)
+                if (kind === "permission-denied") {
+                  setPresenceToast(message)
+                }
+                finish(null)
+              },
+              { mode: "explicit" },
+            )
+          })
+        : Promise.resolve(null)
     try {
       const session = await ensureProviderSession()
       // Reload after self-session so ensure_linked_provider_profile's registeredAt is visible.
@@ -1622,18 +1656,20 @@ export default function ProviderFlow({
       }
 
       if (nextDuty) {
-        // Request notification permission in the same user-gesture turn when possible.
-        void ensurePartnerAlertPermission()
-        // Acquire GPS in the same gesture so presence/heartbeats are not stuck on PROVIDER_START.
-        requestCurrentPosition(
-          (point) => {
-            setProviderLocation(point)
-            providerLocationRef.current = point
-            setProviderGeoWatchEpoch((value) => value + 1)
-          },
-          () => undefined,
-          { mode: "explicit" },
-        )
+        const freshPoint = await freshGeoPromise
+        if (freshPoint) {
+          setProviderLocation(freshPoint)
+          providerLocationRef.current = freshPoint
+          setProviderGeoError(undefined)
+          setProviderGeoWatchEpoch((value) => value + 1)
+        } else if (!providerLocationRef.current) {
+          const message =
+            "Не вдалося визначити геолокацію. Дозвольте доступ і натисніть «Оновити», потім знову «На лінії»."
+          setOfferError(message)
+          setPresenceToast(message)
+          setProviderGeoError(message)
+          return
+        }
         seenDutyAlertIdsRef.current = new Set()
         dutyAlertsSeededRef.current = false
         setIncomingOffers([])
@@ -1651,7 +1687,7 @@ export default function ProviderFlow({
 
       const updated = await updateProviderPresence(session.providerId, {
         status: nextDuty ? "online" : "offline",
-        location: providerLocation,
+        location: providerLocationRef.current,
         ...(((fresh || providerProfile).etaMinutes != null)
           ? { etaMinutes: (fresh || providerProfile).etaMinutes }
           : {}),

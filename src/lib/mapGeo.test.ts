@@ -83,7 +83,8 @@ describe("mapGeo", () => {
   })
 
   it("formats speed HUD in km/h", () => {
-    expect(formatSpeedKmh(null)).toBe("0")
+    expect(formatSpeedKmh(null)).toBe("—")
+    expect(formatSpeedKmh(undefined)).toBe("—")
     expect(formatSpeedKmh(0)).toBe("0")
     expect(formatSpeedKmh(10)).toBe("36")
   })
@@ -276,7 +277,7 @@ describe("mapGeo", () => {
     expect(readRememberedGeoPermission()).toBe("granted")
   })
 
-  it("explicit mode prefers Telegram LocationManager when available", () => {
+  it("explicit mode races browser GPS with Telegram LocationManager; LM does not sticky-grant", () => {
     const getCurrentPosition = vi.fn()
     vi.stubGlobal("navigator", {
       geolocation: { getCurrentPosition },
@@ -295,8 +296,43 @@ describe("mapGeo", () => {
     })
     const onSuccess = vi.fn()
     requestCurrentPosition(onSuccess, vi.fn(), { mode: "explicit" })
+    // Browser must start in the same gesture (Safari/Chrome); LM may win the race.
+    expect(getCurrentPosition).toHaveBeenCalled()
     expect(onSuccess).toHaveBeenCalledWith({ lat: 48.61, lng: 22.27 })
-    expect(getCurrentPosition).not.toHaveBeenCalled()
+    expect(readRememberedGeoPermission()).toBeNull()
+  })
+
+  it("explicit mode keeps waiting for Telegram when browser denies", async () => {
+    const getCurrentPosition = vi.fn((_success: PositionCallback, error: PositionErrorCallback) => {
+      error({
+        code: 1,
+        PERMISSION_DENIED: 1,
+        POSITION_UNAVAILABLE: 2,
+        TIMEOUT: 3,
+        message: "denied",
+      } as GeolocationPositionError)
+    })
+    vi.stubGlobal("navigator", {
+      geolocation: { getCurrentPosition },
+      permissions: undefined,
+    })
+    vi.stubGlobal("Telegram", {
+      WebApp: {
+        initData: "query_id=1&user=%7B%7D",
+        LocationManager: {
+          isInited: true,
+          getLocation: (callback: (location: { latitude: number; longitude: number } | null) => void) => {
+            window.setTimeout(() => callback({ latitude: 48.62, longitude: 22.28 }), 20)
+          },
+        },
+      },
+    })
+    const onSuccess = vi.fn()
+    const onError = vi.fn()
+    requestCurrentPosition(onSuccess, onError, { mode: "explicit" })
+    await vi.waitFor(() => expect(onSuccess).toHaveBeenCalledWith({ lat: 48.62, lng: 22.28 }))
+    expect(onError).not.toHaveBeenCalled()
+    expect(readRememberedGeoPermission()).toBe("denied")
   })
 
   it("explicit mode skips Telegram LocationManager without Mini App initData", () => {
