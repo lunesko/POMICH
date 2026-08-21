@@ -746,7 +746,8 @@ export default function ProviderCabinet({
                     Ще немає виконаних або скасованих заявок у вашій історії.
                   </div>
                 ) : (
-                  orderHistory.map((order) => {
+                  <div className="pomich-cabinet-order-list">
+                  {orderHistory.map((order) => {
                     const ownReview = formatCabinetReviewStars(order.partnerReview?.rating)
                     const clientReview = formatCabinetReviewStars(order.customerReview?.rating)
                     const clientName = order.customerName
@@ -757,27 +758,33 @@ export default function ProviderCabinet({
                         type="button"
                         className="pomich-cabinet-order-item pomich-cabinet-order-item--button"
                         onClick={() => setSelectedHistoryOrder(order)}
-                        aria-label={`Відкрити заявку ${order.id || ""}`}
+                        aria-label={`Відкрити деталі заявки ${order.id || ""}`}
                       >
-                        <div className="pomich-cabinet-order-title">
-                          {getServiceLabel(order.service)} · #{order.id || "—"}
+                        <div className="pomich-cabinet-order-item__body">
+                          <div className="pomich-cabinet-order-title">
+                            {getServiceLabel(order.service)} · #{order.id || "—"}
+                          </div>
+                          <div className="pomich-cabinet-order-status">{formatCabinetOrderStatus(order.status)}</div>
+                          {typeof order.partnerProposedPrice === "number" ? (
+                            <div className="pomich-cabinet-order-meta">{order.partnerProposedPrice.toLocaleString("uk-UA")} ₴</div>
+                          ) : null}
+                          {clientName ? (
+                            <div className="pomich-cabinet-order-meta">Клієнт: {clientName}</div>
+                          ) : null}
+                          {ownReview ? (
+                            <div className="pomich-cabinet-order-meta">Ваша оцінка клієнта: {ownReview}</div>
+                          ) : null}
+                          {clientReview ? (
+                            <div className="pomich-cabinet-order-meta">Оцінка від клієнта: {clientReview}</div>
+                          ) : null}
                         </div>
-                        <div className="pomich-cabinet-order-status">{formatCabinetOrderStatus(order.status)}</div>
-                        {typeof order.partnerProposedPrice === "number" ? (
-                          <div className="pomich-cabinet-order-meta">{order.partnerProposedPrice.toLocaleString("uk-UA")} ₴</div>
-                        ) : null}
-                        {clientName ? (
-                          <div className="pomich-cabinet-order-meta">Клієнт: {clientName}</div>
-                        ) : null}
-                        {ownReview ? (
-                          <div className="pomich-cabinet-order-meta">Ваша оцінка клієнта: {ownReview}</div>
-                        ) : null}
-                        {clientReview ? (
-                          <div className="pomich-cabinet-order-meta">Оцінка від клієнта: {clientReview}</div>
-                        ) : null}
+                        <span className="pomich-cabinet-order-item__chevron" aria-hidden="true">
+                          ›
+                        </span>
                       </button>
                     )
-                  })
+                  })}
+                  </div>
                 )}
               </div>
             </>

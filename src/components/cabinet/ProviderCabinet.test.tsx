@@ -215,4 +215,48 @@ describe('ProviderCabinet', () => {
 
     expect(screen.getAllByText(/Вкажіть ім/i).length).toBeGreaterThan(0)
   })
+
+  it('opens history detail sheet from a completed order row', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/providers/provider-oleksandr/profile')) {
+        return Promise.resolve({ ok: true, json: async () => providerProfile })
+      }
+      if (url.includes('/providers/provider-oleksandr/offers')) {
+        return Promise.resolve({ ok: true, json: async () => [] })
+      }
+      if (url.includes('/providers/provider-oleksandr/orders')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => [
+            {
+              id: 'PM-HIST-1',
+              service: 'battery',
+              status: 'completed',
+              partnerProposedPrice: 500,
+              customerName: 'Roman Martynov',
+              createdAt: '2026-08-21T10:00:00Z',
+              acceptedAt: '2026-08-21T10:05:00Z',
+              updatedAt: '2026-08-21T10:40:00Z',
+              customerCoordinates: { lat: 48.62, lng: 22.29 },
+            },
+          ],
+        })
+      }
+      return Promise.resolve({ ok: true, json: async () => ({}) })
+    }))
+
+    renderCabinet()
+
+    await user.click(await screen.findByRole('button', { name: /Відкрити деталі заявки PM-HIST-1/i }))
+    const dialog = await screen.findByRole('dialog', { name: /Деталі заявки з історії/i })
+    expect(dialog).toBeInTheDocument()
+    expect(dialog).toHaveTextContent(/Час виконання/i)
+    expect(dialog).toHaveTextContent(/Roman Martynov/i)
+    await user.click(screen.getByRole('button', { name: /^Закрити$/i }))
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: /Деталі заявки з історії/i })).not.toBeInTheDocument()
+    })
+  })
 })

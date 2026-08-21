@@ -492,24 +492,29 @@ export default function ClientCabinet({
                         type="button"
                         className="pomich-cabinet-order-item pomich-cabinet-order-item--button"
                         onClick={() => setSelectedHistoryOrder(order)}
-                        aria-label={`Відкрити заявку ${order.id || ""}`}
+                        aria-label={`Відкрити деталі заявки ${order.id || ""}`}
                       >
-                        <div className="pomich-cabinet-order-title">
-                          {getServiceLabel(order.service)} · #{order.id || "—"}
+                        <div className="pomich-cabinet-order-item__body">
+                          <div className="pomich-cabinet-order-title">
+                            {getServiceLabel(order.service)} · #{order.id || "—"}
+                          </div>
+                          <div className="pomich-cabinet-order-status">{formatCabinetOrderStatus(order.status)}</div>
+                          {typeof order.partnerProposedPrice === "number" ? (
+                            <div className="pomich-cabinet-order-meta">{order.partnerProposedPrice.toLocaleString("uk-UA")} ₴</div>
+                          ) : null}
+                          {partnerName ? (
+                            <div className="pomich-cabinet-order-meta">Партнер: {partnerName}</div>
+                          ) : null}
+                          {ownReview ? (
+                            <div className="pomich-cabinet-order-meta">Ваша оцінка партнера: {ownReview}</div>
+                          ) : null}
+                          {partnerReview ? (
+                            <div className="pomich-cabinet-order-meta">Оцінка від партнера: {partnerReview}</div>
+                          ) : null}
                         </div>
-                        <div className="pomich-cabinet-order-status">{formatCabinetOrderStatus(order.status)}</div>
-                        {typeof order.partnerProposedPrice === "number" ? (
-                          <div className="pomich-cabinet-order-meta">{order.partnerProposedPrice.toLocaleString("uk-UA")} ₴</div>
-                        ) : null}
-                        {partnerName ? (
-                          <div className="pomich-cabinet-order-meta">Партнер: {partnerName}</div>
-                        ) : null}
-                        {ownReview ? (
-                          <div className="pomich-cabinet-order-meta">Ваша оцінка партнера: {ownReview}</div>
-                        ) : null}
-                        {partnerReview ? (
-                          <div className="pomich-cabinet-order-meta">Оцінка від партнера: {partnerReview}</div>
-                        ) : null}
+                        <span className="pomich-cabinet-order-item__chevron" aria-hidden="true">
+                          ›
+                        </span>
                       </button>
                     )
                   })}

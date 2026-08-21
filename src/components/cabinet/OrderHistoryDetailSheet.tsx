@@ -1,4 +1,5 @@
 import { Suspense, lazy, useEffect } from "react"
+import { createPortal } from "react-dom"
 
 import type { OrderResponse } from "../../api/client"
 import { getServiceLabel, type Point } from "../../lib/constants"
@@ -97,7 +98,7 @@ export default function OrderHistoryDetailSheet({
     }
   }, [onClose])
 
-  return (
+  const sheet = (
     <div
       className="pomich-history-detail"
       role="dialog"
@@ -106,10 +107,16 @@ export default function OrderHistoryDetailSheet({
       onClick={onClose}
     >
       <div className="pomich-history-detail__panel" onClick={(event) => event.stopPropagation()}>
-        <div className="pomich-history-detail__scroll">
+        <div className="pomich-history-detail__top">
           <div className="pomich-history-detail__handle" aria-hidden="true" />
+          <button type="button" className="pomich-history-detail__close-x" onClick={onClose} aria-label="Закрити деталі">
+            ✕
+          </button>
+        </div>
+
+        <div className="pomich-history-detail__scroll">
           <div className="pomich-history-detail__eyebrow">
-            <span className="pomich-history-detail__service-icon" style={{ background: "color-mix(in srgb, var(--pomich-brand) 12%, transparent)" }}>
+            <span className="pomich-history-detail__service-icon">
               <ServiceIcon service={(order.service as ServiceKey) || "mechanic"} size={22} />
             </span>
             {getServiceLabel(order.service)}
@@ -128,7 +135,7 @@ export default function OrderHistoryDetailSheet({
             ) : null}
             {duration ? (
               <div className="pomich-history-detail__stat">
-                <span className="pomich-history-detail__stat-label">Тривалість</span>
+                <span className="pomich-history-detail__stat-label">Час виконання</span>
                 <span className="pomich-history-detail__stat-value">{duration}</span>
               </div>
             ) : null}
@@ -230,4 +237,7 @@ export default function OrderHistoryDetailSheet({
       </div>
     </div>
   )
+
+  if (typeof document === "undefined") return sheet
+  return createPortal(sheet, document.body)
 }

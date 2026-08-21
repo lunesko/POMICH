@@ -359,7 +359,12 @@ export function requestCurrentPosition(
     return
   }
 
-  // Explicit user gesture: fresh fix only (no stale browser cache).
+  // Explicit user gesture: clear sticky deny memory, then request a fresh fix.
+  try {
+    window.localStorage.removeItem(GEO_PERMISSION_STORAGE_KEY)
+  } catch {
+    // ignore
+  }
   navigator.geolocation.getCurrentPosition(
     (position) => {
       finishGeoSuccess({ lat: position.coords.latitude, lng: position.coords.longitude }, onSuccess)
@@ -368,7 +373,10 @@ export function requestCurrentPosition(
       if (firstError.code === firstError.PERMISSION_DENIED) {
         writeRememberedGeoPermission("denied")
         const classified = classifyGeolocationError(firstError)
-        onError(classified.message, classified.kind)
+        onError(
+          "Доступ заборонено. У Telegram: Налаштування → Telegram → Дозвіл на геолокацію. У браузері увімкніть гео в адресній стрічці, потім натисніть «Оновити» знову.",
+          classified.kind,
+        )
         return
       }
       navigator.geolocation.getCurrentPosition(

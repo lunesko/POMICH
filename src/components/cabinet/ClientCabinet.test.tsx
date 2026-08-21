@@ -96,6 +96,20 @@ describe('ClientCabinet', () => {
     })
   })
 
+  it('opens history detail sheet with map and close action', async () => {
+    const user = userEvent.setup()
+    renderCabinet()
+
+    await user.click(await screen.findByRole('button', { name: /Відкрити деталі заявки PM-1/i }))
+
+    const dialog = await screen.findByRole('dialog', { name: /Деталі заявки з історії/i })
+    expect(dialog).toHaveTextContent(/Створено|Час виконання/i)
+    await user.click(screen.getByRole('button', { name: /^Закрити$/i }))
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: /Деталі заявки з історії/i })).not.toBeInTheDocument()
+    })
+  })
+
   it('renders compact call-to-action and profile actions', async () => {
     const onStartOrder = vi.fn()
     const user = userEvent.setup()
