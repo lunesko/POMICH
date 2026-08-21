@@ -18,6 +18,7 @@ import { CitySelect } from "../ui/CitySelect"
 import { PartnerVehicleFields } from "../provider/PartnerVehicleFields"
 import { UkrainePlateInput } from "../ui/UkrainePlateInput"
 import { ServiceRadiusField } from "../ui/ServiceRadiusField"
+import ServiceIcon from "../ui/ServiceIcon"
 
 interface ProviderRegistrationStepProps {
   form: PartnerRegistrationForm
@@ -185,7 +186,9 @@ export function ProviderRegistrationStep({
                   style={selected ? undefined : { background: service.tone, color: "var(--pomich-service-pastel-ink)" }}
                 >
                   <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                    <span style={{ fontSize: 18 }}>{service.emoji}</span>
+                    <span className="pomich-service-card__icon" style={{ background: selected ? "var(--pomich-selected-bg)" : service.tone }}>
+                      <ServiceIcon service={service.key} size={22} />
+                    </span>
                     <span style={{ fontWeight: 900, fontSize: 13, lineHeight: 1.2 }}>{getProviderCapabilityLabel(service.key)}</span>
                   </div>
                 </button>

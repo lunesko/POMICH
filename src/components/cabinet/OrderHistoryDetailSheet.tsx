@@ -1,8 +1,10 @@
 import { Suspense, lazy, useEffect } from "react"
 
 import type { OrderResponse } from "../../api/client"
-import { getServiceEmoji, getServiceLabel, type Point } from "../../lib/constants"
+import { getServiceLabel, type Point } from "../../lib/constants"
+import type { ServiceKey } from "../../lib/pomichDomain"
 import { formatCabinetOrderStatus, formatCabinetReviewStars } from "../customer/OrderTerminalStep"
+import ServiceIcon from "../ui/ServiceIcon"
 import { SecondaryButton } from "../ui/SecondaryButton"
 
 const LazyRouteMap = lazy(() => import("../map/RouteMap"))
@@ -107,7 +109,10 @@ export default function OrderHistoryDetailSheet({
         <div className="pomich-history-detail__scroll">
           <div className="pomich-history-detail__handle" aria-hidden="true" />
           <div className="pomich-history-detail__eyebrow">
-            {getServiceEmoji(order.service)} {getServiceLabel(order.service)}
+            <span className="pomich-history-detail__service-icon" style={{ background: "color-mix(in srgb, var(--pomich-brand) 12%, transparent)" }}>
+              <ServiceIcon service={(order.service as ServiceKey) || "mechanic"} size={22} />
+            </span>
+            {getServiceLabel(order.service)}
           </div>
           <h2 className="pomich-history-detail__title">Заявка #{order.id || "—"}</h2>
           <div className="pomich-history-detail__status">{formatCabinetOrderStatus(order.status)}</div>

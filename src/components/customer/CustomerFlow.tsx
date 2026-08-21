@@ -20,6 +20,7 @@ import {
   type VerificationStatus,
 } from "../../api/client"
 import { RideScreen } from "../layout/RideScreen"
+import ServiceIcon from "../ui/ServiceIcon"
 import {
   calculateDistanceKm,
   calculatePrice,
@@ -686,14 +687,29 @@ function HomeStep({
       </div>
 
       <div className="pomich-flow-stack">
-        {services.map((service) => (
-          <button key={service.key} type="button" onClick={() => handleSelect(service.key as ServiceKey)} disabled={!profileReady} className="pomich-service-row" style={{ background: profileReady ? CARD : GHOST, opacity: profileReady ? 1 : 0.7 }}>
-            <span className="pomich-service-row__icon" style={{ background: service.tone }}>{service.emoji}</span>
+        {services.map((service, index) => (
+          <button
+            key={service.key}
+            type="button"
+            onClick={() => handleSelect(service.key as ServiceKey)}
+            disabled={!profileReady}
+            className="pomich-service-row"
+            style={{
+              background: profileReady ? CARD : GHOST,
+              opacity: profileReady ? 1 : 0.7,
+              animationDelay: `${index * 70}ms`,
+            }}
+          >
+            <span className="pomich-service-row__icon" style={{ background: service.tone, animationDelay: `${index * 120}ms` }}>
+              <ServiceIcon service={service.key as ServiceKey} />
+            </span>
             <span style={{ minWidth: 0 }}>
               <span className="pomich-service-row__label">{service.label}</span>
               <span className="pomich-service-row__hint">{getServiceDescription(service.key)}</span>
             </span>
-            <span className="pomich-service-row__chevron">›</span>
+            <span className="pomich-service-row__chevron" aria-hidden="true">
+              ›
+            </span>
           </button>
         ))}
       </div>
@@ -708,12 +724,16 @@ function HomeStep({
         </div>
         {services[0] ? (
           <button type="button" onClick={() => handleSelect(services[0].key as ServiceKey)} disabled={!profileReady} className="pomich-service-row" style={{ background: profileReady ? CARD : GHOST, opacity: profileReady ? 1 : 0.7 }}>
-            <span className="pomich-service-row__icon" style={{ background: services[0].tone }}>{services[0].emoji}</span>
+            <span className="pomich-service-row__icon" style={{ background: services[0].tone }}>
+              <ServiceIcon service={services[0].key as ServiceKey} />
+            </span>
             <span style={{ minWidth: 0 }}>
               <span className="pomich-service-row__label">{services[0].label}</span>
               <span className="pomich-service-row__hint">{getServiceDescription(services[0].key)} · ↑ усі</span>
             </span>
-            <span className="pomich-service-row__chevron">›</span>
+            <span className="pomich-service-row__chevron" aria-hidden="true">
+              ›
+            </span>
           </button>
         ) : null}
       </div>

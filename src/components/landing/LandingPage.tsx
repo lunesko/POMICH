@@ -13,6 +13,7 @@ import { calculatePrice } from "../../lib/pomichDomain"
 import { UKRAINE_WIDE_LABEL } from "../../lib/ukraineCities"
 import { getTelegramContext } from "../../telegram"
 import { ThemeToggle } from "../ui/ThemeToggle"
+import ServiceIcon from "../ui/ServiceIcon"
 import { usePomichTheme } from "../../context/PomichThemeProvider"
 import { type PomichThemeColors, type PomichThemeMode } from "../../lib/theme"
 
@@ -495,8 +496,10 @@ export default function LandingPage({
               const basePrice = calculatePrice(service.key, 0).price
               const cardSurface = landingCardSurface(theme)
               return (
-                <div key={service.key} style={{ ...cardSurface, borderRadius: layoutCompact ? 10 : 16, padding: layoutCompact ? 12 : 16, color: theme.text }}>
-                  <div style={{ fontSize: layoutCompact ? 24 : 28 }}>{service.emoji}</div>
+                <div key={service.key} className="landing-service-card" style={{ ...cardSurface, borderRadius: layoutCompact ? 10 : 16, padding: layoutCompact ? 12 : 16, color: theme.text }}>
+                  <div className="landing-service-card__icon" style={{ background: service.tone }}>
+                    <ServiceIcon service={service.key} size={layoutCompact ? 26 : 30} />
+                  </div>
                   <h3 style={{ margin: layoutCompact ? "8px 0 0" : "10px 0 0", fontSize: layoutCompact ? 14 : 16, fontWeight: 950 }}>{service.label}</h3>
                   <p style={{ margin: "4px 0 0", color: theme.muted, fontSize: layoutCompact ? 12 : 13, fontWeight: 700 }}>від {basePrice} ₴ · +90 ₴/км</p>
                 </div>
