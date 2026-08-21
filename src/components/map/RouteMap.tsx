@@ -1011,7 +1011,9 @@ function MapLegend({
       ]
     : [
         { tone: "green" as const, label: "Ви", icon: LEGEND_ICONS.client },
-        { tone: "amber" as const, label: "Партнер", icon: LEGEND_ICONS.partner },
+        ...(hasPartner
+          ? [{ tone: "amber" as const, label: "Партнер", icon: LEGEND_ICONS.partner }]
+          : []),
         ...(hasDestination
           ? [{ tone: "blue" as const, label: "Куди", icon: LEGEND_ICONS.destination }]
           : []),

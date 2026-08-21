@@ -2192,9 +2192,41 @@ def ensure_customer_client_from_linked_provider(
         mark_user_role_registered(customer_id, "customer", store_path)
         _maybe_persist_phone_linked_verification(get_customer_profile(customer_id, store_path), store_path)
     except ValueError:
-        # Phone conflict on another row — still return current status without failing role switch.
-        pass
-    return build_user_account_status(customer_id, store_path)
+        # Phone conflict on another row — still mark customer role + name for role-switch UX.
+        try:
+            soft_patch: Dict[str, Any] = {
+                "name": name,
+                "linkedProviderId": str(provider_id),
+            }
+            if city:
+                soft_patch["city"] = city
+            update_customer_profile(customer_id, soft_patch, store_path)
+            mark_user_role_registered(customer_id, "customer", store_path)
+        except ValueError:
+            pass
+
+    status = build_user_account_status(customer_id, store_path)
+    profile = dict(status.get("profile") or {})
+    if name and (
+        not str(profile.get("name") or "").strip()
+        or str(profile.get("name") or "").strip() == "Клієнт POMICH"
+    ):
+        profile["name"] = name
+    if phone and not str(profile.get("phone") or "").strip():
+        # Surface partner phone to the client UI even when it could not be persisted.
+        profile["phone"] = phone
+    if city and not str(profile.get("city") or "").strip():
+        profile["city"] = city
+    profile["id"] = str(profile.get("id") or customer_id)
+    status["profile"] = profile
+    if name and phone:
+        roles = [str(item).strip() for item in (status.get("rolesRegistered") or []) if str(item).strip()]
+        if "customer" not in roles:
+            roles.append("customer")
+        status["rolesRegistered"] = roles
+        status["clientRegistered"] = True
+        status["needsOnboarding"] = False
+    return status
 
 
 def set_user_preferred_role(customer_id: str, role: str, store_path: Optional[Path] = None) -> Dict[str, Any]:

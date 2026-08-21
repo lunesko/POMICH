@@ -41,7 +41,8 @@ import {
   type UserRole,
 } from "../../lib/userAccount"
 import { getTelegramContext } from "../../telegram"
-import type { Role } from "../../lib/constants"
+import { getActiveProviderId, type Role } from "../../lib/constants"
+import { readCachedProviderProfile } from "../../lib/providerProfileCache"
 import { writeCityUserPicked, writePreferredCity } from "../../lib/preferredCity"
 import ClientRegistrationScreen from "./ClientRegistrationScreen"
 import ClientLoginScreen from "./ClientLoginScreen"
@@ -409,14 +410,34 @@ export default function OnboardingGate({ skip, startAtRoleSelect, loginMode = fa
           const partnerHydrated = hydrateClientFromPartner(mergedStatus)
           if (isReturningClient(partnerHydrated)) {
             setAccount(partnerHydrated)
+            if (partnerHydrated.profile) setProfile(partnerHydrated.profile)
             if (needsClientOtpVerification(partnerHydrated.profile, partnerHydrated)) {
-              if (partnerHydrated.profile) setProfile(partnerHydrated.profile)
               setPhase("verify-client")
               return
             }
             onReadyRef.current({ role, account: partnerHydrated, customerToken: token })
             setPhase("ready")
             return
+          }
+          /* Prefill client registration from partner identity instead of an empty form. */
+          const linkedId =
+            (mergedStatus.linkedProviderId || "").trim() ||
+            resolveProviderIdForCustomer(activeCustomerId, mergedStatus.linkedProviderId)
+          const cached =
+            typeof window !== "undefined"
+              ? readCachedProviderProfile(linkedId || getActiveProviderId())
+              : undefined
+          const bootstrap = typeof window !== "undefined" ? readBootstrapProfile() : undefined
+          const prefillName = (mergedStatus.profile?.name || cached?.name || bootstrap?.name || "").trim()
+          const prefillPhone = (mergedStatus.profile?.phone || cached?.phone || bootstrap?.phone || "").trim()
+          if (prefillName || prefillPhone) {
+            setProfile({
+              id: activeCustomerId,
+              name: prefillName || DEFAULT_CUSTOMER_NAME,
+              phone: prefillPhone || "",
+              city: mergedStatus.profile?.city || cached?.city || bootstrap?.city,
+              verificationStatus: mergedStatus.profile?.verificationStatus || "unverified",
+            })
           }
         }
         setPhase("register-client")

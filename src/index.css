@@ -1753,7 +1753,7 @@ html.mobile-compact .pomich-map-occupied-hint {
     transform 0.28s cubic-bezier(0.22, 1, 0.36, 1),
     border-color 0.2s ease,
     box-shadow 0.28s ease;
-  animation: pomichRoleCardIn 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: pomichRoleCardIn 0.55s cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 .pomich-role-card__shine {
   pointer-events: none;
@@ -1911,7 +1911,7 @@ html.mobile-compact .pomich-map-occupied-hint {
   }
   to {
     opacity: 1;
-    transform: perspective(900px) translateY(0) rotateX(0) scale(1);
+    transform: perspective(900px) rotateX(var(--role-tilt-x, 0deg)) rotateY(var(--role-tilt-y, 0deg)) translateY(0) scale(1);
   }
 }
 @keyframes pomichRoleFadeUp {
@@ -1976,6 +1976,12 @@ button {
 }
 button:hover:not(:disabled):not(.pomich-role-card) {
   transform: translateY(-1px);
+}
+button.pomich-role-card {
+  transition:
+    transform 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 0.2s ease,
+    box-shadow 0.28s ease;
 }
 @keyframes pulseGlow {
   0% { transform: scale(0.95); opacity: 0.7; }

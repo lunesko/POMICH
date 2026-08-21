@@ -1668,8 +1668,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
   const retryGeolocation = () => {
     explicitGeoRecenterRef.current = true
     skipNextAutoGeoRef.current = true
-    /* Re-bind service city to GPS after an explicit locate. */
-    writeCityUserPicked(false)
+    /* Keep intentional city pick — locate only refreshes GPS/address. */
     setGeoState("requesting")
     setGeoMessage("Визначаємо ваше місцезнаходження…")
     setAddressLabel("Визначаємо адресу…")

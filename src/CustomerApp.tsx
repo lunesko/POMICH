@@ -504,7 +504,7 @@ export default function CustomerApp() {
   }, [])
 
   useEffect(() => {
-    if (role !== "provider" || account || showOnboarding || showLanding || providerToken) return
+    if (role !== "provider" || account || showOnboarding || showLanding) return
 
     let cancelled = false
     resolveCustomerAuthSession(telegramContext, { explicitSignIn: true })
@@ -519,7 +519,10 @@ export default function CustomerApp() {
           resolveProviderIdForCustomer(resolved.customerId, status.linkedProviderId)
         if (!status.providerRegistered && !linkedId) return
         if (linkedId) storeLinkedProviderId(linkedId)
-        setAccount({ ...status, linkedProviderId: linkedId || status.linkedProviderId })
+        setAccount(hydrateClientFromPartner(enrichPartnerAccountStatus({
+          ...status,
+          linkedProviderId: linkedId || status.linkedProviderId,
+        })))
         setCustomerToken(resolved.token)
       })
       .catch(() => undefined)
@@ -527,7 +530,7 @@ export default function CustomerApp() {
     return () => {
       cancelled = true
     }
-  }, [role, account, showOnboarding, showLanding, providerToken, telegramContext])
+  }, [role, account, showOnboarding, showLanding, telegramContext])
 
   useEffect(() => {
     if (!showCabinet || role !== "customer" || !account?.customerId) return
@@ -602,7 +605,9 @@ export default function CustomerApp() {
         startAtRoleSelect={startAtRoleSelect || forceRolePicker}
         loginMode={loginMode}
         initialRole={pendingRole}
-        preservedAccount={forceRolePicker ? account : undefined}
+        preservedAccount={
+          forceRolePicker && account ? hydrateClientFromPartner(enrichPartnerAccountStatus(account)) : undefined
+        }
         onShowLanding={() => {
           setForceRolePicker(false)
           setShowOnboarding(false)
@@ -760,7 +765,7 @@ export default function CustomerApp() {
               onRestoreAccount={restorePartnerAccount}
             />
           </FlowSuspense>
-        ) : role === "customer" && account && !isReturningClient(hydrateClientFromPartner(account)) ? (
+        ) : role === "customer" && account && !isReturningClient(hydrateClientFromPartner(enrichPartnerAccountStatus(account))) ? (
           <CustomerAppFallback
             message="Потрібно завершити реєстрацію клієнта."
             onRetry={() => beginOnboarding("customer", false, true)}

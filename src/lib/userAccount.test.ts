@@ -105,4 +105,39 @@ describe('userAccount helpers', () => {
     expect(hydrated.rolesRegistered).toContain('customer')
     expect(hydrated.profile?.name).toBe('Партнер Іван')
   })
+
+  it('keeps preserved partner profile when API returns an empty shell', () => {
+    const preserved: UserAccountStatus = {
+      ...baseStatus,
+      preferredRole: 'provider',
+      providerRegistered: true,
+      linkedProviderId: 'provider-guest-test',
+      rolesRegistered: ['provider'],
+      needsOnboarding: false,
+      profile: {
+        id: 'guest-test',
+        name: 'Партнер Іван',
+        phone: '+380671112233',
+        verificationStatus: 'verified',
+      },
+    }
+    const staleApi: UserAccountStatus = {
+      ...baseStatus,
+      preferredRole: 'customer',
+      providerRegistered: false,
+      linkedProviderId: '',
+      rolesRegistered: [],
+      needsOnboarding: true,
+      profile: {
+        id: 'guest-test',
+        name: 'Клієнт POMICH',
+        phone: '',
+        verificationStatus: 'unverified',
+      },
+    }
+    const merged = mergePreservedAccountStatus(staleApi, preserved)
+    expect(merged.providerRegistered).toBe(true)
+    expect(merged.profile?.phone).toBe('+380671112233')
+    expect(isReturningClient(hydrateClientFromPartner(merged))).toBe(true)
+  })
 })

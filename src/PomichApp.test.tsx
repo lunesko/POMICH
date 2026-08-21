@@ -1077,6 +1077,120 @@ describe('POMICH role-based flows', () => {
     expect(screen.queryByText(/Реєстрація партнера/i)).not.toBeInTheDocument()
   })
 
+  it('switches partner role to client without asking for client registration again', async () => {
+    const user = userEvent.setup()
+    const partnerProfile = {
+      id: 'guest-test',
+      name: 'Партнер Іван',
+      phone: '+380671112233',
+      city: 'Ужгород',
+      verificationStatus: 'verified' as const,
+      verification: { phone: true, email: false },
+    }
+    const providerRecord = {
+      id: 'provider-guest-test',
+      name: 'Партнер Іван',
+      phone: '+380671112233',
+      city: 'Ужгород',
+      vehicle: 'Volkswagen Crafter',
+      plate: 'BX5874HX',
+      registeredAt: '2026-08-09T00:00:00',
+      verificationStatus: 'verified',
+      verification: { phone: true },
+      specialties: ['tow', 'fuel'],
+      serviceRadiusKm: 15,
+      status: 'offline',
+    }
+
+    vi.stubGlobal('fetch', mockRegisteredCustomerFetch((url) => {
+      if (url.includes('/users/') && url.includes('/account/role')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            customerId: 'guest-test',
+            preferredRole: 'customer',
+            linkedProviderId: 'provider-guest-test',
+            rolesRegistered: ['provider', 'customer'],
+            clientRegistered: true,
+            providerRegistered: true,
+            needsOnboarding: false,
+            profile: partnerProfile,
+          }),
+        })
+      }
+      if (url.includes('/users/') && url.includes('/account')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            customerId: 'guest-test',
+            preferredRole: 'provider',
+            linkedProviderId: 'provider-guest-test',
+            rolesRegistered: ['provider'],
+            clientRegistered: false,
+            providerRegistered: true,
+            needsOnboarding: false,
+            profile: partnerProfile,
+          }),
+        })
+      }
+      if (url.includes('/auth/provider/self/session')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            role: 'provider',
+            subjectId: 'provider-guest-test',
+            providerId: 'provider-guest-test',
+            tokenType: 'Bearer',
+            accessToken: 'pomich_auth_v1.provider-self',
+            expiresAt: Math.floor(Date.now() / 1000) + 3600,
+          }),
+        })
+      }
+      if (url.includes('/providers/provider-guest-test/')) {
+        return Promise.resolve({ ok: true, json: async () => providerRecord })
+      }
+      if (url.endsWith('/providers') || url.includes('/map/providers')) {
+        return Promise.resolve({ ok: true, json: async () => [providerRecord] })
+      }
+      return undefined
+    }))
+
+    window.localStorage.setItem('pomichCustomerId', 'guest-test')
+    window.sessionStorage.setItem('pomichCustomerId', 'guest-test')
+    window.sessionStorage.setItem('pomichLinkedProviderId', 'provider-guest-test')
+    window.localStorage.setItem('pomichPartnerRegistered:provider-guest-test', '1')
+    window.sessionStorage.setItem('pomichBootstrapProfile', JSON.stringify(partnerProfile))
+    storeAuthSession(authSessionStorageKey('customer', 'guest-test'), {
+      role: 'customer',
+      subjectId: 'guest-test',
+      customerId: 'guest-test',
+      tokenType: 'Bearer',
+      accessToken: TEST_CUSTOMER_TOKEN,
+      expiresAt: Math.floor(Date.now() / 1000) + 3600,
+      profile: partnerProfile,
+    })
+    storeAuthSession(authSessionStorageKey('provider', 'provider-guest-test'), {
+      role: 'provider',
+      subjectId: 'provider-guest-test',
+      providerId: 'provider-guest-test',
+      tokenType: 'Bearer',
+      accessToken: 'pomich_auth_v1.provider-self',
+      expiresAt: Math.floor(Date.now() / 1000) + 3600,
+    })
+
+    window.history.replaceState({}, '', '/?role=provider')
+    renderApp()
+    expect(await screen.findByText('Партнер POMICH', {}, { timeout: 8000 })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /Змінити роль/i }))
+    expect(await screen.findByText(/Оберіть вашу роль/i)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /Я клієнт/i }))
+
+    expect(await screen.findByText('Що сталося?', {}, { timeout: 8000 })).toBeInTheDocument()
+    expect(screen.queryByText(/Реєстрація клієнта/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Потрібно завершити реєстрацію клієнта/i)).not.toBeInTheDocument()
+  })
+
   it('role switch with linked provider and missing SQL row stays on duty and prefills completion form', async () => {
     const user = userEvent.setup()
     const linkedProfile = {

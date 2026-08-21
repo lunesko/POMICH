@@ -77,9 +77,10 @@ export function hydrateClientFromPartner(status: UserAccountStatus): UserAccount
   const linkedId = (status.linkedProviderId || "").trim() || resolveProviderIdForCustomer(status.customerId, status.linkedProviderId)
   const cached = typeof window !== "undefined" ? readCachedProviderProfile(linkedId || getActiveProviderId()) : undefined
   const bootstrap = typeof window !== "undefined" ? readBootstrapProfile() : undefined
+  const profileName = (status.profile?.name || "").trim()
   const name =
-    (status.profile?.name || "").trim() && (status.profile?.name || "").trim() !== DEFAULT_CUSTOMER_NAME
-      ? (status.profile?.name || "").trim()
+    profileName && profileName !== DEFAULT_CUSTOMER_NAME
+      ? profileName
       : (cached?.name || bootstrap?.name || "").trim()
   const phone = (status.profile?.phone || cached?.phone || bootstrap?.phone || "").trim()
   if (!name || name === DEFAULT_CUSTOMER_NAME || !phone) return status
@@ -127,14 +128,27 @@ export function enrichPartnerAccountStatus(status: UserAccountStatus): UserAccou
 /** Merge in-memory account from CustomerApp when reopening the role picker. */
 export function mergePreservedAccountStatus(current: UserAccountStatus, preserved?: UserAccountStatus | null): UserAccountStatus {
   if (!preserved) return enrichPartnerAccountStatus(current)
+  const preferredProfile = (() => {
+    if (!current.profile) return preserved.profile
+    if (!preserved.profile) return current.profile
+    /* Prefer the richer profile — stale API shells must not wipe partner/client identity. */
+    if (isClientProfileComplete(current.profile) && !isClientProfileComplete(preserved.profile)) {
+      return current.profile
+    }
+    if (isClientProfileComplete(preserved.profile) && !isClientProfileComplete(current.profile)) {
+      return preserved.profile
+    }
+    return mergeAccountProfile({ ...current, profile: current.profile }, preserved.profile).profile || current.profile
+  })()
   const merged: UserAccountStatus = {
     ...current,
+    preferredRole: current.preferredRole || preserved.preferredRole,
     clientRegistered: current.clientRegistered || preserved.clientRegistered,
     providerRegistered: current.providerRegistered || preserved.providerRegistered,
     linkedProviderId: current.linkedProviderId || preserved.linkedProviderId,
     rolesRegistered: [...new Set([...current.rolesRegistered, ...preserved.rolesRegistered])] as UserRole[],
-    profile: current.profile || preserved.profile,
-    needsOnboarding: current.needsOnboarding || preserved.needsOnboarding,
+    profile: preferredProfile,
+    needsOnboarding: current.needsOnboarding && preserved.needsOnboarding,
   }
   const enriched = enrichPartnerAccountStatus(merged)
   if (isReturningClient(enriched) || isReturningPartner(enriched)) {
