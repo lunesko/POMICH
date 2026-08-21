@@ -704,16 +704,6 @@ export async function retryDispatch(orderId: string, authToken?: string) {
   return response.json() as Promise<OrderResponse>
 }
 
-export async function getProviders() {
-  const response = await fetch(`${getBaseUrl()}/providers`)
-
-  if (!response.ok) {
-    throw new Error(`Providers request failed with ${response.status}`)
-  }
-
-  return response.json() as Promise<ProviderAvailability[]>
-}
-
 export async function getMapProviders(options?: {
   scope?: "all" | "city"
   city?: string

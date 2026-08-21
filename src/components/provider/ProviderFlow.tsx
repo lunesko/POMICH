@@ -829,6 +829,9 @@ export default function ProviderFlow({
     return () => {
       cancelled = true
       if (typeof watchId === "number") navigator.geolocation.clearWatch(watchId)
+      setProviderSpeedMps(null)
+      providerSpeedSmoothRef.current = null
+      providerMotionSampleRef.current = null
     }
   }, [onDuty, providerGeoWatchEpoch])
 

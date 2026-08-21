@@ -61,7 +61,7 @@ describe("resolveHistoryRoutePoints", () => {
     expect(points.partnerEstimated).toBe(false)
   })
 
-  it("estimates partner approach from distanceKm when GPS missing", () => {
+  it("does not invent partner approach from order trip distanceKm", () => {
     const points = resolveHistoryRoutePoints(
       baseOrder({
         customerCoordinates: { lat: 50.45, lng: 30.52 },
@@ -69,8 +69,8 @@ describe("resolveHistoryRoutePoints", () => {
       }),
     )
     expect(points.client).toEqual({ lat: 50.45, lng: 30.52 })
-    expect(points.partner).toEqual(estimatePartnerApproachPoint({ lat: 50.45, lng: 30.52 }, 0.5))
-    expect(points.partnerEstimated).toBe(true)
+    expect(points.partner).toBeUndefined()
+    expect(points.partnerEstimated).toBe(false)
   })
 
   it("prefers assignedProvider.distanceKm for estimation", () => {

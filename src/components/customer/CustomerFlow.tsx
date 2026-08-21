@@ -1718,7 +1718,6 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
     if (typeof navigator === "undefined" || !("geolocation" in navigator)) return
     if (typeof navigator.geolocation.watchPosition !== "function") return
 
-    let cancelled = false
     let watchId: number | undefined
 
     const applyGeoPosition = (position: GeolocationPosition) => {
@@ -1736,29 +1735,25 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
       setPickup(nextPoint)
     }
 
-    // watchPosition also triggers OS prompts in Telegram — only when already granted.
-    void canRequestGeoSilently().then((silentOk) => {
-      if (cancelled || !silentOk) return
-      watchId = navigator.geolocation.watchPosition(
-        (position) => {
-          window.clearTimeout(geoWatchDebounceRef.current)
-          geoWatchDebounceRef.current = window.setTimeout(() => {
-            applyGeoPosition(position)
-          }, MAP_GEO_DEBOUNCE_MS)
-        },
-        () => undefined,
-        { enableHighAccuracy: true, maximumAge: 4000, timeout: 20000 },
-      )
-      if (cancelled && typeof watchId === "number") {
-        navigator.geolocation.clearWatch(watchId)
-        watchId = undefined
-      }
-    })
+    // Mirror partner: once we already have a successful geo state (incl. Telegram), start the
+    // watch without Permissions API gate — Telegram often omits it after an in-session grant.
+    watchId = navigator.geolocation.watchPosition(
+      (position) => {
+        window.clearTimeout(geoWatchDebounceRef.current)
+        geoWatchDebounceRef.current = window.setTimeout(() => {
+          applyGeoPosition(position)
+        }, MAP_GEO_DEBOUNCE_MS)
+      },
+      () => undefined,
+      { enableHighAccuracy: true, maximumAge: 4000, timeout: 20000 },
+    )
 
     return () => {
-      cancelled = true
       window.clearTimeout(geoWatchDebounceRef.current)
       if (typeof watchId === "number") navigator.geolocation.clearWatch(watchId)
+      setGeoSpeedMps(null)
+      geoSpeedSmoothRef.current = null
+      geoMotionSampleRef.current = null
     }
   }, [screen, geoState])
 

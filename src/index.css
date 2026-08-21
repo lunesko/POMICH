@@ -167,8 +167,8 @@ html:not([data-pomich-theme]) {
   --pomich-card-radius: 1.125rem;
   --pomich-card-padding: 0.875rem;
   /* % of ride-screen — taller half so primary CTAs stay above Safari/Chrome toolbars */
-  --pomich-sheet-peek: 26%;
-  --pomich-sheet-half: 52%;
+  --pomich-sheet-peek: 28%;
+  --pomich-sheet-half: 54%;
   --pomich-sheet-expanded: 74%;
   --pomich-sheet-min: 22%;
   --pomich-sheet-max: 82%;

@@ -1778,12 +1778,26 @@ export function RouteMap({
 
         {mapInteractive ? <ClickToPick onPick={handleMapPick} /> : null}
 
-        {navRouteCoords && !(followMotionPoint && typeof geoSpeedMps === "number") ? (
-          <FitRouteBounds coords={navRouteCoords} />
+        {navRouteCoords ? (
+          <FitRouteBounds
+            coords={navRouteCoords}
+            fitKey={
+              followMotionPoint && typeof geoSpeedMps === "number"
+                ? `nav-once:${navRouteCoords[0][0].toFixed(2)},${navRouteCoords[0][1].toFixed(2)}>${navRouteCoords[navRouteCoords.length - 1][0].toFixed(2)},${navRouteCoords[navRouteCoords.length - 1][1].toFixed(2)}`
+                : undefined
+            }
+          />
         ) : null}
 
-        {!directoryOnly && !navRouteCoords && routeCoords && !(followMotionPoint && typeof geoSpeedMps === "number") ? (
-          <FitRouteBounds coords={routeCoords} fitKey={routeRequestKey} />
+        {!directoryOnly && !navRouteCoords && routeCoords ? (
+          <FitRouteBounds
+            coords={routeCoords}
+            fitKey={
+              followMotionPoint && typeof geoSpeedMps === "number" && routeEndpoints
+                ? `route-once:${routePointKey(routeEndpoints.from, 2)}>${routePointKey(routeEndpoints.to, 2)}`
+                : routeRequestKey
+            }
+          />
         ) : null}
 
         {!directoryOnly && routeCoords ? (

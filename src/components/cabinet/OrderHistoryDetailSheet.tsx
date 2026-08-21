@@ -84,9 +84,7 @@ export function resolveHistoryRoutePoints(order: OrderResponse): {
     const km =
       typeof order.assignedProvider?.distanceKm === "number"
         ? order.assignedProvider.distanceKm
-        : typeof order.distanceKm === "number"
-          ? order.distanceKm
-          : undefined
+        : undefined
     if (typeof km === "number" && Number.isFinite(km) && km >= 0.05 && km <= 80) {
       partner = estimatePartnerApproachPoint(client, km)
       partnerEstimated = true
@@ -254,6 +252,7 @@ export default function OrderHistoryDetailSheet({
                   showBadges={false}
                   showLocateControl={false}
                   decorative
+                  ukraineMapFitCountry={false}
                   overlayMode={false}
                   full={false}
                 />

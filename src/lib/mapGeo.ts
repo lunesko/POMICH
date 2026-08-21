@@ -208,11 +208,15 @@ export async function resolveGeoPermission(): Promise<"granted" | "denied" | "pr
   }
   try {
     const result = await navigator.permissions.query({ name: "geolocation" as PermissionName })
-    if (result.state === "granted" || result.state === "denied" || result.state === "prompt") {
-      if (result.state === "granted" || result.state === "denied") {
-        writeRememberedGeoPermission(result.state)
-      }
+    if (result.state === "granted" || result.state === "denied") {
+      writeRememberedGeoPermission(result.state)
       return result.state
+    }
+    if (result.state === "prompt") {
+      // Telegram/Safari often report "prompt" even after a successful fix in-session.
+      // Prefer sticky grant so watchPosition / speed zoom can start without re-prompting.
+      if (remembered === "granted") return "granted"
+      return "prompt"
     }
   } catch {
     // Telegram / Safari may reject geolocation permission queries.

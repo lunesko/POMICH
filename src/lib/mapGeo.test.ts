@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, afterEach } from "vitest"
 
 import {
+  canRequestGeoSilently,
   classifyGeolocationError,
   distanceMeters,
   GEO_CACHE_MAX_AGE_MS,
@@ -17,6 +18,7 @@ import {
   readRememberedGeoPermission,
   requestCurrentPosition,
   resolveFollowZoom,
+  resolveGeoPermission,
   resolveGroundSpeedMps,
   resolveMapZoomForSpeed,
   resolveSheetBottomPaddingPx,
@@ -35,6 +37,17 @@ describe("mapGeo", () => {
     window.localStorage.removeItem(GEO_POSITION_STORAGE_KEY)
     window.localStorage.removeItem(GEO_PERMISSION_STORAGE_KEY)
     vi.unstubAllGlobals()
+  })
+
+  it("treats remembered grant as silent-ok when Permissions API stays prompt", async () => {
+    writeRememberedGeoPermission("granted")
+    vi.stubGlobal("navigator", {
+      permissions: {
+        query: vi.fn(async () => ({ state: "prompt" })),
+      },
+    })
+    expect(await resolveGeoPermission()).toBe("granted")
+    expect(await canRequestGeoSilently()).toBe(true)
   })
 
   it("classifies permission denied separately from timeout", () => {
