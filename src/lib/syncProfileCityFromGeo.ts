@@ -1,12 +1,15 @@
 import { updateCustomerProfile, type CustomerProfile } from "../api/client"
 
 import { reverseGeocodeCity, type GeoPoint } from "./reverseGeocode"
+import { readCityUserPicked } from "./preferredCity"
 import { isUkraineServiceCity, resolveServiceCityFromGeo } from "./ukraineCities"
 
-/** Default scaffold / bootstrap cities that GPS should be allowed to replace. */
+/** Bootstrap / empty profile cities that GPS may replace — only when user has not locked a pick. */
 const STALE_DEFAULT_CITIES = new Set(["Київ", "Kyiv", "Kiev", "Киев"])
 
 function shouldReplaceProfileCity(profileCity: string, resolvedCity: string): boolean {
+  if (readCityUserPicked()) return false
+
   const current = String(profileCity || "").trim()
   if (!current) return true
   if (current === resolvedCity) return true
@@ -22,6 +25,8 @@ export async function syncProfileCityFromGeo(
   token: string | undefined,
   profileCity?: string,
 ): Promise<{ city: string; saved?: CustomerProfile } | null> {
+  if (readCityUserPicked()) return null
+
   const geocodedPlace = await reverseGeocodeCity(point)
   const city = resolveServiceCityFromGeo(point, geocodedPlace)
   if (!city) return null

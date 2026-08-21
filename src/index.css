@@ -1559,9 +1559,6 @@ html.mobile-compact .pomich-map-occupied-hint {
     transform: translateY(-2px);
   }
 }
-.pomich-sheet-handle__bar--legacy {
-  margin: 0 auto 8px;
-}
 @keyframes pomich-sheet-handle-pulse {
   0%,
   100% {
@@ -3245,9 +3242,6 @@ html.mobile-compact-xs .pomich-tg-main .pomich-ride-screen__map .leaflet-contain
 .pomich-map-legend-glyph--blue {
   background: linear-gradient(145deg, #60a5fa, #2563eb);
 }
-.pomich-map-legend-glyph--violet {
-  background: linear-gradient(145deg, #a78bfa, #7c3aed);
-}
 .pomich-map-legend-glyph--red {
   background: linear-gradient(145deg, #fb7185, #ef4444);
 }
@@ -3384,8 +3378,8 @@ html.mobile-compact-xs .pomich-tg-main .pomich-ride-screen__map .leaflet-contain
     top: var(--pomich-map-chrome-top);
     width: min(240px, calc(100vw - 24px));
   }
-  .pomich-map-legend-box,
-  .pomich-map-legend-fab {
+  .pomich-map-legend-box:not(.pomich-map-legend-box--overlay),
+  .pomich-map-legend-fab:not(.pomich-map-legend-fab--overlay) {
     right: var(--pomich-map-chrome-right, 12px);
     top: var(--pomich-map-chrome-top);
   }
@@ -5975,12 +5969,6 @@ html.tg-compact .pomich-ride-screen__map .leaflet-top.leaflet-left {
   flex-shrink: 1;
   overflow-x: auto;
   scrollbar-width: none;
-}
-.pomich-map-legend-box {
-  z-index: 1100;
-}
-.pomich-map-legend-fab {
-  z-index: 1100;
 }
 .pomich-comment-field {
   width: 100%;

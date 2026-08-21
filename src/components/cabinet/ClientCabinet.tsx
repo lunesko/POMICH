@@ -15,6 +15,7 @@ import { roleLabel, type UserRole } from "../../lib/userAccount"
 import { validateUkraineMobilePhone } from "../../lib/ukrainePhone"
 import { validatePersonName } from "../../lib/personName"
 import { DEFAULT_SERVICE_CITY, validateServiceCity } from "../../lib/ukraineCities"
+import { writeCityUserPicked, writePreferredCity } from "../../lib/preferredCity"
 import { verificationHelpText, verificationSteps } from "../../lib/verificationHelp"
 import { getTelegramContext } from "../../telegram"
 
@@ -218,8 +219,9 @@ export default function ClientCabinet({
         return
       }
 
-      if (typeof window !== "undefined" && cityValidation.value) {
-        window.localStorage.setItem("pomichPreferredCity", cityValidation.value)
+      if (cityValidation.value) {
+        writePreferredCity(cityValidation.value)
+        writeCityUserPicked(true)
       }
 
       if (customerToken) {

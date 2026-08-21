@@ -2181,23 +2181,6 @@ export function RouteMap({
                 </button>
               )
             })}
-            <div className="pomich-map-tools-panel__title">Легенда</div>
-            {directoryOnly ? (
-              <>
-                <span className="pomich-map-tools-legend-item">🔧 Сервіс / СТО</span>
-                <span className="pomich-map-tools-legend-item">🟣 Ваше місце</span>
-                <span className="pomich-map-tools-legend-item">🔵 Маршрут</span>
-                {effectiveShowOccupiedOverlay ? <span className="pomich-map-tools-legend-item">🟥 Тимчасово окуповано</span> : null}
-              </>
-            ) : (
-              <>
-                <span className="pomich-map-tools-legend-item">🟢 Клієнт</span>
-                {providerPosition ? <span className="pomich-map-tools-legend-item">🟠 Партнер</span> : <span className="pomich-map-tools-legend-item">🚛 Партнер на лінії</span>}
-                {destination ? <span className="pomich-map-tools-legend-item">🔵 Пункт призначення</span> : null}
-                <span className="pomich-map-tools-legend-item">🔧 Сервіс</span>
-                <span className="pomich-map-tools-legend-item">🔴 Заявка</span>
-              </>
-            )}
           </div>
         ) : (
           <button

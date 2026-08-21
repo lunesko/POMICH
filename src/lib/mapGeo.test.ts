@@ -64,7 +64,7 @@ describe("mapGeo", () => {
 
   it("pads collapsed peek so the point stays above the sheet", () => {
     const peek = resolveSheetBottomPaddingPx("collapsed", 800)
-    expect(peek).toBeCloseTo(0.15 * 800 + SHEET_PADDING_SAFETY_PX, 5)
+    expect(peek).toBeCloseTo(0.22 * 800 + SHEET_PADDING_SAFETY_PX, 5)
   })
 
   it("assumes half sheet in overlay mode when snap is missing", () => {

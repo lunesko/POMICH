@@ -42,6 +42,7 @@ import {
 } from "../../lib/userAccount"
 import { getTelegramContext } from "../../telegram"
 import type { Role } from "../../lib/constants"
+import { writeCityUserPicked, writePreferredCity } from "../../lib/preferredCity"
 import ClientRegistrationScreen from "./ClientRegistrationScreen"
 import ClientLoginScreen from "./ClientLoginScreen"
 import RoleSelectionScreen from "./RoleSelectionScreen"
@@ -512,7 +513,10 @@ export default function OnboardingGate({ skip, startAtRoleSelect, loginMode = fa
       setProfile(updated)
       if (typeof window !== "undefined") {
         window.sessionStorage.setItem("pomichBootstrapProfile", JSON.stringify(updated))
-        if (updated.city) window.localStorage.setItem("pomichPreferredCity", updated.city)
+        if (updated.city) {
+          writePreferredCity(updated.city)
+          writeCityUserPicked(true)
+        }
       }
       const status = await getUserAccount(activeCustomerId, token, telegramContext.initData)
       const merged = mergeAccountProfile({ ...status, profile: updated }, updated)

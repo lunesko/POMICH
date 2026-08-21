@@ -30,6 +30,7 @@ import { validateUkraineMobilePhone } from "../../lib/ukrainePhone"
 import { validateUkrainePlate } from "../../lib/ukrainePlate"
 import { isPartnerProfileIncomplete } from "../../lib/partnerProfileComplete"
 import { DEFAULT_SERVICE_CITY, validateServiceCity } from "../../lib/ukraineCities"
+import { writeCityUserPicked, writePreferredCity } from "../../lib/preferredCity"
 import { validatePersonName } from "../../lib/personName"
 import { authSessionStorageKey, isAuthSessionToken, readAuthSessionSubject, readStoredAuthSession, readStoredCustomerAuthSession, storeAuthSession } from "../../lib/auth"
 import { presenceErrorMessage } from "../ui/DutyStatusToggle"
@@ -462,8 +463,9 @@ export default function ProviderCabinet({
       const merged = { ...(profile ?? saved), ...saved, specialties: toServiceKeys(saved.specialties) }
       setProfile(merged)
       writeCachedProviderProfile({ ...merged, id: session.providerId })
+      writePreferredCity(cityValidation.value)
+      writeCityUserPicked(true)
       if (typeof window !== "undefined") {
-        window.localStorage.setItem("pomichPreferredCity", cityValidation.value)
         window.localStorage.setItem(`pomichPartnerRegistered:${session.providerId}`, "1")
       }
       setLoadError(undefined)

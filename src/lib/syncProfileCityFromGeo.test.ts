@@ -5,6 +5,7 @@ import { syncProfileCityFromGeo } from "./syncProfileCityFromGeo"
 describe("syncProfileCityFromGeo", () => {
   beforeEach(() => {
     vi.restoreAllMocks()
+    window.localStorage.clear()
   })
 
   it("persists detected city when token is available", async () => {
@@ -90,6 +91,23 @@ describe("syncProfileCityFromGeo", () => {
 
     expect(result).toBeNull()
     expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("does not overwrite when the user locked a city pick (incl. Kyiv)", async () => {
+    window.localStorage.setItem("pomichCityUserPicked", "1")
+    window.localStorage.setItem("pomichPreferredCity", "Київ")
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+
+    const result = await syncProfileCityFromGeo(
+      { lat: 48.73242, lng: 22.47778 },
+      "tg-1",
+      "token-1",
+      "Київ",
+    )
+
+    expect(result).toBeNull()
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it("updates server when local city already matches geocode", async () => {

@@ -65,6 +65,7 @@ import { validateUkrainePlate } from "../../lib/ukrainePlate"
 import { isPartnerProfileComplete } from "../../lib/partnerProfileComplete"
 import { validatePersonName } from "../../lib/personName"
 import { DEFAULT_SERVICE_CITY, validateServiceCity } from "../../lib/ukraineCities"
+import { writeCityUserPicked, writePreferredCity } from "../../lib/preferredCity"
 import { PhoneInput } from "../ui/PhoneInput"
 import { UkrainePlateInput } from "../ui/UkrainePlateInput"
 import { OtpVerificationPanel } from "../ui/OtpVerificationPanel"
@@ -217,15 +218,13 @@ function ProviderCard({
   eta,
   assignedProvider,
   fallbackName,
-  allowDemoFallback = true,
 }: {
   orderId?: string
   eta?: number
   assignedProvider?: OrderResponse["assignedProvider"] | ProviderAvailability
   fallbackName?: string
-  allowDemoFallback?: boolean
 }) {
-  const cardProvider = assignedProvider ?? (allowDemoFallback ? provider : undefined)
+  const cardProvider = assignedProvider
   if (!cardProvider) {
     return (
       <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 18, padding: 14 }}>
@@ -234,9 +233,9 @@ function ProviderCard({
       </div>
     )
   }
-  const phone = cardProvider.phone ?? (allowDemoFallback ? provider.phone : undefined)
-  const telegram = cardProvider.telegram ?? (allowDemoFallback ? provider.telegram : undefined)
-  const rating = cardProvider.rating ?? (allowDemoFallback ? provider.rating : undefined)
+  const phone = cardProvider.phone
+  const telegram = cardProvider.telegram
+  const rating = cardProvider.rating
   const distanceKm = "distanceKm" in cardProvider && typeof cardProvider.distanceKm === "number" ? cardProvider.distanceKm : undefined
   const verificationStatus = "verificationStatus" in cardProvider ? cardProvider.verificationStatus : "verified"
   const distanceLabel =
@@ -425,14 +424,14 @@ export default function ProviderFlow({
   const providerSpecialties = toServiceKeys(providerProfile.specialties)
   const providerPresence: ProviderAvailability = {
     id: providerId,
-    name: providerProfile.name || provider.name,
-    rating: providerProfile.rating ?? provider.rating,
-    vehicle: providerProfile.vehicle || provider.vehicle,
-    plate: providerProfile.plate || provider.plate,
-    phone: providerProfile.phone || provider.phone,
-    telegram: providerProfile.telegram || provider.telegram,
+    name: providerProfile.name || "Партнер POMICH",
+    rating: providerProfile.rating,
+    vehicle: providerProfile.vehicle || "",
+    plate: providerProfile.plate || "",
+    phone: providerProfile.phone || "",
+    telegram: providerProfile.telegram || "",
     status: onDuty ? "online" : "offline",
-    etaMinutes: providerProfile.etaMinutes ?? provider.etaMinutes,
+    etaMinutes: providerProfile.etaMinutes,
     location: providerLocation,
     specialties: providerSpecialties.length > 0 ? providerSpecialties : registrationForm.specialties,
     serviceRadiusKm: providerProfile.serviceRadiusKm ?? registrationForm.serviceRadiusKm,
@@ -515,7 +514,7 @@ export default function ProviderFlow({
           return current.trim() || value
         }
         const currentCity = next.city.trim()
-        const cityIsPlaceholder = !currentCity || currentCity === DEFAULT_SERVICE_CITY
+        const cityIsPlaceholder = !currentCity
         next = {
           ...next,
           name: pick(next.name, String(source.name || "")),
@@ -1529,8 +1528,9 @@ export default function ProviderFlow({
       setProviderProfile((profile) => ({ ...profile, ...updated, specialties: toServiceKeys(updated.specialties) }))
       if (typeof window !== "undefined") {
         window.localStorage.setItem(`pomichPartnerRegistered:${session.providerId}`, "1")
-        window.localStorage.setItem("pomichPreferredCity", cityValidation.value)
       }
+      writePreferredCity(cityValidation.value)
+      writeCityUserPicked(true)
       setStep(isProviderPhoneVerified(updated) ? "duty" : "verify")
       setLoginView("login")
       if (isProviderPhoneVerified(updated)) {

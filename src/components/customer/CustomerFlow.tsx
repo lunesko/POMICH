@@ -45,7 +45,6 @@ import {
 import {
   PICKUP,
   services,
-  provider,
   vehicleOptions,
   orderStatusLabels,
   getServiceLabel,
@@ -99,7 +98,12 @@ import { formatLocalPhoneDisplay, nationalDigitsFromPhone, phoneInputValueFromSt
 import { validatePersonName } from "../../lib/personName"
 import { ThemeToggle } from "../ui/ThemeToggle"
 import { CitySelect } from "../ui/CitySelect"
-import { DEFAULT_SERVICE_CITY, isUkraineServiceCity, normalizeServiceCity, nearestServiceCity, resolveServiceCityFromGeo, serviceCityCenter } from "../../lib/ukraineCities"
+import { DEFAULT_SERVICE_CITY, normalizeServiceCity, nearestServiceCity, resolveServiceCityFromGeo } from "../../lib/ukraineCities"
+import {
+  resolveDisplayedServiceCity,
+  writeCityUserPicked,
+  writePreferredCity,
+} from "../../lib/preferredCity"
 import { subscribeOrderEvents } from "../../lib/realtime"
 
 const BRAND = "var(--pomich-brand)"
@@ -221,15 +225,13 @@ function ProviderCard({
   eta,
   assignedProvider,
   fallbackName,
-  allowDemoFallback = false,
 }: {
   orderId?: string
   eta?: number
   assignedProvider?: OrderResponse["assignedProvider"] | ProviderAvailability
   fallbackName?: string
-  allowDemoFallback?: boolean
 }) {
-  const cardProvider = assignedProvider ?? (allowDemoFallback ? provider : undefined)
+  const cardProvider = assignedProvider
   if (!cardProvider) {
     return (
       <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 18, padding: 14 }}>
@@ -238,9 +240,9 @@ function ProviderCard({
       </div>
     )
   }
-  const phone = cardProvider.phone ?? (allowDemoFallback ? provider.phone : undefined)
-  const telegram = cardProvider.telegram ?? (allowDemoFallback ? provider.telegram : undefined)
-  const rating = cardProvider.rating ?? (allowDemoFallback ? provider.rating : undefined)
+  const phone = cardProvider.phone
+  const telegram = cardProvider.telegram
+  const rating = cardProvider.rating
   const distanceKm = "distanceKm" in cardProvider && typeof cardProvider.distanceKm === "number" ? cardProvider.distanceKm : undefined
   const verificationStatus = "verificationStatus" in cardProvider ? cardProvider.verificationStatus : "verified"
   const distanceLabel =
@@ -519,7 +521,8 @@ function CustomerTrustPanel({
           value={draft.city || profile.city || DEFAULT_SERVICE_CITY}
           onChange={(city) => {
             patchDraft({ city })
-            if (typeof window !== "undefined") window.localStorage.setItem("pomichPreferredCity", city)
+            writePreferredCity(city)
+            writeCityUserPicked(true)
           }}
           label="Місто для довідника СТО/АЗС"
         />
@@ -1112,7 +1115,7 @@ function AcceptedStep({
       </div>
 
       <div style={{ marginTop: 16, display: "grid", gap: 12 }}>
-        <ProviderCard orderId={orderId} eta={eta} assignedProvider={assignedProvider} fallbackName={partnerName} allowDemoFallback={false} />
+        <ProviderCard orderId={orderId} eta={eta} assignedProvider={assignedProvider} fallbackName={partnerName} />
         {order?.partnerPriceNote ? (
           <div style={{ background: "#EFF6FF", borderRadius: 18, padding: 14, color: "#1D4ED8", fontWeight: 800, fontSize: 13, lineHeight: 1.45 }}>
             Примітка партнера: {order.partnerPriceNote}
@@ -1210,7 +1213,7 @@ function TrackingStep({ orderId, status, order, pickup, destination, cancelError
         {eta ? <div style={{ background: "var(--pomich-accent-panel-bg)", color: "#fff", borderRadius: 999, padding: "9px 12px", fontWeight: 950 }}>{eta} хв</div> : null}
       </div>
       <div style={{ marginTop: 16, display: "grid", gap: 12 }}>
-        <ProviderCard orderId={orderId} eta={eta} assignedProvider={order?.assignedProvider} allowDemoFallback={false} />
+        <ProviderCard orderId={orderId} eta={eta} assignedProvider={order?.assignedProvider} />
         <div style={{ background: CARD, borderRadius: 18, padding: 14, border: `1px solid ${BORDER}` }}>
           <Timeline status={status} />
           <div style={{ color: MUTED, fontSize: 13, fontWeight: 700, marginTop: 12 }}>
@@ -1347,35 +1350,24 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
   const [customerVerificationError, setCustomerVerificationError] = useState<string | undefined>()
   const userInitiatedCancelRef = useRef(false)
 
-  const serviceCity = useMemo(() => {
-    const raw = String(
-      customerProfile.city ||
-        (typeof window !== "undefined" ? window.localStorage.getItem("pomichPreferredCity") : "") ||
-        "",
-    ).trim()
-    /* Explicit non-default city from profile/dropdown wins. */
-    if (isUkraineServiceCity(raw) && raw !== DEFAULT_SERVICE_CITY) return raw
-
-    /* Stale Київ / empty / village name: snap to nearest service city from GPS. */
-    const nearest = nearestServiceCity(pickup)
-    if (nearest && nearest.city !== DEFAULT_SERVICE_CITY) return nearest.city
-
-    return normalizeServiceCity(raw)
-  }, [customerProfile.city, pickup.lat, pickup.lng])
-
+  const serviceCity = useMemo(
+    () =>
+      resolveDisplayedServiceCity({
+        profileCity: customerProfile.city,
+        pickup,
+      }),
+    [customerProfile.city, pickup.lat, pickup.lng],
+  )
 
   const applyServiceCity = useCallback(
     (nextCity: string) => {
       const normalized = normalizeServiceCity(nextCity)
       if (normalized === serviceCity) return
-      if (typeof window !== "undefined") window.localStorage.setItem("pomichPreferredCity", normalized)
+      writePreferredCity(normalized)
+      writeCityUserPicked(true)
       setCustomerProfile((profile) => ({ ...profile, city: normalized }))
-      const center = serviceCityCenter(normalized)
-      pickupRef.current = center
-      setPickup(center)
-      setAddressLabel(normalized)
-      setGeoMessage(`Місто: ${normalized}`)
-      setGeoRecenterTrigger((value) => value + 1)
+      /* Keep real GPS pickup — only change the service-city preference. */
+      setGeoMessage(`Місто сервісу: ${normalized}`)
       if (customerId && customerAuthToken) {
         updateCustomerProfile(customerId, { city: normalized }, customerAuthToken).catch(() => undefined)
       }
@@ -1547,7 +1539,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
       .then((result) => {
         if (cancelled || !result) return
         if (typeof window !== "undefined") {
-          window.localStorage.setItem("pomichPreferredCity", result.city)
+          writePreferredCity(result.city)
         }
         setCustomerProfile((profile) => {
           const targetCity = result.saved?.city || result.city
@@ -1676,6 +1668,8 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
   const retryGeolocation = () => {
     explicitGeoRecenterRef.current = true
     skipNextAutoGeoRef.current = true
+    /* Re-bind service city to GPS after an explicit locate. */
+    writeCityUserPicked(false)
     setGeoState("requesting")
     setGeoMessage("Визначаємо ваше місцезнаходження…")
     setAddressLabel("Визначаємо адресу…")

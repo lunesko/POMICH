@@ -15,7 +15,7 @@ export const MAP_FLY_THRESHOLD_M = 200
 
 /** Default sheet heights (% of ride-screen) when CSS vars / DOM measurement are unavailable. */
 export const DEFAULT_SHEET_HEIGHTS_VH = {
-  peek: 15,
+  peek: 22,
   half: 44,
   expanded: 72,
 } as const
