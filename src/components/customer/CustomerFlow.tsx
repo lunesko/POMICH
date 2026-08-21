@@ -1882,6 +1882,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
 
   const applyPickup = (point: Point, message = "Місце подачі оновлено вручну.") => {
     setPickup(point)
+    writeCachedGeoPosition(point)
     setGeoState("success")
     setGeoMessage(message)
   }
