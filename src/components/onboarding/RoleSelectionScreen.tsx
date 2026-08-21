@@ -1,5 +1,3 @@
-import { useId } from "react"
-
 import { usePomichTheme } from "../../context/PomichThemeProvider"
 import { mediaQueries } from "../../lib/breakpoints"
 import { useMediaQuery } from "../../hooks/useMediaQuery"
@@ -21,92 +19,56 @@ interface RoleSelectionScreenProps {
 }
 
 function ClientCarIcon() {
-  const uid = useId().replace(/:/g, "")
-  const body = `pomich-client-body-${uid}`
-  const glass = `pomich-client-glass-${uid}`
-  const shine = `pomich-client-shine-${uid}`
   return (
     <svg
       className="pomich-role-icon-svg pomich-role-icon-svg--client"
-      viewBox="0 0 80 80"
-      width="44"
-      height="44"
+      viewBox="0 0 48 48"
+      width="40"
+      height="40"
+      fill="none"
       aria-hidden="true"
     >
-      <defs>
-        <linearGradient id={body} x1="12" y1="28" x2="68" y2="58" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#A7F3D0" />
-          <stop offset="0.45" stopColor="#34D399" />
-          <stop offset="1" stopColor="#047857" />
-        </linearGradient>
-        <linearGradient id={glass} x1="26" y1="24" x2="54" y2="36" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#F0FDFA" />
-          <stop offset="1" stopColor="#6EE7B7" />
-        </linearGradient>
-        <linearGradient id={shine} x1="20" y1="30" x2="40" y2="50" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#fff" stopOpacity="0.55" />
-          <stop offset="1" stopColor="#fff" stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      <ellipse className="pomich-role-icon-shadow" cx="40" cy="66" rx="22" ry="4.5" fill="rgba(15,23,42,0.22)" />
       <g className="pomich-role-icon-vehicle">
         <path
-          d="M16 46c1.8-10.5 9.2-17.5 24-17.5S62.2 35.5 64 46c1.5 4.8 1 9.4-.8 12H16.8C15 55.4 14.5 50.8 16 46Z"
-          fill={`url(#${body})`}
+          d="M8.5 28.5c1.1-6.2 5.8-10.2 15.5-10.2s14.4 4 15.5 10.2c.7 3.2.5 6.2-.4 7.8H8.9c-.9-1.6-1.1-4.6-.4-7.8Z"
+          fill="#fff"
         />
-        <path d="M26 32.5c2.8-4.6 7.6-7 14-7s11.2 2.4 14 7" fill={`url(#${glass})`} />
-        <path d="M22 40h12l2 8H20l2-8Z" fill={`url(#${shine})`} opacity="0.55" />
-        <path d="M20 47.5h9M51 47.5h9" stroke="rgba(255,255,255,0.75)" strokeWidth="2.2" strokeLinecap="round" />
-        <circle cx="26" cy="57.5" r="6" fill="#0F172A" />
-        <circle cx="26" cy="57.5" r="2.4" fill="#E2E8F0" />
-        <circle cx="54" cy="57.5" r="6" fill="#0F172A" />
-        <circle cx="54" cy="57.5" r="2.4" fill="#E2E8F0" />
-        <circle cx="62" cy="48" r="1.8" fill="#FDE68A" opacity="0.9" />
+        <path
+          d="M16.5 21c1.8-2.8 4.8-4.2 7.5-4.2s5.7 1.4 7.5 4.2"
+          fill="rgba(15,118,110,0.28)"
+        />
+        <path d="M11.5 29.2h7.2M29.3 29.2h7.2" stroke="rgba(15,118,110,0.45)" strokeWidth="2" strokeLinecap="round" />
+        <circle cx="15.5" cy="35.2" r="3.7" fill="#0B1220" />
+        <circle cx="15.5" cy="35.2" r="1.4" fill="#E2E8F0" />
+        <circle cx="32.5" cy="35.2" r="3.7" fill="#0B1220" />
+        <circle cx="32.5" cy="35.2" r="1.4" fill="#E2E8F0" />
+        <circle cx="37.8" cy="28.4" r="1.4" fill="#FDE68A" />
       </g>
     </svg>
   )
 }
 
 function PartnerTruckIcon() {
-  const uid = useId().replace(/:/g, "")
-  const bed = `pomich-partner-bed-${uid}`
-  const cab = `pomich-partner-cab-${uid}`
-  const glass = `pomich-partner-glass-${uid}`
   return (
     <svg
       className="pomich-role-icon-svg pomich-role-icon-svg--partner"
-      viewBox="0 0 80 80"
-      width="44"
-      height="44"
+      viewBox="0 0 48 48"
+      width="40"
+      height="40"
+      fill="none"
       aria-hidden="true"
     >
-      <defs>
-        <linearGradient id={bed} x1="10" y1="34" x2="46" y2="58" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#BFDBFE" />
-          <stop offset="0.5" stopColor="#60A5FA" />
-          <stop offset="1" stopColor="#1D4ED8" />
-        </linearGradient>
-        <linearGradient id={cab} x1="44" y1="36" x2="70" y2="58" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#DBEAFE" />
-          <stop offset="1" stopColor="#1E40AF" />
-        </linearGradient>
-        <linearGradient id={glass} x1="48" y1="38" x2="62" y2="48" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#EFF6FF" />
-          <stop offset="1" stopColor="#93C5FD" />
-        </linearGradient>
-      </defs>
-      <ellipse className="pomich-role-icon-shadow" cx="40" cy="66" rx="24" ry="4.5" fill="rgba(15,23,42,0.22)" />
       <g className="pomich-role-icon-vehicle">
-        <rect x="10" y="34" width="32" height="20" rx="3.5" fill={`url(#${bed})`} />
-        <path d="M42 38h14l7.5 9.5V54H42V38Z" fill={`url(#${cab})`} />
-        <path d="M46 40.5h8.5l4.2 5.5H46V40.5Z" fill={`url(#${glass})`} />
-        <path d="M13 30.5h22l2.4 4.5H13v-4.5Z" fill="#F8FAFC" opacity="0.95" />
-        <path d="M14 42h8M14 47h12" stroke="rgba(255,255,255,0.55)" strokeWidth="1.8" strokeLinecap="round" />
-        <circle cx="22" cy="57.5" r="6" fill="#0F172A" />
-        <circle cx="22" cy="57.5" r="2.4" fill="#E2E8F0" />
-        <circle cx="54" cy="57.5" r="6" fill="#0F172A" />
-        <circle cx="54" cy="57.5" r="2.4" fill="#E2E8F0" />
-        <circle cx="66" cy="49" r="1.8" fill="#FDE68A" opacity="0.95" />
+        <rect x="6.5" y="20.5" width="20" height="13.5" rx="2.4" fill="#fff" />
+        <path d="M26.5 23.2h9.2L40 30.2v3.8H26.5V23.2Z" fill="#fff" />
+        <path d="M29.2 25h5.4l2.7 3.6H29.2V25Z" fill="rgba(29,78,216,0.35)" />
+        <path d="M8.2 17.8h14.2l1.8 2.7H8.2v-2.7Z" fill="#F8FAFC" />
+        <path d="M9.2 25.2h5.4M9.2 28.6h8.2" stroke="rgba(29,78,216,0.4)" strokeWidth="1.7" strokeLinecap="round" />
+        <circle cx="14.2" cy="35.4" r="3.6" fill="#0B1220" />
+        <circle cx="14.2" cy="35.4" r="1.35" fill="#E2E8F0" />
+        <circle cx="33.2" cy="35.4" r="3.6" fill="#0B1220" />
+        <circle cx="33.2" cy="35.4" r="1.35" fill="#E2E8F0" />
+        <circle cx="38.6" cy="29.4" r="1.35" fill="#FDE68A" />
       </g>
     </svg>
   )
