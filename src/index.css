@@ -3537,48 +3537,62 @@ html.mobile-compact-xs .pomich-tg-main .pomich-ride-screen__map .leaflet-contain
   transform: scale(0.94);
   animation: none;
 }
-/* Overlay ride maps: compact legend, top-right (same chrome band as zoom) */
+/* Overlay ride maps: compact legend, top-right (same chrome band as zoom).
+   Parent selectors + !important beat any stale bottom: sheet-height rules. */
+.pomich-ride-screen--overlay .pomich-map-legend-box,
+.pomich-ride-screen--overlay .pomich-map-legend-box--overlay,
 .pomich-map-legend-box--overlay {
-  top: var(--pomich-map-chrome-top, 78px);
-  bottom: auto;
-  right: var(--pomich-map-chrome-right, 10px);
+  top: var(--pomich-map-chrome-top, 12px) !important;
+  bottom: auto !important;
+  right: var(--pomich-map-chrome-right, 10px) !important;
+  left: auto !important;
   z-index: 1250;
   min-width: 0;
-  max-width: min(128px, 38vw);
-  padding: 5px 7px 6px;
-  gap: 3px;
+  max-width: min(118px, 34vw);
+  padding: 4px 6px 5px;
+  gap: 2px;
   border-radius: 10px;
   transform-origin: top right;
 }
+.pomich-ride-screen--overlay .pomich-map-legend-box .pomich-map-legend-title,
 .pomich-map-legend-box--overlay .pomich-map-legend-title {
   font-size: 8px;
   letter-spacing: 0.04em;
 }
+.pomich-ride-screen--overlay .pomich-map-legend-box .pomich-map-legend-toggle,
 .pomich-map-legend-box--overlay .pomich-map-legend-toggle {
   width: 18px;
   height: 18px;
 }
+.pomich-ride-screen--overlay .pomich-map-legend-box .pomich-map-legend-list,
 .pomich-map-legend-box--overlay .pomich-map-legend-list {
-  gap: 3px;
+  gap: 2px;
 }
+.pomich-ride-screen--overlay .pomich-map-legend-box .pomich-map-legend-item,
 .pomich-map-legend-box--overlay .pomich-map-legend-item {
   gap: 5px;
 }
+.pomich-ride-screen--overlay .pomich-map-legend-box .pomich-map-legend-item__label,
 .pomich-map-legend-box--overlay .pomich-map-legend-item__label {
   font-size: 9px;
 }
+.pomich-ride-screen--overlay .pomich-map-legend-box .pomich-map-legend-glyph,
 .pomich-map-legend-box--overlay .pomich-map-legend-glyph {
   width: 14px;
   height: 14px;
 }
+.pomich-ride-screen--overlay .pomich-map-legend-box .pomich-map-legend-glyph svg,
 .pomich-map-legend-box--overlay .pomich-map-legend-glyph svg {
   width: 9px;
   height: 9px;
 }
+.pomich-ride-screen--overlay .pomich-map-legend-fab,
+.pomich-ride-screen--overlay .pomich-map-legend-fab--overlay,
 .pomich-map-legend-fab--overlay {
-  top: var(--pomich-map-chrome-top, 78px);
-  bottom: auto;
-  right: var(--pomich-map-chrome-right, 10px);
+  top: var(--pomich-map-chrome-top, 12px) !important;
+  bottom: auto !important;
+  right: var(--pomich-map-chrome-right, 10px) !important;
+  left: auto !important;
   z-index: 1250;
   width: 34px;
   height: 34px;

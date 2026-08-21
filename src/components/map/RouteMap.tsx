@@ -922,7 +922,8 @@ const LEGEND_ICONS = {
   ),
 } as const
 
-const MAP_LEGEND_COLLAPSED_KEY = "pomichMapLegendCollapsed"
+/* v2: overlay always defaults collapsed; old key kept expanded for many users. */
+const MAP_LEGEND_COLLAPSED_KEY = "pomichMapLegendCollapsedV2"
 
 function readLegendCollapsed(defaultCollapsed = false): boolean {
   if (typeof window === "undefined") return defaultCollapsed
@@ -960,8 +961,10 @@ function MapLegend({
   hasRequests?: boolean
   overlayMode?: boolean
 }) {
-  /* Overlay / TG: start collapsed so the legend does not eat the map band. */
-  const [collapsed, setCollapsed] = useState(() => readLegendCollapsed(Boolean(overlayMode)))
+  /* Overlay / TG: always start collapsed — expanded box eats the map band on phones. */
+  const [collapsed, setCollapsed] = useState(() =>
+    overlayMode ? true : readLegendCollapsed(false),
+  )
   const [entered, setEntered] = useState(false)
 
   /* Enter animation for BOTH expanded box and collapsed FAB. */
@@ -998,7 +1001,8 @@ function MapLegend({
   const toggle = () => {
     setCollapsed((value) => {
       const next = !value
-      writeLegendCollapsed(next)
+      /* Overlay ignores stored expand on remount; still persist for non-overlay maps. */
+      if (!overlayMode) writeLegendCollapsed(next)
       return next
     })
   }
