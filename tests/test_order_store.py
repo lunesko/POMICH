@@ -1443,6 +1443,46 @@ def test_enrich_order_for_client_fills_provider_name_and_price(tmp_path):
     assert enriched["partnerProposedPrice"] == 1500
 
 
+def test_enrich_order_for_client_prefers_stored_location_on_completed(tmp_path):
+    provider_store = tmp_path / "providers.json"
+    save_providers([
+        {
+            "id": "provider-tg-55",
+            "name": "Partner",
+            "rating": 5.0,
+            "vehicle": "Van",
+            "plate": "AA 0001 BB",
+            "phone": "+380671112233",
+            "telegram": "pomich_help_bot",
+            "status": "online",
+            "etaMinutes": 8,
+            "location": {"lat": 48.7, "lng": 22.4},
+            "specialties": ["mechanic"],
+            "serviceRadiusKm": 15,
+            "verificationStatus": "verified",
+        }
+    ], store_path=provider_store)
+
+    enriched = enrich_order_for_client(
+        {
+            "id": "PM-55",
+            "status": "completed",
+            "assignedProviderId": "provider-tg-55",
+            "customerCoordinates": {"lat": 48.62, "lng": 22.28},
+            "assignedProvider": {
+                "id": "provider-tg-55",
+                "name": "Partner",
+                "location": {"lat": 48.625, "lng": 22.29},
+                "distanceKm": 0.5,
+            },
+        },
+        provider_store_path=provider_store,
+    )
+
+    assert enriched["assignedProvider"]["location"] == {"lat": 48.625, "lng": 22.29}
+    assert enriched["assignedProvider"]["distanceKm"] == 0.5
+
+
 def test_cancel_order_releases_assigned_provider(tmp_path):
     order_store = tmp_path / "orders.json"
     provider_store = tmp_path / "providers.json"

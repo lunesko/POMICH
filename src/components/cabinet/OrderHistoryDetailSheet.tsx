@@ -51,6 +51,50 @@ function formatDateTime(value?: string): string | undefined {
   }
 }
 
+function toPoint(value?: { lat?: number; lng?: number } | null): Point | undefined {
+  if (!value) return undefined
+  const lat = Number(value.lat)
+  const lng = Number(value.lng)
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return undefined
+  return { lat, lng }
+}
+
+/** Place partner approach point ~distanceKm from client for display when GPS snapshot is missing. */
+export function estimatePartnerApproachPoint(client: Point, distanceKm: number, bearingDeg = 300): Point {
+  const meters = Math.max(80, distanceKm * 1000)
+  const bearing = (bearingDeg * Math.PI) / 180
+  const dLat = (meters * Math.cos(bearing)) / 111_320
+  const cosLat = Math.cos((client.lat * Math.PI) / 180)
+  const dLng = cosLat === 0 ? 0 : (meters * Math.sin(bearing)) / (111_320 * cosLat)
+  return { lat: client.lat + dLat, lng: client.lng + dLng }
+}
+
+/** Resolve A (partner) → B (client) endpoints for history map. */
+export function resolveHistoryRoutePoints(order: OrderResponse): {
+  client?: Point
+  partner?: Point
+  destination?: Point
+  partnerEstimated: boolean
+} {
+  const client = toPoint(order.customerCoordinates)
+  const destination = toPoint(order.destinationCoordinates)
+  let partner = toPoint(order.assignedProvider?.location)
+  let partnerEstimated = false
+  if (client && !partner) {
+    const km =
+      typeof order.assignedProvider?.distanceKm === "number"
+        ? order.assignedProvider.distanceKm
+        : typeof order.distanceKm === "number"
+          ? order.distanceKm
+          : undefined
+    if (typeof km === "number" && Number.isFinite(km) && km >= 0.05 && km <= 80) {
+      partner = estimatePartnerApproachPoint(client, km)
+      partnerEstimated = true
+    }
+  }
+  return { client, partner, destination, partnerEstimated }
+}
+
 function MapFallback() {
   return <div className="pomich-history-detail__map-fallback" aria-hidden="true" />
 }
@@ -64,12 +108,7 @@ export default function OrderHistoryDetailSheet({
   viewer: OrderHistoryViewer
   onClose: () => void
 }) {
-  const pickup: Point | undefined = order.customerCoordinates
-    ? { lat: order.customerCoordinates.lat, lng: order.customerCoordinates.lng }
-    : undefined
-  const destination: Point | undefined = order.destinationCoordinates
-    ? { lat: order.destinationCoordinates.lat, lng: order.destinationCoordinates.lng }
-    : undefined
+  const { client: pickup, partner: partnerPoint, destination, partnerEstimated } = resolveHistoryRoutePoints(order)
   const duration = formatOrderDuration(order)
   const counterpart =
     viewer === "customer"
@@ -84,6 +123,13 @@ export default function OrderHistoryDetailSheet({
       ? formatCabinetReviewStars(order.partnerReview?.rating)
       : formatCabinetReviewStars(order.customerReview?.rating)
   const timeline = (order.statusHistory ?? []).filter((item) => item.status && item.at)
+  const mapSubtitle = partnerPoint
+    ? partnerEstimated
+      ? "Маршрут A→B · орієнтовно"
+      : "Маршрут A (партнер) → B (клієнт)"
+    : destination
+      ? "Маршрут клієнт → куди"
+      : "Місце заявки"
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -198,12 +244,13 @@ export default function OrderHistoryDetailSheet({
           </div>
 
           {pickup ? (
-            <div className="pomich-history-detail__map" aria-label="Карта маршруту">
+            <div className="pomich-history-detail__map" aria-label="Карта маршруту партнер клієнт">
               <Suspense fallback={<MapFallback />}>
                 <LazyRouteMap
                   pickup={pickup}
-                  destination={destination}
-                  subtitle="Маршрут заявки"
+                  providerPosition={partnerPoint}
+                  destination={partnerPoint ? undefined : destination}
+                  subtitle={mapSubtitle}
                   showBadges={false}
                   showLocateControl={false}
                   decorative
@@ -211,6 +258,11 @@ export default function OrderHistoryDetailSheet({
                   full={false}
                 />
               </Suspense>
+              {partnerPoint ? (
+                <div className="pomich-history-detail__map-caption">
+                  A — партнер · B — клієнт{partnerEstimated ? " · орієнтовний напрямок" : ""}
+                </div>
+              ) : null}
             </div>
           ) : (
             <div className="pomich-history-detail__map-empty">Координати маршруту недоступні</div>

@@ -766,16 +766,20 @@ def enrich_order_for_client(
 
     provider_id = str(payload.get("assignedProviderId") or payload.get("partnerId") or "").strip()
     assigned_provider = dict(payload.get("assignedProvider")) if isinstance(payload.get("assignedProvider"), dict) else {}
+    terminal_status = str(payload.get("status") or "").strip() in {"completed", "cancelled"}
 
     if provider_id:
         provider = get_provider_profile(provider_id, provider_store_path)
         if provider:
-            live_location = _valid_point(provider.get("location")) or _valid_point(assigned_provider.get("location"))
+            stored_location = _valid_point(assigned_provider.get("location"))
+            live_location = _valid_point(provider.get("location"))
+            # History should keep the approach snapshot; live GPS is for active trips only.
+            location = (stored_location or live_location) if terminal_status else (live_location or stored_location)
             pickup = _valid_point(payload.get("customerCoordinates"))
             distance_km = assigned_provider.get("distanceKm")
             eta_minutes = assigned_provider.get("etaMinutes") or provider.get("etaMinutes")
-            if live_location and pickup:
-                distance_km = round(haversine_distance_km(live_location, pickup), 2)
+            if location and pickup and not terminal_status:
+                distance_km = round(haversine_distance_km(location, pickup), 2)
                 eta_minutes = max(1, math.ceil(float(distance_km) * 4))
             assigned_provider = {
                 "id": provider.get("id") or assigned_provider.get("id"),
@@ -785,7 +789,7 @@ def enrich_order_for_client(
                 "plate": provider.get("plate") or assigned_provider.get("plate"),
                 "phone": provider.get("phone") or assigned_provider.get("phone"),
                 "telegram": provider.get("telegram") or assigned_provider.get("telegram"),
-                "location": live_location,
+                "location": location,
                 "verificationStatus": provider.get("verificationStatus") or assigned_provider.get("verificationStatus"),
                 "trustedBadges": provider.get("trustedBadges") or assigned_provider.get("trustedBadges"),
                 "distanceKm": distance_km,

@@ -5298,10 +5298,26 @@ button.pomich-cabinet-order-item--button:active {
 }
 .pomich-history-detail__map {
   margin-top: 14px;
-  height: 200px;
+  height: 220px;
   border-radius: 16px;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--pomich-glass-border) 80%, transparent);
+  position: relative;
+}
+.pomich-history-detail__map-caption {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  z-index: 500;
+  border-radius: 10px;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--pomich-text);
+  background: color-mix(in srgb, var(--pomich-card-bg, #fff) 88%, transparent);
+  border: 1px solid color-mix(in srgb, var(--pomich-glass-border) 80%, transparent);
+  pointer-events: none;
 }
 .pomich-history-detail__map .pomich-route-map,
 .pomich-history-detail__map .leaflet-container {
