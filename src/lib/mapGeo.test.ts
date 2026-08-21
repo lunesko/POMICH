@@ -86,6 +86,7 @@ describe("mapGeo", () => {
     expect(formatSpeedKmh(null)).toBe("—")
     expect(formatSpeedKmh(undefined)).toBe("—")
     expect(formatSpeedKmh(0)).toBe("0")
+    expect(formatSpeedKmh(1.5)).toBe("0")
     expect(formatSpeedKmh(10)).toBe("36")
   })
 
@@ -93,7 +94,8 @@ describe("mapGeo", () => {
     expect(resolveMapZoomForSpeed(null)).toBeNull()
     expect(resolveMapZoomForSpeed(undefined)).toBeNull()
     expect(resolveMapZoomForSpeed(0)).toBe(MAP_ZOOM_STATIONARY)
-    expect(resolveMapZoomForSpeed(2)).toBe(MAP_ZOOM_SLOW)
+    expect(resolveMapZoomForSpeed(2)).toBe(MAP_ZOOM_STATIONARY)
+    expect(resolveMapZoomForSpeed(3.5)).toBe(MAP_ZOOM_SLOW)
     expect(resolveMapZoomForSpeed(10)).toBe(MAP_ZOOM_CITY)
     expect(resolveMapZoomForSpeed(20)).toBe(MAP_ZOOM_FAST)
   })
@@ -332,7 +334,8 @@ describe("mapGeo", () => {
     requestCurrentPosition(onSuccess, onError, { mode: "explicit" })
     await vi.waitFor(() => expect(onSuccess).toHaveBeenCalledWith({ lat: 48.62, lng: 22.28 }))
     expect(onError).not.toHaveBeenCalled()
-    expect(readRememberedGeoPermission()).toBe("denied")
+    // LM won — do not sticky-deny (that would break watchPosition / speed HUD).
+    expect(readRememberedGeoPermission()).toBeNull()
   })
 
   it("explicit mode skips Telegram LocationManager without Mini App initData", () => {

@@ -1590,8 +1590,12 @@ export function RouteMap({
   const center = providerPosition ? toTuple(providerPosition) : userLocation ? toTuple(userLocation) : toTuple(pickup)
   // Follow live GPS with speed-based zoom on any open map (with or without a route polyline).
   // Prefer the partner marker when present; otherwise follow the viewer (client/partner) point.
+  // Disable follow while the user is actively picking a destination (onPick + destination set).
+  const destinationPickActive = Boolean(onPick) && Boolean(destination) && !directoryOnly && !providerPosition
   const followMotionPoint: LatLngTuple | null =
-    !decorative && !directoryOnly && !markerDragging && !ukraineWideView ? center : null
+    !decorative && !directoryOnly && !markerDragging && !ukraineWideView && !destinationPickActive
+      ? center
+      : null
 
 
   const { directoryProviders, liveProviders } = useMemo(() => {
@@ -1645,8 +1649,9 @@ export function RouteMap({
 
 
   const hideMapChrome = sheetSnap === "expanded"
-  /* Google/Waze-style speed: always on live interactive maps (0 when standing / no fix yet). */
-  const showSpeedHud = !decorative && !directoryOnly && mapInteractive
+  /* Speed dial only while we have a live speed stream (number, including 0). */
+  const showSpeedHud =
+    !decorative && !directoryOnly && mapInteractive && typeof geoSpeedMps === "number" && !destinationPickActive
 
   /* Scope selector must stay available even when the directory list is empty. */
   const showDirectoryScopeTools = Boolean(onDirectoryScopeChange)
@@ -1787,7 +1792,7 @@ export function RouteMap({
           <FitRouteBounds
             coords={navRouteCoords}
             fitKey={
-              followMotionPoint && typeof geoSpeedMps === "number"
+              followMotionPoint
                 ? `nav-once:${navRouteCoords[0][0].toFixed(2)},${navRouteCoords[0][1].toFixed(2)}>${navRouteCoords[navRouteCoords.length - 1][0].toFixed(2)},${navRouteCoords[navRouteCoords.length - 1][1].toFixed(2)}`
                 : undefined
             }
@@ -1798,7 +1803,7 @@ export function RouteMap({
           <FitRouteBounds
             coords={routeCoords}
             fitKey={
-              followMotionPoint && typeof geoSpeedMps === "number" && routeEndpoints
+              followMotionPoint && routeEndpoints
                 ? `route-once:${routePointKey(routeEndpoints.from, 2)}>${routePointKey(routeEndpoints.to, 2)}`
                 : routeRequestKey
             }

@@ -27,8 +27,8 @@ export const MAP_ZOOM_SLOW = 16
 export const MAP_ZOOM_CITY = 15
 export const MAP_ZOOM_FAST = 14
 
-/** m/s — below this ≈ standing / parking crawl. */
-export const MAP_SPEED_STATIONARY_MPS = 1.2
+/** m/s — below this ≈ standing / parking crawl (covers phone GPS jitter ~≤10 km/h). */
+export const MAP_SPEED_STATIONARY_MPS = 2.8
 /** m/s — slow city crawl, lights, approach to turn (~16 km/h). */
 export const MAP_SPEED_SLOW_MPS = 4.5
 /** m/s — typical city traffic ceiling (~50 km/h). */
@@ -120,7 +120,9 @@ export function resolveFollowZoom(
 export function formatSpeedKmh(speedMps: number | null | undefined): string {
   // null/undefined = no live GPS speed yet — do not fake a stationary "0".
   if (typeof speedMps !== "number" || !Number.isFinite(speedMps) || speedMps < 0) return "—"
-  const kmh = Math.round(speedMps * 3.6)
+  // Floor GPS jitter when parked / crawling so the dial does not flash ~5–10 km/h.
+  const grounded = speedMps < MAP_SPEED_STATIONARY_MPS ? 0 : speedMps
+  const kmh = Math.round(grounded * 3.6)
   return String(Math.max(0, kmh))
 }
 
@@ -515,7 +517,11 @@ export function requestCurrentPosition(
   let telegramStarted = false
 
   const settleSuccess = (point: GeoPoint, rememberGrant: boolean) => {
-    if (settled) return
+    if (settled) {
+      // Race already took Telegram/LM — still sticky-grant when browser later succeeds.
+      if (rememberGrant) writeRememberedGeoPermission("granted")
+      return
+    }
     settled = true
     finishGeoSuccess(point, onSuccess, { rememberGrant })
   }
@@ -526,6 +532,11 @@ export function requestCurrentPosition(
     settled = true
     const failure = browserFailure
     if (failure) {
+      // Sticky deny only when the whole race fails — LM-only success must not leave
+      // pomichGeoPermission=denied (that kills watchPosition / speed HUD).
+      if (failure.kind === "permission-denied") {
+        writeRememberedGeoPermission("denied")
+      }
       onError(failure.message, failure.kind)
       return
     }
@@ -556,7 +567,6 @@ export function requestCurrentPosition(
       },
       (firstError) => {
         if (firstError.code === firstError.PERMISSION_DENIED) {
-          writeRememberedGeoPermission("denied")
           markBrowserDone({
             message:
               "Доступ до геолокації заборонено. Натисніть «Налаштування гео», дозвольте доступ, потім «Оновити» ще раз.",
@@ -574,7 +584,6 @@ export function requestCurrentPosition(
           },
           (retryError) => {
             const classified = classifyGeolocationError(retryError)
-            if (classified.kind === "permission-denied") writeRememberedGeoPermission("denied")
             const cachedFallback = readCachedGeoPosition()
             if (cachedFallback && classified.kind !== "permission-denied") {
               settleSuccess(cachedFallback, false)

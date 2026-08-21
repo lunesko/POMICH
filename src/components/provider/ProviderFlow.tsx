@@ -783,14 +783,15 @@ export default function ProviderFlow({
     providerLocationRef.current = providerLocation
   }, [providerLocation])
 
+  const providerLiveNav =
+    onDuty ||
+    step === "navigation" ||
+    step === "arrived" ||
+    step === "awaiting_price" ||
+    step === "offer"
+
   useEffect(() => {
-    const liveNav =
-      onDuty ||
-      step === "navigation" ||
-      step === "arrived" ||
-      step === "awaiting_price" ||
-      step === "offer"
-    if (!liveNav || typeof navigator === "undefined" || !("geolocation" in navigator)) return
+    if (!providerLiveNav || typeof navigator === "undefined" || !("geolocation" in navigator)) return
 
     let cancelled = false
     let watchId: number | undefined
@@ -828,15 +829,18 @@ export default function ProviderFlow({
       }
     }
 
-    // After any successful fix (auto cache or explicit go-online), start the watch.
-    // Do not gate on Permissions API — Telegram/Safari often omit it after a gesture grant.
+    // Seed from auto cache when possible; always start watch if we already have a point
+    // (go-online / stale ref) so live GPS + speed HUD are not stuck after auto failure.
     requestCurrentPosition(
       (point) => {
         if (cancelled) return
         setProviderLocation(point)
         startWatch()
       },
-      () => undefined,
+      () => {
+        if (cancelled) return
+        if (providerLocationRef.current) startWatch()
+      },
       { mode: "auto" },
     )
 
@@ -847,7 +851,8 @@ export default function ProviderFlow({
       providerSpeedSmoothRef.current = null
       providerMotionSampleRef.current = null
     }
-  }, [onDuty, providerGeoWatchEpoch, step])
+    // Keep one watch across navigation/arrived/offer while providerLiveNav stays true.
+  }, [providerLiveNav, providerGeoWatchEpoch])
 
   const retryProviderGeolocation = () => {
     setProviderGeoLoading(true)

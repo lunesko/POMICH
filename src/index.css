@@ -914,19 +914,7 @@ html:not([data-pomich-theme]) .pomich-map-chip--brand {
 .pomich-route-map--live-speed .pomich-map-legend-fab,
 .pomich-route-map--live-speed .pomich-map-tools-toggle,
 .pomich-route-map--live-speed .pomich-map-tools-panel {
-  top: calc(var(--pomich-map-chrome-top, 78px) + 76px);
-}
-/* Overlay legend uses !important top — keep HUD clear of legend/tools on TG + mobile web. */
-.pomich-ride-screen--overlay .pomich-route-map--live-speed .pomich-map-legend-box,
-.pomich-ride-screen--overlay .pomich-route-map--live-speed .pomich-map-legend-box--overlay,
-.pomich-ride-screen--overlay .pomich-route-map--live-speed .pomich-map-legend-fab,
-.pomich-ride-screen--overlay .pomich-route-map--live-speed .pomich-map-legend-fab--overlay,
-.pomich-ride-screen--overlay .pomich-route-map--live-speed .pomich-map-tools-toggle,
-.pomich-ride-screen--overlay .pomich-route-map--live-speed .pomich-map-tools-panel,
-.pomich-map-legend-box--overlay.pomich-route-map--live-speed,
-.pomich-route-map--live-speed .pomich-map-legend-box--overlay,
-.pomich-route-map--live-speed .pomich-map-legend-fab--overlay {
-  top: calc(var(--pomich-map-chrome-top, 12px) + 76px) !important;
+  top: calc(var(--pomich-map-chrome-top, 78px) + 80px);
 }
 [data-pomich-theme="dark"] .pomich-map-speed {
   background: color-mix(in srgb, var(--pomich-glass-card) 94%, #0b1220);
@@ -3730,6 +3718,17 @@ html.mobile-compact-xs .pomich-tg-main .pomich-ride-screen__map .leaflet-contain
   z-index: 1250;
   width: 34px;
   height: 34px;
+}
+/* After overlay !important tops — push legend/tools below the speed dial. */
+.pomich-ride-screen--overlay .pomich-route-map--live-speed .pomich-map-legend-box,
+.pomich-ride-screen--overlay .pomich-route-map--live-speed .pomich-map-legend-box--overlay,
+.pomich-ride-screen--overlay .pomich-route-map--live-speed .pomich-map-legend-fab,
+.pomich-ride-screen--overlay .pomich-route-map--live-speed .pomich-map-legend-fab--overlay,
+.pomich-ride-screen--overlay .pomich-route-map--live-speed .pomich-map-tools-toggle,
+.pomich-ride-screen--overlay .pomich-route-map--live-speed .pomich-map-tools-panel,
+.pomich-route-map--live-speed .pomich-map-legend-box--overlay,
+.pomich-route-map--live-speed .pomich-map-legend-fab--overlay {
+  top: calc(var(--pomich-map-chrome-top, 12px) + 80px) !important;
 }
 @keyframes pomichLegendFabPulse {
   0%,

@@ -154,10 +154,10 @@ describe("RouteMap recenter behavior", () => {
   })
 
   it("shows dash in speed HUD when GPS speed is unknown", () => {
-    const { getByLabelText } = render(
+    const { queryByLabelText } = render(
       <RouteMap pickup={{ lat: 48.6208, lng: 22.2879 }} geoSpeedMps={null} />,
     )
-    expect(getByLabelText(/Швидкість — кілометрів/i)).toBeTruthy()
+    expect(queryByLabelText(/Швидкість/i)).toBeNull()
   })
 
   it("applies speed zoom on an open map with onPick and no route", () => {

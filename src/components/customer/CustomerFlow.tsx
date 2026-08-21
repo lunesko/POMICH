@@ -1728,11 +1728,14 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
   useEffect(() => {
     const mapScreens: Screen[] = ["home", "location", "destination"]
     if (!mapScreens.includes(screen)) return
-    if (geoState !== "success" && geoState !== "telegram") return
+    // Live browser watch only after a real browser geo success — Telegram session pins
+    // must not start watchPosition (deny would wipe the pin / fake sticky deny).
+    if (geoState !== "success") return
     if (typeof navigator === "undefined" || !("geolocation" in navigator)) return
     if (typeof navigator.geolocation.watchPosition !== "function") return
 
     let watchId: number | undefined
+    let denied = false
 
     const applyGeoPosition = (position: GeolocationPosition) => {
       const nextPoint = { lat: position.coords.latitude, lng: position.coords.longitude }
@@ -1750,10 +1753,9 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
       setPickup(nextPoint)
     }
 
-    // Mirror partner: once we already have a successful geo state (incl. Telegram), start the
-    // watch without Permissions API gate — Telegram often omits it after an in-session grant.
     watchId = navigator.geolocation.watchPosition(
       (position) => {
+        if (denied) return
         window.clearTimeout(geoWatchDebounceRef.current)
         geoWatchDebounceRef.current = window.setTimeout(() => {
           applyGeoPosition(position)
@@ -1761,6 +1763,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
       },
       (error) => {
         if (error.code === error.PERMISSION_DENIED) {
+          denied = true
           writeRememberedGeoPermission("denied")
           setGeoSpeedMps(null)
           geoSpeedSmoothRef.current = null
@@ -1768,6 +1771,10 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
           setGeoMessage(
             "Дозвольте доступ до геолокації в браузері або Telegram, потім натисніть «Оновити».",
           )
+          if (typeof watchId === "number") {
+            navigator.geolocation.clearWatch(watchId)
+            watchId = undefined
+          }
           return
         }
         // Transient timeout / unavailable — keep last point; clear speed so HUD shows "—".
