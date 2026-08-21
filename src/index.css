@@ -1,4 +1,5 @@
 @import 'tailwindcss';
+@import url("https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&display=swap");
 
 /* POMICH theme tokens — toggled via html[data-pomich-theme] */
 [data-pomich-theme="light"],
@@ -225,7 +226,7 @@ html:not([data-pomich-theme]) {
   }
 }
 @theme inline {
-  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-sans: "Sora", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --color-brand: var(--pomich-brand);
   --color-brand-dark: #0f7a4e;
   --color-brand-light: #d1f5e7;
@@ -1727,37 +1728,253 @@ html.mobile-compact .pomich-map-occupied-hint {
   touch-action: pan-y;
 }
 .pomich-role-card {
+  --role-tilt-x: 0deg;
+  --role-tilt-y: 0deg;
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
   border: 1px solid var(--pomich-role-card-border);
-  border-radius: 16px;
-  background: var(--pomich-role-card-bg);
+  border-radius: 18px;
+  background:
+    linear-gradient(165deg, rgba(255, 255, 255, 0.22), transparent 42%),
+    var(--pomich-role-card-bg);
   padding: 16px;
   text-align: left;
   cursor: pointer;
   font-family: inherit;
-  box-shadow: var(--pomich-card-shadow);
   color: var(--pomich-text);
-  transition: transform 0.15s ease, border-color 0.15s ease;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.35) inset,
+    0 10px 28px rgba(28, 42, 36, 0.08),
+    0 2px 6px rgba(0, 0, 0, 0.04);
+  transform: perspective(900px) rotateX(var(--role-tilt-x)) rotateY(var(--role-tilt-y)) translateY(0);
+  transform-style: preserve-3d;
+  transition:
+    transform 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 0.2s ease,
+    box-shadow 0.28s ease;
+  animation: pomichRoleCardIn 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.pomich-role-card__shine {
+  pointer-events: none;
+  position: absolute;
+  inset: -40% -60%;
+  background: linear-gradient(
+    115deg,
+    transparent 35%,
+    rgba(255, 255, 255, 0.28) 48%,
+    transparent 62%
+  );
+  transform: translateX(-30%) rotate(8deg);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+.pomich-role-card:hover .pomich-role-card__shine,
+.pomich-role-card:focus-visible .pomich-role-card__shine {
+  opacity: 1;
+  animation: pomichRoleShine 1.1s ease;
 }
 .pomich-role-card:hover {
-  transform: translateY(-2px);
-  border-color: var(--pomich-brand);
+  --role-tilt-x: -5deg;
+  --role-tilt-y: 4deg;
+  transform: perspective(900px) rotateX(var(--role-tilt-x)) rotateY(var(--role-tilt-y)) translateY(-4px);
+  border-color: color-mix(in srgb, var(--pomich-brand) 45%, var(--pomich-role-card-border));
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.4) inset,
+    0 18px 40px rgba(22, 163, 106, 0.14),
+    0 6px 14px rgba(28, 42, 36, 0.08);
+}
+.pomich-role-card--partner:hover {
+  --role-tilt-y: -4deg;
+  border-color: color-mix(in srgb, var(--pomich-accent-blue) 45%, var(--pomich-role-card-border));
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.4) inset,
+    0 18px 40px rgba(29, 111, 212, 0.16),
+    0 6px 14px rgba(28, 42, 36, 0.08);
 }
 .pomich-role-card:active {
-  transform: translateY(0);
+  --role-tilt-x: 1deg;
+  --role-tilt-y: 0deg;
+  transform: perspective(900px) rotateX(var(--role-tilt-x)) rotateY(var(--role-tilt-y)) translateY(0) scale(0.985);
 }
 .pomich-role-card:disabled {
   opacity: 0.6;
   cursor: not-allowed;
   transform: none;
+  animation: none;
+}
+.pomich-role-card__title {
+  letter-spacing: -0.02em;
+}
+.pomich-role-card__chevron {
+  font-size: 1.25rem;
+  font-weight: 800;
+  opacity: 0.4;
+  transform: translateZ(18px);
+  transition: transform 0.22s ease, opacity 0.22s ease, color 0.22s ease;
+}
+.pomich-role-card:hover .pomich-role-card__chevron {
+  opacity: 0.9;
+  color: var(--pomich-brand);
+  transform: translateZ(18px) translateX(4px);
+}
+.pomich-role-card--partner:hover .pomich-role-card__chevron {
+  color: var(--pomich-accent-blue);
+}
+.pomich-role-icon {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  flex-shrink: 0;
+  border-radius: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transform: translateZ(28px);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.35) inset,
+    0 12px 24px rgba(15, 23, 42, 0.18);
+  animation: pomichRoleIconFloat 3.2s ease-in-out infinite;
+}
+.pomich-role-icon--client {
+  background: linear-gradient(145deg, #34d399 0%, #16a36a 48%, #1d6fd4 100%);
+}
+.pomich-role-icon--partner {
+  background: linear-gradient(145deg, #fbbf24 0%, #2f80ed 52%, #0b7a4d 100%);
+  animation-delay: 0.35s;
+}
+.pomich-role-icon__glow {
+  position: absolute;
+  inset: 8px;
+  border-radius: 12px;
+  background: radial-gradient(circle at 30% 25%, rgba(255, 255, 255, 0.45), transparent 60%);
+  pointer-events: none;
+}
+.pomich-role-icon-svg {
+  position: relative;
+  z-index: 1;
+  filter: drop-shadow(0 4px 6px rgba(15, 23, 42, 0.28));
+}
+.pomich-role-card-stack {
+  perspective: 1100px;
+}
+.pomich-role-brand-mark {
+  display: flex;
+  height: 42px;
+  width: 42px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  font-size: 1.25rem;
+  color: #fff;
+  background: linear-gradient(145deg, #16a36a, #2f80ed);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.35) inset,
+    0 10px 24px rgba(22, 163, 106, 0.28);
+  transform: rotateX(8deg) rotateY(-8deg);
+}
+.pomich-role-brand-wordmark {
+  letter-spacing: -0.03em;
+}
+.pomich-role-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 999px;
+  padding: 8px 12px;
+  font-size: 0.875rem;
+  font-weight: 800;
+  border: 1px solid rgba(22, 163, 106, 0.38);
+  background: rgba(22, 163, 106, 0.12);
+  color: var(--pomich-badge-text);
+  animation: pomichRoleFadeUp 0.5s ease both;
+}
+.pomich-role-badge__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #22c55e;
+  box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.45);
+  animation: pomichRoleDotPulse 2s ease-out infinite;
+}
+.pomich-role-hero-title {
+  animation: pomichRoleFadeUp 0.55s ease 0.05s both;
+  letter-spacing: -0.03em;
+}
+.pomich-role-stat {
+  animation: pomichRoleFadeUp 0.5s ease both;
+}
+@keyframes pomichRoleCardIn {
+  from {
+    opacity: 0;
+    transform: perspective(900px) translateY(18px) rotateX(8deg) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: perspective(900px) translateY(0) rotateX(0) scale(1);
+  }
+}
+@keyframes pomichRoleFadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes pomichRoleIconFloat {
+  0%,
+  100% {
+    transform: translateZ(28px) translateY(0);
+  }
+  50% {
+    transform: translateZ(28px) translateY(-3px);
+  }
+}
+@keyframes pomichRoleShine {
+  from {
+    transform: translateX(-45%) rotate(8deg);
+  }
+  to {
+    transform: translateX(45%) rotate(8deg);
+  }
+}
+@keyframes pomichRoleDotPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.45);
+  }
+  70% {
+    box-shadow: 0 0 0 8px rgba(34, 197, 94, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pomich-role-card,
+  .pomich-role-icon,
+  .pomich-role-badge,
+  .pomich-role-badge__dot,
+  .pomich-role-hero-title,
+  .pomich-role-stat,
+  .pomich-role-card__shine {
+    animation: none !important;
+    transition: none !important;
+  }
+  .pomich-role-card:hover,
+  .pomich-role-card:active {
+    transform: none;
+  }
 }
 [data-pomich-theme="light"] .pomich-role-card:hover {
   border-color: var(--pomich-brand);
-  box-shadow: 0 20px 48px rgba(22, 163, 106, 0.12);
 }
 button {
   transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
-button:hover:not(:disabled) {
+button:hover:not(:disabled):not(.pomich-role-card) {
   transform: translateY(-1px);
 }
 @keyframes pulseGlow {
@@ -2098,6 +2315,15 @@ html.mobile-compact .pomich-map-shell--root > .pomich-map-shell__content > * {
   border-color: var(--pomich-glass-border);
   box-shadow: var(--pomich-card-shadow);
 }
+.pomich-map-shell--root .pomich-role-card {
+  background:
+    linear-gradient(165deg, rgba(255, 255, 255, 0.28), transparent 44%),
+    var(--pomich-surface);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.35) inset,
+    0 10px 28px rgba(28, 42, 36, 0.08),
+    0 2px 6px rgba(0, 0, 0, 0.04);
+}
 [data-pomich-theme="dark"] .pomich-map-shell--root .pomich-form-card,
 [data-pomich-theme="dark"] .pomich-map-shell--root .pomich-onboarding-card,
 [data-pomich-theme="dark"] .pomich-map-shell--root .pomich-role-card,
@@ -2118,6 +2344,12 @@ html:not([data-pomich-theme]) .pomich-map-shell--root .pomich-app-fallback__card
 html:not([data-pomich-theme]) .pomich-map-shell--root .pomich-terminal-card {
   background: #E8EEEB;
   border-color: #C5D4CC;
+}
+[data-pomich-theme="light"] .pomich-map-shell--root .pomich-role-card,
+html:not([data-pomich-theme]) .pomich-map-shell--root .pomich-role-card {
+  background:
+    linear-gradient(165deg, rgba(255, 255, 255, 0.42), transparent 46%),
+    #E8EEEB;
 }
 /* Client cabinet: frosted glass over map atmosphere */
 .pomich-map-shell--root .pomich-cabinet-card {
