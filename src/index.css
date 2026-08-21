@@ -3299,10 +3299,10 @@ html.mobile-compact-xs .pomich-tg-main .pomich-ride-screen__map .leaflet-contain
   transform: scale(0.94);
   animation: none;
 }
-/* Overlay ride maps: compact legend above sheet + address pill */
+/* Overlay ride maps: compact legend, top-right (same chrome band as zoom) */
 .pomich-map-legend-box--overlay {
-  top: auto;
-  bottom: calc(var(--pomich-sheet-height, 44%) + 44px + env(safe-area-inset-bottom, 0px));
+  top: var(--pomich-map-chrome-top, 78px);
+  bottom: auto;
   right: var(--pomich-map-chrome-right, 10px);
   z-index: 1250;
   min-width: 0;
@@ -3310,7 +3310,7 @@ html.mobile-compact-xs .pomich-tg-main .pomich-ride-screen__map .leaflet-contain
   padding: 5px 7px 6px;
   gap: 3px;
   border-radius: 10px;
-  transform-origin: bottom right;
+  transform-origin: top right;
 }
 .pomich-map-legend-box--overlay .pomich-map-legend-title {
   font-size: 8px;
@@ -3338,8 +3338,8 @@ html.mobile-compact-xs .pomich-tg-main .pomich-ride-screen__map .leaflet-contain
   height: 9px;
 }
 .pomich-map-legend-fab--overlay {
-  top: auto;
-  bottom: calc(var(--pomich-sheet-height, 44%) + 44px + env(safe-area-inset-bottom, 0px));
+  top: var(--pomich-map-chrome-top, 78px);
+  bottom: auto;
   right: var(--pomich-map-chrome-right, 10px);
   z-index: 1250;
   width: 34px;
