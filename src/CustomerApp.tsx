@@ -47,7 +47,7 @@ import {
   readActiveAppRole,
 } from "./lib/appRole"
 import { syncProfileCityFromGeo } from "./lib/syncProfileCityFromGeo"
-import { canRequestGeoSilently, requestCurrentPosition } from "./lib/mapGeo"
+import { canRequestGeoSilently, readCachedGeoPosition, requestCurrentPosition } from "./lib/mapGeo"
 
 const CustomerFlow = lazy(() => import("./components/customer/CustomerFlow"))
 const ProviderFlow = lazy(() => import("./components/provider/ProviderFlow"))
@@ -557,24 +557,32 @@ export default function CustomerApp() {
     if (!showCabinet || role !== "customer" || !account?.customerId || !customerToken) return
 
     let cancelled = false
+    const syncFromPoint = (point: { lat: number; lng: number }) => {
+      syncProfileCityFromGeo(point, account.customerId, customerToken, account.profile?.city)
+        .then((result) => {
+          if (cancelled || !result) return
+          setAccount((prev) => {
+            if (!prev?.profile) return prev
+            const profile = result.saved ?? { ...prev.profile, city: result.city }
+            if (typeof window !== "undefined") {
+              window.sessionStorage.setItem("pomichBootstrapProfile", JSON.stringify(profile))
+            }
+            return { ...prev, profile }
+          })
+        })
+        .catch(() => undefined)
+    }
+
     void canRequestGeoSilently().then((ok) => {
-      if (cancelled || !ok) return
+      if (cancelled) return
+      if (!ok) {
+        const cached = readCachedGeoPosition()
+        if (cached) syncFromPoint(cached)
+        return
+      }
       requestCurrentPosition(
         (point) => {
-          if (cancelled) return
-          syncProfileCityFromGeo(point, account.customerId, customerToken, account.profile?.city)
-            .then((result) => {
-              if (cancelled || !result) return
-              setAccount((prev) => {
-                if (!prev?.profile) return prev
-                const profile = result.saved ?? { ...prev.profile, city: result.city }
-                if (typeof window !== "undefined") {
-                  window.sessionStorage.setItem("pomichBootstrapProfile", JSON.stringify(profile))
-                }
-                return { ...prev, profile }
-              })
-            })
-            .catch(() => undefined)
+          if (!cancelled) syncFromPoint(point)
         },
         () => undefined,
         { mode: "auto" },

@@ -797,8 +797,8 @@ export default function ProviderFlow({
     let cancelled = false
     let watchId: number | undefined
 
-    void canRequestGeoSilently().then((silentOk) => {
-      if (cancelled || !silentOk) return
+    const startWatch = () => {
+      if (cancelled || typeof watchId === "number") return
       watchId = navigator.geolocation.watchPosition(
         (position) => {
           const point = { lat: position.coords.latitude, lng: position.coords.longitude }
@@ -808,7 +808,24 @@ export default function ProviderFlow({
         () => undefined,
         { enableHighAccuracy: false, maximumAge: 60000, timeout: 20000 },
       )
-    })
+      if (cancelled) {
+        navigator.geolocation.clearWatch(watchId)
+        watchId = undefined
+      }
+    }
+
+    // Hydrate / reopen: prefer cache + silent watch. Explicit acquire happens on go-online gesture.
+    requestCurrentPosition(
+      (point) => {
+        if (cancelled) return
+        setProviderLocation(point)
+        void canRequestGeoSilently().then((ok) => {
+          if (ok) startWatch()
+        })
+      },
+      () => undefined,
+      { mode: "auto" },
+    )
 
     return () => {
       cancelled = true
@@ -1597,6 +1614,15 @@ export default function ProviderFlow({
       if (nextDuty) {
         // Request notification permission in the same user-gesture turn when possible.
         void ensurePartnerAlertPermission()
+        // Acquire GPS in the same gesture so presence/heartbeats are not stuck on PROVIDER_START.
+        requestCurrentPosition(
+          (point) => {
+            setProviderLocation(point)
+            providerLocationRef.current = point
+          },
+          () => undefined,
+          { mode: "explicit" },
+        )
         seenDutyAlertIdsRef.current = new Set()
         dutyAlertsSeededRef.current = false
         setIncomingOffers([])

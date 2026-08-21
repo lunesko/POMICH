@@ -8,7 +8,7 @@ import { useMediaQuery } from "../../hooks/useMediaQuery"
 import { mediaQueries } from "../../lib/breakpoints"
 import { ADMIN_LOGO_HOLD_MS } from "../../lib/adminAccess"
 import { PICKUP, services, type Point, type Role } from "../../lib/constants"
-import { requestCurrentPosition } from "../../lib/mapGeo"
+import { readCachedGeoPosition, requestCurrentPosition } from "../../lib/mapGeo"
 import { calculatePrice } from "../../lib/pomichDomain"
 import { UKRAINE_WIDE_LABEL } from "../../lib/ukraineCities"
 import { getTelegramContext } from "../../telegram"
@@ -54,25 +54,7 @@ const landingHeroProviders: ProviderAvailability[] = [
 ]
 
 function readLandingUserLocation(): Point | undefined {
-  if (typeof window === "undefined") return undefined
-  try {
-    const shared = window.localStorage.getItem("pomichLastGeoPosition")
-    if (shared) {
-      const parsed = JSON.parse(shared) as { lat?: number; lng?: number; at?: number }
-      if (typeof parsed.lat === "number" && typeof parsed.lng === "number") {
-        return { lat: parsed.lat, lng: parsed.lng }
-      }
-    }
-    const raw = window.sessionStorage.getItem("pomichLandingGeo")
-    if (!raw) return undefined
-    const parsed = JSON.parse(raw) as { lat?: number; lng?: number }
-    if (typeof parsed.lat === "number" && typeof parsed.lng === "number") {
-      return { lat: parsed.lat, lng: parsed.lng }
-    }
-  } catch {
-    return undefined
-  }
-  return undefined
+  return readCachedGeoPosition() ?? undefined
 }
 
 const landingSteps = [

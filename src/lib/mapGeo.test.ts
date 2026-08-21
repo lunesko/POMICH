@@ -122,15 +122,61 @@ describe("mapGeo", () => {
     expect(getCurrentPosition).not.toHaveBeenCalled()
   })
 
-  it("auto mode skips OS prompt when denial was remembered", () => {
+  it("auto mode skips OS prompt when denial was remembered", async () => {
     writeRememberedGeoPermission("denied")
     const getCurrentPosition = vi.fn()
     vi.stubGlobal("navigator", {
       geolocation: { getCurrentPosition },
+      permissions: {
+        query: vi.fn(async () => ({ state: "denied" })),
+      },
     })
     const onError = vi.fn()
     requestCurrentPosition(vi.fn(), onError, { mode: "auto" })
+    await vi.waitFor(() => expect(onError).toHaveBeenCalled())
     expect(getCurrentPosition).not.toHaveBeenCalled()
     expect(onError).toHaveBeenCalledWith(expect.stringMatching(/заборонено|Оновити/i), "permission-denied")
+  })
+
+  it("auto mode re-queries OS when sticky deny is cleared to granted", async () => {
+    writeRememberedGeoPermission("denied")
+    writeCachedGeoPosition(uzhgorodCenter)
+    const getCurrentPosition = vi.fn((success: PositionCallback) => {
+      success({
+        coords: { latitude: 48.63, longitude: 22.28, accuracy: 10, altitude: null, altitudeAccuracy: null, heading: null, speed: null },
+        timestamp: Date.now(),
+      } as GeolocationPosition)
+    })
+    vi.stubGlobal("navigator", {
+      geolocation: { getCurrentPosition },
+      permissions: {
+        query: vi.fn(async () => ({ state: "granted" })),
+      },
+    })
+    const onSuccess = vi.fn()
+    requestCurrentPosition(onSuccess, vi.fn(), { mode: "auto" })
+    await vi.waitFor(() => expect(getCurrentPosition).toHaveBeenCalled())
+    await vi.waitFor(() => expect(onSuccess).toHaveBeenCalledWith({ lat: 48.63, lng: 22.28 }))
+  })
+
+  it("auto mode applies fresh GPS to onSuccess after cache restore", async () => {
+    writeCachedGeoPosition(uzhgorodCenter)
+    writeRememberedGeoPermission("granted")
+    const getCurrentPosition = vi.fn((success: PositionCallback) => {
+      success({
+        coords: { latitude: 48.64, longitude: 22.3, accuracy: 10, altitude: null, altitudeAccuracy: null, heading: null, speed: null },
+        timestamp: Date.now(),
+      } as GeolocationPosition)
+    })
+    vi.stubGlobal("navigator", {
+      geolocation: { getCurrentPosition },
+      permissions: {
+        query: vi.fn(async () => ({ state: "granted" })),
+      },
+    })
+    const onSuccess = vi.fn()
+    requestCurrentPosition(onSuccess, vi.fn(), { mode: "auto" })
+    expect(onSuccess).toHaveBeenCalledWith(uzhgorodCenter)
+    await vi.waitFor(() => expect(onSuccess).toHaveBeenCalledWith({ lat: 48.64, lng: 22.3 }))
   })
 })

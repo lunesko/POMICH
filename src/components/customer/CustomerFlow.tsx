@@ -131,10 +131,6 @@ const FLOW_STEP_LABELS = [
   "Перевірте заявку",
 ] as const
 
-type DirectoryMapRideProps = {
-  providers: ProviderAvailability[]
-}
-
 function StepBadge({ step }: { step: 1 | 2 | 3 | 4 | 5 }) {
   return (
     <div className="pomich-step-badge">
@@ -225,7 +221,7 @@ function ProviderCard({
   eta,
   assignedProvider,
   fallbackName,
-  allowDemoFallback = true,
+  allowDemoFallback = false,
 }: {
   orderId?: string
   eta?: number
@@ -723,8 +719,7 @@ function LocationStep({
   onPick,
   onRetryGeo,
   onBack,
-  onNext,
-  ...directoryMap
+  onNext
 }: {
   pickup: Point
   addressLabel: string
@@ -737,7 +732,7 @@ function LocationStep({
   onRetryGeo: () => void
   onBack: () => void
   onNext: () => void
-} & DirectoryMapRideProps) {
+}) {
   const geoStatusHint = geoError ? undefined : geoLoading ? "Визначаємо ваше місцезнаходження…" : geoMessage
 
   return (
@@ -750,7 +745,6 @@ function LocationStep({
       geoLoading={geoLoading}
       geoError={geoError}
       recenterTrigger={recenterTrigger}
-      {...directoryMap}
     >
       <div data-sheet-peek>
         <SheetHeading title="Де ви зараз?" subtitle={geoLoading ? "Визначаємо адресу…" : addressLabel} />
@@ -790,8 +784,7 @@ function DestinationStep({
   onChange,
   onNext,
   onBack,
-  onSkipOnSite,
-  ...directoryMap
+  onSkipOnSite
 }: {
   pickup: Point
   destination: Point
@@ -802,7 +795,7 @@ function DestinationStep({
   onNext: () => void
   onBack: () => void
   onSkipOnSite?: () => void
-} & DirectoryMapRideProps) {
+}) {
   const needsDestination = serviceRequiresDestination(serviceKey)
   const title = needsDestination ? "Куди доставити авто?" : "Допомога на місці"
   const subtitle = needsDestination
@@ -816,7 +809,6 @@ function DestinationStep({
       mapSubtitle={needsDestination ? "Оберіть точку на карті" : "Ваше місцезнаходження"}
       onPick={needsDestination ? onPick : undefined}
       mapFocus={needsDestination}
-      {...directoryMap}
     >
       <div data-sheet-peek>
         <SheetHeading title={title} subtitle={value.trim() || (needsDestination ? "Оберіть точку на карті" : ON_SITE_DESTINATION_LABEL)} />
@@ -907,8 +899,7 @@ function ReviewStep({
   loading,
   isTelegram,
   onConfirm,
-  onBack,
-  ...directoryMap
+  onBack
 }: {
   serviceLabel: string
   serviceKey: ServiceKey
@@ -923,7 +914,7 @@ function ReviewStep({
   isTelegram?: boolean
   onConfirm: () => void
   onBack: () => void
-} & DirectoryMapRideProps) {
+}) {
   const showDestination = serviceRequiresDestination(serviceKey) && Boolean(destination.trim())
   const onSiteLabel = !serviceRequiresDestination(serviceKey)
 
@@ -932,7 +923,6 @@ function ReviewStep({
       pickup={pickup}
       destination={onSiteLabel ? pickup : destinationPoint}
       mapSubtitle="Перевірка заявки"
-      {...directoryMap}
     >
       <StepBadge step={5} />
       <button onClick={onBack} style={{ border: "none", background: GHOST, color: DARK, borderRadius: 999, padding: "8px 11px", fontWeight: 900, cursor: "pointer", fontFamily: "inherit", marginBottom: 14 }}>← Назад</button>
@@ -1152,7 +1142,7 @@ function AcceptedStep({
 
 function AssignedStep({ orderId, status, order, pickup, destination, isTelegram, cancelError, cancelling, onTrack, onCancel }: { orderId?: string; status: OrderStatus; order?: OrderResponse; pickup: Point; destination: Point; isTelegram?: boolean; cancelError?: string; cancelling?: boolean; onTrack: () => void; onCancel: () => void }) {
   const assignedProvider = order?.assignedProvider
-  const eta = assignedProvider?.etaMinutes ?? provider.etaMinutes
+  const eta = assignedProvider?.etaMinutes
   const confirmedPrice = order?.partnerProposedPrice
 
   return (
@@ -1166,7 +1156,7 @@ function AssignedStep({ orderId, status, order, pickup, destination, isTelegram,
       <div style={{ marginTop: 16, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
         <div style={{ background: "var(--pomich-accent-panel-bg)", color: "#fff", borderRadius: 18, padding: 16, textAlign: "center" }}>
           <div style={{ color: "#A7F3D0", fontWeight: 800, fontSize: 12 }}>Прибуття</div>
-          <div style={{ fontSize: 28, fontWeight: 950, marginTop: 6 }}>~{eta} хв</div>
+          <div style={{ fontSize: 28, fontWeight: 950, marginTop: 6 }}>{typeof eta === "number" ? `~${eta} хв` : "—"}</div>
         </div>
         <div style={{ background: "var(--pomich-accent-panel-bg)", color: "#fff", borderRadius: 18, padding: 16, textAlign: "center" }}>
           <div style={{ color: "#A7F3D0", fontWeight: 800, fontSize: 12 }}>Узгоджена ціна</div>
@@ -1240,8 +1230,9 @@ function TrackingStep({ orderId, status, order, pickup, destination, cancelError
 }
 
 function ArrivedStep({ orderId, status, order, pickup, destination, cancelError, cancelling, onCancel }: { orderId?: string; status: OrderStatus; order?: OrderResponse; pickup: Point; destination: Point; cancelError?: string; cancelling?: boolean; onCancel: () => void }) {
+  const partnerPoint = order?.assignedProvider?.location
   return (
-    <RideScreen pickup={pickup} destination={destination} providerPosition={pickup} mapSubtitle="Виконавець на місці">
+    <RideScreen pickup={pickup} destination={destination} providerPosition={partnerPoint} mapSubtitle="Виконавець на місці">
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
         <SheetHeading title="Виконавець на місці" subtitle={orderId ? `Замовлення #${orderId}` : undefined} />
         <StatusPill status={status} />
@@ -1264,8 +1255,9 @@ function ArrivedStep({ orderId, status, order, pickup, destination, cancelError,
 }
 
 function InProgressStep({ orderId, status, order, pickup, destination, cancelError, cancelling, onCancel }: { orderId?: string; status: OrderStatus; order?: OrderResponse; pickup: Point; destination: Point; cancelError?: string; cancelling?: boolean; onCancel: () => void }) {
+  const partnerPoint = order?.assignedProvider?.location
   return (
-    <RideScreen pickup={pickup} destination={destination} providerPosition={pickup} mapSubtitle="Допомога триває">
+    <RideScreen pickup={pickup} destination={destination} providerPosition={partnerPoint} mapSubtitle="Допомога триває">
       <StepBadge step={4} />
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
         <SheetHeading title="Допомога триває" subtitle={orderId ? `Замовлення #${orderId}` : undefined} />
@@ -1418,14 +1410,6 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
       cancelled = true
     }
   }, [screen, pickup.lat, pickup.lng])
-
-  const directoryMapProps = useMemo(
-    (): DirectoryMapRideProps => ({
-      /* Order flow map stays light: no OSM-directory catalog fetch / pins. */
-      providers: [],
-    }),
-    [],
-  )
 
   const orderInput: CustomerOrderInput = {
     service: selectedService,
@@ -1666,6 +1650,10 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
         () => undefined,
         { enableHighAccuracy: false, maximumAge: 60000, timeout: 20000 },
       )
+      if (cancelled && typeof watchId === "number") {
+        navigator.geolocation.clearWatch(watchId)
+        watchId = undefined
+      }
     })
 
     return () => {
@@ -1882,7 +1870,8 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
 
   const applyPickup = (point: Point, message = "Місце подачі оновлено вручну.") => {
     setPickup(point)
-    writeCachedGeoPosition(point)
+    // Do not write manual map picks into the shared GPS cache — that poisoned
+    // partner/landing reopen with a dragged customer pin.
     setGeoState("success")
     setGeoMessage(message)
   }
@@ -2033,8 +2022,8 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
   }
 
   const contactAssignedProvider = () => {
-    const phone = currentOrder?.assignedProvider?.phone ?? provider.phone
-    const telegram = currentOrder?.assignedProvider?.telegram ?? provider.telegram
+    const phone = currentOrder?.assignedProvider?.phone
+    const telegram = currentOrder?.assignedProvider?.telegram
     if (phone) {
       window.location.href = `tel:${phone}`
       return
@@ -2252,7 +2241,6 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
           onRetryGeo={retryGeolocation}
           onBack={() => setScreen("home")}
           onNext={confirmPickupLocation}
-          {...directoryMapProps}
         />
       )
     case "destination":
@@ -2267,7 +2255,6 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
           onBack={() => setScreen("location")}
           onNext={() => setScreen("details")}
           onSkipOnSite={applyOnSiteDestination}
-          {...directoryMapProps}
         />
       )
     case "details":
@@ -2288,7 +2275,6 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
           isTelegram={isTelegram}
           onConfirm={submitOrder}
           onBack={() => setScreen("details")}
-          {...directoryMapProps}
         />
       )
     case "searching":

@@ -75,7 +75,8 @@ export function readCachedGeoPosition(maxAgeMs = GEO_CACHE_MAX_AGE_MS): GeoPoint
     const lng = Number(parsed.lng)
     const at = Number(parsed.at)
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null
-    if (Number.isFinite(at) && maxAgeMs > 0 && Date.now() - at > maxAgeMs) return null
+    // Missing/invalid `at` is treated as expired so corrupt entries cannot stick forever.
+    if (!Number.isFinite(at) || (maxAgeMs > 0 && Date.now() - at > maxAgeMs)) return null
     return { lat, lng }
   } catch {
     return null
@@ -270,7 +271,7 @@ function finishGeoSuccess(point: GeoPoint, onSuccess: (point: GeoPoint) => void)
  * Request device location.
  * - `auto`: single low-accuracy call with long maximumAge; reuses localStorage cache so
  *   Telegram WebApp reopen does not re-prompt when a recent fix exists.
- * - `explicit`: user gesture — may try high accuracy then fall back once.
+ * - `explicit`: user gesture — may try high accuracy then fall back once (not after deny).
  */
 export function requestCurrentPosition(
   onSuccess: (point: GeoPoint) => void,
@@ -285,33 +286,56 @@ export function requestCurrentPosition(
 
   if (mode === "auto") {
     const remembered = readRememberedGeoPermission()
+    const cached = readCachedGeoPosition()
+
+    // Stale local "denied" must not permanently block if the OS already re-allowed.
     if (remembered === "denied") {
-      const cachedDenied = readCachedGeoPosition()
-      if (cachedDenied) {
-        onSuccess(cachedDenied)
-        return
-      }
-      onError(
-        "Доступ до геолокації заборонено. Увімкніть його в налаштуваннях Telegram / браузера, потім натисніть «Оновити».",
-        "permission-denied",
-      )
+      void resolveGeoPermission().then((state) => {
+        if (state === "granted") {
+          navigator.geolocation.getCurrentPosition(
+            (position) => {
+              finishGeoSuccess({ lat: position.coords.latitude, lng: position.coords.longitude }, onSuccess)
+            },
+            (error) => {
+              const classified = classifyGeolocationError(error)
+              if (classified.kind === "permission-denied") writeRememberedGeoPermission("denied")
+              if (cached) onSuccess(cached)
+              else onError(classified.message, classified.kind)
+            },
+            { enableHighAccuracy: false, timeout: 12000, maximumAge: GEO_BROWSER_MAX_AGE_AUTO_MS },
+          )
+          return
+        }
+        if (state === "prompt") {
+          // Clear sticky deny so a later explicit tap can prompt cleanly.
+          try {
+            window.localStorage.removeItem(GEO_PERMISSION_STORAGE_KEY)
+          } catch {
+            // ignore
+          }
+        }
+        if (cached) onSuccess(cached)
+        else {
+          onError(
+            "Доступ до геолокації заборонено. Увімкніть його в налаштуваннях Telegram / браузера, потім натисніть «Оновити».",
+            "permission-denied",
+          )
+        }
+      })
       return
     }
 
-    const cached = readCachedGeoPosition()
     if (cached) {
-      // Restore immediately — do not call getCurrentPosition unless permission is known-granted.
-      // Telegram iOS often re-prompts on every getCurrentPosition when state is unknown.
+      // Restore immediately — avoid getCurrentPosition unless permission is known-granted.
       onSuccess(cached)
       void resolveGeoPermission().then((state) => {
         if (state !== "granted") return
         navigator.geolocation.getCurrentPosition(
           (position) => {
-            writeCachedGeoPosition({
-              lat: position.coords.latitude,
-              lng: position.coords.longitude,
-            })
-            writeRememberedGeoPermission("granted")
+            finishGeoSuccess(
+              { lat: position.coords.latitude, lng: position.coords.longitude },
+              onSuccess,
+            )
           },
           () => undefined,
           { enableHighAccuracy: false, timeout: 8000, maximumAge: GEO_BROWSER_MAX_AGE_AUTO_MS },
@@ -335,12 +359,18 @@ export function requestCurrentPosition(
     return
   }
 
-  // Explicit user gesture: try high accuracy, then one low-accuracy fallback.
+  // Explicit user gesture: try high accuracy, then one low-accuracy fallback (skip after deny).
   navigator.geolocation.getCurrentPosition(
     (position) => {
       finishGeoSuccess({ lat: position.coords.latitude, lng: position.coords.longitude }, onSuccess)
     },
-    () => {
+    (firstError) => {
+      if (firstError.code === firstError.PERMISSION_DENIED) {
+        writeRememberedGeoPermission("denied")
+        const classified = classifyGeolocationError(firstError)
+        onError(classified.message, classified.kind)
+        return
+      }
       navigator.geolocation.getCurrentPosition(
         (position) => {
           finishGeoSuccess({ lat: position.coords.latitude, lng: position.coords.longitude }, onSuccess)
