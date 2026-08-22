@@ -45,6 +45,8 @@ Requires environment variables (see `.env.example`):
 | `sync_tunnel.py` | Sync current Cloudflare tunnel URL to env, webhook, menu button |
 | `verify_production.py` | Health, guest registration, map providers, bot config |
 | `audit_production.py` | Detailed JSON audit snapshot for debugging |
+| `backup_postgres.py` | Create timestamped Postgres/PostGIS `.dump` backups on the server |
+| `restore_postgres.py` | Restore a remote Postgres/PostGIS backup with explicit `--yes` |
 
 ### Examples
 
@@ -60,6 +62,12 @@ python scripts/ops/sync_tunnel.py
 
 # Quick verification
 python scripts/ops/verify_production.py
+
+# Backup database and optionally download the dump
+python scripts/ops/backup_postgres.py --download-dir .\backups
+
+# Restore requires an absolute remote backup path and explicit confirmation
+python scripts/ops/restore_postgres.py --backup /opt/pomich/backups/pomich-YYYYMMDDTHHMMSSZ.dump --yes
 ```
 
 ## Root deploy

@@ -61,5 +61,19 @@ The Playwright gate reloads `/interface`, rejects browser requests to localhost 
 
 The script prints each exact request URL. In the browser Network panel, verify there are no requests to `localhost` or `127.0.0.1`.
 
+## Database Backup
+Before importing providers, applying migrations, or opening beta traffic, create a remote Postgres/PostGIS backup:
+
+```powershell
+$env:POMICH_SSH_PASSWORD = "..."
+python scripts/ops/backup_postgres.py --download-dir .\backups
+```
+
+Restore is intentionally explicit and should be used only after routing traffic away or accepting downtime:
+
+```powershell
+python scripts/ops/restore_postgres.py --backup /opt/pomich/backups/pomich-YYYYMMDDTHHMMSSZ.dump --yes
+```
+
 ## Rollback
 Keep the previous image tag or commit SHA. If a deploy fails the smoke gate, route traffic back to the previous container and keep Postgres data volume intact.
