@@ -608,6 +608,42 @@ def test_fastapi_admin_account_login_reads_sql_account(monkeypatch, tmp_path) ->
     assert login_response.json()["username"] == "dispatcher"
     assert settings_response.status_code == 200
     assert settings_response.json()["authAccountsSource"] == "sql"
+    assert settings_response.json()["adminAccountsConfigured"] is True
+    assert settings_response.json()["adminAccountsActive"] == 1
+    assert settings_response.json()["adminAccountsTotal"] == 1
+    assert settings_response.json()["providerAccountsConfigured"] is False
+    assert settings_response.json()["providerAccountsActive"] == 0
+
+
+def test_disabled_env_auth_accounts_do_not_login_or_count_as_configured(monkeypatch, tmp_path) -> None:
+    _use_temp_store(monkeypatch, tmp_path)
+    monkeypatch.setenv("POMICH_RUNTIME", "dev")
+    monkeypatch.setenv("POMICH_ADMIN_TOKEN", ADMIN_TOKEN)
+    monkeypatch.setenv("POMICH_PROVIDER_TOKEN", PROVIDER_TOKEN)
+    monkeypatch.setenv(
+        "POMICH_ADMIN_ACCOUNTS",
+        json.dumps([{"username": "disabled-admin", "password": "admin-pass", "status": "disabled"}]),
+    )
+    monkeypatch.setenv(
+        "POMICH_PROVIDER_ACCOUNTS",
+        json.dumps([{"providerId": "p-disabled", "username": "disabled-provider", "password": "provider-pass", "status": "disabled"}]),
+    )
+    client = TestClient(app)
+    admin_headers = _admin_session_headers(client)
+
+    admin_login = client.post("/api/auth/admin/login", json={"username": "disabled-admin", "password": "admin-pass"})
+    provider_login = client.post("/api/auth/provider/login", json={"login": "disabled-provider", "password": "provider-pass"})
+    settings = client.get("/api/admin/settings", headers=admin_headers)
+
+    assert admin_login.status_code == 401
+    assert provider_login.status_code == 401
+    assert settings.status_code == 200
+    assert settings.json()["adminAccountsConfigured"] is False
+    assert settings.json()["adminAccountsActive"] == 0
+    assert settings.json()["adminAccountsTotal"] == 1
+    assert settings.json()["providerAccountsConfigured"] is False
+    assert settings.json()["providerAccountsActive"] == 0
+    assert settings.json()["providerAccountsTotal"] == 1
 
 
 def test_fastapi_admin_manages_sql_auth_accounts(monkeypatch, tmp_path) -> None:

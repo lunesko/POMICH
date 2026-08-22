@@ -18,7 +18,7 @@ from fastapi import HTTPException
 from bot.field_encryption import encryption_enabled
 from bot.order_store import DispatchConflict
 from bot.otp_verification import OtpVerificationError
-from bot.runtime_store import load_auth_accounts, sql_storage_enabled
+from bot.runtime_store import list_auth_accounts, load_auth_accounts, sql_storage_enabled
 from bot.telegram_auth import verify_telegram_init_data, verify_telegram_init_data_any_bot
 from bot.telegram_config import (
     any_telegram_bot_configured,
@@ -271,22 +271,50 @@ def load_env_account_configs(env_name: str) -> list[dict]:
 
 
 def account_configs_available(env_name: str) -> bool:
-    if load_env_account_configs(env_name):
+    if any(account_config_active(account) for account in load_env_account_configs(env_name)):
         return True
     source = auth_accounts_source()
     role = account_role_for_env(env_name)
     return bool(role and source in {"sql", "mixed"} and sql_storage_enabled())
 
 
-def load_account_configs(env_name: str) -> list[dict]:
+def account_config_active(account: dict) -> bool:
+    return str(account.get("status") or "active").strip().lower() != "disabled"
+
+
+def load_account_configs(env_name: str, *, include_disabled: bool = False) -> list[dict]:
     source = auth_accounts_source()
     role = account_role_for_env(env_name)
     accounts: list[dict] = []
     if role and source in {"sql", "mixed"} and sql_storage_enabled():
-        accounts.extend(load_auth_accounts(role))
+        if include_disabled:
+            accounts.extend(list_auth_accounts(role=role, include_disabled=True))
+        else:
+            accounts.extend(load_auth_accounts(role))
     if source != "sql":
         accounts.extend(load_env_account_configs(env_name))
-    return accounts
+    if include_disabled:
+        return accounts
+    return [account for account in accounts if account_config_active(account)]
+
+
+def account_config_summary(env_name: str) -> dict:
+    try:
+        accounts = load_account_configs(env_name, include_disabled=True)
+    except Exception as exc:
+        return {
+            "configured": False,
+            "active": 0,
+            "total": 0,
+            "error": exc.__class__.__name__,
+        }
+    active_count = sum(1 for account in accounts if account_config_active(account))
+    return {
+        "configured": active_count > 0,
+        "active": active_count,
+        "total": len(accounts),
+        "error": None,
+    }
 
 
 def password_matches(account: dict, password: str) -> bool:
@@ -304,6 +332,8 @@ def find_admin_account(username: str, password: str) -> dict | None:
     if not normalized_username or not password:
         return None
     for account in load_account_configs("POMICH_ADMIN_ACCOUNTS"):
+        if not account_config_active(account):
+            continue
         identifiers = [
             str(account.get("username") or "").strip().lower(),
             str(account.get("email") or "").strip().lower(),
@@ -320,6 +350,8 @@ def find_provider_account(login: str, password: str, provider_id: str | None = N
     if not normalized_login or not password:
         return None
     for account in load_account_configs("POMICH_PROVIDER_ACCOUNTS"):
+        if not account_config_active(account):
+            continue
         account_provider_id = str(account.get("providerId") or account.get("id") or "").strip()
         identifiers = [
             account_provider_id.lower(),
@@ -638,6 +670,8 @@ def build_admin_settings_payload() -> dict:
     cors_origins = get_cors_origins()
     web_app_url = (os.getenv("WEB_APP_URL") or "").strip()
     runtime = os.getenv("POMICH_RUNTIME") or os.getenv("VITE_APP_ENV") or "dev"
+    admin_accounts = account_config_summary("POMICH_ADMIN_ACCOUNTS")
+    provider_accounts = account_config_summary("POMICH_PROVIDER_ACCOUNTS")
     return {
         "runtime": runtime,
         "webAppUrl": web_app_url or None,
@@ -647,8 +681,14 @@ def build_admin_settings_payload() -> dict:
         "sqlStorageEnabled": sql_storage_enabled(),
         "storageBackend": (os.getenv("POMICH_STORAGE_BACKEND") or ("sql" if sql_storage_enabled() else "json")),
         "telegramConfigured": bool(get_configured_token()),
-        "adminAccountsConfigured": bool(load_account_configs("POMICH_ADMIN_ACCOUNTS")),
-        "providerAccountsConfigured": bool(load_account_configs("POMICH_PROVIDER_ACCOUNTS")),
+        "adminAccountsConfigured": bool(admin_accounts["configured"]),
+        "providerAccountsConfigured": bool(provider_accounts["configured"]),
+        "adminAccountsActive": admin_accounts["active"],
+        "adminAccountsTotal": admin_accounts["total"],
+        "providerAccountsActive": provider_accounts["active"],
+        "providerAccountsTotal": provider_accounts["total"],
+        "adminAccountsError": admin_accounts["error"],
+        "providerAccountsError": provider_accounts["error"],
         "authAccountsSource": auth_accounts_source(),
         "allowHttpPilot": allow_http_pilot(),
         "bootstrapAuthSessionsEnabled": bootstrap_auth_sessions_enabled(),

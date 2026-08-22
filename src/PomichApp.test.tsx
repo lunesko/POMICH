@@ -2820,7 +2820,7 @@ describe('POMICH role-based flows', () => {
       if (url.includes('/admin/clients')) return Promise.resolve({ ok: true, json: async () => [] })
       if (url.includes('/admin/providers')) return Promise.resolve({ ok: true, json: async () => [] })
       if (url.includes('/admin/orders')) return Promise.resolve({ ok: true, json: async () => [] })
-      if (url.includes('/admin/settings')) return Promise.resolve({ ok: true, json: async () => ({ runtime: 'dev', corsOrigins: ['*'], encryptionEnabled: false, databaseUrlConfigured: true, telegramConfigured: false, adminAccountsConfigured: true, providerAccountsConfigured: true, authAccountsSource: 'sql', allowHttpPilot: false, bootstrapAuthSessionsEnabled: false, sessionTtlSeconds: 86400 }) })
+      if (url.includes('/admin/settings')) return Promise.resolve({ ok: true, json: async () => ({ runtime: 'dev', corsOrigins: ['*'], encryptionEnabled: false, databaseUrlConfigured: true, sqlStorageEnabled: true, storageBackend: 'sql', telegramConfigured: false, adminAccountsConfigured: true, providerAccountsConfigured: true, adminAccountsActive: 1, adminAccountsTotal: 1, providerAccountsActive: 1, providerAccountsTotal: 2, authAccountsSource: 'sql', allowHttpPilot: false, bootstrapAuthSessionsEnabled: false, sessionTtlSeconds: 86400 }) })
       if (url.includes('/map/providers')) return Promise.resolve({ ok: true, json: async () => [] })
       if (url.includes('/admin/auth/accounts') && url.includes('/password')) {
         const updated: AdminAuthAccount = { ...authAccounts[1]!, hasPassword: true }
@@ -2860,6 +2860,13 @@ describe('POMICH role-based flows', () => {
     await user.type(await screen.findByLabelText('Пароль'), 'admin-pass')
     await user.click(screen.getByRole('button', { name: /Увійти/i }))
     expect(await screen.findByText('POMICH Admin')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /Налаштування/i }))
+    expect(await screen.findByText('Auth source')).toBeInTheDocument()
+    expect(screen.getByText('sql')).toBeInTheDocument()
+    expect(screen.getByText('1/1 active')).toBeInTheDocument()
+    expect(screen.getByText('1/2 active')).toBeInTheDocument()
+    expect(screen.getByText('Disabled')).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: /Акаунти/i }))
     expect(await screen.findByText(/admin-dispatcher/i)).toBeInTheDocument()

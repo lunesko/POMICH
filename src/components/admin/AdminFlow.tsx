@@ -176,6 +176,12 @@ function authAccountIdentity(account: AdminAuthAccount) {
   return account.username || account.email || account.phone || account.providerId || account.id
 }
 
+function authAccountSettingsText(configured: boolean, active?: number, total?: number, error?: string | null) {
+  if (error) return `Помилка: ${error}`
+  if (typeof active === "number" && typeof total === "number") return `${active}/${total} active`
+  return configured ? "Налаштовано" : "—"
+}
+
 export default function AdminFlow({ adminToken }: { adminToken?: string }) {
   const adminSessionStorageKey = useMemo(() => authSessionStorageKey("admin", "admin"), [])
   const [adminAccessToken, setAdminAccessToken] = useState<string | undefined>(() => {
@@ -1005,10 +1011,13 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
                   <div><span>Runtime</span><strong>{settings.runtime}</strong></div>
                   <div><span>WEB_APP_URL</span><strong>{settings.webAppUrl ?? "—"}</strong></div>
                   <div><span>Шифрування PII</span><strong className={settings.encryptionEnabled ? "admin-ok" : "admin-warn"}>{settings.encryptionEnabled ? "Увімкнено" : "Вимкнено"}</strong></div>
-                  <div><span>DATABASE_URL</span><strong>{settings.databaseUrlConfigured ? "Налаштовано" : "JSON store"}</strong></div>
+                  <div><span>Storage</span><strong>{settings.sqlStorageEnabled ? "SQL/PostGIS" : (settings.storageBackend || (settings.databaseUrlConfigured ? "DATABASE_URL" : "JSON store"))}</strong></div>
                   <div><span>Telegram</span><strong>{settings.telegramConfigured ? "Так" : "Ні"}</strong></div>
                   <div><span>CORS</span><strong>{settings.corsOrigins.join(", ")}</strong></div>
-                  <div><span>Admin accounts</span><strong>{settings.adminAccountsConfigured ? "Налаштовано" : "—"}</strong></div>
+                  <div><span>Auth source</span><strong>{settings.authAccountsSource || "env"}</strong></div>
+                  <div><span>Admin accounts</span><strong className={settings.adminAccountsConfigured ? "admin-ok" : "admin-warn"}>{authAccountSettingsText(settings.adminAccountsConfigured, settings.adminAccountsActive, settings.adminAccountsTotal, settings.adminAccountsError)}</strong></div>
+                  <div><span>Provider accounts</span><strong className={settings.providerAccountsConfigured ? "admin-ok" : "admin-warn"}>{authAccountSettingsText(settings.providerAccountsConfigured, settings.providerAccountsActive, settings.providerAccountsTotal, settings.providerAccountsError)}</strong></div>
+                  <div><span>Bootstrap sessions</span><strong className={settings.bootstrapAuthSessionsEnabled ? "admin-warn" : "admin-ok"}>{settings.bootstrapAuthSessionsEnabled ? "Dev enabled" : "Disabled"}</strong></div>
                   <div><span>Session TTL</span><strong>{settings.sessionTtlSeconds}s</strong></div>
                   <div><span>HTTP pilot</span><strong>{settings.allowHttpPilot ? "Дозволено" : "Ні"}</strong></div>
                 </div>

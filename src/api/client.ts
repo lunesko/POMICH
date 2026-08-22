@@ -1343,9 +1343,17 @@ export interface AdminSettings {
   corsOrigins: string[]
   encryptionEnabled: boolean
   databaseUrlConfigured: boolean
+  sqlStorageEnabled?: boolean
+  storageBackend?: string
   telegramConfigured: boolean
   adminAccountsConfigured: boolean
   providerAccountsConfigured: boolean
+  adminAccountsActive?: number
+  adminAccountsTotal?: number
+  providerAccountsActive?: number
+  providerAccountsTotal?: number
+  adminAccountsError?: string | null
+  providerAccountsError?: string | null
   authAccountsSource: string
   allowHttpPilot: boolean
   bootstrapAuthSessionsEnabled: boolean
