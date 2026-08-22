@@ -22,6 +22,7 @@ TELEGRAM_PROVIDER_BOT_TOKEN=123456:provider-token
 TELEGRAM_PROVIDER_WEB_APP_URL=https://pomich.help/?role=provider&tgBot=provider
 
 TELEGRAM_MODE=webhook
+TELEGRAM_WEBHOOK_SECRET=generate-a-long-random-secret
 WEB_APP_URL=https://pomich.help
 POMICH_CORS_ORIGINS=https://pomich.help
 ```
@@ -50,9 +51,17 @@ Local fallback: if the new vars are missing, `TELEGRAM_BOT_TOKEN` + `WEB_APP_URL
 After tokens + HTTPS origin are live:
 
 ```bash
-python scripts/ops/telegram_set_webhooks.py
+python scripts/ops/telegram_set_webhooks.py --origin https://pomich.help --dry-run --strict
+python scripts/ops/telegram_set_webhooks.py --origin https://pomich.help --strict --drop-pending-updates
 ```
 
-See also BotFather checklist in that script’s docstring / stdout.
+The dry run prints webhook/menu/commands for both bots without calling Telegram API and without printing tokens.
+`--strict` requires dedicated customer/provider bot tokens, different tokens for the two bots, and a webhook secret.
+
+BotFather manual checklist:
+
+- `@pomich_ua_bot`: domain `pomich.help`, Web App URL `https://pomich.help/?role=customer&tgBot=customer`.
+- `@pomich_help_bot`: domain `pomich.help`, Web App URL `https://pomich.help/?role=provider&tgBot=provider`.
+- Commands are set by the script, but the same command lists are visible in `scripts/ops/telegram_set_webhooks.py`.
 
 DNS for `pomich.help` does **not** need to be live to merge this code.
