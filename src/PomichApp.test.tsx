@@ -2979,6 +2979,86 @@ describe('POMICH role-based flows', () => {
     })
   })
 
+  it('requires an admin to complete temporary password reset before opening the dashboard', async () => {
+    const user = userEvent.setup()
+    const adminSessionToken = 'pomich_auth_v1.admin-temp-session'
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes('/auth/admin/login')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            role: 'admin',
+            subjectId: 'admin-dispatcher',
+            username: 'dispatcher',
+            tokenType: 'Bearer',
+            accessToken: adminSessionToken,
+            expiresAt: Math.floor(Date.now() / 1000) + 3600,
+            passwordResetRequired: true,
+          }),
+        })
+      }
+      if (url.includes('/auth/admin/password')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ ok: true, adminId: 'admin-dispatcher', passwordResetRequired: false }),
+        })
+      }
+      if (url.includes('/admin/stats')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            totals: { clients: 0, providers: 0, dispatchProviders: 0, directoryProviders: 0, orders: 0, activeOrders: 0, completedOrders: 0 },
+            providers: { online: 0, busy: 0, offline: 0, verified: 0, pendingVerification: 0 },
+            clients: { verified: 0, registered: 0, disabled: 0 },
+            orders: { searching: 0, assigned: 0, enRoute: 0, inProgress: 0 },
+            activity: [],
+          }),
+        })
+      }
+      if (url.includes('/admin/ops-log')) return Promise.resolve({ ok: true, json: async () => ({ events: [], counts: { error: 0, warn: 0, info: 0, total: 0 }, limit: 100 }) })
+      if (url.includes('/admin/clients')) return Promise.resolve({ ok: true, json: async () => [] })
+      if (url.includes('/admin/providers')) return Promise.resolve({ ok: true, json: async () => [] })
+      if (url.includes('/admin/orders')) return Promise.resolve({ ok: true, json: async () => [] })
+      if (url.includes('/admin/settings')) return Promise.resolve({ ok: true, json: async () => ({ runtime: 'dev', corsOrigins: ['*'], encryptionEnabled: false, databaseUrlConfigured: true, sqlStorageEnabled: true, storageBackend: 'sql', telegramConfigured: false, adminAccountsConfigured: true, providerAccountsConfigured: true, authAccountsSource: 'sql', allowHttpPilot: false, bootstrapAuthSessionsEnabled: false, sessionTtlSeconds: 86400 }) })
+      if (url.includes('/map/providers')) return Promise.resolve({ ok: true, json: async () => [] })
+      return Promise.resolve({ ok: true, json: async () => ({}) })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/?role=admin')
+
+    renderApp()
+
+    await user.type(await screen.findByLabelText('Пароль'), 'temporary-pass')
+    await user.click(screen.getByRole('button', { name: /Увійти/i }))
+    expect(await screen.findByText('Оновіть пароль')).toBeInTheDocument()
+    expect(screen.queryByText('POMICH Admin')).not.toBeInTheDocument()
+
+    await user.type(screen.getByLabelText('Новий пароль'), 'admin-pass-2')
+    await user.type(screen.getByLabelText('Повторіть пароль'), 'admin-pass-2')
+    await user.click(screen.getByRole('button', { name: /Оновити пароль/i }))
+
+    expect(await screen.findByText('POMICH Admin')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/auth/admin/password'),
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({ Authorization: `Bearer ${adminSessionToken}` }),
+          body: JSON.stringify({ newPassword: 'admin-pass-2' }),
+        }),
+      )
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/admin/stats'),
+        expect.objectContaining({
+          headers: expect.objectContaining({ Authorization: `Bearer ${adminSessionToken}` }),
+        }),
+      )
+    })
+    const storedSession = JSON.parse(window.sessionStorage.getItem(authSessionStorageKey('admin', 'admin')) || '{}')
+    expect(storedSession.passwordResetRequired).toBe(false)
+  })
+
   it('lets an admin manage SQL auth accounts from the admin panel', async () => {
     const user = userEvent.setup()
     const adminSessionToken = 'pomich_auth_v1.admin-account-session'

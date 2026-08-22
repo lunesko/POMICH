@@ -23,6 +23,7 @@ import {
   purgeStaleGuestClients,
   reviewProviderVerification,
   retryDispatch,
+  updateAdminAccountPassword,
   updateOrderStatus,
   type AdminAuthAccount,
   type AdminActivityItem,
@@ -30,6 +31,7 @@ import {
   type AdminOpsLogEvent,
   type AdminSettings,
   type AdminStats,
+  type AuthSession,
   type CustomerProfile,
   type OrderResponse,
   type ProviderAvailability,
@@ -45,7 +47,14 @@ import {
   toServiceKeys,
   type OrderStatus,
 } from "../../lib/constants"
-import { authSessionStorageKey, isAuthSessionToken, readStoredAuthSession, storeAuthSession } from "../../lib/auth"
+import {
+  authSessionStorageKey,
+  isAuthSessionToken,
+  readAuthSessionSubject,
+  readStoredRoleAuthSession,
+  readStoredRoleAuthSessionPayload,
+  storeAuthSession,
+} from "../../lib/auth"
 import { formatCustomerCity, formatCustomerDisplayName } from "../../lib/customerDisplay"
 import { VerificationPill } from "../ui/VerificationPill"
 import { StatusPill } from "../ui/StatusPill"
@@ -152,6 +161,46 @@ function AdminLogin({
   )
 }
 
+function AdminPasswordReset({
+  password,
+  confirmPassword,
+  saving,
+  error,
+  onPasswordChange,
+  onConfirmPasswordChange,
+  onSubmit,
+}: {
+  password: string
+  confirmPassword: string
+  saving: boolean
+  error?: string
+  onPasswordChange: (value: string) => void
+  onConfirmPasswordChange: (value: string) => void
+  onSubmit: () => void
+}) {
+  return (
+    <div className="admin-login-shell">
+      <div className="admin-login-card">
+        <div className="admin-login-badge">POMICH OPS</div>
+        <h1 className="admin-login-title">Оновіть пароль</h1>
+        <p className="admin-login-subtitle">Тимчасовий пароль прийнято. Перед входом у консоль задайте постійний пароль адміністратора.</p>
+        <label className="admin-field">
+          <span>Новий пароль</span>
+          <input value={password} onChange={(event) => onPasswordChange(event.target.value)} type="password" autoComplete="new-password" aria-label="Новий пароль" />
+        </label>
+        <label className="admin-field">
+          <span>Повторіть пароль</span>
+          <input value={confirmPassword} onChange={(event) => onConfirmPasswordChange(event.target.value)} type="password" autoComplete="new-password" aria-label="Повторіть пароль" />
+        </label>
+        {error ? <div className="admin-alert admin-alert-error">{error}</div> : null}
+        <button className="admin-primary-btn" onClick={onSubmit} disabled={!password.trim() || !confirmPassword.trim() || saving}>
+          {saving ? "Оновлюємо…" : "Оновити пароль"}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function StatCard({ label, value, tone }: { label: string; value: number | string; tone?: "brand" | "warn" | "muted" }) {
   return (
     <div className={`admin-stat-card${tone ? ` admin-stat-card-${tone}` : ""}`}>
@@ -187,7 +236,12 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
   const adminSessionStorageKey = useMemo(() => authSessionStorageKey("admin", "admin"), [])
   const [adminAccessToken, setAdminAccessToken] = useState<string | undefined>(() => {
     if (isAuthSessionToken(adminToken)) return adminToken
-    return readStoredAuthSession(adminSessionStorageKey, "admin", "admin")
+    return readStoredRoleAuthSession(adminSessionStorageKey, "admin")
+  })
+  const [adminPasswordResetRequired, setAdminPasswordResetRequired] = useState(() => {
+    if (isAuthSessionToken(adminToken)) return false
+    const session = readStoredRoleAuthSessionPayload(adminSessionStorageKey, "admin")
+    return typeof session === "object" && Boolean(session.passwordResetRequired)
   })
   const adminAuthToken = adminAccessToken
   const [section, setSection] = useState<AdminSection>("dashboard")
@@ -221,6 +275,10 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
   const [accountLogin, setAccountLogin] = useState("dispatcher")
   const [accountPassword, setAccountPassword] = useState("")
   const [authSaving, setAuthSaving] = useState(false)
+  const [newAdminPassword, setNewAdminPassword] = useState("")
+  const [newAdminPasswordConfirm, setNewAdminPasswordConfirm] = useState("")
+  const [adminPasswordSaving, setAdminPasswordSaving] = useState(false)
+  const [adminPasswordError, setAdminPasswordError] = useState<string | undefined>()
   const [importStatus, setImportStatus] = useState<string | undefined>()
   const [purgeStatus, setPurgeStatus] = useState<string | undefined>()
 
@@ -234,6 +292,7 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
     if (isAuthSessionToken(adminToken)) {
       if (typeof window !== "undefined") window.sessionStorage.setItem(adminSessionStorageKey, adminToken)
       setAdminAccessToken(adminToken)
+      setAdminPasswordResetRequired(false)
       setAuthError(undefined)
       setBootstrapAuthFailed(false)
       return
@@ -244,6 +303,7 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
         if (cancelled) return
         storeAuthSession(adminSessionStorageKey, session)
         setAdminAccessToken(session.accessToken)
+        setAdminPasswordResetRequired(false)
         setAuthError(undefined)
         setBootstrapAuthFailed(false)
       })
@@ -265,16 +325,56 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
       const session = await createAdminAccountSession(accountLogin, accountPassword)
       storeAuthSession(adminSessionStorageKey, session)
       setAdminAccessToken(session.accessToken)
+      setAdminPasswordResetRequired(Boolean(session.passwordResetRequired))
       setAccountPassword("")
-    } catch {
-      setAuthError("Не вдалося увійти в адмін-акаунт.")
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : "Не вдалося увійти в адмін-акаунт.")
     } finally {
       setAuthSaving(false)
     }
   }
 
+  const completeAdminPasswordReset = async () => {
+    if (!adminAuthToken) return
+    const nextPassword = newAdminPassword.trim()
+    setAdminPasswordError(undefined)
+    if (nextPassword.length < 8) {
+      setAdminPasswordError("Пароль має містити щонайменше 8 символів.")
+      return
+    }
+    if (nextPassword !== newAdminPasswordConfirm.trim()) {
+      setAdminPasswordError("Паролі не збігаються.")
+      return
+    }
+    setAdminPasswordSaving(true)
+    try {
+      await updateAdminAccountPassword({ newPassword: nextPassword }, adminAuthToken)
+      const subject = readAuthSessionSubject(adminAuthToken) || "admin"
+      const stored = readStoredRoleAuthSessionPayload(adminSessionStorageKey, "admin")
+      const updatedSession: AuthSession = typeof stored === "object"
+        ? { ...stored, passwordResetRequired: false }
+        : {
+            role: "admin",
+            subjectId: subject,
+            tokenType: "Bearer",
+            accessToken: adminAuthToken,
+            expiresAt: Math.floor(Date.now() / 1000) + 3600,
+            passwordResetRequired: false,
+          }
+      storeAuthSession(adminSessionStorageKey, updatedSession)
+      setAdminPasswordResetRequired(false)
+      setNewAdminPassword("")
+      setNewAdminPasswordConfirm("")
+      setAdminPasswordError(undefined)
+    } catch (error) {
+      setAdminPasswordError(error instanceof Error ? error.message : "Не вдалося змінити пароль адміністратора.")
+    } finally {
+      setAdminPasswordSaving(false)
+    }
+  }
+
   const refreshAll = useCallback(async () => {
-    if (!adminAuthToken) {
+    if (!adminAuthToken || adminPasswordResetRequired) {
       setLoading(false)
       return
     }
@@ -298,10 +398,10 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
     } finally {
       setLoading(false)
     }
-  }, [adminAuthToken, clientQuery, providerQuery, orderFilter, showGuestSessions])
+  }, [adminAuthToken, adminPasswordResetRequired, clientQuery, providerQuery, orderFilter, showGuestSessions])
 
   const refreshOpsLog = useCallback(async () => {
-    if (!adminAuthToken) return
+    if (!adminAuthToken || adminPasswordResetRequired) return
     try {
       const nextOpsLog = await getAdminOpsLog(adminAuthToken, {
         limit: 100,
@@ -312,10 +412,10 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
     } catch {
       setError("Не вдалося завантажити ops-лог.")
     }
-  }, [adminAuthToken, opsSeverity, opsOrderQuery])
+  }, [adminAuthToken, adminPasswordResetRequired, opsSeverity, opsOrderQuery])
 
   const refreshMapProviders = useCallback(async () => {
-    if (!adminAuthToken) return
+    if (!adminAuthToken || adminPasswordResetRequired) return
     try {
       // Map tab only — never pull ~6k directory pins on every 15s admin poll.
       const nextMapProviders = await getMapProviders({ scope: "all" })
@@ -323,10 +423,10 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
     } catch {
       setError("Не вдалося завантажити піни карти.")
     }
-  }, [adminAuthToken])
+  }, [adminAuthToken, adminPasswordResetRequired])
 
   const refreshAuthAccounts = useCallback(async () => {
-    if (!adminAuthToken) return
+    if (!adminAuthToken || adminPasswordResetRequired) return
     try {
       const nextAccounts = await getAdminAuthAccounts(adminAuthToken, {
         role: authAccountRole === "all" ? undefined : authAccountRole,
@@ -336,7 +436,7 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
     } catch {
       setError("Не вдалося завантажити auth-акаунти. Перевірте, що SQL storage увімкнено.")
     }
-  }, [adminAuthToken, authAccountRole])
+  }, [adminAuthToken, adminPasswordResetRequired, authAccountRole])
 
   useEffect(() => {
     refreshAll()
@@ -569,6 +669,20 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
         onLoginChange={setAccountLogin}
         onPasswordChange={setAccountPassword}
         onSubmit={submitAdminAccountLogin}
+      />
+    )
+  }
+
+  if (adminAuthToken && adminPasswordResetRequired) {
+    return (
+      <AdminPasswordReset
+        password={newAdminPassword}
+        confirmPassword={newAdminPasswordConfirm}
+        saving={adminPasswordSaving}
+        error={adminPasswordError}
+        onPasswordChange={setNewAdminPassword}
+        onConfirmPasswordChange={setNewAdminPasswordConfirm}
+        onSubmit={completeAdminPasswordReset}
       />
     )
   }

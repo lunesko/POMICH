@@ -35,11 +35,13 @@ export function readAuthSessionSubject(token?: string): string | undefined {
   }
 }
 
-export function authSessionStorageKey(role: "admin" | "provider" | "customer", subjectId: string) {
+type AuthRole = "admin" | "provider" | "customer"
+
+export function authSessionStorageKey(role: AuthRole, subjectId: string) {
   return `pomichAuthSession:${role}:${subjectId}`
 }
 
-export function readStoredAuthSessionPayload(storageKey: string, expectedRole: "admin" | "provider" | "customer", expectedSubjectId: string): AuthSession | string | undefined {
+export function readStoredRoleAuthSessionPayload(storageKey: string, expectedRole: AuthRole): AuthSession | string | undefined {
   if (typeof window === "undefined") return undefined
   const rawValue = window.sessionStorage.getItem(storageKey)
   if (!rawValue) return undefined
@@ -47,7 +49,7 @@ export function readStoredAuthSessionPayload(storageKey: string, expectedRole: "
   try {
     const session = JSON.parse(rawValue) as Partial<AuthSession>
     const expiresAt = Number(session.expiresAt ?? 0)
-    if (session.role !== expectedRole || session.subjectId !== expectedSubjectId || !isAuthSessionToken(session.accessToken) || expiresAt <= Math.floor(Date.now() / 1000) + 30) {
+    if (session.role !== expectedRole || !isAuthSessionToken(session.accessToken) || expiresAt <= Math.floor(Date.now() / 1000) + 30) {
       window.sessionStorage.removeItem(storageKey)
       return undefined
     }
@@ -59,7 +61,22 @@ export function readStoredAuthSessionPayload(storageKey: string, expectedRole: "
   }
 }
 
-export function readStoredAuthSession(storageKey: string, expectedRole: "admin" | "provider" | "customer", expectedSubjectId: string) {
+export function readStoredAuthSessionPayload(storageKey: string, expectedRole: AuthRole, expectedSubjectId: string): AuthSession | string | undefined {
+  const session = readStoredRoleAuthSessionPayload(storageKey, expectedRole)
+  if (typeof session !== "object") return session
+  if (session.subjectId !== expectedSubjectId) {
+    if (typeof window !== "undefined") window.sessionStorage.removeItem(storageKey)
+    return undefined
+  }
+  return session
+}
+
+export function readStoredRoleAuthSession(storageKey: string, expectedRole: AuthRole) {
+  const session = readStoredRoleAuthSessionPayload(storageKey, expectedRole)
+  return typeof session === "string" ? session : session?.accessToken
+}
+
+export function readStoredAuthSession(storageKey: string, expectedRole: AuthRole, expectedSubjectId: string) {
   const session = readStoredAuthSessionPayload(storageKey, expectedRole, expectedSubjectId)
   return typeof session === "string" ? session : session?.accessToken
 }

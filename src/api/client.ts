@@ -1,6 +1,9 @@
 const defaultBaseUrl = '/api'
 
 const providerErrorMessages: Record<string, string> = {
+  admin_credentials_invalid: 'Невірний логін або пароль адміністратора.',
+  admin_account_disabled: 'Адмін-акаунт вимкнено. Зверніться до власника системи.',
+  admin_account_required: 'Потрібен активний адмін-акаунт.',
   provider_credentials_invalid: 'Невірний логін або пароль партнера.',
   provider_token_invalid: 'Недійсний токен партнера.',
   provider_session_required: 'Потрібен вхід партнера.',
@@ -16,6 +19,9 @@ const providerErrorMessages: Record<string, string> = {
   role_forbidden: 'Сесію не відкрито. Оновіть сторінку або увійдіть знову.',
   customer_identity_mismatch: 'Сесія застаріла. Закрийте та відкрийте застосунок знову.',
   provider_identity_mismatch: 'Акаунт партнера не збігається. Оновіть сторінку та спробуйте ще раз.',
+  password_too_short: 'Пароль має містити щонайменше 8 символів.',
+  current_password_required: 'Введіть поточний пароль.',
+  current_password_invalid: 'Поточний пароль неправильний.',
   'provider verification must be approved before going online':
     'Підтвердіть телефон у Telegram, щоб вийти на лінію.',
   'provider profile must be registered before going online': 'Спочатку заповніть профіль партнера.',
@@ -538,10 +544,24 @@ export async function createAdminAccountSession(username: string, password: stri
   })
 
   if (!response.ok) {
-    throw new Error(`Admin login request failed with ${response.status}`)
+    throw new Error(await parseApiError(response, 'Не вдалося увійти в адмін-акаунт.'))
   }
 
   return response.json() as Promise<AuthSession>
+}
+
+export async function updateAdminAccountPassword(payload: { newPassword: string; currentPassword?: string }, adminToken?: string) {
+  const response = await fetch(`${getBaseUrl()}/auth/admin/password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(adminHeaders(adminToken) ?? {}) },
+    body: JSON.stringify(payload),
+  })
+
+  if (!response.ok) {
+    throw new Error(await parseApiError(response, 'Не вдалося змінити пароль адміністратора.'))
+  }
+
+  return response.json() as Promise<{ ok: boolean; adminId: string; passwordResetRequired: boolean }>
 }
 
 export async function createProviderSession(providerId: string, providerToken: string) {
