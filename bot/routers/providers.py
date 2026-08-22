@@ -79,6 +79,7 @@ def _public_provider_auth_bootstrap(account: dict, *, temporary_password: str | 
         "status": account.get("status") or "active",
         "created": created,
         "activated": activated,
+        "passwordResetRequired": bool(account.get("passwordResetRequired")),
     }
     if temporary_password:
         payload["temporaryPassword"] = temporary_password
@@ -106,6 +107,8 @@ def _sync_verified_provider_auth_account(provider_id: str, provider: dict) -> di
             "phone": provider.get("phone"),
             "email": provider.get("email"),
             "password": temporary_password,
+            "passwordResetRequired": True,
+            "temporaryPasswordIssuedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "status": "active",
         },
     )

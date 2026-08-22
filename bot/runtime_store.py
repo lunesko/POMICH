@@ -582,7 +582,7 @@ def upsert_auth_account(role: str, account_payload: dict[str, Any]) -> dict[str,
     return _json_safe_copy(normalized)
 
 
-def set_auth_account_password(account_id: str, password: str) -> dict[str, Any]:
+def set_auth_account_password(account_id: str, password: str, *, reset_required: bool = False) -> dict[str, Any]:
     normalized_password = str(password or "").strip()
     if len(normalized_password) < 8:
         raise ValueError("password_too_short")
@@ -591,8 +591,14 @@ def set_auth_account_password(account_id: str, password: str) -> dict[str, Any]:
         existing = _load_auth_account_payload(connection, account_id)
         if existing is None:
             raise KeyError("auth_account_not_found")
+        now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat(timespec="seconds")
         existing["passwordHash"] = _auth_account_password_hash(normalized_password)
-        existing["updatedAt"] = datetime.now(timezone.utc).replace(tzinfo=None).isoformat(timespec="seconds")
+        existing["passwordResetRequired"] = bool(reset_required)
+        if reset_required:
+            existing["temporaryPasswordIssuedAt"] = now
+        else:
+            existing.pop("temporaryPasswordIssuedAt", None)
+        existing["updatedAt"] = now
         values = _auth_account_values(existing)
         connection.execute(
             update(auth_accounts)

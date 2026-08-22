@@ -275,6 +275,7 @@ export interface AuthSession {
   account?: UserAccountStatus
   preferredRole?: 'customer' | 'provider' | ''
   telegramBotKind?: 'customer' | 'provider'
+  passwordResetRequired?: boolean
   providerAccount?: {
     linked: boolean
     providerId?: string | null
@@ -1380,6 +1381,9 @@ export interface AdminAuthAccount {
   createdAt?: string
   updatedAt?: string
   hasPassword: boolean
+  passwordResetRequired?: boolean
+  temporaryPasswordIssuedAt?: string
+  temporaryPassword?: string
 }
 
 export async function getAdminStats(adminToken?: string) {
@@ -1493,6 +1497,15 @@ export async function adminResetAuthAccountPassword(accountId: string, password:
     body: JSON.stringify({ password }),
   })
   if (!response.ok) throw new Error(await parseApiError(response, 'Не вдалося змінити пароль.'))
+  return response.json() as Promise<AdminAuthAccount>
+}
+
+export async function adminIssueAuthAccountTemporaryPassword(accountId: string, adminToken?: string) {
+  const response = await fetch(`${getBaseUrl()}/admin/auth/accounts/${encodeURIComponent(accountId)}/temporary-password`, {
+    method: 'POST',
+    headers: adminHeaders(adminToken),
+  })
+  if (!response.ok) throw new Error(await parseApiError(response, 'Не вдалося видати тимчасовий пароль.'))
   return response.json() as Promise<AdminAuthAccount>
 }
 

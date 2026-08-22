@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import {
   adminDeactivateAuthAccount,
   adminDeleteProvider,
+  adminIssueAuthAccountTemporaryPassword,
   adminResetAuthAccountPassword,
   adminSaveAuthAccount,
   adminUpdateClient,
@@ -520,6 +521,26 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
     }
   }
 
+  const issueAuthAccountTemporaryPassword = async (account: AdminAuthAccount) => {
+    if (!adminAuthToken) return
+    setSaving(true)
+    setAuthAccountStatus(undefined)
+    try {
+      const updated = await adminIssueAuthAccountTemporaryPassword(account.id, adminAuthToken)
+      setAuthAccounts((items) => items.map((item) => item.id === updated.id ? updated : item))
+      setAuthAccountPasswords((items) => {
+        const next = { ...items }
+        delete next[account.id]
+        return next
+      })
+      setAuthAccountStatus(`Temporary password for ${updated.id}: ${updated.temporaryPassword}`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не вдалося видати тимчасовий пароль.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const setAuthAccountEnabled = async (account: AdminAuthAccount, enabled: boolean) => {
     if (!adminAuthToken) return
     setSaving(true)
@@ -973,6 +994,7 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
                           <div className="admin-muted">{account.id} · {account.role}{account.providerId ? ` · provider ${account.providerId}` : ""}</div>
                           <div className="admin-muted">
                             {account.email || "email —"} · {account.phone || "телефон —"} · {account.hasPassword ? "пароль є" : "пароля немає"}
+                            {account.passwordResetRequired ? " · reset required" : ""}
                           </div>
                           <div className="admin-muted">{account.updatedAt ? `оновлено ${account.updatedAt}` : "оновлення —"}</div>
                         </div>
@@ -992,6 +1014,13 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
                             onClick={() => void resetAuthAccountPassword(account)}
                           >
                             Змінити пароль
+                          </button>
+                          <button
+                            className="admin-chip admin-chip-brand"
+                            disabled={saving}
+                            onClick={() => void issueAuthAccountTemporaryPassword(account)}
+                          >
+                            Тимчасовий пароль
                           </button>
                           <button
                             className={account.status === "active" ? "admin-chip admin-chip-danger" : "admin-chip admin-chip-brand"}

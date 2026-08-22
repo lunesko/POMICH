@@ -592,6 +592,42 @@ def test_sql_provider_account_source_requires_active_provider_account(monkeypatc
     assert profile.json()["detail"] == "provider_account_required"
 
 
+def test_sql_provider_self_session_requires_active_provider_account(monkeypatch, tmp_path) -> None:
+    _use_sql_runtime(monkeypatch, tmp_path)
+    monkeypatch.setenv("POMICH_AUTH_ACCOUNTS_SOURCE", "sql")
+    monkeypatch.setenv("POMICH_PROVIDER_TOKEN", PROVIDER_TOKEN)
+    order_store.update_customer_profile(
+        "guest-linked",
+        {"name": "Linked Partner", "phone": "+380501112233", "linkedProviderId": "provider-linked"},
+    )
+    client = TestClient(app)
+
+    try:
+        customer_headers = _customer_session_headers(client, "guest-linked")
+        blocked = client.post(
+            "/api/auth/provider/self/session",
+            headers=customer_headers,
+            json={"customerId": "guest-linked"},
+        )
+        runtime_store.save_auth_accounts(
+            "provider",
+            [{"providerId": "provider-linked", "username": "linked-partner", "password": "provider-pass"}],
+        )
+        allowed = client.post(
+            "/api/auth/provider/self/session",
+            headers=customer_headers,
+            json={"customerId": "guest-linked"},
+        )
+    finally:
+        runtime_store.reset_runtime_store_for_tests()
+
+    assert blocked.status_code == 403
+    assert blocked.json()["detail"] == "provider_account_required"
+    assert allowed.status_code == 200
+    assert allowed.json()["role"] == "provider"
+    assert allowed.json()["providerId"] == "provider-linked"
+
+
 def test_disabled_sql_provider_account_revokes_existing_provider_session(monkeypatch, tmp_path) -> None:
     _use_sql_runtime(monkeypatch, tmp_path)
     monkeypatch.setenv("POMICH_AUTH_ACCOUNTS_SOURCE", "sql")
@@ -684,9 +720,11 @@ def test_admin_verifying_provider_creates_sql_provider_auth_account_and_ops_log(
     assert bootstrap["username"] == "provider-new"
     assert bootstrap["created"] is True
     assert bootstrap["activated"] is True
+    assert bootstrap["passwordResetRequired"] is True
     assert bootstrap["temporaryPassword"]
     assert provider_login.status_code == 200
     assert provider_login.json()["providerId"] == "provider-new"
+    assert provider_login.json()["passwordResetRequired"] is True
     assert profile.status_code == 200
     assert ops.status_code == 200
     event_types = {event["type"] for event in ops.json()["events"]}
@@ -810,12 +848,20 @@ def test_fastapi_admin_manages_sql_auth_accounts(monkeypatch, tmp_path) -> None:
             "/api/auth/provider/login",
             json={"login": "managed-partner", "password": "provider-pass-2"},
         )
+        temporary_password = client.post(
+            f"/api/admin/auth/accounts/{created.json()['id']}/temporary-password",
+            headers=admin_headers,
+        )
+        temp_password_login = client.post(
+            "/api/auth/provider/login",
+            json={"login": "managed-partner", "password": temporary_password.json()["temporaryPassword"]},
+        )
         disabled = client.delete(f"/api/admin/auth/accounts/{created.json()['id']}", headers=admin_headers)
         active_accounts = client.get("/api/admin/auth/accounts", headers=admin_headers)
         all_accounts = client.get("/api/admin/auth/accounts?includeDisabled=true", headers=admin_headers)
         disabled_login = client.post(
             "/api/auth/provider/login",
-            json={"login": "managed-partner", "password": "provider-pass-2"},
+            json={"login": "managed-partner", "password": temporary_password.json()["temporaryPassword"]},
         )
         ops = client.get("/api/admin/ops-log", headers=admin_headers)
         last_admin_delete = client.delete("/api/admin/auth/accounts/admin-dispatcher", headers=admin_headers)
@@ -831,8 +877,16 @@ def test_fastapi_admin_manages_sql_auth_accounts(monkeypatch, tmp_path) -> None:
     assert provider_login.status_code == 200
     assert provider_login.json()["providerId"] == "provider-managed"
     assert password_reset.status_code == 200
+    assert password_reset.json()["passwordResetRequired"] is False
     assert old_password_login.status_code == 401
     assert new_password_login.status_code == 200
+    assert new_password_login.json()["passwordResetRequired"] is False
+    assert temporary_password.status_code == 200
+    assert temporary_password.json()["temporaryPassword"]
+    assert temporary_password.json()["passwordResetRequired"] is True
+    assert "passwordHash" not in temporary_password.json()
+    assert temp_password_login.status_code == 200
+    assert temp_password_login.json()["passwordResetRequired"] is True
     assert disabled.status_code == 200
     assert disabled.json()["status"] == "disabled"
     assert [account["id"] for account in active_accounts.json()] == ["admin-dispatcher"]
@@ -842,6 +896,7 @@ def test_fastapi_admin_manages_sql_auth_accounts(monkeypatch, tmp_path) -> None:
     event_types = {event["type"] for event in ops.json()["events"]}
     assert "AUTH_ACCOUNT_CREATED" in event_types
     assert "AUTH_ACCOUNT_PASSWORD_RESET" in event_types
+    assert "AUTH_ACCOUNT_TEMP_PASSWORD_ISSUED" in event_types
     assert "AUTH_ACCOUNT_DISABLED" in event_types
     assert last_admin_delete.status_code == 409
     assert last_admin_delete.json()["detail"] == "last_admin_account"

@@ -14,6 +14,7 @@ from bot.api_deps import (
     issue_role_session,
     otp_http_detail,
     otp_http_status,
+    require_active_provider_account,
     require_customer_auth,
     require_customer_auth_from_bearer,
     verify_init_data_or_raise,
@@ -67,6 +68,7 @@ def create_admin_account_session(payload: dict) -> dict:
     subject_id = str(account.get("id") or account.get("username") or "admin").strip()
     session = issue_role_session("admin", subject_id, configured_admin_secret())
     session["username"] = str(account.get("username") or subject_id)
+    session["passwordResetRequired"] = bool(account.get("passwordResetRequired"))
     return session
 
 
@@ -100,6 +102,7 @@ def create_self_provider_session(payload: dict, authorization: str | None = Head
     # Missing SQL provider rows otherwise force blank registration / empty map in Mini App.
     ensure_linked_provider_profile(customer_id)
     sync_linked_provider_phone_verification_from_customer(provider_id)
+    require_active_provider_account(provider_id)
     session = issue_role_session("provider", provider_id, configured_provider_secret())
     session["providerId"] = provider_id
     return session
@@ -115,6 +118,7 @@ def create_provider_account_session(payload: dict) -> dict:
     session = issue_role_session("provider", str(account["providerId"]), configured_provider_secret())
     session["providerId"] = str(account["providerId"])
     session["username"] = str(account.get("username") or login)
+    session["passwordResetRequired"] = bool(account.get("passwordResetRequired"))
     return session
 
 

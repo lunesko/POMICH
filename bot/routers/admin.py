@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import secrets
 
 from fastapi import APIRouter, Header, HTTPException
 
@@ -51,6 +52,8 @@ def _public_auth_account(account: dict) -> dict:
         "createdAt": account.get("createdAt"),
         "updatedAt": account.get("updatedAt"),
         "hasPassword": bool(str(account.get("passwordHash") or "").strip()),
+        "passwordResetRequired": bool(account.get("passwordResetRequired")),
+        "temporaryPasswordIssuedAt": account.get("temporaryPasswordIssuedAt"),
     }
 
 
@@ -258,6 +261,27 @@ def admin_set_auth_account_password(
         account = set_auth_account_password(account_id, str(payload.get("password") or ""))
         _record_auth_account_event("AUTH_ACCOUNT_PASSWORD_RESET", account, source="admin.auth.accounts.password")
         return _public_auth_account(account)
+    except (KeyError, ValueError) as exc:
+        raise _auth_account_http_error(exc) from exc
+
+
+@router.post("/admin/auth/accounts/{account_id}/temporary-password")
+def admin_issue_auth_account_temporary_password(
+    account_id: str,
+    x_pomich_admin_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+) -> dict:
+    require_admin_auth(x_pomich_admin_token, authorization)
+    _require_sql_auth_accounts()
+    temporary_password = secrets.token_urlsafe(12)
+    try:
+        account = set_auth_account_password(account_id, temporary_password, reset_required=True)
+        _record_auth_account_event(
+            "AUTH_ACCOUNT_TEMP_PASSWORD_ISSUED",
+            account,
+            source="admin.auth.accounts.temporary-password",
+        )
+        return {**_public_auth_account(account), "temporaryPassword": temporary_password}
     except (KeyError, ValueError) as exc:
         raise _auth_account_http_error(exc) from exc
 

@@ -189,6 +189,26 @@ def test_sql_auth_account_upsert_password_reset_and_deactivate(sql_runtime):
     assert runtime_store.list_auth_accounts("provider", include_disabled=True)[0]["id"] == created["id"]
 
 
+def test_sql_auth_account_temporary_password_marks_reset_required(sql_runtime):
+    created = runtime_store.upsert_auth_account(
+        "provider",
+        {
+            "providerId": "provider-sql",
+            "username": "sql-partner",
+            "password": "provider-pass",
+        },
+    )
+
+    temporary = runtime_store.set_auth_account_password(created["id"], "provider-pass-2", reset_required=True)
+    permanent = runtime_store.set_auth_account_password(created["id"], "provider-pass-3")
+
+    assert temporary["passwordResetRequired"] is True
+    assert temporary["temporaryPasswordIssuedAt"]
+    assert temporary["passwordHash"] != created["passwordHash"]
+    assert permanent["passwordResetRequired"] is False
+    assert "temporaryPasswordIssuedAt" not in permanent
+
+
 def test_sql_auth_accounts_keep_last_admin_active(sql_runtime):
     created = runtime_store.upsert_auth_account(
         "admin",

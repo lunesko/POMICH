@@ -2940,6 +2940,16 @@ describe('POMICH role-based flows', () => {
       if (url.includes('/admin/orders')) return Promise.resolve({ ok: true, json: async () => [] })
       if (url.includes('/admin/settings')) return Promise.resolve({ ok: true, json: async () => ({ runtime: 'dev', corsOrigins: ['*'], encryptionEnabled: false, databaseUrlConfigured: true, sqlStorageEnabled: true, storageBackend: 'sql', telegramConfigured: false, adminAccountsConfigured: true, providerAccountsConfigured: true, adminAccountsActive: 1, adminAccountsTotal: 1, providerAccountsActive: 1, providerAccountsTotal: 2, authAccountsSource: 'sql', allowHttpPilot: false, bootstrapAuthSessionsEnabled: false, sessionTtlSeconds: 86400 }) })
       if (url.includes('/map/providers')) return Promise.resolve({ ok: true, json: async () => [] })
+      if (url.includes('/admin/auth/accounts') && url.includes('/temporary-password')) {
+        const updated: AdminAuthAccount = {
+          ...authAccounts[1]!,
+          passwordResetRequired: true,
+          temporaryPasswordIssuedAt: '2026-08-22T18:00:00',
+          temporaryPassword: 'tmp-provider-pass',
+        }
+        authAccounts[1] = updated
+        return Promise.resolve({ ok: true, json: async () => updated })
+      }
       if (url.includes('/admin/auth/accounts') && url.includes('/password')) {
         const updated: AdminAuthAccount = { ...authAccounts[1]!, hasPassword: true }
         authAccounts[1] = updated
@@ -3000,6 +3010,11 @@ describe('POMICH role-based flows', () => {
     await user.click(passwordButtons[passwordButtons.length - 1])
     expect(await screen.findByText(/Пароль для provider:provider-managed оновлено/i)).toBeInTheDocument()
 
+    const temporaryButtons = screen.getAllByRole('button', { name: /Тимчасовий пароль/i })
+    await user.click(temporaryButtons[temporaryButtons.length - 1])
+    expect(await screen.findByText(/Temporary password for provider:provider-managed: tmp-provider-pass/i)).toBeInTheDocument()
+    expect(await screen.findByText(/reset required/i)).toBeInTheDocument()
+
     const disableButtons = screen.getAllByRole('button', { name: /Вимкнути/i })
     await user.click(disableButtons[disableButtons.length - 1])
     expect(await screen.findByText(/Акаунт provider:provider-managed вимкнено/i)).toBeInTheDocument()
@@ -3014,6 +3029,10 @@ describe('POMICH role-based flows', () => {
       )
       expect(fetchMock).toHaveBeenCalledWith(
         expect.stringContaining('/admin/auth/accounts/provider%3Aprovider-managed/password'),
+        expect.objectContaining({ method: 'POST' }),
+      )
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/admin/auth/accounts/provider%3Aprovider-managed/temporary-password'),
         expect.objectContaining({ method: 'POST' }),
       )
       expect(fetchMock).toHaveBeenCalledWith(
