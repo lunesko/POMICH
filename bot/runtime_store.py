@@ -470,6 +470,47 @@ def _normalize_auth_account(role: str, account: dict[str, Any], index: int = 0) 
     return payload
 
 
+def _auth_account_values(account: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": str(account["id"]),
+        "role": str(account["role"]),
+        "username": str(account.get("username") or "") or None,
+        "email": str(account.get("email") or "") or None,
+        "phone": str(account.get("phone") or "") or None,
+        "provider_id": str(account.get("providerId") or "") or None,
+        "password_hash": str(account.get("passwordHash") or "") or None,
+        "status": str(account.get("status") or "active"),
+        "created_at": str(account.get("createdAt") or "") or None,
+        "updated_at": str(account.get("updatedAt") or "") or None,
+        "payload": account,
+    }
+
+
+def _auth_account_password_hash(password: str) -> str:
+    return f"sha256:{hashlib.sha256(password.encode('utf-8')).hexdigest()}"
+
+
+def _validate_auth_account_payload(account: dict[str, Any]) -> None:
+    role = _auth_account_role(account.get("role"))
+    if role == "provider" and not str(account.get("providerId") or "").strip():
+        raise ValueError("providerId_required")
+    if not any(str(account.get(field) or "").strip() for field in ("username", "email", "phone", "id")):
+        raise ValueError("account_identifier_required")
+    if not str(account.get("passwordHash") or "").strip().startswith("sha256:"):
+        raise ValueError("password_required")
+    if str(account.get("status") or "active").strip().lower() not in {"active", "disabled"}:
+        raise ValueError("auth_account_status_invalid")
+
+
+def _load_auth_account_payload(connection, account_id: str) -> dict[str, Any] | None:
+    row = connection.execute(
+        select(auth_accounts.c.payload).where(auth_accounts.c.id == str(account_id).strip())
+    ).first()
+    if row is None:
+        return None
+    return _json_object(row[0])
+
+
 def save_auth_accounts(role: str, account_payloads: list[dict[str, Any]]) -> list[dict[str, Any]]:
     normalized_role = _auth_account_role(role)
     stored_accounts = [
@@ -481,35 +522,116 @@ def save_auth_accounts(role: str, account_payloads: list[dict[str, Any]]) -> lis
     with engine.begin() as connection:
         connection.execute(delete(auth_accounts).where(auth_accounts.c.role == normalized_role))
         for account in stored_accounts:
-            connection.execute(
-                insert(auth_accounts).values(
-                    id=str(account["id"]),
-                    role=normalized_role,
-                    username=str(account.get("username") or "") or None,
-                    email=str(account.get("email") or "") or None,
-                    phone=str(account.get("phone") or "") or None,
-                    provider_id=str(account.get("providerId") or "") or None,
-                    password_hash=str(account.get("passwordHash") or "") or None,
-                    status=str(account.get("status") or "active"),
-                    created_at=str(account.get("createdAt") or "") or None,
-                    updated_at=str(account.get("updatedAt") or "") or None,
-                    payload=account,
-                )
-            )
+            connection.execute(insert(auth_accounts).values(**_auth_account_values(account)))
     return _json_safe_copy(stored_accounts)
 
 
-def load_auth_accounts(role: str) -> list[dict[str, Any]]:
-    normalized_role = _auth_account_role(role)
+def list_auth_accounts(role: str | None = None, include_disabled: bool = False) -> list[dict[str, Any]]:
+    engine = get_engine()
+    statement = select(auth_accounts.c.payload).order_by(auth_accounts.c.role, auth_accounts.c.username, auth_accounts.c.id)
+    if role:
+        statement = statement.where(auth_accounts.c.role == _auth_account_role(role))
+    if not include_disabled:
+        statement = statement.where(auth_accounts.c.status == "active")
+    with engine.begin() as connection:
+        rows = connection.execute(statement).all()
+    return [_json_safe_copy(row[0]) for row in rows if isinstance(row[0], dict)]
+
+
+def get_auth_account(account_id: str) -> dict[str, Any] | None:
+    wanted = str(account_id or "").strip()
+    if not wanted:
+        return None
     engine = get_engine()
     with engine.begin() as connection:
-        rows = connection.execute(
-            select(auth_accounts.c.payload)
-            .where(auth_accounts.c.role == normalized_role)
-            .where(auth_accounts.c.status == "active")
-            .order_by(auth_accounts.c.username, auth_accounts.c.id)
-        ).all()
-    return [_json_safe_copy(row[0]) for row in rows if isinstance(row[0], dict)]
+        return _load_auth_account_payload(connection, wanted)
+
+
+def load_auth_accounts(role: str) -> list[dict[str, Any]]:
+    return list_auth_accounts(role, include_disabled=False)
+
+
+def upsert_auth_account(role: str, account_payload: dict[str, Any]) -> dict[str, Any]:
+    normalized_role = _auth_account_role(role)
+    normalized = _normalize_auth_account(normalized_role, account_payload)
+    engine = get_engine()
+    with engine.begin() as connection:
+        existing = _load_auth_account_payload(connection, str(normalized["id"]))
+        if existing:
+            if not account_payload.get("password") and not account_payload.get("passwordHash"):
+                normalized["passwordHash"] = existing.get("passwordHash")
+            normalized["createdAt"] = existing.get("createdAt") or normalized.get("createdAt")
+            if existing.get("role") == "admin" and existing.get("status") == "active" and normalized.get("status") == "disabled":
+                active_admins = connection.execute(
+                    select(auth_accounts.c.id)
+                    .where(auth_accounts.c.role == "admin")
+                    .where(auth_accounts.c.status == "active")
+                ).all()
+                if len(active_admins) <= 1:
+                    raise ValueError("last_admin_account")
+        _validate_auth_account_payload(normalized)
+        values = _auth_account_values(normalized)
+        if existing:
+            connection.execute(
+                update(auth_accounts)
+                .where(auth_accounts.c.id == str(normalized["id"]))
+                .values(**{key: value for key, value in values.items() if key != "id"})
+            )
+        else:
+            connection.execute(insert(auth_accounts).values(**values))
+    return _json_safe_copy(normalized)
+
+
+def set_auth_account_password(account_id: str, password: str) -> dict[str, Any]:
+    normalized_password = str(password or "").strip()
+    if len(normalized_password) < 8:
+        raise ValueError("password_too_short")
+    engine = get_engine()
+    with engine.begin() as connection:
+        existing = _load_auth_account_payload(connection, account_id)
+        if existing is None:
+            raise KeyError("auth_account_not_found")
+        existing["passwordHash"] = _auth_account_password_hash(normalized_password)
+        existing["updatedAt"] = datetime.now(timezone.utc).replace(tzinfo=None).isoformat(timespec="seconds")
+        values = _auth_account_values(existing)
+        connection.execute(
+            update(auth_accounts)
+            .where(auth_accounts.c.id == str(existing["id"]))
+            .values(**{key: value for key, value in values.items() if key != "id"})
+        )
+    return _json_safe_copy(existing)
+
+
+def set_auth_account_status(account_id: str, status: str) -> dict[str, Any]:
+    normalized_status = str(status or "").strip().lower()
+    if normalized_status not in {"active", "disabled"}:
+        raise ValueError("auth_account_status_invalid")
+    engine = get_engine()
+    with engine.begin() as connection:
+        existing = _load_auth_account_payload(connection, account_id)
+        if existing is None:
+            raise KeyError("auth_account_not_found")
+        if existing.get("role") == "admin" and normalized_status == "disabled" and existing.get("status") == "active":
+            active_admins = connection.execute(
+                select(auth_accounts.c.id)
+                .where(auth_accounts.c.role == "admin")
+                .where(auth_accounts.c.status == "active")
+            ).all()
+            if len(active_admins) <= 1:
+                raise ValueError("last_admin_account")
+        existing["status"] = normalized_status
+        existing["updatedAt"] = datetime.now(timezone.utc).replace(tzinfo=None).isoformat(timespec="seconds")
+        values = _auth_account_values(existing)
+        connection.execute(
+            update(auth_accounts)
+            .where(auth_accounts.c.id == str(existing["id"]))
+            .values(**{key: value for key, value in values.items() if key != "id"})
+        )
+    return _json_safe_copy(existing)
+
+
+def deactivate_auth_account(account_id: str) -> dict[str, Any]:
+    return set_auth_account_status(account_id, "disabled")
 
 
 def _parse_iso(value: Any) -> datetime | None:

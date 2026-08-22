@@ -34,6 +34,7 @@ Done:
 - Web provider/admin flows exchange dev bootstrap tokens for backend-issued sessions when available, remove bootstrap tokens from the URL, and use `Authorization: Bearer` for protected operational calls.
 - Provider/admin account login endpoints exist through `POMICH_PROVIDER_ACCOUNTS` and `POMICH_ADMIN_ACCOUNTS`; Web flows can log in without bootstrap query tokens.
 - Provider/admin account login can also read persistent SQL `auth_accounts` when `POMICH_AUTH_ACCOUNTS_SOURCE=sql` or `mixed`.
+- Admin API can list/create/update/deactivate SQL auth accounts and reset account passwords without exposing password hashes.
 - Customer sessions exist for Telegram Mini App and web guests; customer profile/verification endpoints require matching bearer sessions.
 - Public smoke tooling can issue provider sessions, put two providers online, create a real order, verify both offers, assert first-accept-wins, and advance the winning order to completed.
 - Public smoke tooling can use provider account login/passwords for production/staging race checks; shared provider token remains a dev fallback only.
@@ -100,6 +101,7 @@ Completed:
 - Bootstrap `adminToken`/`providerToken` query params are removed from the URL after they are read.
 - Provider/admin account login can issue the same scoped sessions from configured account records.
 - SQL `auth_accounts` is available as the persistent account read path; env account JSON remains the bootstrap/migration fallback.
+- SQL account management endpoints exist under `/admin/auth/accounts`; disabling the last active SQL admin is blocked.
 - Customer profiles require matching customer sessions.
 - Verified Telegram Mini App orders get backend-attached Telegram customer identity.
 

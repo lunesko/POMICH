@@ -1352,6 +1352,19 @@ export interface AdminSettings {
   sessionTtlSeconds: number
 }
 
+export interface AdminAuthAccount {
+  id: string
+  role: 'admin' | 'provider'
+  username?: string
+  email?: string
+  phone?: string
+  providerId?: string
+  status: 'active' | 'disabled'
+  createdAt?: string
+  updatedAt?: string
+  hasPassword: boolean
+}
+
 export async function getAdminStats(adminToken?: string) {
   const response = await fetch(`${getBaseUrl()}/admin/stats`, { headers: adminHeaders(adminToken) })
   if (!response.ok) throw new Error(`Admin stats request failed with ${response.status}`)
@@ -1424,6 +1437,55 @@ export async function getAdminSettings(adminToken?: string) {
   const response = await fetch(`${getBaseUrl()}/admin/settings`, { headers: adminHeaders(adminToken) })
   if (!response.ok) throw new Error(`Admin settings request failed with ${response.status}`)
   return response.json() as Promise<AdminSettings>
+}
+
+export async function getAdminAuthAccounts(adminToken?: string, options?: { role?: 'admin' | 'provider'; includeDisabled?: boolean }) {
+  const params = new URLSearchParams()
+  if (options?.role) params.set('role', options.role)
+  if (options?.includeDisabled) params.set('includeDisabled', 'true')
+  const suffix = params.toString() ? `?${params.toString()}` : ''
+  const response = await fetch(`${getBaseUrl()}/admin/auth/accounts${suffix}`, { headers: adminHeaders(adminToken) })
+  if (!response.ok) throw new Error(await parseApiError(response, 'Не вдалося завантажити акаунти.'))
+  return response.json() as Promise<AdminAuthAccount[]>
+}
+
+export async function adminSaveAuthAccount(payload: Partial<AdminAuthAccount> & { role: 'admin' | 'provider'; password?: string }, adminToken?: string) {
+  const response = await fetch(`${getBaseUrl()}/admin/auth/accounts`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(adminHeaders(adminToken) ?? {}) },
+    body: JSON.stringify(payload),
+  })
+  if (!response.ok) throw new Error(await parseApiError(response, 'Не вдалося зберегти акаунт.'))
+  return response.json() as Promise<AdminAuthAccount>
+}
+
+export async function adminUpdateAuthAccount(accountId: string, payload: Partial<AdminAuthAccount>, adminToken?: string) {
+  const response = await fetch(`${getBaseUrl()}/admin/auth/accounts/${encodeURIComponent(accountId)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...(adminHeaders(adminToken) ?? {}) },
+    body: JSON.stringify(payload),
+  })
+  if (!response.ok) throw new Error(await parseApiError(response, 'Не вдалося оновити акаунт.'))
+  return response.json() as Promise<AdminAuthAccount>
+}
+
+export async function adminResetAuthAccountPassword(accountId: string, password: string, adminToken?: string) {
+  const response = await fetch(`${getBaseUrl()}/admin/auth/accounts/${encodeURIComponent(accountId)}/password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(adminHeaders(adminToken) ?? {}) },
+    body: JSON.stringify({ password }),
+  })
+  if (!response.ok) throw new Error(await parseApiError(response, 'Не вдалося змінити пароль.'))
+  return response.json() as Promise<AdminAuthAccount>
+}
+
+export async function adminDeactivateAuthAccount(accountId: string, adminToken?: string) {
+  const response = await fetch(`${getBaseUrl()}/admin/auth/accounts/${encodeURIComponent(accountId)}`, {
+    method: 'DELETE',
+    headers: adminHeaders(adminToken),
+  })
+  if (!response.ok) throw new Error(await parseApiError(response, 'Не вдалося вимкнути акаунт.'))
+  return response.json() as Promise<AdminAuthAccount>
 }
 
 export async function adminUpdateClient(customerId: string, payload: Partial<CustomerProfile> & { accountStatus?: string }, adminToken?: string) {

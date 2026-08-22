@@ -610,6 +610,79 @@ def test_fastapi_admin_account_login_reads_sql_account(monkeypatch, tmp_path) ->
     assert settings_response.json()["authAccountsSource"] == "sql"
 
 
+def test_fastapi_admin_manages_sql_auth_accounts(monkeypatch, tmp_path) -> None:
+    _use_sql_runtime(monkeypatch, tmp_path)
+    monkeypatch.setenv("POMICH_AUTH_ACCOUNTS_SOURCE", "sql")
+    monkeypatch.setenv("POMICH_ADMIN_TOKEN", ADMIN_TOKEN)
+    monkeypatch.setenv("POMICH_PROVIDER_TOKEN", PROVIDER_TOKEN)
+    runtime_store.save_auth_accounts(
+        "admin",
+        [{"id": "admin-dispatcher", "username": "dispatcher", "password": "admin-pass"}],
+    )
+    client = TestClient(app)
+
+    try:
+        login_response = client.post("/api/auth/admin/login", json={"username": "dispatcher", "password": "admin-pass"})
+        admin_headers = {"Authorization": f"Bearer {login_response.json()['accessToken']}"}
+        created = client.post(
+            "/api/admin/auth/accounts",
+            headers=admin_headers,
+            json={
+                "role": "provider",
+                "providerId": "provider-managed",
+                "username": "managed-partner",
+                "password": "provider-pass",
+            },
+        )
+        accounts = client.get("/api/admin/auth/accounts", headers=admin_headers)
+        provider_login = client.post(
+            "/api/auth/provider/login",
+            json={"login": "managed-partner", "password": "provider-pass"},
+        )
+        password_reset = client.post(
+            f"/api/admin/auth/accounts/{created.json()['id']}/password",
+            headers=admin_headers,
+            json={"password": "provider-pass-2"},
+        )
+        old_password_login = client.post(
+            "/api/auth/provider/login",
+            json={"login": "managed-partner", "password": "provider-pass"},
+        )
+        new_password_login = client.post(
+            "/api/auth/provider/login",
+            json={"login": "managed-partner", "password": "provider-pass-2"},
+        )
+        disabled = client.delete(f"/api/admin/auth/accounts/{created.json()['id']}", headers=admin_headers)
+        active_accounts = client.get("/api/admin/auth/accounts", headers=admin_headers)
+        all_accounts = client.get("/api/admin/auth/accounts?includeDisabled=true", headers=admin_headers)
+        disabled_login = client.post(
+            "/api/auth/provider/login",
+            json={"login": "managed-partner", "password": "provider-pass-2"},
+        )
+        last_admin_delete = client.delete("/api/admin/auth/accounts/admin-dispatcher", headers=admin_headers)
+    finally:
+        runtime_store.reset_runtime_store_for_tests()
+
+    assert created.status_code == 200
+    assert created.json()["id"] == "provider:provider-managed"
+    assert created.json()["hasPassword"] is True
+    assert "passwordHash" not in created.json()
+    assert accounts.status_code == 200
+    assert [account["id"] for account in accounts.json()] == ["admin-dispatcher", "provider:provider-managed"]
+    assert provider_login.status_code == 200
+    assert provider_login.json()["providerId"] == "provider-managed"
+    assert password_reset.status_code == 200
+    assert old_password_login.status_code == 401
+    assert new_password_login.status_code == 200
+    assert disabled.status_code == 200
+    assert disabled.json()["status"] == "disabled"
+    assert [account["id"] for account in active_accounts.json()] == ["admin-dispatcher"]
+    assert [account["id"] for account in all_accounts.json()] == ["admin-dispatcher", "provider:provider-managed"]
+    assert disabled_login.status_code == 401
+    assert last_admin_delete.status_code == 409
+    assert last_admin_delete.json()["detail"] == "last_admin_account"
+
+
 def test_fastapi_telegram_customer_session_links_profile(monkeypatch, tmp_path) -> None:
     _use_temp_store(monkeypatch, tmp_path)
     telegram_token = "123456:telegram-token"

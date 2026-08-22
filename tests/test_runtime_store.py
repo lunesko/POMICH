@@ -168,6 +168,40 @@ def test_sql_auth_accounts_round_trip_without_plaintext_password(sql_runtime):
     assert _table_count(runtime_store.auth_accounts) == 2
 
 
+def test_sql_auth_account_upsert_password_reset_and_deactivate(sql_runtime):
+    created = runtime_store.upsert_auth_account(
+        "provider",
+        {
+            "providerId": "provider-sql",
+            "username": "sql-partner",
+            "password": "provider-pass",
+        },
+    )
+    reset = runtime_store.set_auth_account_password(created["id"], "provider-pass-2")
+    disabled = runtime_store.deactivate_auth_account(created["id"])
+
+    assert created["id"] == "provider:provider-sql"
+    assert "password" not in created
+    assert created["passwordHash"].startswith("sha256:")
+    assert reset["passwordHash"] != created["passwordHash"]
+    assert disabled["status"] == "disabled"
+    assert runtime_store.load_auth_accounts("provider") == []
+    assert runtime_store.list_auth_accounts("provider", include_disabled=True)[0]["id"] == created["id"]
+
+
+def test_sql_auth_accounts_keep_last_admin_active(sql_runtime):
+    created = runtime_store.upsert_auth_account(
+        "admin",
+        {
+            "username": "dispatcher",
+            "password": "admin-pass",
+        },
+    )
+
+    with pytest.raises(ValueError, match="last_admin_account"):
+        runtime_store.deactivate_auth_account(created["id"])
+
+
 def test_sql_runtime_store_supports_dispatch_and_offer_acceptance(sql_runtime):
     save_providers([_provider("p1", 50.4501, 30.5234)])
     order = save_order({"service": "tow", "customerCoordinates": {"lat": 50.4502, "lng": 30.5235}})

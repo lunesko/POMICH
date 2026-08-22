@@ -22,8 +22,45 @@ from bot.order_store import (
 )
 from bot.ops_log import build_admin_ops_log
 from bot.provider_importer import import_uzhgorod_providers, import_ukraine_providers
+from bot.runtime_store import (
+    deactivate_auth_account,
+    get_auth_account,
+    list_auth_accounts,
+    set_auth_account_password,
+    sql_storage_enabled,
+    upsert_auth_account,
+)
 
 router = APIRouter(tags=["admin"])
+
+
+def _require_sql_auth_accounts() -> None:
+    if not sql_storage_enabled():
+        raise HTTPException(status_code=503, detail="sql_auth_accounts_required")
+
+
+def _public_auth_account(account: dict) -> dict:
+    return {
+        "id": account.get("id"),
+        "role": account.get("role"),
+        "username": account.get("username"),
+        "email": account.get("email"),
+        "phone": account.get("phone"),
+        "providerId": account.get("providerId"),
+        "status": account.get("status") or "active",
+        "createdAt": account.get("createdAt"),
+        "updatedAt": account.get("updatedAt"),
+        "hasPassword": bool(str(account.get("passwordHash") or "").strip()),
+    }
+
+
+def _auth_account_http_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, KeyError):
+        return HTTPException(status_code=404, detail="auth_account_not_found")
+    if isinstance(exc, ValueError):
+        status_code = 409 if str(exc) == "last_admin_account" else 400
+        return HTTPException(status_code=status_code, detail=str(exc))
+    return HTTPException(status_code=500, detail="auth_account_error")
 
 
 @router.get("/admin/stats")
@@ -117,6 +154,89 @@ def admin_settings(
 ) -> dict:
     require_admin_auth(x_pomich_admin_token, authorization)
     return build_admin_settings_payload()
+
+
+@router.get("/admin/auth/accounts")
+def admin_list_auth_accounts(
+    role: str | None = None,
+    includeDisabled: bool = False,
+    x_pomich_admin_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+) -> list[dict]:
+    require_admin_auth(x_pomich_admin_token, authorization)
+    _require_sql_auth_accounts()
+    try:
+        accounts = list_auth_accounts(role=role, include_disabled=includeDisabled)
+    except ValueError as exc:
+        raise _auth_account_http_error(exc) from exc
+    return [_public_auth_account(account) for account in accounts]
+
+
+@router.post("/admin/auth/accounts")
+def admin_upsert_auth_account(
+    payload: dict,
+    x_pomich_admin_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+) -> dict:
+    require_admin_auth(x_pomich_admin_token, authorization)
+    _require_sql_auth_accounts()
+    role = str(payload.get("role") or "").strip()
+    if not role:
+        raise HTTPException(status_code=400, detail="role_required")
+    try:
+        return _public_auth_account(upsert_auth_account(role, payload))
+    except (KeyError, ValueError) as exc:
+        raise _auth_account_http_error(exc) from exc
+
+
+@router.patch("/admin/auth/accounts/{account_id}")
+def admin_patch_auth_account(
+    account_id: str,
+    payload: dict,
+    x_pomich_admin_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+) -> dict:
+    require_admin_auth(x_pomich_admin_token, authorization)
+    _require_sql_auth_accounts()
+    existing = get_auth_account(account_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="auth_account_not_found")
+    role = str(existing.get("role") or "").strip()
+    if payload.get("role") and str(payload.get("role")).strip().lower() != role:
+        raise HTTPException(status_code=400, detail="auth_account_role_immutable")
+    try:
+        return _public_auth_account(upsert_auth_account(role, {**existing, **payload, "id": account_id, "role": role}))
+    except (KeyError, ValueError) as exc:
+        raise _auth_account_http_error(exc) from exc
+
+
+@router.post("/admin/auth/accounts/{account_id}/password")
+def admin_set_auth_account_password(
+    account_id: str,
+    payload: dict,
+    x_pomich_admin_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+) -> dict:
+    require_admin_auth(x_pomich_admin_token, authorization)
+    _require_sql_auth_accounts()
+    try:
+        return _public_auth_account(set_auth_account_password(account_id, str(payload.get("password") or "")))
+    except (KeyError, ValueError) as exc:
+        raise _auth_account_http_error(exc) from exc
+
+
+@router.delete("/admin/auth/accounts/{account_id}")
+def admin_deactivate_auth_account(
+    account_id: str,
+    x_pomich_admin_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+) -> dict:
+    require_admin_auth(x_pomich_admin_token, authorization)
+    _require_sql_auth_accounts()
+    try:
+        return _public_auth_account(deactivate_auth_account(account_id))
+    except (KeyError, ValueError) as exc:
+        raise _auth_account_http_error(exc) from exc
 
 
 @router.patch("/admin/clients/{customer_id}")
