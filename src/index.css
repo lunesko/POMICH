@@ -1,5 +1,5 @@
-@import 'tailwindcss';
 @import url("https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&display=swap");
+@import 'tailwindcss';
 
 /* POMICH theme tokens — toggled via html[data-pomich-theme] */
 [data-pomich-theme="light"],

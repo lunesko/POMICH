@@ -160,6 +160,12 @@ def test_sql_runtime_store_supports_dispatch_and_offer_acceptance(sql_runtime):
     assert _table_count(runtime_store.order_events) >= 1
 
 
+def test_sql_runtime_store_does_not_seed_demo_providers(sql_runtime):
+    assert load_providers() == []
+    assert _table_count(runtime_store.providers) == 0
+    assert _table_count(runtime_store.provider_presence) == 0
+
+
 def test_sql_dispatch_filters_candidates_in_database(sql_runtime):
     stale_time = (datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=120)).isoformat(timespec="seconds")
     save_providers(

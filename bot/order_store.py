@@ -1027,9 +1027,9 @@ def load_providers(store_path: Optional[Path] = None) -> List[Dict[str, Any]]:
     if _should_use_sql_store(store_path, _default_provider_store_path):
         found, data = load_collection("providers")
         if not found:
-            return apply_provider_presence_ttl(_default_providers())
-        providers = data if isinstance(data, list) else _default_providers()
-        return apply_provider_presence_ttl([_normalize_provider_trust(provider, "verified") for provider in providers])
+            return []
+        providers = data if isinstance(data, list) else []
+        return apply_provider_presence_ttl([_normalize_provider_trust(provider, "unverified") for provider in providers])
 
     path = store_path or _default_provider_store_path()
     if not path.exists():
