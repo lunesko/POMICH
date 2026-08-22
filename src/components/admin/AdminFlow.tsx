@@ -91,6 +91,7 @@ type ProviderInviteState = {
   accountId?: string
   login?: string
   temporaryPassword?: string
+  temporaryPasswordIssuedAt?: string
   resetRequired?: boolean
   status?: string
 }
@@ -241,6 +242,30 @@ function LoadingState({ text = "Завантажуємо…" }: { text?: string 
 }
 
 function ProviderInviteBlock({ invite }: { invite: ProviderInviteState }) {
+  const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "manual">("idle")
+  const login = invite.login || invite.providerId
+  const providerEntryUrl = providerInviteEntryUrl()
+  const inviteText = [
+    "POMICH Partner invite",
+    `Логін: ${login}`,
+    invite.temporaryPassword ? `Тимчасовий пароль: ${invite.temporaryPassword}` : undefined,
+    invite.resetRequired ? "Після входу потрібно змінити пароль." : "Пароль уже постійний.",
+    `Вхід: ${providerEntryUrl}`,
+  ].filter(Boolean).join("\n")
+  const copyInvite = async () => {
+    if (!invite.temporaryPassword) return
+    if (!navigator.clipboard?.writeText) {
+      setCopyStatus("manual")
+      return
+    }
+    try {
+      await navigator.clipboard.writeText(inviteText)
+      setCopyStatus("copied")
+    } catch {
+      setCopyStatus("manual")
+    }
+  }
+
   return (
     <div className="admin-subpanel admin-invite-block">
       <div className="admin-panel-head">
@@ -251,12 +276,32 @@ function ProviderInviteBlock({ invite }: { invite: ProviderInviteState }) {
       </div>
       <div className="admin-kv-grid">
         <div><span>Account ID</span><strong>{invite.accountId || "—"}</strong></div>
-        <div><span>Логін</span><strong>{invite.login || invite.providerId}</strong></div>
+        <div><span>Логін</span><strong>{login}</strong></div>
+        <div><span>Вхід</span><strong>{providerEntryUrl}</strong></div>
         {invite.temporaryPassword ? <div><span>Тимчасовий пароль</span><strong>{invite.temporaryPassword}</strong></div> : null}
+        <div><span>Видано</span><strong>{invite.temporaryPasswordIssuedAt || (invite.temporaryPassword ? "щойно" : "—")}</strong></div>
         <div><span>Після входу</span><strong>{invite.resetRequired ? "зміна пароля обовʼязкова" : "пароль уже постійний"}</strong></div>
       </div>
+      {invite.temporaryPassword ? (
+        <div className="admin-invite-actions">
+          <button className="admin-chip admin-chip-brand" type="button" onClick={() => void copyInvite()}>Скопіювати інвайт</button>
+          <span className="admin-muted">
+            {copyStatus === "copied" ? "Скопійовано" : copyStatus === "manual" ? "Скопіюйте вручну" : "Пароль видно один раз. Передайте його тільки цьому партнеру."}
+          </span>
+        </div>
+      ) : (
+        <p className="admin-muted admin-panel-note">Account активний. Новий temporary password можна видати окремою дією.</p>
+      )}
     </div>
   )
+}
+
+function providerInviteEntryUrl() {
+  const origin = window.location.origin
+  if (!origin || origin.includes("localhost") || origin.includes("127.0.0.1")) {
+    return "https://pomich.help/?role=provider"
+  }
+  return `${origin}/?role=provider`
 }
 
 function optionalTrim(value: string) {
@@ -650,6 +695,7 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
               status: updated.authAccountBootstrap.status,
               hasPassword: true,
               passwordResetRequired: Boolean(updated.authAccountBootstrap.passwordResetRequired),
+              temporaryPasswordIssuedAt: updated.authAccountBootstrap.temporaryPasswordIssuedAt,
             },
           }
         : updated
@@ -660,6 +706,7 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
           accountId: updated.authAccountBootstrap.id,
           login: updated.authAccountBootstrap.username || updated.authAccountBootstrap.providerId || item.id,
           temporaryPassword: updated.authAccountBootstrap.temporaryPassword,
+          temporaryPasswordIssuedAt: updated.authAccountBootstrap.temporaryPasswordIssuedAt,
           resetRequired: Boolean(updated.authAccountBootstrap.passwordResetRequired),
           status: updated.authAccountBootstrap.status,
         })
@@ -669,6 +716,7 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
           providerId: item.id,
           accountId: updated.authAccountBootstrap.id,
           login: updated.authAccountBootstrap.username || updated.authAccountBootstrap.providerId || item.id,
+          temporaryPasswordIssuedAt: updated.authAccountBootstrap.temporaryPasswordIssuedAt,
           resetRequired: Boolean(updated.authAccountBootstrap.passwordResetRequired),
           status: updated.authAccountBootstrap.status,
         })
@@ -794,6 +842,7 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
           accountId: updated.id,
           login: updated.username || updated.providerId,
           temporaryPassword: updated.temporaryPassword,
+          temporaryPasswordIssuedAt: updated.temporaryPasswordIssuedAt,
           resetRequired: Boolean(updated.passwordResetRequired),
           status: updated.status,
         })
@@ -839,6 +888,7 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
         accountId: updated.id,
         login: updated.username || updated.providerId || provider.id,
         temporaryPassword: updated.temporaryPassword,
+        temporaryPasswordIssuedAt: updated.temporaryPasswordIssuedAt,
         resetRequired: Boolean(updated.passwordResetRequired),
         status: updated.status,
       })

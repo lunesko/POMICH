@@ -898,6 +898,7 @@ def test_admin_verifying_provider_creates_sql_provider_auth_account_and_ops_log(
     assert bootstrap["activated"] is True
     assert bootstrap["passwordResetRequired"] is True
     assert bootstrap["temporaryPassword"]
+    assert bootstrap["temporaryPasswordIssuedAt"]
     assert provider_login.status_code == 200
     assert provider_login.json()["providerId"] == "provider-new"
     assert provider_login.json()["passwordResetRequired"] is True

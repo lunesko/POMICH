@@ -2943,6 +2943,7 @@ describe('POMICH role-based flows', () => {
   it('shows provider temporary password after admin approves verification', async () => {
     const user = userEvent.setup()
     const adminSessionToken = 'pomich_auth_v1.admin-session'
+    const clipboardWrite = vi.fn(() => Promise.resolve())
     const pendingProvider = {
       id: 'provider-new',
       name: 'Provider New',
@@ -3026,6 +3027,7 @@ describe('POMICH role-based flows', () => {
               created: true,
               activated: true,
               temporaryPassword: 'tmp-provider-pass',
+              temporaryPasswordIssuedAt: '2026-08-22T18:00:00',
               passwordResetRequired: true,
             },
           }),
@@ -3034,6 +3036,7 @@ describe('POMICH role-based flows', () => {
       return Promise.resolve({ ok: true, json: async () => ({}) })
     })
     vi.stubGlobal('fetch', fetchMock)
+    vi.stubGlobal('navigator', { ...window.navigator, clipboard: { writeText: clipboardWrite } })
     window.history.pushState({}, '', '/?role=admin&adminToken=test-admin')
 
     renderApp()
@@ -3044,7 +3047,12 @@ describe('POMICH role-based flows', () => {
 
     expect(await screen.findByText('Запрошення для партнера')).toBeInTheDocument()
     expect(screen.getByText('tmp-provider-pass')).toBeInTheDocument()
+    expect(screen.getByText('https://pomich.help/?role=provider')).toBeInTheDocument()
+    expect(screen.getByText('2026-08-22T18:00:00')).toBeInTheDocument()
     expect(screen.getByText('зміна пароля обовʼязкова')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /Скопіювати інвайт/i }))
+    expect(clipboardWrite).toHaveBeenCalledWith(expect.stringContaining('tmp-provider-pass'))
+    expect(await screen.findByText('Скопійовано')).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: /^Тимчасовий пароль$/i }))
     expect(await screen.findByText('tmp-provider-pass-2')).toBeInTheDocument()

@@ -7085,6 +7085,13 @@ html.tg-compact .pomich-ride-screen__map .leaflet-top.leaflet-left {
 .admin-empty, .admin-loading { color: var(--admin-muted); font-weight: 800; padding: 16px 4px; }
 .admin-subpanel { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--admin-border); }
 .admin-subpanel h3 { margin: 0 0 10px; font-size: 14px; }
+.admin-invite-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-top: 12px;
+}
 .admin-auth-layout {
   display: grid;
   grid-template-columns: minmax(260px, 0.55fr) minmax(360px, 1fr);

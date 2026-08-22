@@ -453,6 +453,7 @@ export interface ProviderAvailability {
     created?: boolean
     activated?: boolean
     temporaryPassword?: string
+    temporaryPasswordIssuedAt?: string
     passwordResetRequired?: boolean
   }
   trustedBadges?: string[]

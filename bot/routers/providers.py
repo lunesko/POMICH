@@ -83,6 +83,8 @@ def _public_provider_auth_bootstrap(account: dict, *, temporary_password: str | 
     }
     if temporary_password:
         payload["temporaryPassword"] = temporary_password
+    if account.get("temporaryPasswordIssuedAt"):
+        payload["temporaryPasswordIssuedAt"] = account.get("temporaryPasswordIssuedAt")
     return payload
 
 
