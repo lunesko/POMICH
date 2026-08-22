@@ -134,6 +134,8 @@ def admin_ops_log(
     orderId: str | None = None,
     providerId: str | None = None,
     customerId: str | None = None,
+    eventType: str | None = None,
+    auditOnly: bool = False,
     x_pomich_admin_token: str | None = Header(default=None),
     authorization: str | None = Header(default=None),
 ) -> dict:
@@ -145,6 +147,8 @@ def admin_ops_log(
         order_id=orderId,
         provider_id=providerId,
         customer_id=customerId,
+        event_type=eventType,
+        auth_events_only=auditOnly,
     )
 
 

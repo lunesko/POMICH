@@ -2940,6 +2940,113 @@ describe('POMICH role-based flows', () => {
     })
   })
 
+  it('shows auth audit events and filters by event type', async () => {
+    const user = userEvent.setup()
+    const adminSessionToken = 'pomich_auth_v1.admin-session'
+    const opsUrls: string[] = []
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/auth/admin/session')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            role: 'admin',
+            subjectId: 'admin',
+            tokenType: 'Bearer',
+            accessToken: adminSessionToken,
+            expiresAt: Math.floor(Date.now() / 1000) + 3600,
+          }),
+        })
+      }
+      if (url.includes('/admin/stats')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            totals: { clients: 0, providers: 1, dispatchProviders: 0, directoryProviders: 0, orders: 0, activeOrders: 0, completedOrders: 0 },
+            providers: { online: 0, busy: 0, offline: 1, verified: 1, pendingVerification: 0 },
+            clients: { verified: 0, registered: 0, disabled: 0 },
+            orders: { searching: 0, assigned: 0, enRoute: 0, inProgress: 0 },
+            activity: [],
+          }),
+        })
+      }
+      if (url.includes('/admin/ops-log')) {
+        opsUrls.push(url)
+        const disabledOnly = url.includes('eventType=AUTH_ACCOUNT_DISABLED')
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            events: disabledOnly
+              ? [
+                  {
+                    id: 'ops-disabled',
+                    type: 'AUTH_ACCOUNT_DISABLED',
+                    at: '2026-08-23T10:02:00',
+                    severity: 'info',
+                    source: 'admin.auth.accounts.delete',
+                    message: 'Provider account disabled',
+                    providerId: 'provider-a',
+                    code: 'provider:provider-a',
+                    accountRole: 'provider',
+                    accountStatus: 'disabled',
+                  },
+                ]
+              : [
+                  {
+                    id: 'ops-created',
+                    type: 'AUTH_ACCOUNT_CREATED',
+                    at: '2026-08-23T10:01:00',
+                    severity: 'info',
+                    source: 'providers.verification.review',
+                    message: 'Provider auth account ready after verification',
+                    providerId: 'provider-a',
+                    code: 'provider:provider-a',
+                    accountRole: 'provider',
+                    accountStatus: 'active',
+                  },
+                  {
+                    id: 'ops-disabled',
+                    type: 'AUTH_ACCOUNT_DISABLED',
+                    at: '2026-08-23T10:02:00',
+                    severity: 'info',
+                    source: 'admin.auth.accounts.delete',
+                    message: 'Provider account disabled',
+                    providerId: 'provider-a',
+                    code: 'provider:provider-a',
+                    accountRole: 'provider',
+                    accountStatus: 'disabled',
+                  },
+                ],
+            counts: { error: 0, warn: 0, info: disabledOnly ? 1 : 2, total: disabledOnly ? 1 : 2 },
+            limit: 100,
+          }),
+        })
+      }
+      if (url.includes('/admin/clients')) return Promise.resolve({ ok: true, json: async () => [] })
+      if (url.includes('/admin/providers')) return Promise.resolve({ ok: true, json: async () => [] })
+      if (url.includes('/admin/orders')) return Promise.resolve({ ok: true, json: async () => [] })
+      if (url.includes('/admin/settings')) return Promise.resolve({ ok: true, json: async () => ({ runtime: 'dev', corsOrigins: ['*'], encryptionEnabled: false, databaseUrlConfigured: true, sqlStorageEnabled: true, storageBackend: 'sql', telegramConfigured: false, adminAccountsConfigured: true, providerAccountsConfigured: true, authAccountsSource: 'sql', allowHttpPilot: false, bootstrapAuthSessionsEnabled: false, sessionTtlSeconds: 86400 }) })
+      if (url.includes('/map/providers')) return Promise.resolve({ ok: true, json: async () => [] })
+      return Promise.resolve({ ok: true, json: async () => ({}) })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/?role=admin&adminToken=test-admin')
+
+    renderApp()
+
+    expect(await screen.findByText('POMICH Admin')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /Аудит/i }))
+    expect(await screen.findByText('Аудит доступів')).toBeInTheDocument()
+    expect(await screen.findByText('Provider auth account ready after verification')).toBeInTheDocument()
+
+    await user.selectOptions(screen.getByLabelText('Event type'), 'AUTH_ACCOUNT_DISABLED')
+
+    expect(await screen.findByText('Provider account disabled')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(opsUrls.some((url) => url.includes('auditOnly=true') && url.includes('eventType=AUTH_ACCOUNT_DISABLED'))).toBe(true)
+    })
+  })
+
   it('shows provider temporary password after admin approves verification', async () => {
     const user = userEvent.setup()
     const adminSessionToken = 'pomich_auth_v1.admin-session'

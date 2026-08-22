@@ -834,6 +834,10 @@ def test_auth_password_reset_requests_are_logged_without_account_enumeration(mon
         admin_login = client.post("/api/auth/admin/login", json={"username": "dispatcher", "password": "admin-pass"})
         admin_headers = {"Authorization": f"Bearer {admin_login.json()['accessToken']}"}
         provider_ops = client.get("/api/admin/ops-log?providerId=provider-reset", headers=admin_headers)
+        reset_audit_ops = client.get(
+            "/api/admin/ops-log?auditOnly=true&eventType=AUTH_ACCOUNT_PASSWORD_RESET_REQUESTED",
+            headers=admin_headers,
+        )
         all_ops = client.get("/api/admin/ops-log", headers=admin_headers)
     finally:
         runtime_store.reset_runtime_store_for_tests()
@@ -846,6 +850,9 @@ def test_auth_password_reset_requests_are_logged_without_account_enumeration(mon
     assert unknown_reset.json() == {"ok": True, "queued": True}
     assert provider_ops.status_code == 200
     assert all(event["providerId"] == "provider-reset" for event in provider_ops.json()["events"])
+    assert reset_audit_ops.status_code == 200
+    assert reset_audit_ops.json()["events"]
+    assert all(event["type"] == "AUTH_ACCOUNT_PASSWORD_RESET_REQUESTED" for event in reset_audit_ops.json()["events"])
     event_types = [event["type"] for event in all_ops.json()["events"]]
     assert event_types.count("AUTH_ACCOUNT_PASSWORD_RESET_REQUESTED") >= 3
 

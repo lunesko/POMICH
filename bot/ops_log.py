@@ -50,6 +50,22 @@ STAGE_EVENT_TYPES = {
     "REVIEW_SUBMITTED",
 }
 
+AUTH_AUDIT_EVENT_TYPES = {
+    "AUTH_ACCOUNT_ACTIVATED",
+    "AUTH_ACCOUNT_CREATED",
+    "AUTH_ACCOUNT_DISABLED",
+    "AUTH_ACCOUNT_ENABLED",
+    "AUTH_ACCOUNT_FAILED",
+    "AUTH_ACCOUNT_PASSWORD_COMPLETED",
+    "AUTH_ACCOUNT_PASSWORD_RESET",
+    "AUTH_ACCOUNT_PASSWORD_RESET_REQUESTED",
+    "AUTH_ACCOUNT_TEMP_PASSWORD_ISSUED",
+    "AUTH_ACCOUNT_UPDATED",
+    "CUSTOMER_PROVIDER_LINKED",
+    "CUSTOMER_PROVIDER_UNLINKED",
+    "PROVIDER_VERIFICATION_REVIEWED",
+}
+
 
 def classify_ops_severity(event_type: str) -> str:
     normalized = str(event_type or "").strip().upper()
@@ -60,6 +76,11 @@ def classify_ops_severity(event_type: str) -> str:
     if normalized in STAGE_EVENT_TYPES or normalized.startswith("ORDER_"):
         return "info"
     return "info"
+
+
+def is_auth_audit_event_type(event_type: str) -> bool:
+    normalized = str(event_type or "").strip().upper()
+    return normalized in AUTH_AUDIT_EVENT_TYPES or normalized.startswith("AUTH_ACCOUNT_")
 
 
 def _event_message(event: Dict[str, Any]) -> str:
@@ -214,6 +235,8 @@ def build_admin_ops_log(
     order_id: str | None = None,
     provider_id: str | None = None,
     customer_id: str | None = None,
+    event_type: str | None = None,
+    auth_events_only: bool = False,
     order_store_path=None,
 ) -> Dict[str, Any]:
     """Merge order stage trails + API ops ring for the admin console."""
@@ -223,6 +246,7 @@ def build_admin_ops_log(
     wanted_order = str(order_id or "").strip()
     wanted_provider = str(provider_id or "").strip()
     wanted_customer = str(customer_id or "").strip()
+    wanted_event_type = str(event_type or "").strip().upper()
     try:
         raw_limit = 80 if limit is None else int(limit)
     except (TypeError, ValueError):
@@ -261,6 +285,10 @@ def build_admin_ops_log(
         rows = [row for row in rows if str(row.get("providerId") or "") == wanted_provider]
     if wanted_customer:
         rows = [row for row in rows if str(row.get("customerId") or "") == wanted_customer]
+    if auth_events_only:
+        rows = [row for row in rows if is_auth_audit_event_type(str(row.get("type") or ""))]
+    if wanted_event_type:
+        rows = [row for row in rows if str(row.get("type") or "").strip().upper() == wanted_event_type]
 
     rows.sort(key=lambda item: str(item.get("at") or ""), reverse=True)
 

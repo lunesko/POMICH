@@ -61,7 +61,7 @@ import { VerificationPill } from "../ui/VerificationPill"
 import { StatusPill } from "../ui/StatusPill"
 import { Timeline } from "../ui/Timeline"
 
-type AdminSection = "dashboard" | "clients" | "providers" | "orders" | "logs" | "map" | "verification" | "accounts" | "settings"
+type AdminSection = "dashboard" | "clients" | "providers" | "orders" | "logs" | "audit" | "map" | "verification" | "accounts" | "settings"
 
 const NAV: Array<{ id: AdminSection; label: string; icon: string }> = [
   { id: "dashboard", label: "Дашборд", icon: "📊" },
@@ -69,6 +69,7 @@ const NAV: Array<{ id: AdminSection; label: string; icon: string }> = [
   { id: "providers", label: "Партнери", icon: "🚛" },
   { id: "orders", label: "Заявки", icon: "📋" },
   { id: "logs", label: "Логи", icon: "🛰️" },
+  { id: "audit", label: "Аудит", icon: "🔎" },
   { id: "map", label: "Карта", icon: "🗺️" },
   { id: "verification", label: "Перевірка", icon: "✅" },
   { id: "accounts", label: "Акаунти", icon: "🔐" },
@@ -76,6 +77,38 @@ const NAV: Array<{ id: AdminSection; label: string; icon: string }> = [
 ]
 
 type AuthAccountRoleFilter = "all" | AdminAuthAccount["role"]
+type OpsSeverityFilter = "all" | "error" | "warn" | "info"
+
+const AUTH_AUDIT_EVENT_OPTIONS = [
+  { value: "all", label: "Усі auth events" },
+  { value: "AUTH_ACCOUNT_CREATED", label: "Account created" },
+  { value: "AUTH_ACCOUNT_ACTIVATED", label: "Account activated" },
+  { value: "AUTH_ACCOUNT_ENABLED", label: "Account enabled" },
+  { value: "AUTH_ACCOUNT_DISABLED", label: "Account disabled" },
+  { value: "AUTH_ACCOUNT_PASSWORD_RESET", label: "Password reset" },
+  { value: "AUTH_ACCOUNT_TEMP_PASSWORD_ISSUED", label: "Temporary password issued" },
+  { value: "AUTH_ACCOUNT_PASSWORD_RESET_REQUESTED", label: "Reset requested" },
+  { value: "AUTH_ACCOUNT_PASSWORD_COMPLETED", label: "Password completed" },
+  { value: "PROVIDER_VERIFICATION_REVIEWED", label: "Verification reviewed" },
+  { value: "CUSTOMER_PROVIDER_LINKED", label: "Provider linked" },
+  { value: "CUSTOMER_PROVIDER_UNLINKED", label: "Provider unlinked" },
+] as const
+
+const OPS_EVENT_OPTIONS = [
+  { value: "all", label: "Усі типи" },
+  { value: "ORDER_CREATED", label: "Order created" },
+  { value: "DISPATCH_STARTED", label: "Dispatch started" },
+  { value: "OFFER_CREATED", label: "Offer created" },
+  { value: "OFFER_ACCEPTED", label: "Offer accepted" },
+  { value: "NO_PROVIDERS_AVAILABLE", label: "No providers" },
+  { value: "STATUS_UPDATE_FAILED", label: "Status failed" },
+  { value: "ORDER_CANCELLED", label: "Order cancelled" },
+  ...AUTH_AUDIT_EVENT_OPTIONS.filter((item) => item.value !== "all"),
+] as const
+
+const OPS_EVENT_LABELS: Record<string, string> = Object.fromEntries(
+  OPS_EVENT_OPTIONS.filter((item) => item.value !== "all").map((item) => [item.value, item.label]),
+)
 
 type AuthAccountFormState = {
   role: AdminAuthAccount["role"]
@@ -366,6 +399,26 @@ function authAccountSettingsText(configured: boolean, active?: number, total?: n
   return configured ? "Налаштовано" : "—"
 }
 
+function opsEventTypeLabel(type?: string) {
+  const normalized = String(type || "").trim().toUpperCase()
+  if (!normalized) return "Event"
+  return OPS_EVENT_LABELS[normalized] || normalized.split("_").map((part) => part.charAt(0) + part.slice(1).toLowerCase()).join(" ")
+}
+
+function opsEventDetails(item: AdminOpsLogEvent) {
+  return [
+    item.orderId ? `#${item.orderId}` : "без заявки",
+    item.providerId ? `partner ${item.providerId}` : "",
+    item.customerId ? `customer ${item.customerId}` : "",
+    item.offerId ? `offer ${item.offerId}` : "",
+    item.accountRole ? `role ${item.accountRole}` : "",
+    item.accountStatus ? `account ${item.accountStatus}` : "",
+    item.requestedLogin ? `login ${item.requestedLogin}` : "",
+    item.source ? item.source : "",
+    item.code ? item.code : "",
+  ].filter(Boolean).join(" · ")
+}
+
 export default function AdminFlow({ adminToken }: { adminToken?: string }) {
   const adminSessionStorageKey = useMemo(() => authSessionStorageKey("admin", "admin"), [])
   const [adminAccessToken, setAdminAccessToken] = useState<string | undefined>(() => {
@@ -386,7 +439,8 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
   const [mapProviders, setMapProviders] = useState<ProviderAvailability[]>([])
   const [orders, setOrders] = useState<OrderResponse[]>([])
   const [opsLog, setOpsLog] = useState<AdminOpsLog | null>(null)
-  const [opsSeverity, setOpsSeverity] = useState<"all" | "error" | "warn" | "info">("all")
+  const [opsSeverity, setOpsSeverity] = useState<OpsSeverityFilter>("all")
+  const [opsEventType, setOpsEventType] = useState("all")
   const [opsOrderQuery, setOpsOrderQuery] = useState("")
   const [opsProviderQuery, setOpsProviderQuery] = useState("")
   const [opsCustomerQuery, setOpsCustomerQuery] = useState("")
@@ -565,12 +619,14 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
         orderId: opsOrderQuery.trim() || undefined,
         providerId: opsProviderQuery.trim() || undefined,
         customerId: opsCustomerQuery.trim() || undefined,
+        eventType: opsEventType === "all" ? undefined : opsEventType,
+        auditOnly: section === "audit",
       })
       setOpsLog(nextOpsLog)
     } catch {
       setError("Не вдалося завантажити ops-лог.")
     }
-  }, [adminAuthToken, adminPasswordResetRequired, opsSeverity, opsOrderQuery, opsProviderQuery, opsCustomerQuery])
+  }, [adminAuthToken, adminPasswordResetRequired, opsSeverity, opsOrderQuery, opsProviderQuery, opsCustomerQuery, opsEventType, section])
 
   const refreshMapProviders = useCallback(async () => {
     if (!adminAuthToken || adminPasswordResetRequired) return
@@ -603,7 +659,7 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
   }, [refreshAll])
 
   useEffect(() => {
-    if (section !== "logs") return
+    if (section !== "logs" && section !== "audit") return
     void refreshOpsLog()
     const interval = window.setInterval(() => void refreshOpsLog(), 15000)
     return () => window.clearInterval(interval)
@@ -951,6 +1007,8 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
   }
 
   const sectionTitle = NAV.find((item) => item.id === section)?.label ?? "Адмін"
+  const opsIsAudit = section === "audit"
+  const opsEventOptions = opsIsAudit ? AUTH_AUDIT_EVENT_OPTIONS : OPS_EVENT_OPTIONS
 
   return (
     <div className="admin-shell">
@@ -968,6 +1026,10 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
               key={item.id}
               className={`admin-nav-item${section === item.id ? " admin-nav-item-active" : ""}`}
               onClick={() => {
+                if (item.id === "audit" || item.id === "logs") {
+                  setOpsEventType("all")
+                  setOpsSeverity("all")
+                }
                 setSection(item.id)
                 setSidebarOpen(false)
               }}
@@ -1102,6 +1164,7 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
                     setOpsOrderQuery("")
                     setOpsProviderQuery("")
                     setOpsCustomerQuery(selectedClient.id)
+                    setOpsEventType("all")
                     setOpsSeverity("all")
                     setSection("logs")
                   }}
@@ -1149,6 +1212,7 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
                     setOpsOrderQuery("")
                     setOpsProviderQuery(selectedProvider.id)
                     setOpsCustomerQuery("")
+                    setOpsEventType("all")
                     setOpsSeverity("all")
                     setSection("logs")
                   }}
@@ -1200,6 +1264,7 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
                   setOpsOrderQuery(orderId)
                   setOpsProviderQuery("")
                   setOpsCustomerQuery("")
+                  setOpsEventType("all")
                   setOpsSeverity("all")
                   setSection("logs")
                 }} />
@@ -1207,7 +1272,7 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
             </div>
           ) : null}
 
-          {section === "logs" ? (
+          {section === "logs" || section === "audit" ? (
             <div className="admin-grid">
               <div className="admin-stat-grid">
                 <StatCard label="Помилки" value={opsLog?.counts?.error ?? 0} tone="warn" />
@@ -1217,8 +1282,18 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
               </div>
               <div className="admin-panel">
                 <div className="admin-panel-head">
-                  <h2>Логи етапів і помилок</h2>
+                  <h2>{opsIsAudit ? "Аудит доступів" : "Логи етапів і помилок"}</h2>
                   <div className="admin-panel-actions">
+                    <select
+                      className="admin-search"
+                      value={opsEventType}
+                      onChange={(event) => setOpsEventType(event.target.value)}
+                      aria-label="Event type"
+                    >
+                      {opsEventOptions.map((item) => (
+                        <option key={item.value} value={item.value}>{item.label}</option>
+                      ))}
+                    </select>
                     <input
                       className="admin-search"
                       value={opsOrderQuery}
@@ -1256,7 +1331,9 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
                   ))}
                 </div>
                 <p className="admin-muted admin-panel-note">
-                  Тут видно, на якому етапі заявки сталася проблема: dispatch, оффер, статус партнера, оцінка тощо.
+                  {opsIsAudit
+                    ? "Auth/account події: created, disabled, temporary password, password completed, provider linked/unlinked, verification reviewed."
+                    : "Тут видно, на якому етапі заявки сталася проблема: dispatch, оффер, статус партнера, оцінка тощо."}
                 </p>
                 <div className="admin-activity-list">
                   {(opsLog?.events ?? []).map((item: AdminOpsLogEvent) => (
@@ -1266,16 +1343,11 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
                           <span className={`admin-ops-severity admin-ops-severity--${item.severity || "info"}`}>
                             {(item.severity || "info").toUpperCase()}
                           </span>
-                          <strong>{item.type}</strong>
+                          <strong>{opsEventTypeLabel(item.type)}</strong>
+                          <span className="admin-muted">{item.type}</span>
                         </div>
                         <div className="admin-muted">{item.message || "—"}</div>
-                        <div className="admin-muted">
-                          {item.orderId ? `#${item.orderId}` : "без заявки"}
-                          {item.providerId ? ` · partner ${item.providerId}` : ""}
-                          {item.customerId ? ` · customer ${item.customerId}` : ""}
-                          {item.source ? ` · ${item.source}` : ""}
-                          {item.code ? ` · ${item.code}` : ""}
-                        </div>
+                        <div className="admin-muted">{opsEventDetails(item)}</div>
                       </div>
                       <div className="admin-activity-meta">
                         {item.orderId ? (

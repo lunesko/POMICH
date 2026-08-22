@@ -155,3 +155,34 @@ def test_ops_log_filters_by_provider_and_customer(monkeypatch) -> None:
 
     assert [event["providerId"] for event in provider_payload["events"]] == ["provider-a"]
     assert [event["customerId"] for event in customer_payload["events"]] == ["customer-b"]
+
+
+def test_ops_log_filters_by_event_type_and_auth_audit(monkeypatch) -> None:
+    from bot import ops_log
+
+    monkeypatch.setattr(ops_log, "_MEMORY_OPS_LOG", [])
+    monkeypatch.setattr(ops_log, "sql_storage_enabled", lambda: False)
+    monkeypatch.setattr(ops_log, "load_orders", lambda order_store_path=None: [])
+
+    ops_log.record_ops_event(
+        event_type="AUTH_ACCOUNT_DISABLED",
+        message="Provider account disabled",
+        provider_id="provider-a",
+        source="test",
+    )
+    ops_log.record_ops_event(
+        event_type="CUSTOMER_PROVIDER_LINKED",
+        message="Provider linked",
+        provider_id="provider-b",
+        customer_id="tg-77",
+        source="test",
+    )
+    ops_log.record_ops_event(event_type="ORDER_CREATED", message="Order created", order_id="PM-1", source="test")
+
+    audit_payload = ops_log.build_admin_ops_log(limit=50, auth_events_only=True)
+    disabled_payload = ops_log.build_admin_ops_log(limit=50, event_type="AUTH_ACCOUNT_DISABLED")
+
+    audit_types = {event["type"] for event in audit_payload["events"]}
+    assert {"AUTH_ACCOUNT_DISABLED", "CUSTOMER_PROVIDER_LINKED"} <= audit_types
+    assert "ORDER_CREATED" not in audit_types
+    assert [event["type"] for event in disabled_payload["events"]] == ["AUTH_ACCOUNT_DISABLED"]

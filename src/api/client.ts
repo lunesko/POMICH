@@ -1434,6 +1434,9 @@ export interface AdminOpsLogEvent {
   code?: string
   orderStatus?: string
   service?: string
+  accountRole?: string
+  accountStatus?: string
+  requestedLogin?: string
 }
 
 export interface AdminOpsLog {
@@ -1489,7 +1492,7 @@ export async function getAdminStats(adminToken?: string) {
 
 export async function getAdminOpsLog(
   adminToken?: string,
-  options?: { limit?: number; severity?: string; orderId?: string; providerId?: string; customerId?: string },
+  options?: { limit?: number; severity?: string; orderId?: string; providerId?: string; customerId?: string; eventType?: string; auditOnly?: boolean },
 ): Promise<AdminOpsLog> {
   const params = new URLSearchParams()
   if (options?.limit) params.set('limit', String(options.limit))
@@ -1497,6 +1500,8 @@ export async function getAdminOpsLog(
   if (options?.orderId?.trim()) params.set('orderId', options.orderId.trim())
   if (options?.providerId?.trim()) params.set('providerId', options.providerId.trim())
   if (options?.customerId?.trim()) params.set('customerId', options.customerId.trim())
+  if (options?.eventType?.trim() && options.eventType !== 'all') params.set('eventType', options.eventType.trim())
+  if (options?.auditOnly) params.set('auditOnly', 'true')
   const suffix = params.toString() ? `?${params.toString()}` : ''
   const response = await fetch(`${getBaseUrl()}/admin/ops-log${suffix}`, { headers: adminHeaders(adminToken) })
   if (!response.ok) throw new Error(`Admin ops log request failed with ${response.status}`)
