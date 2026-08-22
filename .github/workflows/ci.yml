@@ -34,6 +34,9 @@ jobs:
       - name: Run backend tests
         run: python -m pytest
 
+      - name: Compile ops scripts
+        run: python -m py_compile scripts/ops/backup_postgres.py scripts/ops/restore_postgres.py scripts/ops/telegram_set_webhooks.py
+
       - name: Run frontend tests
         run: npm test
 
@@ -42,6 +45,9 @@ jobs:
 
       - name: Build frontend
         run: npm run build
+
+      - name: Validate e2e release gate harness
+        run: npm run test:e2e
 
   postgis-runtime:
     name: PostGIS runtime smoke
