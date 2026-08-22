@@ -120,6 +120,20 @@ function New-ProviderSessionHeaders {
     @{ Authorization = "Bearer $($session.accessToken)" }
 }
 
+function New-CustomerSessionHeaders {
+    $session = Invoke-JsonRequest `
+        -Method "POST" `
+        -Path "/api/auth/customer/guest/session" `
+        -Body @{ customerId = "guest-public-smoke-$([Guid]::NewGuid().ToString('N'))" } `
+        -ExpectedStatusCodes @(200)
+
+    if (-not $session.accessToken) {
+        throw "Customer session did not return an access token."
+    }
+
+    @{ Authorization = "Bearer $($session.accessToken)" }
+}
+
 function Set-ProviderOnline {
     param(
         [string]$OnlineProviderId,
@@ -198,6 +212,7 @@ if ([string]::IsNullOrWhiteSpace($ProviderToken)) {
 
 $providerHeaders = New-ProviderSessionHeaders -SessionProviderId $ProviderId
 $secondProviderHeaders = New-ProviderSessionHeaders -SessionProviderId $SecondProviderId
+$customerHeaders = New-CustomerSessionHeaders
 
 Set-ProviderOnline -OnlineProviderId $ProviderId -Headers $providerHeaders -Lat 50.4501 -Lng 30.5234
 Set-ProviderOnline -OnlineProviderId $SecondProviderId -Headers $secondProviderHeaders -Lat 50.4503 -Lng 30.5236
@@ -205,6 +220,7 @@ Set-ProviderOnline -OnlineProviderId $SecondProviderId -Headers $secondProviderH
 $order = Invoke-JsonRequest `
     -Method "POST" `
     -Path "/api/orders" `
+    -Headers $customerHeaders `
     -Body @{
         source = "public-smoke"
         service = "tow"
@@ -234,20 +250,41 @@ $accepted = Invoke-JsonRequest `
     -Method "POST" `
     -Path "/api/providers/$ProviderId/offers/$($firstOffer.id)/accept" `
     -Headers $providerHeaders `
+    -Body @{
+        proposedPrice = 1200
+        priceNote = "Public smoke gate"
+    } `
     -ExpectedStatusCodes @(200)
 
-if ($accepted.order.status -ne "assigned") {
-    throw "Accepted order did not move to assigned."
+if ($accepted.order.status -ne "accepted") {
+    throw "Accepted order did not move to accepted."
+}
+if ($accepted.order.partnerProposedPrice -ne 1200) {
+    throw "Accepted order did not include proposed price."
 }
 
 $lost = Invoke-JsonRequest `
     -Method "POST" `
     -Path "/api/providers/$SecondProviderId/offers/$($secondOffer.id)/accept" `
     -Headers $secondProviderHeaders `
+    -Body @{
+        proposedPrice = 1300
+        priceNote = "Public smoke losing offer"
+    } `
     -ExpectedStatusCodes @(409)
 
 if ($lost.detail.code -ne "ORDER_ALREADY_ACCEPTED") {
     throw "Second provider did not receive ORDER_ALREADY_ACCEPTED."
+}
+
+$confirmed = Invoke-JsonRequest `
+    -Method "POST" `
+    -Path "/api/orders/$($order.id)/confirm-price" `
+    -Headers $customerHeaders `
+    -ExpectedStatusCodes @(200)
+
+if ($confirmed.status -ne "price_confirmed") {
+    throw "Customer price confirmation did not move order to price_confirmed."
 }
 
 foreach ($status in @("en_route", "arrived", "in_progress", "completed")) {
@@ -263,7 +300,7 @@ foreach ($status in @("en_route", "arrived", "in_progress", "completed")) {
     }
 }
 
-$loadedOrder = Invoke-JsonRequest -Method "GET" -Path "/api/orders/$($order.id)"
+$loadedOrder = Invoke-JsonRequest -Method "GET" -Path "/api/orders/$($order.id)" -Headers $customerHeaders
 if ($loadedOrder.id -ne $order.id) {
     throw "Created order could not be loaded."
 }

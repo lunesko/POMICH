@@ -38,10 +38,25 @@ Run the non-mutating smoke check:
 Run the full mutating smoke check on staging only:
 
 ```powershell
-.\scripts\check-public.ps1 -PublicUrl https://app.example.com -Mutating -ProviderToken "<partner token>" -ProviderId "<provider-a-id>" -SecondProviderId "<provider-b-id>"
+.\scripts\check-public.ps1 -PublicUrl https://app.example.com -Mutating -ProviderId "<provider-a-id>" -ProviderLogin "<provider-a-login>" -ProviderPassword "<provider-a-password>" -SecondProviderId "<provider-b-id>" -SecondProviderLogin "<provider-b-login>" -SecondProviderPassword "<provider-b-password>"
 ```
 
-The mutating script issues provider sessions, sets two providers online, creates a real order, verifies both offers, confirms first-accept-wins by expecting `409 ORDER_ALREADY_ACCEPTED` for the second provider, and advances the accepted order to `completed`.
+The mutating script issues provider and customer sessions, sets two providers online, creates a real order, verifies both offers, confirms first-accept-wins by expecting `409 ORDER_ALREADY_ACCEPTED` for the second provider, confirms the partner price as the customer, and advances the accepted order to `completed`.
+
+Run the browser/API beta release gate on staging:
+
+```bash
+POMICH_E2E_BASE_URL=https://staging.pomich.help \
+POMICH_E2E_PROVIDER_A_ID=provider-a \
+POMICH_E2E_PROVIDER_A_LOGIN=provider-a \
+POMICH_E2E_PROVIDER_A_PASSWORD=... \
+POMICH_E2E_PROVIDER_B_ID=provider-b \
+POMICH_E2E_PROVIDER_B_LOGIN=provider-b \
+POMICH_E2E_PROVIDER_B_PASSWORD=... \
+npm run test:e2e
+```
+
+The Playwright gate reloads `/interface`, rejects browser requests to localhost API origins, attaches the exact browser `/api/*` request URLs to the report, then completes the same provider race, customer price confirmation, and lifecycle through same-origin `/api/*`.
 
 The script prints each exact request URL. In the browser Network panel, verify there are no requests to `localhost` or `127.0.0.1`.
 

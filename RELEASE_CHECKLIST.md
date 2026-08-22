@@ -45,12 +45,15 @@ The beta release should prove a shorter and more predictable **Time To Rescue**:
 8. Create a customer order and confirm `POST /api/orders` returns `201`.
 9. Confirm both partners receive offers.
 10. Accept with Partner A and confirm Partner B receives `409 ORDER_ALREADY_ACCEPTED`.
-11. Advance the accepted order through `en_route`, `arrived`, `in_progress`, and `completed`.
-12. Confirm no CORS errors and no localhost API requests in Network.
-13. Confirm customer/provider/admin operational requests use `Authorization: Bearer`, not repeated bootstrap-token headers.
+11. Confirm Partner A's proposed price as the customer.
+12. Advance the accepted order through `en_route`, `arrived`, `in_progress`, and `completed`.
+13. Confirm no CORS errors and no localhost API requests in Network.
+14. Confirm customer/provider/admin operational requests use `Authorization: Bearer`, not repeated bootstrap-token headers.
 
 ## Beta E2E Gate
-The staging Playwright flow must pass end to end: Partner A online, Partner B online, customer creates order, offers are created, Partner A accepts, Partner B loses the race, customer sees Partner A, then status advances through `EN_ROUTE`, `ARRIVED`, `IN_PROGRESS`, and `COMPLETED`.
+The staging Playwright flow must pass end to end: Partner A online, Partner B online, customer creates order, offers are created, Partner A accepts with price, Partner B loses the race, customer sees Partner A and confirms the price, then status advances through `EN_ROUTE`, `ARRIVED`, `IN_PROGRESS`, and `COMPLETED`.
+
+Run it with `npm run test:e2e` after setting `POMICH_E2E_BASE_URL`, `POMICH_E2E_PROVIDER_A_*`, and `POMICH_E2E_PROVIDER_B_*`. Without staging env, the Playwright test is skipped.
 
 ## Next Architecture Step
 The app now uses normalized SQL runtime tables through `DATABASE_URL`, explicit schema migrations, SQL/PostGIS candidate matching, and a SQL transaction path for first-accept-wins. The next architecture step is running the same dispatch race gate against a real public staging origin and converting it into a browser-level Playwright release gate.
