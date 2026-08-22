@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import CustomerApp from './CustomerApp'
+import type { AdminAuthAccount } from './api/client'
 import { PomichThemeProvider } from './context/PomichThemeProvider'
 import { authSessionStorageKey, EXPLICIT_LOGOUT_STORAGE_KEY, storeAuthSession } from './lib/auth'
 import { applyPomichThemeToDocument } from './lib/theme'
@@ -2772,6 +2773,127 @@ describe('POMICH role-based flows', () => {
           method: 'POST',
           headers: expect.not.objectContaining({ 'X-POMICH-Admin-Token': expect.any(String) }),
         }),
+      )
+    })
+  })
+
+  it('lets an admin manage SQL auth accounts from the admin panel', async () => {
+    const user = userEvent.setup()
+    const adminSessionToken = 'pomich_auth_v1.admin-account-session'
+    const authAccounts: AdminAuthAccount[] = [
+      {
+        id: 'admin-dispatcher',
+        role: 'admin',
+        username: 'dispatcher',
+        status: 'active',
+        hasPassword: true,
+      },
+    ]
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes('/auth/admin/login')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            role: 'admin',
+            subjectId: 'dispatcher',
+            username: 'dispatcher',
+            tokenType: 'Bearer',
+            accessToken: adminSessionToken,
+            expiresAt: Math.floor(Date.now() / 1000) + 3600,
+          }),
+        })
+      }
+      if (url.includes('/admin/stats')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            totals: { clients: 0, providers: 0, dispatchProviders: 0, directoryProviders: 0, orders: 0, activeOrders: 0, completedOrders: 0 },
+            providers: { online: 0, busy: 0, offline: 0, verified: 0, pendingVerification: 0 },
+            clients: { verified: 0, registered: 0, disabled: 0 },
+            orders: { searching: 0, assigned: 0, enRoute: 0, inProgress: 0 },
+            activity: [],
+          }),
+        })
+      }
+      if (url.includes('/admin/ops-log')) return Promise.resolve({ ok: true, json: async () => ({ events: [], counts: { error: 0, warn: 0, info: 0, total: 0 }, limit: 100 }) })
+      if (url.includes('/admin/clients')) return Promise.resolve({ ok: true, json: async () => [] })
+      if (url.includes('/admin/providers')) return Promise.resolve({ ok: true, json: async () => [] })
+      if (url.includes('/admin/orders')) return Promise.resolve({ ok: true, json: async () => [] })
+      if (url.includes('/admin/settings')) return Promise.resolve({ ok: true, json: async () => ({ runtime: 'dev', corsOrigins: ['*'], encryptionEnabled: false, databaseUrlConfigured: true, telegramConfigured: false, adminAccountsConfigured: true, providerAccountsConfigured: true, authAccountsSource: 'sql', allowHttpPilot: false, bootstrapAuthSessionsEnabled: false, sessionTtlSeconds: 86400 }) })
+      if (url.includes('/map/providers')) return Promise.resolve({ ok: true, json: async () => [] })
+      if (url.includes('/admin/auth/accounts') && url.includes('/password')) {
+        const updated: AdminAuthAccount = { ...authAccounts[1]!, hasPassword: true }
+        authAccounts[1] = updated
+        return Promise.resolve({ ok: true, json: async () => updated })
+      }
+      if (url.includes('/admin/auth/accounts') && init?.method === 'DELETE') {
+        const updated: AdminAuthAccount = { ...authAccounts[1]!, status: 'disabled' }
+        authAccounts[1] = updated
+        return Promise.resolve({ ok: true, json: async () => updated })
+      }
+      if (url.endsWith('/admin/auth/accounts') && init?.method === 'POST') {
+        const payload = JSON.parse(String(init.body))
+        const created: AdminAuthAccount = {
+          id: `provider:${payload.providerId}`,
+          role: 'provider',
+          username: payload.username,
+          providerId: payload.providerId,
+          email: '',
+          phone: '',
+          status: 'active',
+          hasPassword: true,
+        }
+        authAccounts.push(created)
+        return Promise.resolve({ ok: true, json: async () => created })
+      }
+      if (url.includes('/admin/auth/accounts')) {
+        return Promise.resolve({ ok: true, json: async () => authAccounts })
+      }
+      return Promise.resolve({ ok: true, json: async () => ({}) })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/?role=admin')
+
+    renderApp()
+
+    await user.type(await screen.findByLabelText('Пароль'), 'admin-pass')
+    await user.click(screen.getByRole('button', { name: /Увійти/i }))
+    expect(await screen.findByText('POMICH Admin')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /Акаунти/i }))
+    expect(await screen.findByText(/admin-dispatcher/i)).toBeInTheDocument()
+
+    await user.type(screen.getByLabelText('Логін акаунта'), 'managed-partner')
+    await user.type(screen.getByLabelText('Provider ID'), 'provider-managed')
+    await user.type(screen.getByLabelText('Пароль акаунта'), 'provider-pass')
+    await user.click(screen.getByRole('button', { name: /Створити акаунт/i }))
+    expect((await screen.findAllByText(/provider:provider-managed/i)).length).toBeGreaterThan(0)
+
+    await user.type(screen.getByLabelText('Новий пароль provider:provider-managed'), 'provider-pass-2')
+    const passwordButtons = screen.getAllByRole('button', { name: /Змінити пароль/i })
+    await user.click(passwordButtons[passwordButtons.length - 1])
+    expect(await screen.findByText(/Пароль для provider:provider-managed оновлено/i)).toBeInTheDocument()
+
+    const disableButtons = screen.getAllByRole('button', { name: /Вимкнути/i })
+    await user.click(disableButtons[disableButtons.length - 1])
+    expect(await screen.findByText(/Акаунт provider:provider-managed вимкнено/i)).toBeInTheDocument()
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/admin/auth/accounts'),
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({ Authorization: `Bearer ${adminSessionToken}` }),
+        }),
+      )
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/admin/auth/accounts/provider%3Aprovider-managed/password'),
+        expect.objectContaining({ method: 'POST' }),
+      )
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/admin/auth/accounts/provider%3Aprovider-managed'),
+        expect.objectContaining({ method: 'DELETE' }),
       )
     })
   })

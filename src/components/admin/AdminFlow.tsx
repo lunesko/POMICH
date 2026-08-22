@@ -1,11 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 
 import {
+  adminDeactivateAuthAccount,
   adminDeleteProvider,
+  adminResetAuthAccountPassword,
+  adminSaveAuthAccount,
   adminUpdateClient,
+  adminUpdateAuthAccount,
   adminUpdateProvider,
   createAdminAccountSession,
   createAdminSession,
+  getAdminAuthAccounts,
   getAdminClients,
   getAdminOrders,
   getAdminOpsLog,
@@ -18,6 +23,7 @@ import {
   reviewProviderVerification,
   retryDispatch,
   updateOrderStatus,
+  type AdminAuthAccount,
   type AdminActivityItem,
   type AdminOpsLog,
   type AdminOpsLogEvent,
@@ -44,7 +50,7 @@ import { VerificationPill } from "../ui/VerificationPill"
 import { StatusPill } from "../ui/StatusPill"
 import { Timeline } from "../ui/Timeline"
 
-type AdminSection = "dashboard" | "clients" | "providers" | "orders" | "logs" | "map" | "verification" | "settings"
+type AdminSection = "dashboard" | "clients" | "providers" | "orders" | "logs" | "map" | "verification" | "accounts" | "settings"
 
 const NAV: Array<{ id: AdminSection; label: string; icon: string }> = [
   { id: "dashboard", label: "Дашборд", icon: "📊" },
@@ -54,8 +60,31 @@ const NAV: Array<{ id: AdminSection; label: string; icon: string }> = [
   { id: "logs", label: "Логи", icon: "🛰️" },
   { id: "map", label: "Карта", icon: "🗺️" },
   { id: "verification", label: "Перевірка", icon: "✅" },
+  { id: "accounts", label: "Акаунти", icon: "🔐" },
   { id: "settings", label: "Налаштування", icon: "⚙️" },
 ]
+
+type AuthAccountRoleFilter = "all" | AdminAuthAccount["role"]
+
+type AuthAccountFormState = {
+  role: AdminAuthAccount["role"]
+  username: string
+  providerId: string
+  email: string
+  phone: string
+  password: string
+}
+
+function createEmptyAuthAccountForm(role: AdminAuthAccount["role"] = "provider"): AuthAccountFormState {
+  return {
+    role,
+    username: "",
+    providerId: "",
+    email: "",
+    phone: "",
+    password: "",
+  }
+}
 
 function normalizeOrderStatus(status?: string): OrderStatus {
   if (status === "searching" || status === "accepted" || status === "price_confirmed" || status === "assigned" || status === "en_route" || status === "arrived" || status === "in_progress" || status === "completed" || status === "cancelled" || status === "draft") {
@@ -139,6 +168,14 @@ function LoadingState({ text = "Завантажуємо…" }: { text?: string 
   return <div className="admin-loading">{text}</div>
 }
 
+function optionalTrim(value: string) {
+  return value.trim() || undefined
+}
+
+function authAccountIdentity(account: AdminAuthAccount) {
+  return account.username || account.email || account.phone || account.providerId || account.id
+}
+
 export default function AdminFlow({ adminToken }: { adminToken?: string }) {
   const adminSessionStorageKey = useMemo(() => authSessionStorageKey("admin", "admin"), [])
   const [adminAccessToken, setAdminAccessToken] = useState<string | undefined>(() => {
@@ -157,6 +194,11 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
   const [opsSeverity, setOpsSeverity] = useState<"all" | "error" | "warn" | "info">("all")
   const [opsOrderQuery, setOpsOrderQuery] = useState("")
   const [settings, setSettings] = useState<AdminSettings | null>(null)
+  const [authAccounts, setAuthAccounts] = useState<AdminAuthAccount[]>([])
+  const [authAccountRole, setAuthAccountRole] = useState<AuthAccountRoleFilter>("all")
+  const [authAccountForm, setAuthAccountForm] = useState<AuthAccountFormState>(() => createEmptyAuthAccountForm())
+  const [authAccountPasswords, setAuthAccountPasswords] = useState<Record<string, string>>({})
+  const [authAccountStatus, setAuthAccountStatus] = useState<string | undefined>()
   const [clientQuery, setClientQuery] = useState("")
   const [showGuestSessions, setShowGuestSessions] = useState(false)
   const [providerQuery, setProviderQuery] = useState("")
@@ -276,6 +318,19 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
     }
   }, [adminAuthToken])
 
+  const refreshAuthAccounts = useCallback(async () => {
+    if (!adminAuthToken) return
+    try {
+      const nextAccounts = await getAdminAuthAccounts(adminAuthToken, {
+        role: authAccountRole === "all" ? undefined : authAccountRole,
+        includeDisabled: true,
+      })
+      setAuthAccounts(nextAccounts)
+    } catch {
+      setError("Не вдалося завантажити auth-акаунти. Перевірте, що SQL storage увімкнено.")
+    }
+  }, [adminAuthToken, authAccountRole])
+
   useEffect(() => {
     refreshAll()
     const interval = window.setInterval(refreshAll, 15000)
@@ -294,11 +349,19 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
     void refreshMapProviders()
   }, [section, refreshMapProviders])
 
+  useEffect(() => {
+    if (section !== "accounts") return
+    void refreshAuthAccounts()
+  }, [section, refreshAuthAccounts])
+
   const selectedClient = clients.find((item) => item.id === selectedClientId) ?? clients[0]
   const selectedProvider = providers.find((item) => item.id === selectedProviderId) ?? providers[0]
   const filteredOrders = orders.filter((order) => orderFilter === "all" || normalizeOrderStatus(order.status) === orderFilter)
   const selectedOrder = filteredOrders.find((order) => order.id === selectedOrderId) ?? filteredOrders[0]
   const pendingProviders = providers.filter((item) => item.verificationStatus === "pending")
+  const authAccountCanSave = authAccountForm.password.trim().length >= 8
+    && Boolean(authAccountForm.username.trim() || authAccountForm.email.trim() || authAccountForm.phone.trim())
+    && (authAccountForm.role !== "provider" || Boolean(authAccountForm.providerId.trim()))
 
   const saveClient = async (payload: Partial<CustomerProfile> & { accountStatus?: string }) => {
     if (!selectedClient?.id || !adminAuthToken) return
@@ -397,6 +460,72 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
     }
   }
 
+  const saveAuthAccount = async () => {
+    if (!adminAuthToken) return
+    setSaving(true)
+    setError(undefined)
+    setAuthAccountStatus(undefined)
+    try {
+      const payload = {
+        role: authAccountForm.role,
+        username: optionalTrim(authAccountForm.username),
+        providerId: authAccountForm.role === "provider" ? optionalTrim(authAccountForm.providerId) : undefined,
+        email: optionalTrim(authAccountForm.email),
+        phone: optionalTrim(authAccountForm.phone),
+        password: authAccountForm.password.trim(),
+      }
+      const created = await adminSaveAuthAccount(payload, adminAuthToken)
+      setAuthAccountStatus(`Акаунт ${created.id} збережено.`)
+      setAuthAccountForm(createEmptyAuthAccountForm(authAccountForm.role))
+      await refreshAuthAccounts()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не вдалося зберегти auth-акаунт.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const resetAuthAccountPassword = async (account: AdminAuthAccount) => {
+    if (!adminAuthToken) return
+    const password = (authAccountPasswords[account.id] ?? "").trim()
+    if (!password) return
+    setSaving(true)
+    setError(undefined)
+    setAuthAccountStatus(undefined)
+    try {
+      const updated = await adminResetAuthAccountPassword(account.id, password, adminAuthToken)
+      setAuthAccounts((items) => items.map((item) => item.id === updated.id ? updated : item))
+      setAuthAccountPasswords((items) => {
+        const next = { ...items }
+        delete next[account.id]
+        return next
+      })
+      setAuthAccountStatus(`Пароль для ${updated.id} оновлено.`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не вдалося оновити пароль auth-акаунта.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const setAuthAccountEnabled = async (account: AdminAuthAccount, enabled: boolean) => {
+    if (!adminAuthToken) return
+    setSaving(true)
+    setError(undefined)
+    setAuthAccountStatus(undefined)
+    try {
+      const updated = enabled
+        ? await adminUpdateAuthAccount(account.id, { status: "active" }, adminAuthToken)
+        : await adminDeactivateAuthAccount(account.id, adminAuthToken)
+      setAuthAccounts((items) => items.map((item) => item.id === updated.id ? updated : item))
+      setAuthAccountStatus(enabled ? `Акаунт ${updated.id} увімкнено.` : `Акаунт ${updated.id} вимкнено.`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не вдалося змінити статус auth-акаунта.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
   if (!adminAuthToken && (!adminToken || bootstrapAuthFailed)) {
     return (
       <AdminLogin
@@ -459,6 +588,7 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
               void refreshAll()
               if (section === "logs") void refreshOpsLog()
               if (section === "map") void refreshMapProviders()
+              if (section === "accounts") void refreshAuthAccounts()
             }}
             disabled={loading}
           >
@@ -746,6 +876,122 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
                     </div>
                   ))}
                   {mapProviders.length === 0 ? <EmptyState text="Пінів на карті поки немає." /> : null}
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {section === "accounts" ? (
+            <div className="admin-grid">
+              <div className="admin-panel">
+                <div className="admin-panel-head">
+                  <h2>Auth акаунти</h2>
+                  <div className="admin-chip-row">
+                    {(["all", "admin", "provider"] as const).map((role) => (
+                      <button
+                        key={role}
+                        className={`admin-chip${authAccountRole === role ? " admin-chip-active" : ""}`}
+                        onClick={() => setAuthAccountRole(role)}
+                      >
+                        {role === "all" ? "Усі" : role}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <p className="admin-muted admin-panel-note">
+                  Тут оператор створює SQL-акаунти для адмінів і партнерів. Bootstrap-токени залишаються тільки для dev/staging.
+                </p>
+                {authAccountStatus ? <div className="admin-alert admin-alert-info">{authAccountStatus}</div> : null}
+                <div className="admin-auth-layout">
+                  <div className="admin-auth-form">
+                    <h3>Новий акаунт</h3>
+                    <div className="admin-form-grid">
+                      <label className="admin-field">
+                        <span>Роль</span>
+                        <select
+                          value={authAccountForm.role}
+                          onChange={(event) => {
+                            const role = event.target.value as AdminAuthAccount["role"]
+                            setAuthAccountForm((form) => ({
+                              ...form,
+                              role,
+                              providerId: role === "provider" ? form.providerId : "",
+                            }))
+                          }}
+                          aria-label="Роль акаунта"
+                        >
+                          <option value="provider">provider</option>
+                          <option value="admin">admin</option>
+                        </select>
+                      </label>
+                      <label className="admin-field">
+                        <span>Логін</span>
+                        <input value={authAccountForm.username} onChange={(event) => setAuthAccountForm((form) => ({ ...form, username: event.target.value }))} aria-label="Логін акаунта" />
+                      </label>
+                      {authAccountForm.role === "provider" ? (
+                        <label className="admin-field">
+                          <span>Provider ID</span>
+                          <input value={authAccountForm.providerId} onChange={(event) => setAuthAccountForm((form) => ({ ...form, providerId: event.target.value }))} aria-label="Provider ID" />
+                        </label>
+                      ) : null}
+                      <label className="admin-field">
+                        <span>Email</span>
+                        <input value={authAccountForm.email} onChange={(event) => setAuthAccountForm((form) => ({ ...form, email: event.target.value }))} aria-label="Email акаунта" />
+                      </label>
+                      <label className="admin-field">
+                        <span>Телефон</span>
+                        <input value={authAccountForm.phone} onChange={(event) => setAuthAccountForm((form) => ({ ...form, phone: event.target.value }))} aria-label="Телефон акаунта" />
+                      </label>
+                      <label className="admin-field">
+                        <span>Пароль</span>
+                        <input value={authAccountForm.password} onChange={(event) => setAuthAccountForm((form) => ({ ...form, password: event.target.value }))} type="password" aria-label="Пароль акаунта" />
+                      </label>
+                    </div>
+                    <button className="admin-primary-btn" disabled={saving || !authAccountCanSave} onClick={() => void saveAuthAccount()}>
+                      {saving ? "Зберігаємо…" : "Створити акаунт"}
+                    </button>
+                  </div>
+
+                  <div className="admin-list admin-auth-list">
+                    {authAccounts.map((account) => (
+                      <div key={account.id} className="admin-list-item admin-list-item-static admin-auth-account-row">
+                        <div>
+                          <strong>{authAccountIdentity(account)}</strong>
+                          <div className="admin-muted">{account.id} · {account.role}{account.providerId ? ` · provider ${account.providerId}` : ""}</div>
+                          <div className="admin-muted">
+                            {account.email || "email —"} · {account.phone || "телефон —"} · {account.hasPassword ? "пароль є" : "пароля немає"}
+                          </div>
+                          <div className="admin-muted">{account.updatedAt ? `оновлено ${account.updatedAt}` : "оновлення —"}</div>
+                        </div>
+                        <div className="admin-auth-actions">
+                          <span className={`admin-chip${account.status === "active" ? " admin-chip-brand" : " admin-chip-danger"}`}>{account.status}</span>
+                          <input
+                            className="admin-search admin-auth-password-input"
+                            value={authAccountPasswords[account.id] ?? ""}
+                            onChange={(event) => setAuthAccountPasswords((items) => ({ ...items, [account.id]: event.target.value }))}
+                            type="password"
+                            placeholder="Новий пароль"
+                            aria-label={`Новий пароль ${account.id}`}
+                          />
+                          <button
+                            className="admin-chip"
+                            disabled={saving || (authAccountPasswords[account.id] ?? "").trim().length < 8}
+                            onClick={() => void resetAuthAccountPassword(account)}
+                          >
+                            Змінити пароль
+                          </button>
+                          <button
+                            className={account.status === "active" ? "admin-chip admin-chip-danger" : "admin-chip admin-chip-brand"}
+                            disabled={saving}
+                            onClick={() => void setAuthAccountEnabled(account, account.status !== "active")}
+                          >
+                            {account.status === "active" ? "Вимкнути" : "Увімкнути"}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                    {authAccounts.length === 0 ? <EmptyState text="Акаунтів у цьому фільтрі немає." /> : null}
+                  </div>
                 </div>
               </div>
             </div>
