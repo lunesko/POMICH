@@ -1260,6 +1260,41 @@ def test_provider_registration_links_customer_for_phone_login_restore(tmp_path, 
     assert status["linkedProviderId"] == "provider-guest-vitaliy"
 
 
+def test_user_account_status_does_not_infer_provider_link_from_matching_id(tmp_path, monkeypatch):
+    from bot.order_store import build_user_account_status, save_providers
+
+    customer_path = tmp_path / "customers.json"
+    provider_path = tmp_path / "providers.json"
+    monkeypatch.setattr("bot.order_store._default_customer_store_path", lambda: customer_path)
+    monkeypatch.setattr("bot.order_store._default_provider_store_path", lambda: provider_path)
+
+    update_customer_profile(
+        "tg-77",
+        {"name": "Telegram Partner", "preferredRole": "provider"},
+        store_path=customer_path,
+    )
+    save_providers(
+        [
+            {
+                "id": "provider-tg-77",
+                "name": "Partner 77",
+                "phone": "+380501112233",
+                "vehicle": "Renault Master",
+                "plate": "AA1234BB",
+                "specialties": ["tow"],
+                "registeredAt": "2026-08-22T12:00:00",
+            }
+        ],
+        store_path=provider_path,
+    )
+
+    status = build_user_account_status("tg-77")
+
+    assert status["linkedProviderId"] == ""
+    assert status["providerRegistered"] is False
+    assert "provider" not in status["rolesRegistered"]
+
+
 def test_ensure_linked_provider_profile_creates_registered_row_for_verified_customer(tmp_path, monkeypatch):
     from bot.order_store import (
         ensure_linked_provider_profile,

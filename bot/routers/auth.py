@@ -97,7 +97,7 @@ def _password_reset_request_payload(role: str, login: str, account: dict | None,
 def _provider_account_summary(customer_id: str, profile: dict | None = None) -> dict:
     """Telegram identity alone does not grant provider API permissions — only reports link state."""
     payload = profile or get_customer_profile(customer_id)
-    provider_id = resolve_linked_provider_id(customer_id, payload)
+    provider_id = resolve_linked_provider_id(customer_id, payload, require_explicit=True)
     provider = get_provider_profile(provider_id) if provider_id else None
     linked = bool(provider and provider.get("registeredAt"))
     verification_status = str((provider or {}).get("verificationStatus") or "unverified")
@@ -177,12 +177,10 @@ def create_self_provider_session(payload: dict, authorization: str | None = Head
     if not customer_id:
         raise HTTPException(status_code=400, detail="customerId missing")
     require_customer_auth(customer_id, authorization)
-    provider_id = resolve_linked_provider_id(customer_id)
+    profile = get_customer_profile(customer_id)
+    provider_id = resolve_linked_provider_id(customer_id, profile, require_explicit=True)
     if not provider_id:
         raise HTTPException(status_code=400, detail="provider_not_linked")
-    profile = get_customer_profile(customer_id)
-    if profile is not None and not str(profile.get("linkedProviderId") or "").strip():
-        update_customer_profile(customer_id, {"linkedProviderId": provider_id})
     # Missing SQL provider rows otherwise force blank registration / empty map in Mini App.
     ensure_linked_provider_profile(customer_id)
     sync_linked_provider_phone_verification_from_customer(provider_id)

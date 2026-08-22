@@ -258,6 +258,70 @@ def test_telegram_session_includes_bot_kind_and_provider_account(two_bots, monke
     assert body["providerAccount"]["linked"] is False
 
 
+def test_provider_bot_does_not_link_by_matching_telegram_id_without_admin(two_bots, monkeypatch, tmp_path):
+    monkeypatch.setenv("POMICH_RUNTIME", "dev")
+    monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", "local-customer-session-secret-for-tests-xx")
+    monkeypatch.setenv("POMICH_PROVIDER_TOKEN", "local-provider-session-secret-for-tests")
+    monkeypatch.setenv("POMICH_STORAGE_BACKEND", "json")
+    monkeypatch.setenv("POMICH_CUSTOMER_STORE_PATH", str(tmp_path / "customers.json"))
+    monkeypatch.setenv("POMICH_PROVIDER_STORE_PATH", str(tmp_path / "providers.json"))
+    monkeypatch.setenv("POMICH_PROVIDER_ACCOUNTS", json.dumps([
+        {
+            "id": "provider-account-77",
+            "providerId": "provider-tg-77",
+            "username": "partner77",
+            "password": "provider-pass",
+            "status": "active",
+        },
+    ]))
+    order_store.save_providers([
+        {
+            "id": "provider-tg-77",
+            "name": "Partner 77",
+            "phone": "+380501112233",
+            "vehicle": "Renault Master",
+            "plate": "AA1234BB",
+            "specialties": ["tow"],
+            "verificationStatus": "verified",
+            "registeredAt": "2026-08-22T12:00:00",
+        },
+    ])
+    from bot.fastapi_app import app
+
+    provider_token = TWO_BOT_ENV["TELEGRAM_PROVIDER_BOT_TOKEN"]
+    init_data = _signed_init_data(
+        {
+            "auth_date": str(int(time.time())),
+            "user": json.dumps({"id": 77, "first_name": "Partner", "username": "p77"}, separators=(",", ":")),
+        },
+        provider_token,
+    )
+    http = TestClient(app)
+
+    response = http.post(
+        "/api/auth/customer/telegram/session",
+        headers={
+            "X-Telegram-Init-Data": init_data,
+            "X-POMICH-Telegram-Bot": "provider",
+        },
+    )
+    body = response.json()
+    self_session = http.post(
+        "/api/auth/provider/self/session",
+        headers={"Authorization": f"Bearer {body['accessToken']}"},
+        json={"customerId": body["customerId"]},
+    )
+
+    assert response.status_code == 200
+    assert body["customerId"] == "tg-77"
+    assert body["account"]["linkedProviderId"] == ""
+    assert body["providerAccount"]["linked"] is False
+    assert body["providerAccount"]["providerId"] is None
+    assert body["providerAccount"]["canOpenProviderSession"] is False
+    assert self_session.status_code == 400
+    assert self_session.json()["detail"] == "provider_not_linked"
+
+
 def test_provider_bot_session_reports_active_linked_account_and_self_session(two_bots, monkeypatch, tmp_path):
     monkeypatch.setenv("POMICH_RUNTIME", "dev")
     monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", "local-customer-session-secret-for-tests-xx")
@@ -286,6 +350,14 @@ def test_provider_bot_session_reports_active_linked_account_and_self_session(two
             "registeredAt": "2026-08-22T12:00:00",
         },
     ])
+    order_store.update_customer_profile(
+        "tg-77",
+        {
+            "linkedProviderId": "provider-tg-77",
+            "preferredRole": "provider",
+            "rolesRegistered": ["provider"],
+        },
+    )
     from bot.fastapi_app import app
 
     provider_token = TWO_BOT_ENV["TELEGRAM_PROVIDER_BOT_TOKEN"]
@@ -362,6 +434,14 @@ def test_provider_bot_linked_disabled_account_cannot_open_self_session(two_bots,
             "registeredAt": "2026-08-22T12:00:00",
         },
     ])
+    order_store.update_customer_profile(
+        "tg-88",
+        {
+            "linkedProviderId": "provider-tg-88",
+            "preferredRole": "provider",
+            "rolesRegistered": ["provider"],
+        },
+    )
     from bot.fastapi_app import app
 
     provider_token = TWO_BOT_ENV["TELEGRAM_PROVIDER_BOT_TOKEN"]
@@ -426,6 +506,14 @@ def test_provider_bot_linked_reset_required_account_cannot_open_self_session(two
             "registeredAt": "2026-08-22T12:00:00",
         },
     ])
+    order_store.update_customer_profile(
+        "tg-99",
+        {
+            "linkedProviderId": "provider-tg-99",
+            "preferredRole": "provider",
+            "rolesRegistered": ["provider"],
+        },
+    )
     from bot.fastapi_app import app
 
     provider_token = TWO_BOT_ENV["TELEGRAM_PROVIDER_BOT_TOKEN"]

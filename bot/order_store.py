@@ -1118,7 +1118,7 @@ def ensure_linked_provider_profile(
     Without a persisted profile, the UI falls into empty registration or a blank map.
     """
     profile = get_customer_profile(customer_id, customer_store_path)
-    provider_id = resolve_linked_provider_id(customer_id, profile)
+    provider_id = resolve_linked_provider_id(customer_id, profile, require_explicit=True)
     if not provider_id:
         return None
 
@@ -2010,8 +2010,6 @@ def _sync_phone_linked_verification(
 
     customer_id = str(profile.get("id") or "").strip()
     linked_provider_id = str(profile.get("linkedProviderId") or "").strip()
-    if not linked_provider_id and customer_id.startswith("tg-"):
-        linked_provider_id = f"provider-{customer_id}"
     if linked_provider_id:
         # Provider rows live in the provider store; never reuse the customer store_path here.
         linked_provider = get_provider_profile(linked_provider_id)
@@ -2084,11 +2082,18 @@ def _is_valid_ukraine_mobile_phone(phone: str) -> bool:
     return len(national) == 9 and national[:2] in {"39", "50", "63", "66", "67", "68", "73", "75", "91", "92", "93", "94", "95", "96", "97", "98", "99"}
 
 
-def resolve_linked_provider_id(customer_id: str, profile: Dict[str, Any] | None = None) -> str:
+def resolve_linked_provider_id(
+    customer_id: str,
+    profile: Dict[str, Any] | None = None,
+    *,
+    require_explicit: bool = False,
+) -> str:
     payload = profile or get_customer_profile(customer_id)
     linked = str(payload.get("linkedProviderId") or "").strip()
     if linked:
         return linked
+    if require_explicit:
+        return ""
     normalized_customer_id = str(customer_id or "").strip()
     if normalized_customer_id and normalized_customer_id not in {"", "customer-web"}:
         return f"provider-{normalized_customer_id}"
@@ -2118,7 +2123,7 @@ def is_provider_profile_complete(provider: Optional[Dict[str, Any]]) -> bool:
 
 def is_customer_provider_registered(customer_id: str, store_path: Optional[Path] = None) -> bool:
     profile = get_customer_profile(customer_id, store_path)
-    provider_id = resolve_linked_provider_id(customer_id, profile)
+    provider_id = resolve_linked_provider_id(customer_id, profile, require_explicit=True)
     if not provider_id:
         return False
     provider = get_provider_profile(provider_id, store_path)
@@ -2135,7 +2140,7 @@ def is_customer_provider_registered(customer_id: str, store_path: Optional[Path]
 
 def build_user_account_status(customer_id: str, store_path: Optional[Path] = None) -> Dict[str, Any]:
     profile = get_customer_profile(customer_id, store_path)
-    provider_id = resolve_linked_provider_id(customer_id, profile)
+    provider_id = resolve_linked_provider_id(customer_id, profile, require_explicit=True)
     client_registered = is_customer_client_registered(profile)
     provider_registered = is_customer_provider_registered(customer_id, store_path)
     roles_registered = [role for role in (profile.get("rolesRegistered") or []) if role in {"customer", "provider"}]
@@ -2259,7 +2264,9 @@ def set_user_preferred_role(customer_id: str, role: str, store_path: Optional[Pa
     profile = update_customer_profile(customer_id, {"preferredRole": normalized_role}, store_path)
     if normalized_role == "provider":
         provider_id = resolve_linked_provider_id(customer_id, profile)
-        if provider_id and not str(profile.get("linkedProviderId") or "").strip():
+        existing_provider = get_provider_profile(provider_id) if provider_id else None
+        existing_registered = bool(existing_provider and existing_provider.get("registeredAt"))
+        if provider_id and not existing_registered and not str(profile.get("linkedProviderId") or "").strip():
             profile = update_customer_profile(customer_id, {"linkedProviderId": provider_id}, store_path)
     elif normalized_role == "customer":
         # Partner → client: reuse partner name/phone instead of empty «Реєстрація клієнта».
