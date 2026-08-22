@@ -2862,6 +2862,7 @@ describe('POMICH role-based flows', () => {
               created: true,
               activated: true,
               temporaryPassword: 'tmp-provider-pass',
+              passwordResetRequired: true,
             },
           }),
         })
@@ -2877,12 +2878,22 @@ describe('POMICH role-based flows', () => {
     await user.click(screen.getByRole('button', { name: /Перевірка/i }))
     await user.click(await screen.findByRole('button', { name: /Схвалити/i }))
 
-    expect(await screen.findByText(/temporary password: tmp-provider-pass/i)).toBeInTheDocument()
+    expect(await screen.findByText('Запрошення для партнера')).toBeInTheDocument()
+    expect(screen.getByText('tmp-provider-pass')).toBeInTheDocument()
+    expect(screen.getByText('зміна пароля обовʼязкова')).toBeInTheDocument()
+    const logButtons = screen.getAllByRole('button', { name: /^Логи$/i })
+    await user.click(logButtons[logButtons.length - 1])
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
         expect.stringContaining('/providers/provider-new/verification/review'),
         expect.objectContaining({
           method: 'PATCH',
+          headers: expect.objectContaining({ Authorization: `Bearer ${adminSessionToken}` }),
+        }),
+      )
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('providerId=provider-new'),
+        expect.objectContaining({
           headers: expect.objectContaining({ Authorization: `Bearer ${adminSessionToken}` }),
         }),
       )

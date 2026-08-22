@@ -380,6 +380,19 @@ export interface DispatchOffer {
   etaMinutes?: number
 }
 
+export interface AuthAccountSummary {
+  id?: string
+  role?: 'admin' | 'provider'
+  username?: string
+  email?: string
+  phone?: string
+  providerId?: string
+  status?: 'active' | 'disabled' | string
+  hasPassword?: boolean
+  passwordResetRequired?: boolean
+  temporaryPasswordIssuedAt?: string
+}
+
 export interface ProviderAvailability {
   id: string
   name: string
@@ -414,6 +427,7 @@ export interface ProviderAvailability {
   assignedOrderId?: string
   verificationStatus?: VerificationStatus
   verification?: VerificationDetails
+  authAccount?: AuthAccountSummary | null
   authAccountBootstrap?: {
     id?: string
     providerId?: string
@@ -422,6 +436,7 @@ export interface ProviderAvailability {
     created?: boolean
     activated?: boolean
     temporaryPassword?: string
+    passwordResetRequired?: boolean
   }
   trustedBadges?: string[]
   updatedAt?: string
@@ -1428,12 +1443,14 @@ export async function getAdminStats(adminToken?: string) {
 
 export async function getAdminOpsLog(
   adminToken?: string,
-  options?: { limit?: number; severity?: string; orderId?: string },
+  options?: { limit?: number; severity?: string; orderId?: string; providerId?: string; customerId?: string },
 ): Promise<AdminOpsLog> {
   const params = new URLSearchParams()
   if (options?.limit) params.set('limit', String(options.limit))
   if (options?.severity && options.severity !== 'all') params.set('severity', options.severity)
   if (options?.orderId?.trim()) params.set('orderId', options.orderId.trim())
+  if (options?.providerId?.trim()) params.set('providerId', options.providerId.trim())
+  if (options?.customerId?.trim()) params.set('customerId', options.customerId.trim())
   const suffix = params.toString() ? `?${params.toString()}` : ''
   const response = await fetch(`${getBaseUrl()}/admin/ops-log${suffix}`, { headers: adminHeaders(adminToken) })
   if (!response.ok) throw new Error(`Admin ops log request failed with ${response.status}`)

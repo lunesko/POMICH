@@ -212,6 +212,8 @@ def build_admin_ops_log(
     limit: int = 80,
     severity: str | None = None,
     order_id: str | None = None,
+    provider_id: str | None = None,
+    customer_id: str | None = None,
     order_store_path=None,
 ) -> Dict[str, Any]:
     """Merge order stage trails + API ops ring for the admin console."""
@@ -219,6 +221,8 @@ def build_admin_ops_log(
     if wanted_severity not in {"", "all", "error", "warn", "info"}:
         wanted_severity = "all"
     wanted_order = str(order_id or "").strip()
+    wanted_provider = str(provider_id or "").strip()
+    wanted_customer = str(customer_id or "").strip()
     try:
         raw_limit = 80 if limit is None else int(limit)
     except (TypeError, ValueError):
@@ -253,6 +257,10 @@ def build_admin_ops_log(
 
     if wanted_order:
         rows = [row for row in rows if str(row.get("orderId") or "") == wanted_order]
+    if wanted_provider:
+        rows = [row for row in rows if str(row.get("providerId") or "") == wanted_provider]
+    if wanted_customer:
+        rows = [row for row in rows if str(row.get("customerId") or "") == wanted_customer]
 
     rows.sort(key=lambda item: str(item.get("at") or ""), reverse=True)
 

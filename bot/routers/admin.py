@@ -5,7 +5,7 @@ import secrets
 
 from fastapi import APIRouter, Header, HTTPException
 
-from bot.api_deps import build_admin_settings_payload, require_admin_auth
+from bot.api_deps import build_admin_settings_payload, load_account_configs, require_admin_auth
 from bot.order_store import (
     admin_delete_provider,
     admin_update_customer_profile,
@@ -51,7 +51,7 @@ def _public_auth_account(account: dict) -> dict:
         "status": account.get("status") or "active",
         "createdAt": account.get("createdAt"),
         "updatedAt": account.get("updatedAt"),
-        "hasPassword": bool(str(account.get("passwordHash") or "").strip()),
+        "hasPassword": bool(str(account.get("passwordHash") or account.get("password") or "").strip()),
         "passwordResetRequired": bool(account.get("passwordResetRequired")),
         "temporaryPasswordIssuedAt": account.get("temporaryPasswordIssuedAt"),
     }
@@ -92,6 +92,31 @@ def _record_auth_account_event(event_type: str, account: dict, *, source: str) -
     )
 
 
+def _provider_auth_account_index() -> dict[str, dict]:
+    try:
+        accounts = load_account_configs("POMICH_PROVIDER_ACCOUNTS", include_disabled=True)
+    except Exception:
+        return {}
+    indexed: dict[str, dict] = {}
+    for account in accounts:
+        provider_id = str(account.get("providerId") or account.get("provider_id") or "").strip()
+        if not provider_id:
+            continue
+        indexed[provider_id] = _public_auth_account({**account, "providerId": provider_id})
+    return indexed
+
+
+def _attach_provider_auth_accounts(providers: list[dict]) -> list[dict]:
+    account_index = _provider_auth_account_index()
+    if not account_index:
+        return [{**provider, "authAccount": None} for provider in providers]
+    enriched: list[dict] = []
+    for provider in providers:
+        provider_id = str(provider.get("id") or "").strip()
+        enriched.append({**provider, "authAccount": account_index.get(provider_id)})
+    return enriched
+
+
 @router.get("/admin/stats")
 def admin_stats(
     x_pomich_admin_token: str | None = Header(default=None),
@@ -107,12 +132,20 @@ def admin_ops_log(
     limit: int = 80,
     severity: str | None = None,
     orderId: str | None = None,
+    providerId: str | None = None,
+    customerId: str | None = None,
     x_pomich_admin_token: str | None = Header(default=None),
     authorization: str | None = Header(default=None),
 ) -> dict:
     """Stage + error breadcrumbs for ops: order trails and API failures."""
     require_admin_auth(x_pomich_admin_token, authorization)
-    return build_admin_ops_log(limit=limit, severity=severity, order_id=orderId)
+    return build_admin_ops_log(
+        limit=limit,
+        severity=severity,
+        order_id=orderId,
+        provider_id=providerId,
+        customer_id=customerId,
+    )
 
 
 @router.get("/admin/clients")
@@ -158,7 +191,7 @@ def admin_list_providers(
             or needle in str(provider.get("phone") or "").lower()
             or needle in str(provider.get("city") or "").lower()
         ]
-    return providers
+    return _attach_provider_auth_accounts(providers)
 
 
 @router.get("/admin/orders")

@@ -126,3 +126,32 @@ def test_ops_log_order_filter_loads_order_outside_recent_window(tmp_path, monkey
     # Identical status+at pairs must not collapse when indexed.
     status_rows = [event for event in payload["events"] if str(event.get("type") or "").startswith("STATUS_")]
     assert len(status_rows) >= 2
+
+
+def test_ops_log_filters_by_provider_and_customer(monkeypatch) -> None:
+    from bot import ops_log
+
+    monkeypatch.setattr(ops_log, "_MEMORY_OPS_LOG", [])
+    monkeypatch.setattr(ops_log, "sql_storage_enabled", lambda: False)
+    monkeypatch.setattr(ops_log, "load_orders", lambda order_store_path=None: [])
+
+    ops_log.record_ops_event(
+        event_type="AUTH_ACCOUNT_DISABLED",
+        message="Provider account disabled",
+        provider_id="provider-a",
+        customer_id="customer-a",
+        source="test",
+    )
+    ops_log.record_ops_event(
+        event_type="AUTH_ACCOUNT_CREATED",
+        message="Provider account created",
+        provider_id="provider-b",
+        customer_id="customer-b",
+        source="test",
+    )
+
+    provider_payload = ops_log.build_admin_ops_log(limit=50, provider_id="provider-a")
+    customer_payload = ops_log.build_admin_ops_log(limit=50, customer_id="customer-b")
+
+    assert [event["providerId"] for event in provider_payload["events"]] == ["provider-a"]
+    assert [event["customerId"] for event in customer_payload["events"]] == ["customer-b"]

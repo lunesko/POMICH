@@ -85,6 +85,15 @@ type AuthAccountFormState = {
   password: string
 }
 
+type ProviderInviteState = {
+  providerId: string
+  accountId?: string
+  login?: string
+  temporaryPassword?: string
+  resetRequired?: boolean
+  status?: string
+}
+
 function createEmptyAuthAccountForm(role: AdminAuthAccount["role"] = "provider"): AuthAccountFormState {
   return {
     role,
@@ -218,12 +227,46 @@ function LoadingState({ text = "Завантажуємо…" }: { text?: string 
   return <div className="admin-loading">{text}</div>
 }
 
+function ProviderInviteBlock({ invite }: { invite: ProviderInviteState }) {
+  return (
+    <div className="admin-subpanel admin-invite-block">
+      <div className="admin-panel-head">
+        <h3>Запрошення для партнера</h3>
+        <span className={providerAuthAccountChipClass({ status: invite.status, passwordResetRequired: invite.resetRequired })}>
+          {invite.resetRequired ? "reset required" : providerAuthAccountLabel({ status: invite.status })}
+        </span>
+      </div>
+      <div className="admin-kv-grid">
+        <div><span>Account ID</span><strong>{invite.accountId || "—"}</strong></div>
+        <div><span>Логін</span><strong>{invite.login || invite.providerId}</strong></div>
+        {invite.temporaryPassword ? <div><span>Тимчасовий пароль</span><strong>{invite.temporaryPassword}</strong></div> : null}
+        <div><span>Після входу</span><strong>{invite.resetRequired ? "зміна пароля обовʼязкова" : "пароль уже постійний"}</strong></div>
+      </div>
+    </div>
+  )
+}
+
 function optionalTrim(value: string) {
   return value.trim() || undefined
 }
 
 function authAccountIdentity(account: AdminAuthAccount) {
   return account.username || account.email || account.phone || account.providerId || account.id
+}
+
+function providerAuthAccountLabel(account?: ProviderAvailability["authAccount"] | ProviderAvailability["authAccountBootstrap"] | null) {
+  if (!account) return "account missing"
+  if (account.status === "disabled") return "disabled"
+  if (account.passwordResetRequired) return "reset required"
+  if (account.status === "active") return "active"
+  return String(account.status || "active")
+}
+
+function providerAuthAccountChipClass(account?: ProviderAvailability["authAccount"] | ProviderAvailability["authAccountBootstrap"] | null) {
+  if (!account) return "admin-chip admin-chip-danger"
+  if (account.status === "disabled") return "admin-chip admin-chip-danger"
+  if (account.passwordResetRequired) return "admin-chip"
+  return "admin-chip admin-chip-brand"
 }
 
 function authAccountSettingsText(configured: boolean, active?: number, total?: number, error?: string | null) {
@@ -254,12 +297,15 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
   const [opsLog, setOpsLog] = useState<AdminOpsLog | null>(null)
   const [opsSeverity, setOpsSeverity] = useState<"all" | "error" | "warn" | "info">("all")
   const [opsOrderQuery, setOpsOrderQuery] = useState("")
+  const [opsProviderQuery, setOpsProviderQuery] = useState("")
+  const [opsCustomerQuery, setOpsCustomerQuery] = useState("")
   const [settings, setSettings] = useState<AdminSettings | null>(null)
   const [authAccounts, setAuthAccounts] = useState<AdminAuthAccount[]>([])
   const [authAccountRole, setAuthAccountRole] = useState<AuthAccountRoleFilter>("all")
   const [authAccountForm, setAuthAccountForm] = useState<AuthAccountFormState>(() => createEmptyAuthAccountForm())
   const [authAccountPasswords, setAuthAccountPasswords] = useState<Record<string, string>>({})
   const [authAccountStatus, setAuthAccountStatus] = useState<string | undefined>()
+  const [providerInvite, setProviderInvite] = useState<ProviderInviteState | undefined>()
   const [clientQuery, setClientQuery] = useState("")
   const [showGuestSessions, setShowGuestSessions] = useState(false)
   const [providerQuery, setProviderQuery] = useState("")
@@ -407,12 +453,14 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
         limit: 100,
         severity: opsSeverity,
         orderId: opsOrderQuery.trim() || undefined,
+        providerId: opsProviderQuery.trim() || undefined,
+        customerId: opsCustomerQuery.trim() || undefined,
       })
       setOpsLog(nextOpsLog)
     } catch {
       setError("Не вдалося завантажити ops-лог.")
     }
-  }, [adminAuthToken, adminPasswordResetRequired, opsSeverity, opsOrderQuery])
+  }, [adminAuthToken, adminPasswordResetRequired, opsSeverity, opsOrderQuery, opsProviderQuery, opsCustomerQuery])
 
   const refreshMapProviders = useCallback(async () => {
     if (!adminAuthToken || adminPasswordResetRequired) return
@@ -514,10 +562,39 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
     setAuthAccountStatus(undefined)
     try {
       const updated = await reviewProviderVerification(item.id, { status }, adminAuthToken)
-      setProviders((items) => items.map((providerItem) => providerItem.id === item.id ? { ...providerItem, ...updated } : providerItem))
+      const nextProvider: ProviderAvailability = updated.authAccountBootstrap
+        ? {
+            ...updated,
+            authAccount: {
+              id: updated.authAccountBootstrap.id,
+              role: "provider",
+              username: updated.authAccountBootstrap.username,
+              providerId: updated.authAccountBootstrap.providerId || item.id,
+              status: updated.authAccountBootstrap.status,
+              hasPassword: true,
+              passwordResetRequired: Boolean(updated.authAccountBootstrap.passwordResetRequired),
+            },
+          }
+        : updated
+      setProviders((items) => items.map((providerItem) => providerItem.id === item.id ? { ...providerItem, ...nextProvider } : providerItem))
       if (updated.authAccountBootstrap?.temporaryPassword) {
-        setAuthAccountStatus(`Provider account: ${updated.authAccountBootstrap.username || updated.authAccountBootstrap.providerId || item.id} · temporary password: ${updated.authAccountBootstrap.temporaryPassword}`)
+        setProviderInvite({
+          providerId: item.id,
+          accountId: updated.authAccountBootstrap.id,
+          login: updated.authAccountBootstrap.username || updated.authAccountBootstrap.providerId || item.id,
+          temporaryPassword: updated.authAccountBootstrap.temporaryPassword,
+          resetRequired: Boolean(updated.authAccountBootstrap.passwordResetRequired),
+          status: updated.authAccountBootstrap.status,
+        })
+        setAuthAccountStatus(`Запрошення для ${updated.authAccountBootstrap.username || item.id} створено.`)
       } else if (updated.authAccountBootstrap?.activated) {
+        setProviderInvite({
+          providerId: item.id,
+          accountId: updated.authAccountBootstrap.id,
+          login: updated.authAccountBootstrap.username || updated.authAccountBootstrap.providerId || item.id,
+          resetRequired: Boolean(updated.authAccountBootstrap.passwordResetRequired),
+          status: updated.authAccountBootstrap.status,
+        })
         setAuthAccountStatus(`Provider account ${updated.authAccountBootstrap.id || item.id} активовано.`)
       }
       setError(undefined)
@@ -826,7 +903,18 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
                 </div>
               </div>
               {selectedClient ? (
-                <ClientEditor client={selectedClient} saving={saving} onSave={saveClient} />
+                <ClientEditor
+                  client={selectedClient}
+                  saving={saving}
+                  onSave={saveClient}
+                  onOpenLogs={() => {
+                    setOpsOrderQuery("")
+                    setOpsProviderQuery("")
+                    setOpsCustomerQuery(selectedClient.id)
+                    setOpsSeverity("all")
+                    setSection("logs")
+                  }}
+                />
               ) : null}
             </div>
           ) : null}
@@ -846,7 +934,10 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
                         <div className="admin-muted">{provider.phone || "—"} · {providerStatusLabel(provider.status)}</div>
                         <div className="admin-muted">{toServiceKeys(provider.specialties).map(getProviderCapabilityLabel).join(" · ") || "Послуги не вказані"}</div>
                       </div>
-                      <VerificationPill status={provider.verificationStatus} />
+                      <div className="admin-activity-meta">
+                        <VerificationPill status={provider.verificationStatus} />
+                        <span className={providerAuthAccountChipClass(provider.authAccount)}>{providerAuthAccountLabel(provider.authAccount)}</span>
+                      </div>
                     </button>
                   ))}
                   {(section === "verification" ? pendingProviders : providers).length === 0 ? (
@@ -861,6 +952,14 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
                   onSave={saveProvider}
                   onVerify={(status) => setProviderVerification(selectedProvider, status)}
                   onDelete={() => removeProvider(selectedProvider.id)}
+                  onOpenLogs={() => {
+                    setOpsOrderQuery("")
+                    setOpsProviderQuery(selectedProvider.id)
+                    setOpsCustomerQuery("")
+                    setOpsSeverity("all")
+                    setSection("logs")
+                  }}
+                  invite={providerInvite?.providerId === selectedProvider.id ? providerInvite : undefined}
                   verificationMode={section === "verification"}
                 />
               ) : null}
@@ -906,6 +1005,8 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
                   }
                 }} onOpenLogs={(orderId) => {
                   setOpsOrderQuery(orderId)
+                  setOpsProviderQuery("")
+                  setOpsCustomerQuery("")
                   setOpsSeverity("all")
                   setSection("logs")
                 }} />
@@ -929,7 +1030,19 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
                       className="admin-search"
                       value={opsOrderQuery}
                       onChange={(event) => setOpsOrderQuery(event.target.value)}
-                      placeholder="Фільтр по #заявці…"
+                      placeholder="Order ID…"
+                    />
+                    <input
+                      className="admin-search"
+                      value={opsProviderQuery}
+                      onChange={(event) => setOpsProviderQuery(event.target.value)}
+                      placeholder="Provider ID…"
+                    />
+                    <input
+                      className="admin-search"
+                      value={opsCustomerQuery}
+                      onChange={(event) => setOpsCustomerQuery(event.target.value)}
+                      placeholder="Customer ID…"
                     />
                   </div>
                 </div>
@@ -966,6 +1079,7 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
                         <div className="admin-muted">
                           {item.orderId ? `#${item.orderId}` : "без заявки"}
                           {item.providerId ? ` · partner ${item.providerId}` : ""}
+                          {item.customerId ? ` · customer ${item.customerId}` : ""}
                           {item.source ? ` · ${item.source}` : ""}
                           {item.code ? ` · ${item.code}` : ""}
                         </div>
@@ -1181,7 +1295,17 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
   )
 }
 
-function ClientEditor({ client, saving, onSave }: { client: CustomerProfile; saving: boolean; onSave: (payload: Partial<CustomerProfile> & { accountStatus?: string }) => Promise<void> }) {
+function ClientEditor({
+  client,
+  saving,
+  onSave,
+  onOpenLogs,
+}: {
+  client: CustomerProfile
+  saving: boolean
+  onSave: (payload: Partial<CustomerProfile> & { accountStatus?: string }) => Promise<void>
+  onOpenLogs?: () => void
+}) {
   const [name, setName] = useState(client.name ?? "")
   const [phone, setPhone] = useState(client.phone ?? "")
   const [email, setEmail] = useState(client.email ?? "")
@@ -1202,7 +1326,10 @@ function ClientEditor({ client, saving, onSave }: { client: CustomerProfile; sav
     <div className="admin-panel admin-panel-detail">
       <div className="admin-panel-head">
         <h2>{formatCustomerDisplayName(client)}</h2>
-        <VerificationPill status={client.verificationStatus} />
+        <div className="admin-inline-actions">
+          <VerificationPill status={client.verificationStatus} />
+          {onOpenLogs ? <button className="admin-chip" onClick={onOpenLogs}>Логи</button> : null}
+        </div>
       </div>
       <div className="admin-muted admin-panel-note">ID: {client.id}{client.isGuestSession ? " · guest-сесія" : ""}</div>
       <div className="admin-form-grid">
@@ -1233,6 +1360,8 @@ function ProviderEditor({
   onSave,
   onVerify,
   onDelete,
+  onOpenLogs,
+  invite,
   verificationMode,
 }: {
   provider: ProviderAvailability
@@ -1240,6 +1369,8 @@ function ProviderEditor({
   onSave: (payload: Partial<ProviderAvailability> & { accountStatus?: string }) => Promise<void>
   onVerify: (status: "verified" | "rejected") => void
   onDelete: () => void
+  onOpenLogs?: () => void
+  invite?: ProviderInviteState
   verificationMode?: boolean
 }) {
   const [name, setName] = useState(provider.name ?? "")
@@ -1272,6 +1403,22 @@ function ProviderEditor({
               <button className="admin-chip admin-chip-danger" onClick={() => onVerify("rejected")}>Відхилити</button>
             </>
           )}
+          {onOpenLogs ? <button className="admin-chip" onClick={onOpenLogs}>Логи</button> : null}
+        </div>
+      </div>
+      {invite ? <ProviderInviteBlock invite={invite} /> : null}
+      <div className="admin-subpanel">
+        <h3>Provider account</h3>
+        <div className="admin-kv-grid">
+          <div><span>Account ID</span><strong>{provider.authAccount?.id || "не створено"}</strong></div>
+          <div><span>Логін</span><strong>{provider.authAccount?.username || provider.authAccount?.phone || provider.authAccount?.email || "—"}</strong></div>
+          <div>
+            <span>Статус</span>
+            <strong className={!provider.authAccount || provider.authAccount.status === "disabled" || provider.authAccount.passwordResetRequired ? "admin-warn" : "admin-ok"}>
+              {providerAuthAccountLabel(provider.authAccount)}
+            </strong>
+          </div>
+          <div><span>Reset required</span><strong>{provider.authAccount ? (provider.authAccount.passwordResetRequired ? "так" : "ні") : "—"}</strong></div>
         </div>
       </div>
       <div className="admin-form-grid">

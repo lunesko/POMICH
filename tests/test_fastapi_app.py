@@ -832,6 +832,7 @@ def test_admin_verifying_provider_creates_sql_provider_auth_account_and_ops_log(
         )
         provider_headers = {"Authorization": f"Bearer {provider_login.json()['accessToken']}"}
         profile = client.get("/api/providers/provider-new/profile", headers=provider_headers)
+        admin_providers = client.get("/api/admin/providers", headers=admin_headers)
         ops = client.get("/api/admin/ops-log", headers=admin_headers)
     finally:
         runtime_store.reset_runtime_store_for_tests()
@@ -850,6 +851,12 @@ def test_admin_verifying_provider_creates_sql_provider_auth_account_and_ops_log(
     assert provider_login.json()["providerId"] == "provider-new"
     assert provider_login.json()["passwordResetRequired"] is True
     assert profile.status_code == 200
+    assert admin_providers.status_code == 200
+    admin_provider = next(item for item in admin_providers.json() if item["id"] == "provider-new")
+    assert admin_provider["authAccount"]["id"] == "provider:provider-new"
+    assert admin_provider["authAccount"]["status"] == "active"
+    assert admin_provider["authAccount"]["passwordResetRequired"] is True
+    assert "temporaryPassword" not in admin_provider["authAccount"]
     assert ops.status_code == 200
     event_types = {event["type"] for event in ops.json()["events"]}
     assert {"PROVIDER_VERIFICATION_REVIEWED", "AUTH_ACCOUNT_CREATED"} <= event_types
