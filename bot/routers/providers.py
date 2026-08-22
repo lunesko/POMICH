@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import secrets
 import time
 from typing import Any
 
 from fastapi import APIRouter, Body, Header, HTTPException
 
 from bot.api_deps import (
+    auth_accounts_source,
     dispatch_conflict,
+    find_provider_account_by_provider_id,
     is_production_runtime,
     require_admin_auth,
     require_any_provider_auth,
@@ -36,7 +39,9 @@ from bot.order_store import (
     update_provider_presence,
     update_provider_profile,
 )
+from bot.ops_log import record_ops_event
 from bot.realtime import publish_order_event, publish_provider_event
+from bot.runtime_store import sql_storage_enabled, upsert_auth_account
 from bot.telegram_bot import notify_order_accepted
 
 router = APIRouter(tags=["providers"])
@@ -64,6 +69,47 @@ _MAP_MARKER_KEYS = (
 
 _MAP_CACHE: dict[str, Any] = {"ts": 0.0, "key": "", "items": None}
 _MAP_CACHE_TTL_SECONDS = 15.0
+
+
+def _public_provider_auth_bootstrap(account: dict, *, temporary_password: str | None = None, created: bool = False, activated: bool = False) -> dict:
+    payload = {
+        "id": account.get("id"),
+        "providerId": account.get("providerId"),
+        "username": account.get("username"),
+        "status": account.get("status") or "active",
+        "created": created,
+        "activated": activated,
+    }
+    if temporary_password:
+        payload["temporaryPassword"] = temporary_password
+    return payload
+
+
+def _sync_verified_provider_auth_account(provider_id: str, provider: dict) -> dict | None:
+    """When SQL auth is enabled, approved partners get an active provider login."""
+    if auth_accounts_source() not in {"sql", "mixed"} or not sql_storage_enabled():
+        return None
+    existing = find_provider_account_by_provider_id(provider_id, include_disabled=True)
+    if existing:
+        if str(existing.get("status") or "active").strip().lower() == "disabled":
+            account = upsert_auth_account("provider", {**existing, "status": "active"})
+            return _public_provider_auth_bootstrap(account, activated=True)
+        return _public_provider_auth_bootstrap(existing)
+
+    temporary_password = secrets.token_urlsafe(12)
+    username = str(provider.get("username") or provider.get("phone") or provider_id).strip() or provider_id
+    account = upsert_auth_account(
+        "provider",
+        {
+            "providerId": provider_id,
+            "username": username,
+            "phone": provider.get("phone"),
+            "email": provider.get("email"),
+            "password": temporary_password,
+            "status": "active",
+        },
+    )
+    return _public_provider_auth_bootstrap(account, temporary_password=temporary_password, created=True, activated=True)
 
 
 def public_map_marker(provider: dict) -> dict:
@@ -286,9 +332,40 @@ def provider_review_verification(
 ) -> dict:
     require_admin_auth(x_pomich_admin_token, authorization)
     try:
-        return review_provider_verification(provider_id, payload)
+        reviewed = review_provider_verification(provider_id, payload)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    status = str(reviewed.get("verificationStatus") or payload.get("status") or "").strip().lower()
+    record_ops_event(
+        event_type="PROVIDER_VERIFICATION_REVIEWED",
+        message=f"Provider verification {status or 'reviewed'}",
+        provider_id=provider_id,
+        code=status or None,
+        source="providers.verification.review",
+    )
+    if status == "verified":
+        try:
+            auth_bootstrap = _sync_verified_provider_auth_account(provider_id, reviewed)
+        except Exception as exc:  # noqa: BLE001 - review must not disappear behind account bootstrap details
+            record_ops_event(
+                event_type="AUTH_ACCOUNT_FAILED",
+                message=str(exc),
+                provider_id=provider_id,
+                code="provider_account_bootstrap_failed",
+                source="providers.verification.review",
+            )
+            raise HTTPException(status_code=500, detail="provider_auth_account_bootstrap_failed") from exc
+        if auth_bootstrap:
+            reviewed = {**reviewed, "authAccountBootstrap": auth_bootstrap}
+            if auth_bootstrap.get("created") or auth_bootstrap.get("activated"):
+                record_ops_event(
+                    event_type="AUTH_ACCOUNT_CREATED" if auth_bootstrap.get("created") else "AUTH_ACCOUNT_ACTIVATED",
+                    message="Provider auth account ready after verification",
+                    provider_id=provider_id,
+                    code=str(auth_bootstrap.get("id") or ""),
+                    source="providers.verification.review",
+                )
+    return reviewed
 
 
 @router.get("/providers/{provider_id}/orders")

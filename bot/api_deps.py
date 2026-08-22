@@ -317,6 +317,46 @@ def account_config_summary(env_name: str) -> dict:
     }
 
 
+def _provider_account_id(account: dict) -> str:
+    return str(account.get("providerId") or account.get("provider_id") or account.get("id") or "").strip()
+
+
+def provider_account_enforcement_enabled() -> bool:
+    if is_production_runtime():
+        return True
+    if load_env_account_configs("POMICH_PROVIDER_ACCOUNTS"):
+        return True
+    source = auth_accounts_source()
+    if source == "sql" and sql_storage_enabled():
+        return True
+    if source == "mixed" and sql_storage_enabled():
+        try:
+            return bool(load_account_configs("POMICH_PROVIDER_ACCOUNTS", include_disabled=True))
+        except Exception:
+            return True
+    return False
+
+
+def find_provider_account_by_provider_id(provider_id: str, *, include_disabled: bool = True) -> dict | None:
+    normalized_provider_id = str(provider_id or "").strip()
+    if not normalized_provider_id:
+        return None
+    for account in load_account_configs("POMICH_PROVIDER_ACCOUNTS", include_disabled=include_disabled):
+        if _provider_account_id(account) == normalized_provider_id:
+            return {**account, "providerId": normalized_provider_id}
+    return None
+
+
+def require_active_provider_account(provider_id: str) -> None:
+    if not provider_account_enforcement_enabled():
+        return
+    account = find_provider_account_by_provider_id(provider_id, include_disabled=True)
+    if account is None:
+        raise HTTPException(status_code=403, detail="provider_account_required")
+    if not account_config_active(account):
+        raise HTTPException(status_code=403, detail="provider_account_disabled")
+
+
 def password_matches(account: dict, password: str) -> bool:
     supplied = str(password or "")
     expected_hash = str(account.get("passwordHash") or "").strip()
@@ -455,6 +495,7 @@ def require_provider_auth(
     principal = verify_role_session(bearer_token, "provider", secret)
     if principal.subject_id != str(provider_id):
         raise HTTPException(status_code=403, detail="provider_identity_mismatch")
+    require_active_provider_account(principal.subject_id)
     return principal
 
 
@@ -567,7 +608,9 @@ def require_any_provider_auth(
     bearer_token = extract_bearer_token(authorization)
     if not bearer_token:
         raise HTTPException(status_code=401, detail="provider_session_required")
-    return verify_role_session(bearer_token, "provider", secret)
+    principal = verify_role_session(bearer_token, "provider", secret)
+    require_active_provider_account(principal.subject_id)
+    return principal
 
 
 def require_order_participant_auth(
@@ -607,6 +650,7 @@ def require_order_participant_auth(
         principal = verify_role_session(bearer_token, "provider", configured_provider_secret())
         assigned = order_assigned_provider_id(order)
         if assigned and principal.subject_id == assigned:
+            require_active_provider_account(principal.subject_id)
             return principal
         raise HTTPException(status_code=403, detail="provider_identity_mismatch")
     raise HTTPException(status_code=401, detail="auth_session_required")

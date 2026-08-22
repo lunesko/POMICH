@@ -407,6 +407,15 @@ export interface ProviderAvailability {
   assignedOrderId?: string
   verificationStatus?: VerificationStatus
   verification?: VerificationDetails
+  authAccountBootstrap?: {
+    id?: string
+    providerId?: string
+    username?: string
+    status?: 'active' | 'disabled' | string
+    created?: boolean
+    activated?: boolean
+    temporaryPassword?: string
+  }
   trustedBadges?: string[]
   updatedAt?: string
   distanceKm?: number

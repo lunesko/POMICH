@@ -326,6 +326,8 @@ export default function ProviderFlow({
   const providerAuthToken = providerAccessToken
   const [authError, setAuthError] = useState<string | undefined>()
   const [entryScreenApplied, setEntryScreenApplied] = useState(false)
+  const providerBootstrapToken = providerToken && !isAuthSessionToken(providerToken) ? providerToken : undefined
+  const providerBootstrapPending = Boolean(providerBootstrapToken && !providerAuthToken && !authError)
 
   const applyProviderSession = (session: AuthSession) => {
     const resolvedId = resolveSessionProviderId(session, providerId)
@@ -601,8 +603,8 @@ export default function ProviderFlow({
       if (customerId && customerToken) {
         return createSelfProviderSession(customerId, customerToken)
       }
-      if (providerToken) {
-        return createProviderSession(providerId, providerToken)
+      if (providerBootstrapToken) {
+        return createProviderSession(providerId, providerBootstrapToken)
       }
       throw new Error("provider_auth_missing")
     }
@@ -613,7 +615,11 @@ export default function ProviderFlow({
         applyProviderSession(session)
       })
       .catch(() => {
-        if (!cancelled && effectiveProviderRegistered) {
+        if (!cancelled && (providerBootstrapToken || effectiveProviderRegistered)) {
+          if (providerBootstrapToken && typeof window !== "undefined") {
+            window.sessionStorage.removeItem("pomichProviderToken")
+          }
+          setLoginView("login")
           setAuthError("Партнерська сесія не відкрита. Увійдіть з логіном і паролем або зверніться до диспетчера.")
         }
       })
@@ -621,7 +627,7 @@ export default function ProviderFlow({
     return () => {
       cancelled = true
     }
-  }, [customerIdForOtp, customerTokenForOtp, providerAuthToken, providerId, effectiveProviderRegistered, providerToken])
+  }, [customerIdForOtp, customerTokenForOtp, providerAuthToken, providerId, effectiveProviderRegistered, providerToken, providerBootstrapToken])
 
   useEffect(() => {
     if (step !== "verify" || !customerIdForOtp || !customerTokenForOtp) return
@@ -1428,8 +1434,8 @@ export default function ProviderFlow({
       return { token: session.accessToken, providerId: resolvedId }
     }
 
-    if (providerToken) {
-      const session = await createProviderSession(providerId, providerToken)
+    if (providerBootstrapToken && !authError) {
+      const session = await createProviderSession(providerId, providerBootstrapToken)
       const resolvedId = applyProviderSession(session)
       return { token: session.accessToken, providerId: resolvedId }
     }
@@ -1957,7 +1963,11 @@ export default function ProviderFlow({
     setLoginView("login")
   }
 
-  if (!providerAuthToken && !providerToken) {
+  if (!providerAuthToken && providerBootstrapPending) {
+    return <div className="pomich-boot-screen">Відкриваємо партнерську сесію...</div>
+  }
+
+  if (!providerAuthToken && (!providerBootstrapToken || authError)) {
     // Returning partner (server/account flag): wait for customer→provider self-session.
     // Do not use localStorage alone — that stuck first-time Mini App opens on an endless boot screen.
     if (providerRegistered && customerIdForOtp && customerTokenForOtp) {

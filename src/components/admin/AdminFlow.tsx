@@ -410,9 +410,15 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
 
   const setProviderVerification = async (item: ProviderAvailability, status: "verified" | "rejected") => {
     if (!adminAuthToken) return
+    setAuthAccountStatus(undefined)
     try {
       const updated = await reviewProviderVerification(item.id, { status }, adminAuthToken)
       setProviders((items) => items.map((providerItem) => providerItem.id === item.id ? { ...providerItem, ...updated } : providerItem))
+      if (updated.authAccountBootstrap?.temporaryPassword) {
+        setAuthAccountStatus(`Provider account: ${updated.authAccountBootstrap.username || updated.authAccountBootstrap.providerId || item.id} · temporary password: ${updated.authAccountBootstrap.temporaryPassword}`)
+      } else if (updated.authAccountBootstrap?.activated) {
+        setAuthAccountStatus(`Provider account ${updated.authAccountBootstrap.id || item.id} активовано.`)
+      }
       setError(undefined)
     } catch {
       setError("Не вдалося оновити перевірку партнера.")
@@ -603,6 +609,7 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
         </header>
 
         {error ? <div className="admin-alert admin-alert-error admin-alert-inline">{error}</div> : null}
+        {authAccountStatus && section !== "accounts" ? <div className="admin-alert admin-alert-info admin-alert-inline">{authAccountStatus}</div> : null}
 
         <div className="admin-content">
           {loading && !stats ? <LoadingState /> : null}

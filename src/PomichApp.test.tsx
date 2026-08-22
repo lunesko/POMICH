@@ -2086,6 +2086,38 @@ describe('POMICH role-based flows', () => {
     })
   })
 
+  it('falls back to provider account login when legacy provider token is rejected', async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/auth/provider/session')) {
+        return Promise.resolve({
+          ok: false,
+          status: 403,
+          json: async () => ({ detail: 'provider_bootstrap_session_disabled' }),
+        })
+      }
+      if (url.includes('/map/providers')) return Promise.resolve({ ok: true, json: async () => [] })
+      return Promise.resolve({ ok: true, json: async () => [] })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/?providerToken=legacy-provider-token')
+
+    renderApp()
+
+    expect(await screen.findByText('Вхід партнера')).toBeInTheDocument()
+    expect(await screen.findByText(/Партнерська сесія не відкрита/i)).toBeInTheDocument()
+    expect(window.sessionStorage.getItem('pomichProviderToken')).toBeNull()
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/auth/provider/session'),
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({ 'X-POMICH-Provider-Token': 'legacy-provider-token' }),
+        }),
+      )
+    })
+  })
+
   it('opens incoming offer details and accepts with price', async () => {
     const user = userEvent.setup()
     const providerSessionToken = 'pomich_auth_v1.provider-session'
@@ -2679,6 +2711,92 @@ describe('POMICH role-based flows', () => {
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
         expect.stringContaining('/orders/PM-1/status'),
+        expect.objectContaining({
+          method: 'PATCH',
+          headers: expect.objectContaining({ Authorization: `Bearer ${adminSessionToken}` }),
+        }),
+      )
+    })
+  })
+
+  it('shows provider temporary password after admin approves verification', async () => {
+    const user = userEvent.setup()
+    const adminSessionToken = 'pomich_auth_v1.admin-session'
+    const pendingProvider = {
+      id: 'provider-new',
+      name: 'Provider New',
+      phone: '+380501112233',
+      status: 'offline',
+      vehicle: 'Iveco Daily',
+      serviceRadiusKm: 12,
+      specialties: ['tow'],
+      verificationStatus: 'pending' as const,
+    }
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes('/auth/admin/session')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            role: 'admin',
+            subjectId: 'admin',
+            tokenType: 'Bearer',
+            accessToken: adminSessionToken,
+            expiresAt: Math.floor(Date.now() / 1000) + 3600,
+          }),
+        })
+      }
+      if (url.includes('/admin/stats')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            totals: { clients: 0, providers: 1, dispatchProviders: 0, directoryProviders: 0, orders: 0, activeOrders: 0, completedOrders: 0 },
+            providers: { online: 0, busy: 0, offline: 1, verified: 0, pendingVerification: 1 },
+            clients: { verified: 0, registered: 0, disabled: 0 },
+            orders: { searching: 0, assigned: 0, enRoute: 0, inProgress: 0 },
+            activity: [],
+          }),
+        })
+      }
+      if (url.includes('/admin/ops-log')) return Promise.resolve({ ok: true, json: async () => ({ events: [], counts: { error: 0, warn: 0, info: 0, total: 0 }, limit: 100 }) })
+      if (url.includes('/admin/clients')) return Promise.resolve({ ok: true, json: async () => [] })
+      if (url.includes('/admin/orders')) return Promise.resolve({ ok: true, json: async () => [] })
+      if (url.includes('/admin/providers')) return Promise.resolve({ ok: true, json: async () => [pendingProvider] })
+      if (url.includes('/admin/settings')) return Promise.resolve({ ok: true, json: async () => ({ runtime: 'dev', corsOrigins: ['*'], encryptionEnabled: false, databaseUrlConfigured: true, sqlStorageEnabled: true, storageBackend: 'sql', telegramConfigured: false, adminAccountsConfigured: true, providerAccountsConfigured: false, allowHttpPilot: false, bootstrapAuthSessionsEnabled: false, sessionTtlSeconds: 86400 }) })
+      if (url.includes('/map/providers')) return Promise.resolve({ ok: true, json: async () => [] })
+      if (url.includes('/providers/provider-new/verification/review') && init?.method === 'PATCH') {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            ...pendingProvider,
+            verificationStatus: 'verified',
+            authAccountBootstrap: {
+              id: 'provider:provider-new',
+              providerId: 'provider-new',
+              username: 'provider-new',
+              status: 'active',
+              created: true,
+              activated: true,
+              temporaryPassword: 'tmp-provider-pass',
+            },
+          }),
+        })
+      }
+      return Promise.resolve({ ok: true, json: async () => ({}) })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/?role=admin&adminToken=test-admin')
+
+    renderApp()
+
+    expect(await screen.findByText('POMICH Admin')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /Перевірка/i }))
+    await user.click(await screen.findByRole('button', { name: /Схвалити/i }))
+
+    expect(await screen.findByText(/temporary password: tmp-provider-pass/i)).toBeInTheDocument()
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/providers/provider-new/verification/review'),
         expect.objectContaining({
           method: 'PATCH',
           headers: expect.objectContaining({ Authorization: `Bearer ${adminSessionToken}` }),

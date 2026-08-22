@@ -571,6 +571,128 @@ def test_fastapi_provider_account_login_reads_sql_account(monkeypatch, tmp_path)
     assert other_profile.status_code == 403
 
 
+def test_sql_provider_account_source_requires_active_provider_account(monkeypatch, tmp_path) -> None:
+    _use_sql_runtime(monkeypatch, tmp_path)
+    monkeypatch.setenv("POMICH_AUTH_ACCOUNTS_SOURCE", "sql")
+    monkeypatch.setenv("POMICH_PROVIDER_TOKEN", PROVIDER_TOKEN)
+    order_store.save_providers([_api_provider("p-sql", 48.6218, 22.2879)])
+    client = TestClient(app)
+
+    try:
+        session = client.post("/api/auth/provider/session", headers=PROVIDER_HEADERS, json={"providerId": "p-sql"})
+        profile = client.get(
+            "/api/providers/p-sql/profile",
+            headers={"Authorization": f"Bearer {session.json()['accessToken']}"},
+        )
+    finally:
+        runtime_store.reset_runtime_store_for_tests()
+
+    assert session.status_code == 200
+    assert profile.status_code == 403
+    assert profile.json()["detail"] == "provider_account_required"
+
+
+def test_disabled_sql_provider_account_revokes_existing_provider_session(monkeypatch, tmp_path) -> None:
+    _use_sql_runtime(monkeypatch, tmp_path)
+    monkeypatch.setenv("POMICH_AUTH_ACCOUNTS_SOURCE", "sql")
+    monkeypatch.setenv("POMICH_PROVIDER_TOKEN", PROVIDER_TOKEN)
+    runtime_store.save_auth_accounts(
+        "provider",
+        [{"providerId": "p-sql", "username": "sql-partner", "password": "provider-pass"}],
+    )
+    order_store.save_providers([_api_provider("p-sql", 48.6218, 22.2879)])
+    order = order_store.save_order(
+        {"service": "tow", "status": "searching", "customerCoordinates": {"lat": 48.6208, "lng": 22.2879}},
+    )
+    order_store.dispatch_order(order["id"])
+    offer = order_store.load_offers()[0]
+    client = TestClient(app)
+
+    try:
+        login_response = client.post("/api/auth/provider/login", json={"login": "sql-partner", "password": "provider-pass"})
+        headers = {"Authorization": f"Bearer {login_response.json()['accessToken']}"}
+        profile_before_disable = client.get("/api/providers/p-sql/profile", headers=headers)
+        runtime_store.deactivate_auth_account("provider:p-sql")
+        profile_after_disable = client.get("/api/providers/p-sql/profile", headers=headers)
+        presence_after_disable = client.patch(
+            "/api/providers/p-sql/presence",
+            headers=headers,
+            json={"status": "online", "location": {"lat": 48.63, "lng": 22.27}},
+        )
+        profile_patch_after_disable = client.patch(
+            "/api/providers/p-sql/profile",
+            headers=headers,
+            json={"name": "Blocked Partner"},
+        )
+        accept_after_disable = client.post(
+            f"/api/providers/p-sql/offers/{offer['id']}/accept",
+            headers=headers,
+            json={"proposedPrice": 1200},
+        )
+    finally:
+        runtime_store.reset_runtime_store_for_tests()
+
+    assert login_response.status_code == 200
+    assert profile_before_disable.status_code == 200
+    for response in (profile_after_disable, presence_after_disable, profile_patch_after_disable, accept_after_disable):
+        assert response.status_code == 403
+        assert response.json()["detail"] == "provider_account_disabled"
+
+
+def test_admin_verifying_provider_creates_sql_provider_auth_account_and_ops_log(monkeypatch, tmp_path) -> None:
+    _use_sql_runtime(monkeypatch, tmp_path)
+    monkeypatch.setenv("POMICH_AUTH_ACCOUNTS_SOURCE", "sql")
+    monkeypatch.setenv("POMICH_ADMIN_TOKEN", ADMIN_TOKEN)
+    monkeypatch.setenv("POMICH_PROVIDER_TOKEN", PROVIDER_TOKEN)
+    provider = {
+        **_api_provider("provider-new", 48.6218, 22.2879),
+        "status": "offline",
+        "username": "provider-new",
+        "verificationStatus": "pending",
+    }
+    order_store.save_providers([provider])
+    runtime_store.save_auth_accounts(
+        "admin",
+        [{"id": "admin-dispatcher", "username": "dispatcher", "password": "admin-pass"}],
+    )
+    client = TestClient(app)
+
+    try:
+        login_response = client.post("/api/auth/admin/login", json={"username": "dispatcher", "password": "admin-pass"})
+        admin_headers = {"Authorization": f"Bearer {login_response.json()['accessToken']}"}
+        reviewed = client.patch(
+            "/api/providers/provider-new/verification/review",
+            json={"status": "verified", "reviewedBy": "dispatcher"},
+            headers=admin_headers,
+        )
+        bootstrap = reviewed.json()["authAccountBootstrap"]
+        provider_login = client.post(
+            "/api/auth/provider/login",
+            json={"login": bootstrap["username"], "password": bootstrap["temporaryPassword"]},
+        )
+        provider_headers = {"Authorization": f"Bearer {provider_login.json()['accessToken']}"}
+        profile = client.get("/api/providers/provider-new/profile", headers=provider_headers)
+        ops = client.get("/api/admin/ops-log", headers=admin_headers)
+    finally:
+        runtime_store.reset_runtime_store_for_tests()
+
+    assert login_response.status_code == 200
+    assert reviewed.status_code == 200
+    assert reviewed.json()["verificationStatus"] == "verified"
+    assert bootstrap["id"] == "provider:provider-new"
+    assert bootstrap["providerId"] == "provider-new"
+    assert bootstrap["username"] == "provider-new"
+    assert bootstrap["created"] is True
+    assert bootstrap["activated"] is True
+    assert bootstrap["temporaryPassword"]
+    assert provider_login.status_code == 200
+    assert provider_login.json()["providerId"] == "provider-new"
+    assert profile.status_code == 200
+    assert ops.status_code == 200
+    event_types = {event["type"] for event in ops.json()["events"]}
+    assert {"PROVIDER_VERIFICATION_REVIEWED", "AUTH_ACCOUNT_CREATED"} <= event_types
+
+
 def test_fastapi_admin_account_login_can_access_admin_routes(monkeypatch) -> None:
     monkeypatch.setenv("POMICH_ADMIN_TOKEN", ADMIN_TOKEN)
     monkeypatch.setenv("POMICH_ADMIN_ACCOUNTS", json.dumps([{"username": "dispatcher", "password": "admin-pass"}]))
@@ -695,6 +817,7 @@ def test_fastapi_admin_manages_sql_auth_accounts(monkeypatch, tmp_path) -> None:
             "/api/auth/provider/login",
             json={"login": "managed-partner", "password": "provider-pass-2"},
         )
+        ops = client.get("/api/admin/ops-log", headers=admin_headers)
         last_admin_delete = client.delete("/api/admin/auth/accounts/admin-dispatcher", headers=admin_headers)
     finally:
         runtime_store.reset_runtime_store_for_tests()
@@ -715,6 +838,11 @@ def test_fastapi_admin_manages_sql_auth_accounts(monkeypatch, tmp_path) -> None:
     assert [account["id"] for account in active_accounts.json()] == ["admin-dispatcher"]
     assert [account["id"] for account in all_accounts.json()] == ["admin-dispatcher", "provider:provider-managed"]
     assert disabled_login.status_code == 401
+    assert ops.status_code == 200
+    event_types = {event["type"] for event in ops.json()["events"]}
+    assert "AUTH_ACCOUNT_CREATED" in event_types
+    assert "AUTH_ACCOUNT_PASSWORD_RESET" in event_types
+    assert "AUTH_ACCOUNT_DISABLED" in event_types
     assert last_admin_delete.status_code == 409
     assert last_admin_delete.json()["detail"] == "last_admin_account"
 

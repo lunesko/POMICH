@@ -20,7 +20,7 @@ from bot.order_store import (
     merge_directory_providers,
     purge_stale_guest_customers,
 )
-from bot.ops_log import build_admin_ops_log
+from bot.ops_log import build_admin_ops_log, record_ops_event
 from bot.provider_importer import import_uzhgorod_providers, import_ukraine_providers
 from bot.runtime_store import (
     deactivate_auth_account,
@@ -61,6 +61,32 @@ def _auth_account_http_error(exc: Exception) -> HTTPException:
         status_code = 409 if str(exc) == "last_admin_account" else 400
         return HTTPException(status_code=status_code, detail=str(exc))
     return HTTPException(status_code=500, detail="auth_account_error")
+
+
+def _auth_account_target_id(role: str, payload: dict) -> str:
+    account_id = str(payload.get("id") or "").strip()
+    if account_id:
+        return account_id
+    stable_key = str(
+        payload.get("providerId")
+        or payload.get("provider_id")
+        or payload.get("username")
+        or payload.get("email")
+        or payload.get("phone")
+        or ""
+    ).strip()
+    return f"{str(role).strip().lower()}:{stable_key}".lower() if stable_key else ""
+
+
+def _record_auth_account_event(event_type: str, account: dict, *, source: str) -> None:
+    record_ops_event(
+        event_type=event_type,
+        message=f"{account.get('role')} auth account {account.get('status') or 'active'}",
+        provider_id=str(account.get("providerId") or "") or None,
+        code=str(account.get("id") or "") or None,
+        source=source,
+        extra={"accountRole": str(account.get("role") or ""), "accountStatus": str(account.get("status") or "active")},
+    )
 
 
 @router.get("/admin/stats")
@@ -184,7 +210,14 @@ def admin_upsert_auth_account(
     if not role:
         raise HTTPException(status_code=400, detail="role_required")
     try:
-        return _public_auth_account(upsert_auth_account(role, payload))
+        existing = get_auth_account(_auth_account_target_id(role, payload))
+        account = upsert_auth_account(role, payload)
+        _record_auth_account_event(
+            "AUTH_ACCOUNT_UPDATED" if existing else "AUTH_ACCOUNT_CREATED",
+            account,
+            source="admin.auth.accounts",
+        )
+        return _public_auth_account(account)
     except (KeyError, ValueError) as exc:
         raise _auth_account_http_error(exc) from exc
 
@@ -205,7 +238,9 @@ def admin_patch_auth_account(
     if payload.get("role") and str(payload.get("role")).strip().lower() != role:
         raise HTTPException(status_code=400, detail="auth_account_role_immutable")
     try:
-        return _public_auth_account(upsert_auth_account(role, {**existing, **payload, "id": account_id, "role": role}))
+        account = upsert_auth_account(role, {**existing, **payload, "id": account_id, "role": role})
+        _record_auth_account_event("AUTH_ACCOUNT_UPDATED", account, source="admin.auth.accounts.patch")
+        return _public_auth_account(account)
     except (KeyError, ValueError) as exc:
         raise _auth_account_http_error(exc) from exc
 
@@ -220,7 +255,9 @@ def admin_set_auth_account_password(
     require_admin_auth(x_pomich_admin_token, authorization)
     _require_sql_auth_accounts()
     try:
-        return _public_auth_account(set_auth_account_password(account_id, str(payload.get("password") or "")))
+        account = set_auth_account_password(account_id, str(payload.get("password") or ""))
+        _record_auth_account_event("AUTH_ACCOUNT_PASSWORD_RESET", account, source="admin.auth.accounts.password")
+        return _public_auth_account(account)
     except (KeyError, ValueError) as exc:
         raise _auth_account_http_error(exc) from exc
 
@@ -234,7 +271,9 @@ def admin_deactivate_auth_account(
     require_admin_auth(x_pomich_admin_token, authorization)
     _require_sql_auth_accounts()
     try:
-        return _public_auth_account(deactivate_auth_account(account_id))
+        account = deactivate_auth_account(account_id)
+        _record_auth_account_event("AUTH_ACCOUNT_DISABLED", account, source="admin.auth.accounts.delete")
+        return _public_auth_account(account)
     except (KeyError, ValueError) as exc:
         raise _auth_account_http_error(exc) from exc
 
