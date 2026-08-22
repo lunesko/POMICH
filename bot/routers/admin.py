@@ -352,7 +352,18 @@ def admin_patch_client(
 ) -> dict:
     require_admin_auth(x_pomich_admin_token, authorization)
     try:
-        return admin_update_customer_profile(customer_id, payload)
+        updated = admin_update_customer_profile(customer_id, payload)
+        if "linkedProviderId" in payload:
+            linked_provider_id = str(payload.get("linkedProviderId") or "").strip()
+            record_ops_event(
+                event_type="CUSTOMER_PROVIDER_LINKED" if linked_provider_id else "CUSTOMER_PROVIDER_UNLINKED",
+                message="Customer Telegram identity linked to provider" if linked_provider_id else "Customer provider link removed",
+                customer_id=customer_id,
+                provider_id=linked_provider_id or None,
+                code=linked_provider_id or "unlinked",
+                source="admin.clients.patch",
+            )
+        return updated
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

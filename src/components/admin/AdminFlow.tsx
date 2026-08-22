@@ -297,6 +297,24 @@ function providerAuthAccountChipClass(account?: ProviderAvailability["authAccoun
   return "admin-chip admin-chip-brand"
 }
 
+function customerTelegramUserId(client: CustomerProfile) {
+  const identity = client.customerIdentity
+  if (identity?.telegramUserId) return String(identity.telegramUserId)
+  const verification = client.verification && typeof client.verification === "object" ? client.verification : undefined
+  const fromVerification = verification?.telegramUserId
+  if (fromVerification) return String(fromVerification)
+  return client.id.startsWith("tg-") ? client.id.slice(3) : ""
+}
+
+function providerSelectLabel(provider: ProviderAvailability) {
+  const parts = [
+    provider.name || provider.id,
+    provider.phone,
+    provider.city,
+  ].filter(Boolean)
+  return `${provider.id} · ${parts.join(" · ")}`
+}
+
 function authAccountSettingsText(configured: boolean, active?: number, total?: number, error?: string | null) {
   if (error) return `Помилка: ${error}`
   if (typeof active === "number" && typeof total === "number") return `${active}/${total} active`
@@ -1023,8 +1041,13 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
               {selectedClient ? (
                 <ClientEditor
                   client={selectedClient}
+                  providers={providers}
                   saving={saving}
                   onSave={saveClient}
+                  onOpenProvider={(providerId) => {
+                    setSelectedProviderId(providerId)
+                    setSection("providers")
+                  }}
                   onOpenLogs={() => {
                     setOpsOrderQuery("")
                     setOpsProviderQuery("")
@@ -1417,13 +1440,17 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
 
 function ClientEditor({
   client,
+  providers,
   saving,
   onSave,
+  onOpenProvider,
   onOpenLogs,
 }: {
   client: CustomerProfile
+  providers: ProviderAvailability[]
   saving: boolean
   onSave: (payload: Partial<CustomerProfile> & { accountStatus?: string }) => Promise<void>
+  onOpenProvider?: (providerId: string) => void
   onOpenLogs?: () => void
 }) {
   const [name, setName] = useState(client.name ?? "")
@@ -1432,6 +1459,7 @@ function ClientEditor({
   const [city, setCity] = useState(client.city ?? "")
   const [verificationStatus, setVerificationStatus] = useState<VerificationStatus>(client.verificationStatus ?? "unverified")
   const [accountStatus, setAccountStatus] = useState((client as CustomerProfile & { accountStatus?: string }).accountStatus ?? "active")
+  const [linkedProviderId, setLinkedProviderId] = useState(client.linkedProviderId ?? "")
 
   useEffect(() => {
     setName(client.name ?? "")
@@ -1440,7 +1468,19 @@ function ClientEditor({
     setCity(client.city ?? "")
     setVerificationStatus(client.verificationStatus ?? "unverified")
     setAccountStatus((client as CustomerProfile & { accountStatus?: string }).accountStatus ?? "active")
+    setLinkedProviderId(client.linkedProviderId ?? "")
   }, [client])
+
+  const linkedProvider = providers.find((provider) => provider.id === linkedProviderId)
+  const knownProviderIds = new Set(providers.map((provider) => provider.id))
+  const telegramUserId = customerTelegramUserId(client)
+  const telegramUsername = client.telegram ? `@${client.telegram.replace(/^@+/, "")}` : "—"
+  const nextLinkedProviderId = linkedProviderId.trim()
+  const baseRoles = (client.rolesRegistered ?? [])
+    .filter((role): role is "customer" | "provider" => role === "customer" || role === "provider")
+    .filter((role) => role !== "provider")
+  const rolesRegistered = nextLinkedProviderId ? [...baseRoles, "provider" as const] : baseRoles
+  const preferredRole = nextLinkedProviderId ? "provider" : client.preferredRole === "provider" ? "" : client.preferredRole
 
   return (
     <div className="admin-panel admin-panel-detail">
@@ -1452,6 +1492,32 @@ function ClientEditor({
         </div>
       </div>
       <div className="admin-muted admin-panel-note">ID: {client.id}{client.isGuestSession ? " · guest-сесія" : ""}</div>
+      <div className="admin-subpanel">
+        <div className="admin-panel-head">
+          <h3>Telegram / provider link</h3>
+          {linkedProvider ? (
+            <button className="admin-chip" onClick={() => onOpenProvider?.(linkedProvider.id)}>Відкрити партнера</button>
+          ) : null}
+        </div>
+        <div className="admin-kv-grid">
+          <div><span>Telegram ID</span><strong>{telegramUserId || "—"}</strong></div>
+          <div><span>Telegram</span><strong>{telegramUsername}</strong></div>
+          <div><span>Bot channel</span><strong>{client.telegramNotificationChannel || client.telegramBotKind || "—"}</strong></div>
+          <div><span>Preferred role</span><strong>{preferredRole || "—"}</strong></div>
+        </div>
+        <label className="admin-field">
+          <span>Linked provider</span>
+          <select value={linkedProviderId} onChange={(event) => setLinkedProviderId(event.target.value)} aria-label="Linked provider">
+            <option value="">Не привʼязано</option>
+            {linkedProviderId && !knownProviderIds.has(linkedProviderId) ? (
+              <option value={linkedProviderId}>{linkedProviderId} · немає в списку</option>
+            ) : null}
+            {providers.map((provider) => (
+              <option key={provider.id} value={provider.id}>{providerSelectLabel(provider)}</option>
+            ))}
+          </select>
+        </label>
+      </div>
       <div className="admin-form-grid">
         <label className="admin-field"><span>Імʼя</span><input value={name} onChange={(event) => setName(event.target.value)} /></label>
         <label className="admin-field"><span>Телефон</span><input value={phone} onChange={(event) => setPhone(event.target.value)} /></label>
@@ -1469,7 +1535,23 @@ function ClientEditor({
           </select>
         </label>
       </div>
-      <button className="admin-primary-btn" disabled={saving} onClick={() => onSave({ name, phone, email, city, verificationStatus, accountStatus })}>{saving ? "Зберігаємо…" : "Зберегти"}</button>
+      <button
+        className="admin-primary-btn"
+        disabled={saving}
+        onClick={() => onSave({
+          name,
+          phone,
+          email,
+          city,
+          verificationStatus,
+          accountStatus,
+          linkedProviderId: nextLinkedProviderId,
+          preferredRole,
+          rolesRegistered,
+        })}
+      >
+        {saving ? "Зберігаємо…" : "Зберегти"}
+      </button>
     </div>
   )
 }

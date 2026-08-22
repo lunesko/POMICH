@@ -355,6 +355,10 @@ export interface CustomerProfile {
   preferredRole?: 'customer' | 'provider' | ''
   linkedProviderId?: string
   rolesRegistered?: Array<'customer' | 'provider'>
+  customerIdentity?: CustomerIdentity
+  telegramBotKind?: 'customer' | 'provider' | ''
+  telegramNotificationChannel?: 'customer' | 'provider' | ''
+  accountStatus?: string
   createdAt?: string
   updatedAt?: string
   displayName?: string

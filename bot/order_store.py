@@ -3590,7 +3590,19 @@ def admin_update_customer_profile(customer_id: str, data: Dict[str, Any], store_
         profiles = load_customer_profiles(path)
         now = _now_iso()
         updated: Optional[Dict[str, Any]] = None
-        editable_fields = ["name", "phone", "email", "telegram", "city", "avatarUrl", "bio", "accountStatus"]
+        editable_fields = [
+            "name",
+            "phone",
+            "email",
+            "telegram",
+            "city",
+            "avatarUrl",
+            "bio",
+            "accountStatus",
+            "preferredRole",
+            "telegramBotKind",
+            "telegramNotificationChannel",
+        ]
         for index, profile in enumerate(profiles):
             if str(profile.get("id")) != str(customer_id):
                 continue
@@ -3598,6 +3610,26 @@ def admin_update_customer_profile(customer_id: str, data: Dict[str, Any], store_
             for field in editable_fields:
                 if data.get(field) is not None:
                     payload[field] = str(data.get(field) or "").strip()
+            if data.get("linkedProviderId") is not None:
+                linked_provider_id = str(data.get("linkedProviderId") or "").strip()
+                if linked_provider_id and get_provider_profile(linked_provider_id) is None:
+                    raise ValueError("linked_provider_not_found")
+                payload["linkedProviderId"] = linked_provider_id
+                roles = payload.get("rolesRegistered") if isinstance(payload.get("rolesRegistered"), list) else []
+                normalized_roles = [str(role).strip() for role in roles if str(role).strip()]
+                if linked_provider_id:
+                    if "provider" not in normalized_roles:
+                        normalized_roles.append("provider")
+                    payload["preferredRole"] = str(data.get("preferredRole") or payload.get("preferredRole") or "provider").strip()
+                    if payload["preferredRole"] not in {"provider", "customer"}:
+                        payload["preferredRole"] = "provider"
+                else:
+                    normalized_roles = [role for role in normalized_roles if role != "provider"]
+                    if payload.get("preferredRole") == "provider":
+                        payload["preferredRole"] = ""
+                payload["rolesRegistered"] = normalized_roles
+            elif isinstance(data.get("rolesRegistered"), list):
+                payload["rolesRegistered"] = [str(role).strip() for role in data.get("rolesRegistered") if str(role).strip()]
             if data.get("verificationStatus") is not None:
                 status = normalize_verification_status(data.get("verificationStatus"), payload.get("verificationStatus"))
                 if status in VERIFICATION_STATUSES:

@@ -1530,6 +1530,43 @@ def test_admin_endpoints_require_session_and_expose_ops_data(monkeypatch, tmp_pa
     assert "corsOrigins" in settings
 
 
+def test_admin_links_telegram_customer_to_provider(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("POMICH_RUNTIME", "dev")
+    monkeypatch.setenv("POMICH_ADMIN_TOKEN", ADMIN_TOKEN)
+    monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", CUSTOMER_SESSION_SECRET)
+    _use_temp_store(monkeypatch, tmp_path)
+    provider_id = "provider-tg-77"
+    order_store.save_providers([_api_provider(provider_id, 48.6218, 22.2879)])
+    order_store.update_customer_profile(
+        "tg-77",
+        {"name": "Telegram Partner", "telegram": "partner77", "telegramBotKind": "provider"},
+    )
+    client = TestClient(app)
+    admin_headers = _admin_session_headers(client)
+
+    linked = client.patch(
+        "/api/admin/clients/tg-77",
+        headers=admin_headers,
+        json={"linkedProviderId": provider_id},
+    )
+    invalid = client.patch(
+        "/api/admin/clients/tg-77",
+        headers=admin_headers,
+        json={"linkedProviderId": "provider-missing"},
+    )
+    ops = client.get("/api/admin/ops-log?customerId=tg-77&providerId=provider-tg-77", headers=admin_headers)
+
+    assert linked.status_code == 200
+    assert linked.json()["linkedProviderId"] == provider_id
+    assert linked.json()["preferredRole"] == "provider"
+    assert "provider" in linked.json()["rolesRegistered"]
+    assert invalid.status_code == 404
+    assert invalid.json()["detail"] == "linked_provider_not_found"
+    assert ops.status_code == 200
+    event_types = {event["type"] for event in ops.json()["events"]}
+    assert "CUSTOMER_PROVIDER_LINKED" in event_types
+
+
 def test_admin_clients_decrypt_filter_and_purge_guests(monkeypatch, tmp_path) -> None:
     from bot.field_encryption import generate_encryption_key
 

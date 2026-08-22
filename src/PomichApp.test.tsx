@@ -2988,6 +2988,108 @@ describe('POMICH role-based flows', () => {
     })
   })
 
+  it('lets admin link a Telegram customer to a provider', async () => {
+    const user = userEvent.setup()
+    const adminSessionToken = 'pomich_auth_v1.admin-session'
+    const provider = {
+      id: 'provider-tg-77',
+      name: 'Partner 77',
+      phone: '+380501112233',
+      status: 'offline',
+      vehicle: 'Iveco Daily',
+      serviceRadiusKm: 12,
+      specialties: ['tow'],
+      verificationStatus: 'verified' as const,
+    }
+    let clientProfile = {
+      id: 'tg-77',
+      name: 'Telegram Partner',
+      phone: '+380501112233',
+      telegram: 'partner77',
+      city: 'Київ',
+      verificationStatus: 'verified' as const,
+      linkedProviderId: '',
+      preferredRole: 'customer' as const,
+      rolesRegistered: ['customer' as const],
+      telegramBotKind: 'provider' as const,
+      telegramNotificationChannel: 'provider' as const,
+      customerIdentity: { type: 'telegram' as const, telegramUserId: '77', username: 'partner77' },
+    }
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes('/auth/admin/session')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            role: 'admin',
+            subjectId: 'admin',
+            tokenType: 'Bearer',
+            accessToken: adminSessionToken,
+            expiresAt: Math.floor(Date.now() / 1000) + 3600,
+          }),
+        })
+      }
+      if (url.includes('/admin/stats')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            totals: { clients: 1, providers: 1, dispatchProviders: 1, directoryProviders: 0, orders: 0, activeOrders: 0, completedOrders: 0 },
+            providers: { online: 0, busy: 0, offline: 1, verified: 1, pendingVerification: 0 },
+            clients: { verified: 1, registered: 1, disabled: 0 },
+            orders: { searching: 0, assigned: 0, enRoute: 0, inProgress: 0 },
+            activity: [],
+          }),
+        })
+      }
+      if (url.includes('/admin/clients/tg-77') && init?.method === 'PATCH') {
+        const payload = JSON.parse(String(init.body))
+        clientProfile = { ...clientProfile, ...payload }
+        return Promise.resolve({ ok: true, json: async () => clientProfile })
+      }
+      if (url.includes('/admin/ops-log')) return Promise.resolve({ ok: true, json: async () => ({ events: [], counts: { error: 0, warn: 0, info: 0, total: 0 }, limit: 100 }) })
+      if (url.includes('/admin/clients')) return Promise.resolve({ ok: true, json: async () => [clientProfile] })
+      if (url.includes('/admin/providers')) return Promise.resolve({ ok: true, json: async () => [provider] })
+      if (url.includes('/admin/orders')) return Promise.resolve({ ok: true, json: async () => [] })
+      if (url.includes('/admin/settings')) return Promise.resolve({ ok: true, json: async () => ({ runtime: 'dev', corsOrigins: ['*'], encryptionEnabled: false, databaseUrlConfigured: true, sqlStorageEnabled: true, storageBackend: 'sql', telegramConfigured: true, adminAccountsConfigured: true, providerAccountsConfigured: true, allowHttpPilot: false, bootstrapAuthSessionsEnabled: false, sessionTtlSeconds: 86400 }) })
+      if (url.includes('/map/providers')) return Promise.resolve({ ok: true, json: async () => [] })
+      return Promise.resolve({ ok: true, json: async () => ({}) })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/?role=admin&adminToken=test-admin')
+
+    renderApp()
+
+    expect(await screen.findByText('POMICH Admin')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /Клієнти/i }))
+    expect(await screen.findByText('Telegram / provider link')).toBeInTheDocument()
+    expect(screen.getByText('77')).toBeInTheDocument()
+    await user.selectOptions(screen.getByLabelText('Linked provider'), 'provider-tg-77')
+    await user.click(screen.getByRole('button', { name: /^Зберегти$/i }))
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/admin/clients/tg-77'),
+        expect.objectContaining({
+          method: 'PATCH',
+          headers: expect.objectContaining({ Authorization: `Bearer ${adminSessionToken}` }),
+          body: expect.stringContaining('"linkedProviderId":"provider-tg-77"'),
+        }),
+      )
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/admin/clients/tg-77'),
+        expect.objectContaining({
+          body: expect.stringContaining('"preferredRole":"provider"'),
+        }),
+      )
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/admin/clients/tg-77'),
+        expect.objectContaining({
+          body: expect.stringContaining('"rolesRegistered":["customer","provider"]'),
+        }),
+      )
+    })
+  })
+
   it('opens admin login from #admin hash on initial load', async () => {
     window.history.pushState({}, '', '/#admin')
 
