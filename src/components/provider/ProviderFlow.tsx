@@ -16,6 +16,7 @@ import {
   retryDispatch,
   setUserPreferredRole,
   submitOrderReview,
+  updateProviderAccountPassword,
   updateProviderOrderStatus,
   updateProviderPresence,
   updateProviderProfile,
@@ -75,6 +76,7 @@ import {
   readAuthSessionSubject,
   readPersistedCustomerId,
   readStoredAuthSession,
+  readStoredAuthSessionPayload,
   readStoredCustomerAuthSession,
   storeAuthSession,
 } from "../../lib/auth"
@@ -323,6 +325,13 @@ export default function ProviderFlow({
     if (isAuthSessionToken(providerToken)) return providerToken
     return readStoredAuthSession(authSessionStorageKey("provider", getActiveProviderId()), "provider", getActiveProviderId())
   })
+  const [providerPasswordResetRequired, setProviderPasswordResetRequired] = useState(() => {
+    const activeId = isAuthSessionToken(providerToken)
+      ? readAuthSessionSubject(providerToken) || getActiveProviderId()
+      : getActiveProviderId()
+    const session = readStoredAuthSessionPayload(authSessionStorageKey("provider", activeId), "provider", activeId)
+    return typeof session === "object" && Boolean(session.passwordResetRequired)
+  })
   const providerAuthToken = providerAccessToken
   const [authError, setAuthError] = useState<string | undefined>()
   const [entryScreenApplied, setEntryScreenApplied] = useState(false)
@@ -337,12 +346,17 @@ export default function ProviderFlow({
     }
     storeAuthSession(authSessionStorageKey("provider", resolvedId || providerId), session)
     setProviderAccessToken(session.accessToken)
+    setProviderPasswordResetRequired(Boolean(session.passwordResetRequired))
     setAuthError(undefined)
     return resolvedId || providerId
   }
   const [accountLogin, setAccountLogin] = useState(providerId)
   const [accountPassword, setAccountPassword] = useState("")
   const [authSaving, setAuthSaving] = useState(false)
+  const [newAccountPassword, setNewAccountPassword] = useState("")
+  const [newAccountPasswordConfirm, setNewAccountPasswordConfirm] = useState("")
+  const [passwordResetSaving, setPasswordResetSaving] = useState(false)
+  const [passwordResetError, setPasswordResetError] = useState<string | undefined>()
   const [loginView, setLoginView] = useState<"login" | "register">(() => (effectiveProviderRegistered ? "login" : "register"))
   const persistedActiveOrder = typeof window !== "undefined" ? readActiveOrder() : undefined
   const [step, setStep] = useState<"register" | "verify" | "duty" | "offer" | "awaiting_price" | "navigation" | "arrived" | "completed">(() => {
@@ -1777,6 +1791,46 @@ export default function ProviderFlow({
     }
   }
 
+  const completeProviderPasswordReset = async () => {
+    if (!providerAuthToken) return
+    const nextPassword = newAccountPassword.trim()
+    setPasswordResetError(undefined)
+    if (nextPassword.length < 8) {
+      setPasswordResetError("Пароль має містити щонайменше 8 символів.")
+      return
+    }
+    if (nextPassword !== newAccountPasswordConfirm.trim()) {
+      setPasswordResetError("Паролі не збігаються.")
+      return
+    }
+    setPasswordResetSaving(true)
+    try {
+      await updateProviderAccountPassword({ newPassword: nextPassword }, providerAuthToken)
+      const subject = readAuthSessionSubject(providerAuthToken) || providerId
+      const storageKey = authSessionStorageKey("provider", subject)
+      const stored = readStoredAuthSessionPayload(storageKey, "provider", subject)
+      const updatedSession: AuthSession = typeof stored === "object"
+        ? { ...stored, passwordResetRequired: false }
+        : {
+            role: "provider",
+            subjectId: subject,
+            providerId: subject,
+            tokenType: "Bearer",
+            accessToken: providerAuthToken,
+            expiresAt: Math.floor(Date.now() / 1000) + 3600,
+            passwordResetRequired: false,
+          }
+      storeAuthSession(storageKey, updatedSession)
+      setProviderPasswordResetRequired(false)
+      setNewAccountPassword("")
+      setNewAccountPasswordConfirm("")
+    } catch (error) {
+      setPasswordResetError(error instanceof Error ? error.message : "Не вдалося змінити пароль партнера.")
+    } finally {
+      setPasswordResetSaving(false)
+    }
+  }
+
   useEffect(() => {
     if (!activeOrder?.id) return
     let cancelled = false
@@ -2004,6 +2058,50 @@ export default function ProviderFlow({
           setLoginView("register")
         }}
       />
+    )
+  }
+
+  if (providerAuthToken && providerPasswordResetRequired) {
+    return (
+      <ScreenLayout
+        className="pomich-screen-layout--form"
+        footer={
+          <PrimaryButton
+            label="Оновити пароль"
+            loadingLabel="Оновлюємо..."
+            loading={passwordResetSaving}
+            disabled={!newAccountPassword.trim() || !newAccountPasswordConfirm.trim()}
+            onClick={completeProviderPasswordReset}
+          />
+        }
+      >
+        <Header title="Оновіть пароль" subtitle="Задайте постійний пароль для акаунта партнера" />
+        <FormContainer>
+          <div className="pomich-form-card">
+            <label style={{ display: "grid", gap: 6 }}>
+              <span className="pomich-form-label">Новий пароль</span>
+              <input
+                value={newAccountPassword}
+                onChange={(event) => setNewAccountPassword(event.target.value)}
+                type="password"
+                autoComplete="new-password"
+                className="pomich-form-input"
+              />
+            </label>
+            <label style={{ display: "grid", gap: 6 }}>
+              <span className="pomich-form-label">Повторіть пароль</span>
+              <input
+                value={newAccountPasswordConfirm}
+                onChange={(event) => setNewAccountPasswordConfirm(event.target.value)}
+                type="password"
+                autoComplete="new-password"
+                className="pomich-form-input"
+              />
+            </label>
+          </div>
+          {passwordResetError ? <div className="pomich-form-error">{passwordResetError}</div> : null}
+        </FormContainer>
+      </ScreenLayout>
     )
   }
 

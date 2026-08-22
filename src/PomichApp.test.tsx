@@ -2118,6 +2118,90 @@ describe('POMICH role-based flows', () => {
     })
   })
 
+  it('forces provider password update after temporary password login', async () => {
+    const user = userEvent.setup()
+    const providerSessionToken = 'pomich_auth_v1.provider-session'
+    const completedProvider = {
+      id: 'provider-oleksandr',
+      name: 'Олександр',
+      phone: '+380671112233',
+      city: 'Ужгород',
+      vehicle: 'Volkswagen Crafter',
+      plate: 'BX5874HX',
+      registeredAt: '2026-08-09T00:00:00',
+      verificationStatus: 'verified',
+      specialties: ['tow', 'fuel'],
+      serviceRadiusKm: 9,
+      status: 'offline',
+    }
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes('/auth/provider/session')) {
+        return Promise.resolve({
+          ok: false,
+          status: 403,
+          json: async () => ({ detail: 'provider_bootstrap_session_disabled' }),
+        })
+      }
+      if (url.includes('/auth/provider/login')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            role: 'provider',
+            subjectId: 'provider-oleksandr',
+            providerId: 'provider-oleksandr',
+            tokenType: 'Bearer',
+            accessToken: providerSessionToken,
+            expiresAt: Math.floor(Date.now() / 1000) + 3600,
+            username: 'provider-oleksandr',
+            passwordResetRequired: true,
+          }),
+        })
+      }
+      if (url.includes('/auth/provider/password')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ ok: true, providerId: 'provider-oleksandr', passwordResetRequired: false }),
+        })
+      }
+      if (url.includes('/providers/provider-oleksandr/profile')) {
+        return Promise.resolve({ ok: true, json: async () => completedProvider })
+      }
+      if (url.endsWith('/providers')) {
+        return Promise.resolve({ ok: true, json: async () => [completedProvider] })
+      }
+      if (url.includes('/map/providers')) return Promise.resolve({ ok: true, json: async () => [] })
+      return Promise.resolve({ ok: true, json: async () => [] })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/?providerToken=legacy-provider-token')
+
+    renderApp()
+
+    expect(await screen.findByText('Вхід партнера')).toBeInTheDocument()
+    await user.type(screen.getByLabelText('Пароль'), 'temporary-pass')
+    await user.click(screen.getByRole('button', { name: /^Увійти$/i }))
+
+    expect(await screen.findByText('Оновіть пароль')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /^Кабінет$/i }))
+    expect(await screen.findByText('Оновіть пароль')).toBeInTheDocument()
+    await user.type(screen.getByLabelText('Новий пароль'), 'provider-pass-2')
+    await user.type(screen.getByLabelText('Повторіть пароль'), 'provider-pass-2')
+    await user.click(screen.getByRole('button', { name: /Оновити пароль/i }))
+
+    expect(await screen.findByText('Партнер POMICH')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/auth/provider/password'),
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({ Authorization: `Bearer ${providerSessionToken}` }),
+          body: expect.stringContaining('"newPassword":"provider-pass-2"'),
+        }),
+      )
+    })
+  })
+
   it('opens incoming offer details and accepts with price', async () => {
     const user = userEvent.setup()
     const providerSessionToken = 'pomich_auth_v1.provider-session'

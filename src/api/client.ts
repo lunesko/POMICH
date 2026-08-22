@@ -572,6 +572,20 @@ export async function createProviderAccountSession(providerId: string, login: st
   return response.json() as Promise<AuthSession>
 }
 
+export async function updateProviderAccountPassword(payload: { newPassword: string; currentPassword?: string }, providerToken?: string) {
+  const response = await fetch(`${getBaseUrl()}/auth/provider/password`, {
+    method: 'POST',
+    headers: providerJsonHeaders(providerToken),
+    body: JSON.stringify(payload),
+  })
+
+  if (!response.ok) {
+    throw new Error(await parseApiError(response, 'Не вдалося змінити пароль партнера.'))
+  }
+
+  return response.json() as Promise<{ ok: boolean; providerId: string; passwordResetRequired: boolean }>
+}
+
 export async function createGuestCustomerSession(customerId?: string) {
   const response = await fetchApi(`${getBaseUrl()}/auth/customer/guest/session`, {
     method: 'POST',

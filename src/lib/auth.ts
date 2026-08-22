@@ -39,7 +39,7 @@ export function authSessionStorageKey(role: "admin" | "provider" | "customer", s
   return `pomichAuthSession:${role}:${subjectId}`
 }
 
-export function readStoredAuthSession(storageKey: string, expectedRole: "admin" | "provider" | "customer", expectedSubjectId: string) {
+export function readStoredAuthSessionPayload(storageKey: string, expectedRole: "admin" | "provider" | "customer", expectedSubjectId: string): AuthSession | string | undefined {
   if (typeof window === "undefined") return undefined
   const rawValue = window.sessionStorage.getItem(storageKey)
   if (!rawValue) return undefined
@@ -51,12 +51,17 @@ export function readStoredAuthSession(storageKey: string, expectedRole: "admin" 
       window.sessionStorage.removeItem(storageKey)
       return undefined
     }
-    return session.accessToken
+    return session as AuthSession
   } catch {
     if (isAuthSessionToken(rawValue)) return rawValue
     window.sessionStorage.removeItem(storageKey)
     return undefined
   }
+}
+
+export function readStoredAuthSession(storageKey: string, expectedRole: "admin" | "provider" | "customer", expectedSubjectId: string) {
+  const session = readStoredAuthSessionPayload(storageKey, expectedRole, expectedSubjectId)
+  return typeof session === "string" ? session : session?.accessToken
 }
 
 export const CUSTOMER_ID_STORAGE_KEY = "pomichCustomerId"

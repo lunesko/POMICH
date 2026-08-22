@@ -9,16 +9,20 @@ from bot.api_deps import (
     configured_admin_secret,
     configured_customer_secret,
     configured_provider_secret,
+    find_provider_account_by_provider_id,
     find_admin_account,
     find_provider_account,
     issue_role_session,
     otp_http_detail,
     otp_http_status,
+    password_matches,
     require_active_provider_account,
+    require_any_provider_auth,
     require_customer_auth,
     require_customer_auth_from_bearer,
     verify_init_data_or_raise,
 )
+from bot.ops_log import record_ops_event
 from bot.order_store import (
     build_user_account_status,
     ensure_linked_provider_profile,
@@ -31,6 +35,7 @@ from bot.order_store import (
     upsert_telegram_customer_profile,
 )
 from bot.otp_verification import OtpVerificationError, confirm_customer_verification_code, send_customer_verification_code
+from bot.runtime_store import set_auth_account_password
 from bot.telegram_config import normalize_telegram_bot_kind
 
 router = APIRouter(tags=["auth"])
@@ -120,6 +125,33 @@ def create_provider_account_session(payload: dict) -> dict:
     session["username"] = str(account.get("username") or login)
     session["passwordResetRequired"] = bool(account.get("passwordResetRequired"))
     return session
+
+
+@router.post("/auth/provider/password")
+def update_provider_account_password(payload: dict, authorization: str | None = Header(default=None)) -> dict:
+    principal = require_any_provider_auth(authorization)
+    account = find_provider_account_by_provider_id(principal.subject_id, include_disabled=False)
+    if account is None:
+        raise HTTPException(status_code=403, detail="provider_account_required")
+    new_password = str(payload.get("newPassword") or payload.get("password") or "").strip()
+    if len(new_password) < 8:
+        raise HTTPException(status_code=400, detail="password_too_short")
+    reset_required = bool(account.get("passwordResetRequired"))
+    current_password = str(payload.get("currentPassword") or "").strip()
+    if not reset_required:
+        if not current_password:
+            raise HTTPException(status_code=400, detail="current_password_required")
+        if not password_matches(account, current_password):
+            raise HTTPException(status_code=401, detail="current_password_invalid")
+    updated = set_auth_account_password(str(account.get("id") or ""), new_password, reset_required=False)
+    record_ops_event(
+        event_type="AUTH_ACCOUNT_PASSWORD_COMPLETED",
+        message="Provider auth account password changed",
+        provider_id=principal.subject_id,
+        code=str(updated.get("id") or ""),
+        source="auth.provider.password",
+    )
+    return {"ok": True, "providerId": principal.subject_id, "passwordResetRequired": False}
 
 
 @router.post("/auth/customer/guest/session")

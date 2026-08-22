@@ -675,6 +675,72 @@ def test_disabled_sql_provider_account_revokes_existing_provider_session(monkeyp
         assert response.json()["detail"] == "provider_account_disabled"
 
 
+def test_provider_completes_temporary_password_reset(monkeypatch, tmp_path) -> None:
+    _use_sql_runtime(monkeypatch, tmp_path)
+    monkeypatch.setenv("POMICH_AUTH_ACCOUNTS_SOURCE", "sql")
+    monkeypatch.setenv("POMICH_ADMIN_TOKEN", ADMIN_TOKEN)
+    monkeypatch.setenv("POMICH_PROVIDER_TOKEN", PROVIDER_TOKEN)
+    runtime_store.save_auth_accounts(
+        "provider",
+        [{"providerId": "p-reset", "username": "reset-partner", "password": "temporary-pass", "passwordResetRequired": True}],
+    )
+    runtime_store.save_auth_accounts(
+        "admin",
+        [{"id": "admin-dispatcher", "username": "dispatcher", "password": "admin-pass"}],
+    )
+    order_store.save_providers([_api_provider("p-reset", 48.6218, 22.2879)])
+    client = TestClient(app)
+
+    try:
+        temporary_login = client.post("/api/auth/provider/login", json={"login": "reset-partner", "password": "temporary-pass"})
+        provider_headers = {"Authorization": f"Bearer {temporary_login.json()['accessToken']}"}
+        missing_current_not_required = client.post(
+            "/api/auth/provider/password",
+            headers=provider_headers,
+            json={"newPassword": "provider-pass-2"},
+        )
+        old_login = client.post("/api/auth/provider/login", json={"login": "reset-partner", "password": "temporary-pass"})
+        permanent_login = client.post("/api/auth/provider/login", json={"login": "reset-partner", "password": "provider-pass-2"})
+        provider_headers = {"Authorization": f"Bearer {permanent_login.json()['accessToken']}"}
+        missing_current_blocked = client.post(
+            "/api/auth/provider/password",
+            headers=provider_headers,
+            json={"newPassword": "provider-pass-3"},
+        )
+        wrong_current_blocked = client.post(
+            "/api/auth/provider/password",
+            headers=provider_headers,
+            json={"currentPassword": "wrong-password", "newPassword": "provider-pass-3"},
+        )
+        current_password_changed = client.post(
+            "/api/auth/provider/password",
+            headers=provider_headers,
+            json={"currentPassword": "provider-pass-2", "newPassword": "provider-pass-3"},
+        )
+        final_login = client.post("/api/auth/provider/login", json={"login": "reset-partner", "password": "provider-pass-3"})
+        admin_login = client.post("/api/auth/admin/login", json={"username": "dispatcher", "password": "admin-pass"})
+        admin_headers = {"Authorization": f"Bearer {admin_login.json()['accessToken']}"}
+        ops = client.get("/api/admin/ops-log", headers=admin_headers)
+    finally:
+        runtime_store.reset_runtime_store_for_tests()
+
+    assert temporary_login.status_code == 200
+    assert temporary_login.json()["passwordResetRequired"] is True
+    assert missing_current_not_required.status_code == 200
+    assert missing_current_not_required.json()["passwordResetRequired"] is False
+    assert old_login.status_code == 401
+    assert permanent_login.status_code == 200
+    assert permanent_login.json()["passwordResetRequired"] is False
+    assert missing_current_blocked.status_code == 400
+    assert missing_current_blocked.json()["detail"] == "current_password_required"
+    assert wrong_current_blocked.status_code == 401
+    assert wrong_current_blocked.json()["detail"] == "current_password_invalid"
+    assert current_password_changed.status_code == 200
+    assert final_login.status_code == 200
+    event_types = {event["type"] for event in ops.json()["events"]}
+    assert "AUTH_ACCOUNT_PASSWORD_COMPLETED" in event_types
+
+
 def test_admin_verifying_provider_creates_sql_provider_auth_account_and_ops_log(monkeypatch, tmp_path) -> None:
     _use_sql_runtime(monkeypatch, tmp_path)
     monkeypatch.setenv("POMICH_AUTH_ACCOUNTS_SOURCE", "sql")

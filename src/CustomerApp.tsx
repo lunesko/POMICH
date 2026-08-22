@@ -32,6 +32,7 @@ import {
   readAuthSessionSubject,
   readPersistedCustomerId,
   readStoredAuthSession,
+  readStoredAuthSessionPayload,
   readStoredCustomerAuthSession,
   resolveSessionMismatchWarning,
 } from "./lib/auth"
@@ -706,10 +707,24 @@ export default function CustomerApp() {
 
   if (showCabinet && role === "provider") {
     const cabinetProviderId = getActiveProviderId()
+    const cabinetStoredSession =
+      typeof window !== "undefined"
+        ? readStoredAuthSessionPayload(authSessionStorageKey("provider", cabinetProviderId), "provider", cabinetProviderId)
+        : undefined
+    if (typeof cabinetStoredSession === "object" && cabinetStoredSession.passwordResetRequired) {
+      return (
+        <FlowSuspense>
+          <ProviderFlow
+            providerRegistered={account ? isReturningPartner(account) : false}
+            initialScreen={providerEntryScreen}
+            onLogout={handleLogout}
+            onRestoreAccount={restorePartnerAccount}
+          />
+        </FlowSuspense>
+      )
+    }
     const cabinetProviderToken =
-      (typeof window !== "undefined"
-        ? readStoredAuthSession(authSessionStorageKey("provider", cabinetProviderId), "provider", cabinetProviderId)
-        : undefined) ??
+      (typeof cabinetStoredSession === "string" ? cabinetStoredSession : cabinetStoredSession?.accessToken) ??
       (isAuthSessionToken(providerToken) ? providerToken : undefined)
     const cachedProviderProfile = readCachedProviderProfile(cabinetProviderId)
     return (
