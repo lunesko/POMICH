@@ -347,7 +347,7 @@ def find_provider_account_by_provider_id(provider_id: str, *, include_disabled: 
     return None
 
 
-def require_active_provider_account(provider_id: str) -> None:
+def require_active_provider_account(provider_id: str, *, allow_password_reset_required: bool = False) -> None:
     if not provider_account_enforcement_enabled():
         return
     account = find_provider_account_by_provider_id(provider_id, include_disabled=True)
@@ -355,6 +355,8 @@ def require_active_provider_account(provider_id: str) -> None:
         raise HTTPException(status_code=403, detail="provider_account_required")
     if not account_config_active(account):
         raise HTTPException(status_code=403, detail="provider_account_disabled")
+    if bool(account.get("passwordResetRequired")) and not allow_password_reset_required:
+        raise HTTPException(status_code=403, detail="provider_password_reset_required")
 
 
 def password_matches(account: dict, password: str) -> bool:
@@ -602,6 +604,8 @@ def order_assigned_provider_id(order: dict | None) -> str:
 def require_any_provider_auth(
     authorization: str | None = None,
     x_pomich_provider_token: str | None = None,
+    *,
+    allow_password_reset_required: bool = False,
 ) -> AuthPrincipal:
     """Any valid provider session (not tied to a path provider_id)."""
     secret = configured_provider_secret()
@@ -609,7 +613,7 @@ def require_any_provider_auth(
     if not bearer_token:
         raise HTTPException(status_code=401, detail="provider_session_required")
     principal = verify_role_session(bearer_token, "provider", secret)
-    require_active_provider_account(principal.subject_id)
+    require_active_provider_account(principal.subject_id, allow_password_reset_required=allow_password_reset_required)
     return principal
 
 

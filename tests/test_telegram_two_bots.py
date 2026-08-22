@@ -397,6 +397,71 @@ def test_provider_bot_linked_disabled_account_cannot_open_self_session(two_bots,
     assert self_session.json()["detail"] == "provider_account_disabled"
 
 
+def test_provider_bot_linked_reset_required_account_cannot_open_self_session(two_bots, monkeypatch, tmp_path):
+    monkeypatch.setenv("POMICH_RUNTIME", "dev")
+    monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", "local-customer-session-secret-for-tests-xx")
+    monkeypatch.setenv("POMICH_PROVIDER_TOKEN", "local-provider-session-secret-for-tests")
+    monkeypatch.setenv("POMICH_STORAGE_BACKEND", "json")
+    monkeypatch.setenv("POMICH_CUSTOMER_STORE_PATH", str(tmp_path / "customers.json"))
+    monkeypatch.setenv("POMICH_PROVIDER_STORE_PATH", str(tmp_path / "providers.json"))
+    monkeypatch.setenv("POMICH_PROVIDER_ACCOUNTS", json.dumps([
+        {
+            "id": "provider-account-99",
+            "providerId": "provider-tg-99",
+            "username": "partner99",
+            "password": "temporary-pass",
+            "status": "active",
+            "passwordResetRequired": True,
+        },
+    ]))
+    order_store.save_providers([
+        {
+            "id": "provider-tg-99",
+            "name": "Partner 99",
+            "phone": "+380501112233",
+            "vehicle": "Renault Master",
+            "plate": "AA1234BB",
+            "specialties": ["tow"],
+            "verificationStatus": "verified",
+            "registeredAt": "2026-08-22T12:00:00",
+        },
+    ])
+    from bot.fastapi_app import app
+
+    provider_token = TWO_BOT_ENV["TELEGRAM_PROVIDER_BOT_TOKEN"]
+    init_data = _signed_init_data(
+        {
+            "auth_date": str(int(time.time())),
+            "user": json.dumps({"id": 99, "first_name": "Partner", "username": "p99"}, separators=(",", ":")),
+        },
+        provider_token,
+    )
+    http = TestClient(app)
+
+    response = http.post(
+        "/api/auth/customer/telegram/session",
+        headers={
+            "X-Telegram-Init-Data": init_data,
+            "X-POMICH-Telegram-Bot": "provider",
+        },
+    )
+    body = response.json()
+    self_session = http.post(
+        "/api/auth/provider/self/session",
+        headers={"Authorization": f"Bearer {body['accessToken']}"},
+        json={"customerId": body["customerId"]},
+    )
+
+    assert response.status_code == 200
+    assert body["providerAccount"]["linked"] is True
+    assert body["providerAccount"]["canOpenProviderSession"] is False
+    assert body["providerAccount"]["authAccount"]["status"] == "active"
+    assert body["providerAccount"]["authAccount"]["active"] is True
+    assert body["providerAccount"]["authAccount"]["passwordResetRequired"] is True
+    assert self_session.status_code == 403
+    assert self_session.json()["detail"] == "provider_password_reset_required"
+
+
 def test_notify_order_created_uses_customer_bot(two_bots):
     fake = FakeTelegramClient(kind="customer")
     with patch("bot.telegram_bot.TelegramBotClient", return_value=fake) as ctor:

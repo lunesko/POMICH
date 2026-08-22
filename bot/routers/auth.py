@@ -107,12 +107,13 @@ def _provider_account_summary(customer_id: str, profile: dict | None = None) -> 
     account_status = str((account or {}).get("status") or "").strip().lower()
     if not account:
         account_status = "missing" if account_required else "not_configured"
+    password_reset_required = bool((account or {}).get("passwordResetRequired"))
     auth_account = {
         "id": str((account or {}).get("id") or "").strip() or None,
         "username": str((account or {}).get("username") or "").strip() or None,
         "status": account_status,
         "active": account_active or (not account_required and not account),
-        "passwordResetRequired": bool((account or {}).get("passwordResetRequired")),
+        "passwordResetRequired": password_reset_required,
         "required": account_required,
     }
     return {
@@ -120,7 +121,9 @@ def _provider_account_summary(customer_id: str, profile: dict | None = None) -> 
         "providerId": provider_id if linked else (provider_id or None),
         "verificationStatus": verification_status if linked else "unverified",
         "authAccount": auth_account,
-        "canOpenProviderSession": bool(linked and verification_status == "verified" and auth_account["active"]),
+        "canOpenProviderSession": bool(
+            linked and verification_status == "verified" and auth_account["active"] and not password_reset_required
+        ),
     }
 
 
@@ -218,7 +221,7 @@ def request_provider_account_password_reset(payload: dict) -> dict:
 
 @router.post("/auth/provider/password")
 def update_provider_account_password(payload: dict, authorization: str | None = Header(default=None)) -> dict:
-    principal = require_any_provider_auth(authorization)
+    principal = require_any_provider_auth(authorization, allow_password_reset_required=True)
     account = find_provider_account_by_provider_id(principal.subject_id, include_disabled=False)
     if account is None:
         raise HTTPException(status_code=403, detail="provider_account_required")

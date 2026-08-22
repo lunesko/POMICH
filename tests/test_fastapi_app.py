@@ -694,6 +694,7 @@ def test_provider_completes_temporary_password_reset(monkeypatch, tmp_path) -> N
     try:
         temporary_login = client.post("/api/auth/provider/login", json={"login": "reset-partner", "password": "temporary-pass"})
         provider_headers = {"Authorization": f"Bearer {temporary_login.json()['accessToken']}"}
+        profile_while_reset_required = client.get("/api/providers/p-reset/profile", headers=provider_headers)
         missing_current_not_required = client.post(
             "/api/auth/provider/password",
             headers=provider_headers,
@@ -702,6 +703,7 @@ def test_provider_completes_temporary_password_reset(monkeypatch, tmp_path) -> N
         old_login = client.post("/api/auth/provider/login", json={"login": "reset-partner", "password": "temporary-pass"})
         permanent_login = client.post("/api/auth/provider/login", json={"login": "reset-partner", "password": "provider-pass-2"})
         provider_headers = {"Authorization": f"Bearer {permanent_login.json()['accessToken']}"}
+        profile_after_reset = client.get("/api/providers/p-reset/profile", headers=provider_headers)
         missing_current_blocked = client.post(
             "/api/auth/provider/password",
             headers=provider_headers,
@@ -726,11 +728,14 @@ def test_provider_completes_temporary_password_reset(monkeypatch, tmp_path) -> N
 
     assert temporary_login.status_code == 200
     assert temporary_login.json()["passwordResetRequired"] is True
+    assert profile_while_reset_required.status_code == 403
+    assert profile_while_reset_required.json()["detail"] == "provider_password_reset_required"
     assert missing_current_not_required.status_code == 200
     assert missing_current_not_required.json()["passwordResetRequired"] is False
     assert old_login.status_code == 401
     assert permanent_login.status_code == 200
     assert permanent_login.json()["passwordResetRequired"] is False
+    assert profile_after_reset.status_code == 200
     assert missing_current_blocked.status_code == 400
     assert missing_current_blocked.json()["detail"] == "current_password_required"
     assert wrong_current_blocked.status_code == 401
@@ -896,7 +901,8 @@ def test_admin_verifying_provider_creates_sql_provider_auth_account_and_ops_log(
     assert provider_login.status_code == 200
     assert provider_login.json()["providerId"] == "provider-new"
     assert provider_login.json()["passwordResetRequired"] is True
-    assert profile.status_code == 200
+    assert profile.status_code == 403
+    assert profile.json()["detail"] == "provider_password_reset_required"
     assert admin_providers.status_code == 200
     admin_provider = next(item for item in admin_providers.json() if item["id"] == "provider-new")
     assert admin_provider["authAccount"]["id"] == "provider:provider-new"
