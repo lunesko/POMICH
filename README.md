@@ -22,7 +22,7 @@ Incident
   -> work completed
 ```
 
-Current beta foundation work is tracked in [docs/BETA_FOUNDATION.md](docs/BETA_FOUNDATION.md). The product manifesto is in [docs/POMICH_MANIFESTO.md](docs/POMICH_MANIFESTO.md).
+Current beta foundation work is tracked in [docs/BETA_FOUNDATION.md](docs/BETA_FOUNDATION.md). The product manifesto is in [docs/POMICH_MANIFESTO.md](docs/POMICH_MANIFESTO.md). Architecture direction is captured in [docs/ARCHITECTURE_STRATEGY.md](docs/ARCHITECTURE_STRATEGY.md).
 
 ## Stack
 

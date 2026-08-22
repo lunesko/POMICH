@@ -6,6 +6,7 @@
 |------|--------|
 | [IMPLEMENTATION_ROADMAP.md](./IMPLEMENTATION_ROADMAP.md) | Фазы A→D, ближайшие 4 недели, DoD первого реального заказа |
 | [MANIFESTO.ru.md](./MANIFESTO.ru.md) | Манифест продукта (RU), якорь решений |
+| [../ARCHITECTURE_STRATEGY.md](../ARCHITECTURE_STRATEGY.md) | Архитектурное направление: modular monolith, open platform, geo adapters, no Java rewrite |
 
 Канонические EN-доки репозитория:
 
