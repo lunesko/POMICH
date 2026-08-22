@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import uuid
+import time
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Request
 
 from bot.api_deps import (
     account_config_active,
+    auth_rate_limit_policy,
     bootstrap_auth_sessions_enabled,
     configured_admin_secret,
     configured_customer_secret,
@@ -43,6 +45,52 @@ from bot.runtime_store import get_auth_account, set_auth_account_password
 from bot.telegram_config import normalize_telegram_bot_kind
 
 router = APIRouter(tags=["auth"])
+
+_AUTH_RATE_LIMIT_BUCKETS: dict[str, list[float]] = {}
+
+
+def reset_auth_rate_limits_for_tests() -> None:
+    _AUTH_RATE_LIMIT_BUCKETS.clear()
+
+
+def _auth_rate_limit_key(bucket: str, request: Request, identity: str) -> str:
+    client_host = request.client.host if request.client else "unknown"
+    normalized_identity = str(identity or "").strip().lower()[:120] or "anonymous"
+    return f"{bucket}:{client_host}:{normalized_identity}"
+
+
+def _prune_rate_limit_entries(key: str, window_seconds: int, now: float) -> list[float]:
+    cutoff = now - window_seconds
+    entries = [timestamp for timestamp in _AUTH_RATE_LIMIT_BUCKETS.get(key, []) if timestamp >= cutoff]
+    _AUTH_RATE_LIMIT_BUCKETS[key] = entries
+    return entries
+
+
+def _enforce_auth_rate_limit(key: str, max_attempts: int) -> None:
+    policy = auth_rate_limit_policy()
+    window_seconds = int(policy["windowSeconds"])
+    now = time.time()
+    entries = _prune_rate_limit_entries(key, window_seconds, now)
+    if len(entries) < max_attempts:
+        return
+    retry_after = max(1, int(entries[0] + window_seconds - now))
+    raise HTTPException(
+        status_code=429,
+        detail={"code": "rate_limit_exceeded", "retryAfterSeconds": retry_after},
+        headers={"Retry-After": str(retry_after)},
+    )
+
+
+def _record_auth_rate_limit_hit(key: str) -> None:
+    policy = auth_rate_limit_policy()
+    now = time.time()
+    entries = _prune_rate_limit_entries(key, int(policy["windowSeconds"]), now)
+    entries.append(now)
+    _AUTH_RATE_LIMIT_BUCKETS[key] = entries
+
+
+def _clear_auth_rate_limit(key: str) -> None:
+    _AUTH_RATE_LIMIT_BUCKETS.pop(key, None)
 
 
 def _account_login_identifiers(account: dict) -> set[str]:
@@ -138,10 +186,15 @@ def create_admin_session(x_pomich_admin_token: str | None = Header(default=None)
 
 
 @router.post("/auth/admin/login")
-def create_admin_account_session(payload: dict) -> dict:
-    account = find_admin_account(str(payload.get("username") or ""), str(payload.get("password") or ""))
+def create_admin_account_session(payload: dict, request: Request) -> dict:
+    username = str(payload.get("username") or "")
+    rate_key = _auth_rate_limit_key("admin-login", request, username)
+    _enforce_auth_rate_limit(rate_key, int(auth_rate_limit_policy()["loginMaxAttempts"]))
+    account = find_admin_account(username, str(payload.get("password") or ""))
     if account is None:
+        _record_auth_rate_limit_hit(rate_key)
         raise HTTPException(status_code=401, detail="admin_credentials_invalid")
+    _clear_auth_rate_limit(rate_key)
     subject_id = str(account.get("id") or account.get("username") or "admin").strip()
     session = issue_role_session("admin", subject_id, configured_admin_secret())
     session["username"] = str(account.get("username") or subject_id)
@@ -150,8 +203,11 @@ def create_admin_account_session(payload: dict) -> dict:
 
 
 @router.post("/auth/admin/password-reset/request")
-def request_admin_account_password_reset(payload: dict) -> dict:
+def request_admin_account_password_reset(payload: dict, request: Request) -> dict:
     login = str(payload.get("login") or payload.get("username") or "").strip()
+    rate_key = _auth_rate_limit_key("admin-reset", request, login)
+    _enforce_auth_rate_limit(rate_key, int(auth_rate_limit_policy()["resetMaxRequests"]))
+    _record_auth_rate_limit_hit(rate_key)
     account = _find_account_for_reset("admin", login)
     return _password_reset_request_payload("admin", login, account)
 
@@ -196,12 +252,16 @@ def create_self_provider_session(payload: dict, authorization: str | None = Head
 
 
 @router.post("/auth/provider/login")
-def create_provider_account_session(payload: dict) -> dict:
+def create_provider_account_session(payload: dict, request: Request) -> dict:
     provider_id = str(payload.get("providerId") or "").strip()
     login = str(payload.get("login") or payload.get("username") or provider_id).strip()
+    rate_key = _auth_rate_limit_key("provider-login", request, provider_id or login)
+    _enforce_auth_rate_limit(rate_key, int(auth_rate_limit_policy()["loginMaxAttempts"]))
     account = find_provider_account(login, str(payload.get("password") or ""), provider_id)
     if account is None or not account.get("providerId"):
+        _record_auth_rate_limit_hit(rate_key)
         raise HTTPException(status_code=401, detail="provider_credentials_invalid")
+    _clear_auth_rate_limit(rate_key)
     session = issue_role_session("provider", str(account["providerId"]), configured_provider_secret())
     session["providerId"] = str(account["providerId"])
     session["username"] = str(account.get("username") or login)
@@ -210,9 +270,12 @@ def create_provider_account_session(payload: dict) -> dict:
 
 
 @router.post("/auth/provider/password-reset/request")
-def request_provider_account_password_reset(payload: dict) -> dict:
+def request_provider_account_password_reset(payload: dict, request: Request) -> dict:
     provider_id = str(payload.get("providerId") or "").strip()
     login = str(payload.get("login") or payload.get("username") or provider_id).strip()
+    rate_key = _auth_rate_limit_key("provider-reset", request, provider_id or login)
+    _enforce_auth_rate_limit(rate_key, int(auth_rate_limit_policy()["resetMaxRequests"]))
+    _record_auth_rate_limit_hit(rate_key)
     account = _find_account_for_reset("provider", login, provider_id)
     return _password_reset_request_payload("provider", login, account, provider_id=provider_id)
 

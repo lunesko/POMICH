@@ -1466,6 +1466,11 @@ export interface AdminSettings {
   allowHttpPilot: boolean
   bootstrapAuthSessionsEnabled: boolean
   sessionTtlSeconds: number
+  authRateLimit?: {
+    windowSeconds: number
+    loginMaxAttempts: number
+    resetMaxRequests: number
+  }
 }
 
 export interface AdminAuthAccount {

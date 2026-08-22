@@ -49,6 +49,7 @@ The beta release should prove a shorter and more predictable **Time To Rescue**:
 12. Advance the accepted order through `en_route`, `arrived`, `in_progress`, and `completed`.
 13. Confirm no CORS errors and no localhost API requests in Network.
 14. Confirm customer/provider/admin operational requests use `Authorization: Bearer`, not repeated bootstrap-token headers.
+15. Confirm `POMICH_AUTH_RATE_LIMIT_WINDOW_SECONDS`, `POMICH_AUTH_LOGIN_RATE_LIMIT`, and `POMICH_AUTH_RESET_RATE_LIMIT` are set for staging/production auth throttling.
 
 ## Beta E2E Gate
 The staging Playwright flow must pass end to end: Partner A online, Partner B online, customer creates order, offers are created, Partner A accepts with price, Partner B loses the race, customer sees Partner A and confirms the price, then status advances through `EN_ROUTE`, `ARRIVED`, `IN_PROGRESS`, and `COMPLETED`.

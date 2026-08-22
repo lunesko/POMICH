@@ -31,6 +31,9 @@ from bot.telegram_config import (
 _PLACEHOLDER_SECRET_FRAGMENTS = ("replace-me", "change-this", "changeme", "example", "placeholder")
 _AUTH_SESSION_PREFIX = "pomich_auth_v1"
 _DEFAULT_SESSION_TTL_SECONDS = 86400
+_DEFAULT_AUTH_RATE_LIMIT_WINDOW_SECONDS = 600
+_DEFAULT_AUTH_LOGIN_RATE_LIMIT = 12
+_DEFAULT_AUTH_RESET_RATE_LIMIT = 5
 
 
 @dataclass(frozen=True)
@@ -428,6 +431,34 @@ def session_ttl_seconds() -> int:
         return _DEFAULT_SESSION_TTL_SECONDS
 
 
+def _positive_env_int(name: str, default: int, *, minimum: int = 1) -> int:
+    raw_value = (os.getenv(name) or "").strip()
+    if not raw_value:
+        return default
+    try:
+        return max(minimum, int(raw_value))
+    except ValueError:
+        return default
+
+
+def auth_rate_limit_policy() -> dict[str, int]:
+    return {
+        "windowSeconds": _positive_env_int(
+            "POMICH_AUTH_RATE_LIMIT_WINDOW_SECONDS",
+            _DEFAULT_AUTH_RATE_LIMIT_WINDOW_SECONDS,
+            minimum=60,
+        ),
+        "loginMaxAttempts": _positive_env_int(
+            "POMICH_AUTH_LOGIN_RATE_LIMIT",
+            _DEFAULT_AUTH_LOGIN_RATE_LIMIT,
+        ),
+        "resetMaxRequests": _positive_env_int(
+            "POMICH_AUTH_RESET_RATE_LIMIT",
+            _DEFAULT_AUTH_RESET_RATE_LIMIT,
+        ),
+    }
+
+
 def issue_role_session(role: str, subject_id: str, secret: str) -> dict:
     issued_at = int(time.time())
     expires_at = issued_at + session_ttl_seconds()
@@ -741,6 +772,7 @@ def build_admin_settings_payload() -> dict:
         "allowHttpPilot": allow_http_pilot(),
         "bootstrapAuthSessionsEnabled": bootstrap_auth_sessions_enabled(),
         "sessionTtlSeconds": session_ttl_seconds(),
+        "authRateLimit": auth_rate_limit_policy(),
     }
 
 

@@ -857,6 +857,59 @@ def test_auth_password_reset_requests_are_logged_without_account_enumeration(mon
     assert event_types.count("AUTH_ACCOUNT_PASSWORD_RESET_REQUESTED") >= 3
 
 
+def test_auth_login_and_reset_requests_are_rate_limited(monkeypatch, tmp_path) -> None:
+    from bot.routers.auth import reset_auth_rate_limits_for_tests
+
+    reset_auth_rate_limits_for_tests()
+    _use_sql_runtime(monkeypatch, tmp_path)
+    monkeypatch.setenv("POMICH_AUTH_ACCOUNTS_SOURCE", "sql")
+    monkeypatch.setenv("POMICH_PROVIDER_TOKEN", PROVIDER_TOKEN)
+    monkeypatch.setenv("POMICH_AUTH_RATE_LIMIT_WINDOW_SECONDS", "60")
+    monkeypatch.setenv("POMICH_AUTH_LOGIN_RATE_LIMIT", "2")
+    monkeypatch.setenv("POMICH_AUTH_RESET_RATE_LIMIT", "2")
+    runtime_store.save_auth_accounts(
+        "provider",
+        [{"providerId": "provider-rate", "username": "rate-partner", "password": "provider-pass"}],
+    )
+    client = TestClient(app)
+
+    try:
+        first_bad_login = client.post("/api/auth/provider/login", json={"login": "rate-partner", "password": "wrong-1"})
+        successful_login = client.post("/api/auth/provider/login", json={"login": "rate-partner", "password": "provider-pass"})
+        bad_after_success = client.post("/api/auth/provider/login", json={"login": "rate-partner", "password": "wrong-after-success"})
+        second_bad_login = client.post("/api/auth/provider/login", json={"login": "rate-partner", "password": "wrong-2"})
+        blocked_login = client.post("/api/auth/provider/login", json={"login": "rate-partner", "password": "wrong-3"})
+
+        first_reset = client.post("/api/auth/provider/password-reset/request", json={"login": "rate-partner"})
+        second_reset = client.post("/api/auth/provider/password-reset/request", json={"login": "rate-partner"})
+        blocked_reset = client.post("/api/auth/provider/password-reset/request", json={"login": "rate-partner"})
+
+        fresh_client = TestClient(app)
+        first_bad_admin = fresh_client.post("/api/auth/admin/login", json={"username": "ops-rate", "password": "bad-1"})
+        second_bad_admin = fresh_client.post("/api/auth/admin/login", json={"username": "ops-rate", "password": "bad-2"})
+        blocked_admin = fresh_client.post("/api/auth/admin/login", json={"username": "ops-rate", "password": "bad-3"})
+    finally:
+        reset_auth_rate_limits_for_tests()
+        runtime_store.reset_runtime_store_for_tests()
+
+    assert first_bad_login.status_code == 401
+    assert successful_login.status_code == 200
+    assert bad_after_success.status_code == 401
+    assert second_bad_login.status_code == 401
+    assert blocked_login.status_code == 429
+    assert blocked_login.json()["detail"]["code"] == "rate_limit_exceeded"
+    assert blocked_login.headers.get("Retry-After")
+
+    assert first_reset.status_code == 200
+    assert second_reset.status_code == 200
+    assert blocked_reset.status_code == 429
+    assert blocked_reset.json()["detail"]["code"] == "rate_limit_exceeded"
+
+    assert first_bad_admin.status_code == 401
+    assert second_bad_admin.status_code == 401
+    assert blocked_admin.status_code == 429
+
+
 def test_admin_verifying_provider_creates_sql_provider_auth_account_and_ops_log(monkeypatch, tmp_path) -> None:
     _use_sql_runtime(monkeypatch, tmp_path)
     monkeypatch.setenv("POMICH_AUTH_ACCOUNTS_SOURCE", "sql")
@@ -964,6 +1017,9 @@ def test_fastapi_admin_account_login_reads_sql_account(monkeypatch, tmp_path) ->
     assert settings_response.json()["adminAccountsTotal"] == 1
     assert settings_response.json()["providerAccountsConfigured"] is False
     assert settings_response.json()["providerAccountsActive"] == 0
+    assert settings_response.json()["authRateLimit"]["windowSeconds"] >= 60
+    assert settings_response.json()["authRateLimit"]["loginMaxAttempts"] >= 1
+    assert settings_response.json()["authRateLimit"]["resetMaxRequests"] >= 1
 
 
 def test_disabled_env_auth_accounts_do_not_login_or_count_as_configured(monkeypatch, tmp_path) -> None:

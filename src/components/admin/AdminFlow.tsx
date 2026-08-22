@@ -1629,6 +1629,14 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
                   <div><span>Provider accounts</span><strong className={settings.providerAccountsConfigured ? "admin-ok" : "admin-warn"}>{authAccountSettingsText(settings.providerAccountsConfigured, settings.providerAccountsActive, settings.providerAccountsTotal, settings.providerAccountsError)}</strong></div>
                   <div><span>Bootstrap sessions</span><strong className={settings.bootstrapAuthSessionsEnabled ? "admin-warn" : "admin-ok"}>{settings.bootstrapAuthSessionsEnabled ? "Dev enabled" : "Disabled"}</strong></div>
                   <div><span>Session TTL</span><strong>{settings.sessionTtlSeconds}s</strong></div>
+                  <div>
+                    <span>Auth rate limit</span>
+                    <strong>
+                      {settings.authRateLimit
+                        ? `${settings.authRateLimit.loginMaxAttempts} login / ${settings.authRateLimit.resetMaxRequests} reset за ${settings.authRateLimit.windowSeconds}s`
+                        : "—"}
+                    </strong>
+                  </div>
                   <div><span>HTTP pilot</span><strong>{settings.allowHttpPilot ? "Дозволено" : "Ні"}</strong></div>
                 </div>
               </div>

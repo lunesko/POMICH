@@ -10,7 +10,8 @@ Use this path for a public staging URL with one app container and Postgres/PostG
 3. Set `POMICH_CORS_ORIGINS` to the exact public HTTPS origin.
 4. Set `WEB_APP_URL` to the same public HTTPS app URL for Telegram Mini App testing.
 5. Set `POMICH_CUSTOMER_SESSION_SECRET`, `POMICH_ADMIN_ACCOUNTS`, and `POMICH_PROVIDER_ACCOUNTS` for beta account login.
-6. Start the stack:
+6. Set auth throttling with `POMICH_AUTH_RATE_LIMIT_WINDOW_SECONDS`, `POMICH_AUTH_LOGIN_RATE_LIMIT`, and `POMICH_AUTH_RESET_RATE_LIMIT`.
+7. Start the stack:
 
 ```powershell
 docker compose -f docker-compose.production.yml --env-file .env.production up --build -d
