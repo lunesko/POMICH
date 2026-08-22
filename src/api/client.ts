@@ -6,11 +6,15 @@ const providerErrorMessages: Record<string, string> = {
   admin_account_required: 'Потрібен активний адмін-акаунт.',
   provider_credentials_invalid: 'Невірний логін або пароль партнера.',
   provider_token_invalid: 'Недійсний токен партнера.',
+  provider_bootstrap_session_disabled: 'Партнерська сесія не відкрита. Увійдіть з логіном і паролем або зверніться до диспетчера.',
   provider_session_required: 'Потрібен вхід партнера.',
   provider_session_invalid: 'Сесію партнера не відкрито. Оновіть сторінку або увійдіть знову.',
   provider_session_expired: 'Сесія партнера закінчилась. Оновіть сторінку або увійдіть знову.',
   provider_session_missing: 'Сесію не відкрито. Оновіть сторінку або увійдіть знову.',
   provider_not_linked: 'Сесію не відкрито. Оновіть сторінку або увійдіть знову.',
+  provider_account_required: 'Адмін ще не активував акаунт партнера. Завершіть верифікацію або зверніться до диспетчера.',
+  provider_account_disabled: 'Акаунт партнера вимкнено. Зверніться до диспетчера.',
+  provider_password_reset_required: 'Оновіть тимчасовий пароль, щоб продовжити роботу.',
   customer_session_required: 'Сесію не відкрито. Оновіть сторінку або увійдіть знову.',
   customer_session_invalid: 'Сесію не відкрито. Оновіть сторінку або увійдіть знову.',
   customer_session_expired: 'Сесію не відкрито. Оновіть сторінку або увійдіть знову.',
@@ -286,6 +290,15 @@ export interface AuthSession {
     linked: boolean
     providerId?: string | null
     verificationStatus?: VerificationStatus | string
+    canOpenProviderSession?: boolean
+    authAccount?: {
+      id?: string | null
+      username?: string | null
+      status: 'active' | 'disabled' | 'missing' | 'not_configured' | string
+      active: boolean
+      passwordResetRequired?: boolean
+      required?: boolean
+    }
   }
 }
 
@@ -601,7 +614,7 @@ export async function createProviderSession(providerId: string, providerToken: s
   })
 
   if (!response.ok) {
-    throw new Error(`Provider session request failed with ${response.status}`)
+    throw new Error(await parseApiError(response, 'Партнерська сесія не відкрита. Увійдіть з логіном і паролем або зверніться до диспетчера.'))
   }
 
   return response.json() as Promise<AuthSession>

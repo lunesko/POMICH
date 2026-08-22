@@ -18,6 +18,7 @@ from bot.api_deps import (
     otp_http_detail,
     otp_http_status,
     password_matches,
+    provider_account_enforcement_enabled,
     require_admin_auth,
     require_active_provider_account,
     require_any_provider_auth,
@@ -100,10 +101,26 @@ def _provider_account_summary(customer_id: str, profile: dict | None = None) -> 
     provider = get_provider_profile(provider_id) if provider_id else None
     linked = bool(provider and provider.get("registeredAt"))
     verification_status = str((provider or {}).get("verificationStatus") or "unverified")
+    account_required = provider_account_enforcement_enabled()
+    account = find_provider_account_by_provider_id(provider_id, include_disabled=True) if provider_id else None
+    account_active = bool(account and account_config_active(account))
+    account_status = str((account or {}).get("status") or "").strip().lower()
+    if not account:
+        account_status = "missing" if account_required else "not_configured"
+    auth_account = {
+        "id": str((account or {}).get("id") or "").strip() or None,
+        "username": str((account or {}).get("username") or "").strip() or None,
+        "status": account_status,
+        "active": account_active or (not account_required and not account),
+        "passwordResetRequired": bool((account or {}).get("passwordResetRequired")),
+        "required": account_required,
+    }
     return {
         "linked": linked,
         "providerId": provider_id if linked else (provider_id or None),
         "verificationStatus": verification_status if linked else "unverified",
+        "authAccount": auth_account,
+        "canOpenProviderSession": bool(linked and verification_status == "verified" and auth_account["active"]),
     }
 
 
@@ -166,9 +183,14 @@ def create_self_provider_session(payload: dict, authorization: str | None = Head
     # Missing SQL provider rows otherwise force blank registration / empty map in Mini App.
     ensure_linked_provider_profile(customer_id)
     sync_linked_provider_phone_verification_from_customer(provider_id)
+    account = find_provider_account_by_provider_id(provider_id, include_disabled=True)
     require_active_provider_account(provider_id)
     session = issue_role_session("provider", provider_id, configured_provider_secret())
     session["providerId"] = provider_id
+    if account:
+        session["username"] = str(account.get("username") or account.get("id") or provider_id)
+        session["passwordResetRequired"] = bool(account.get("passwordResetRequired"))
+        session["providerAccount"] = _provider_account_summary(customer_id, profile)
     return session
 
 

@@ -631,13 +631,16 @@ export default function ProviderFlow({
         if (cancelled) return
         applyProviderSession(session)
       })
-      .catch(() => {
+      .catch((error) => {
         if (!cancelled && (providerBootstrapToken || effectiveProviderRegistered)) {
           if (providerBootstrapToken && typeof window !== "undefined") {
             window.sessionStorage.removeItem("pomichProviderToken")
           }
+          const message = error instanceof Error && error.message
+            ? error.message
+            : "Партнерська сесія не відкрита. Увійдіть з логіном і паролем або зверніться до диспетчера."
           setLoginView("login")
-          setAuthError("Партнерська сесія не відкрита. Увійдіть з логіном і паролем або зверніться до диспетчера.")
+          setAuthError(message)
         }
       })
 
