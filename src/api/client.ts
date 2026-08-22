@@ -1347,6 +1347,7 @@ export interface AdminSettings {
   adminAccountsConfigured: boolean
   providerAccountsConfigured: boolean
   allowHttpPilot: boolean
+  bootstrapAuthSessionsEnabled: boolean
   sessionTtlSeconds: number
 }
 

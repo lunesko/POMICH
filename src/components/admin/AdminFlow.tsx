@@ -168,6 +168,7 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | undefined>()
   const [authError, setAuthError] = useState<string | undefined>()
+  const [bootstrapAuthFailed, setBootstrapAuthFailed] = useState(false)
   const [accountLogin, setAccountLogin] = useState("dispatcher")
   const [accountPassword, setAccountPassword] = useState("")
   const [authSaving, setAuthSaving] = useState(false)
@@ -178,12 +179,14 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
     if (adminAuthToken) return
     if (!adminToken) {
       setAuthError(undefined)
+      setBootstrapAuthFailed(false)
       return
     }
     if (isAuthSessionToken(adminToken)) {
       if (typeof window !== "undefined") window.sessionStorage.setItem(adminSessionStorageKey, adminToken)
       setAdminAccessToken(adminToken)
       setAuthError(undefined)
+      setBootstrapAuthFailed(false)
       return
     }
     let cancelled = false
@@ -193,9 +196,13 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
         storeAuthSession(adminSessionStorageKey, session)
         setAdminAccessToken(session.accessToken)
         setAuthError(undefined)
+        setBootstrapAuthFailed(false)
       })
       .catch(() => {
-        if (!cancelled) setAuthError("Не вдалося відкрити захищену адмін-сесію.")
+        if (!cancelled) {
+          setBootstrapAuthFailed(true)
+          setAuthError("Не вдалося відкрити захищену адмін-сесію.")
+        }
       })
     return () => {
       cancelled = true
@@ -390,7 +397,7 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
     }
   }
 
-  if (!adminAuthToken && !adminToken) {
+  if (!adminAuthToken && (!adminToken || bootstrapAuthFailed)) {
     return (
       <AdminLogin
         login={accountLogin}

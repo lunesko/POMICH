@@ -4,6 +4,10 @@ param(
 
     [string]$ProviderId = "provider-oleksandr",
     [string]$SecondProviderId = "provider-mykhailo",
+    [string]$ProviderLogin = "",
+    [string]$ProviderPassword = "",
+    [string]$SecondProviderLogin = "",
+    [string]$SecondProviderPassword = "",
     [string]$ProviderToken = "",
     [switch]$Mutating
 )
@@ -77,12 +81,37 @@ function New-ProviderSessionHeaders {
         [string]$SessionProviderId
     )
 
-    $session = Invoke-JsonRequest `
-        -Method "POST" `
-        -Path "/api/auth/provider/session" `
-        -Headers @{ "X-POMICH-Provider-Token" = $ProviderToken } `
-        -Body @{ providerId = $SessionProviderId } `
-        -ExpectedStatusCodes @(200)
+    $login = $ProviderLogin
+    $password = $ProviderPassword
+    if ($SessionProviderId -eq $SecondProviderId) {
+        if (-not [string]::IsNullOrWhiteSpace($SecondProviderLogin)) {
+            $login = $SecondProviderLogin
+        }
+        if (-not [string]::IsNullOrWhiteSpace($SecondProviderPassword)) {
+            $password = $SecondProviderPassword
+        }
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($login) -and -not [string]::IsNullOrWhiteSpace($password)) {
+        $session = Invoke-JsonRequest `
+            -Method "POST" `
+            -Path "/api/auth/provider/login" `
+            -Body @{
+                providerId = $SessionProviderId
+                login = $login
+                password = $password
+            } `
+            -ExpectedStatusCodes @(200)
+    } elseif (-not [string]::IsNullOrWhiteSpace($ProviderToken)) {
+        $session = Invoke-JsonRequest `
+            -Method "POST" `
+            -Path "/api/auth/provider/session" `
+            -Headers @{ "X-POMICH-Provider-Token" = $ProviderToken } `
+            -Body @{ providerId = $SessionProviderId } `
+            -ExpectedStatusCodes @(200)
+    } else {
+        throw "Provider credentials are required. Use provider account login/password for production, or ProviderToken only for local/dev bootstrap checks."
+    }
 
     if (-not $session.accessToken) {
         throw "Provider session did not return an access token."
@@ -158,8 +187,13 @@ if (-not $Mutating) {
     exit 0
 }
 
-if (-not $ProviderToken) {
-    throw "ProviderToken is required for mutating staging smoke."
+if ([string]::IsNullOrWhiteSpace($ProviderToken)) {
+    if ([string]::IsNullOrWhiteSpace($ProviderLogin) -or [string]::IsNullOrWhiteSpace($ProviderPassword)) {
+        throw "ProviderLogin and ProviderPassword are required for mutating production/staging smoke."
+    }
+    if ([string]::IsNullOrWhiteSpace($SecondProviderLogin) -or [string]::IsNullOrWhiteSpace($SecondProviderPassword)) {
+        throw "SecondProviderLogin and SecondProviderPassword are required for the two-provider race smoke."
+    }
 }
 
 $providerHeaders = New-ProviderSessionHeaders -SessionProviderId $ProviderId

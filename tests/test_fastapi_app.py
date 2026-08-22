@@ -124,6 +124,8 @@ def test_production_runtime_config_rejects_insecure_defaults(monkeypatch) -> Non
     assert any("POMICH_ADMIN_TOKEN" in error for error in errors)
     assert any("POMICH_PROVIDER_TOKEN" in error for error in errors)
     assert any("POMICH_CUSTOMER_SESSION_SECRET" in error for error in errors)
+    assert any("POMICH_ADMIN_ACCOUNTS" in error for error in errors)
+    assert any("POMICH_PROVIDER_ACCOUNTS" in error for error in errors)
     assert any("DATABASE_URL" in error for error in errors)
 
 
@@ -133,6 +135,11 @@ def test_production_runtime_config_accepts_release_settings(monkeypatch) -> None
     monkeypatch.setenv("POMICH_ADMIN_TOKEN", "admin-secret-1234567890-release")
     monkeypatch.setenv("POMICH_PROVIDER_TOKEN", "provider-secret-1234567890-release")
     monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", "customer-secret-1234567890-release")
+    monkeypatch.setenv("POMICH_ADMIN_ACCOUNTS", json.dumps([{"username": "dispatcher", "password": "admin-pass"}]))
+    monkeypatch.setenv(
+        "POMICH_PROVIDER_ACCOUNTS",
+        json.dumps([{"providerId": "provider-oleksandr", "username": "oleksandr", "password": "provider-pass"}]),
+    )
     monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@localhost:5432/pomich_prod")
     monkeypatch.setenv("POMICH_STORAGE_BACKEND", "sql")
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
@@ -172,6 +179,29 @@ def test_production_runtime_config_requires_telegram_public_url(monkeypatch) -> 
     errors = fastapi_app._runtime_config_errors()
 
     assert any("WEB_APP_URL" in error for error in errors)
+
+
+def test_production_disables_bootstrap_admin_and_provider_sessions(monkeypatch, tmp_path) -> None:
+    _use_temp_store(monkeypatch, tmp_path)
+    monkeypatch.setenv("POMICH_RUNTIME", "production")
+    monkeypatch.setenv("POMICH_ADMIN_TOKEN", "admin-secret-1234567890-release")
+    monkeypatch.setenv("POMICH_PROVIDER_TOKEN", "provider-secret-1234567890-release")
+    client = TestClient(app)
+
+    admin_response = client.post(
+        "/api/auth/admin/session",
+        headers={"X-POMICH-Admin-Token": "admin-secret-1234567890-release"},
+    )
+    provider_response = client.post(
+        "/api/auth/provider/session",
+        headers={"X-POMICH-Provider-Token": "provider-secret-1234567890-release"},
+        json={"providerId": "provider-oleksandr"},
+    )
+
+    assert admin_response.status_code == 403
+    assert admin_response.json()["detail"] == "admin_bootstrap_session_disabled"
+    assert provider_response.status_code == 403
+    assert provider_response.json()["detail"] == "provider_bootstrap_session_disabled"
 
 
 def test_fastapi_updates_provider_presence(monkeypatch, tmp_path) -> None:

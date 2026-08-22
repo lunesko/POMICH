@@ -5,6 +5,7 @@ import uuid
 from fastapi import APIRouter, Header, HTTPException
 
 from bot.api_deps import (
+    bootstrap_auth_sessions_enabled,
     configured_admin_secret,
     configured_customer_secret,
     configured_provider_secret,
@@ -50,6 +51,8 @@ def _provider_account_summary(customer_id: str, profile: dict | None = None) -> 
 
 @router.post("/auth/admin/session")
 def create_admin_session(x_pomich_admin_token: str | None = Header(default=None)) -> dict:
+    if not bootstrap_auth_sessions_enabled():
+        raise HTTPException(status_code=403, detail="admin_bootstrap_session_disabled")
     secret = configured_admin_secret()
     if x_pomich_admin_token != secret:
         raise HTTPException(status_code=401, detail="admin_token_invalid")
@@ -69,6 +72,8 @@ def create_admin_account_session(payload: dict) -> dict:
 
 @router.post("/auth/provider/session")
 def create_provider_session(payload: dict, x_pomich_provider_token: str | None = Header(default=None)) -> dict:
+    if not bootstrap_auth_sessions_enabled():
+        raise HTTPException(status_code=403, detail="provider_bootstrap_session_disabled")
     secret = configured_provider_secret()
     if x_pomich_provider_token != secret:
         raise HTTPException(status_code=401, detail="provider_token_invalid")

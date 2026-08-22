@@ -56,6 +56,11 @@ def allow_http_pilot() -> bool:
     return os.getenv("POMICH_ALLOW_HTTP_PILOT", "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def bootstrap_auth_sessions_enabled() -> bool:
+    """Legacy shared-token session issuance is a local/dev convenience only."""
+    return not is_production_runtime()
+
+
 def _is_public_http_pilot_origin(origin: str) -> bool:
     normalized = origin.strip().rstrip("/")
     if not normalized.lower().startswith("http://"):
@@ -115,6 +120,12 @@ def runtime_config_errors() -> list[str]:
 
     if not is_configured_secret(os.getenv("POMICH_CUSTOMER_SESSION_SECRET")):
         errors.append("POMICH_CUSTOMER_SESSION_SECRET must be a non-placeholder secret in production")
+
+    if not load_account_configs("POMICH_ADMIN_ACCOUNTS"):
+        errors.append("POMICH_ADMIN_ACCOUNTS must be configured in production; bootstrap admin sessions are disabled")
+
+    if not load_account_configs("POMICH_PROVIDER_ACCOUNTS"):
+        errors.append("POMICH_PROVIDER_ACCOUNTS must be configured in production; bootstrap provider sessions are disabled")
 
     database_url = (os.getenv("DATABASE_URL") or "").strip()
     allow_json = os.getenv("POMICH_ALLOW_JSON_STORE_IN_PRODUCTION") == "true"
@@ -604,6 +615,7 @@ def build_admin_settings_payload() -> dict:
         "adminAccountsConfigured": bool(load_account_configs("POMICH_ADMIN_ACCOUNTS")),
         "providerAccountsConfigured": bool(load_account_configs("POMICH_PROVIDER_ACCOUNTS")),
         "allowHttpPilot": allow_http_pilot(),
+        "bootstrapAuthSessionsEnabled": bootstrap_auth_sessions_enabled(),
         "sessionTtlSeconds": session_ttl_seconds(),
     }
 

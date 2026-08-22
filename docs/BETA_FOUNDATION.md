@@ -13,10 +13,12 @@ Every major feature should either reduce Time To Rescue, improve assignment trus
 Done:
 
 - GitHub Actions CI runs backend tests, frontend tests, TypeScript, and production build.
+- GitHub Actions runs on both `main` and `dev` pushes, so beta-foundation work is gated before merge.
 - Frontend uses same-origin `/api/*` instead of browser `localhost`.
 - FastAPI serves API and built SPA from one origin.
 - Production guards block unsafe CORS, missing provider/admin secrets, and missing production `DATABASE_URL`.
 - SQL runtime storage exists behind the current API without breaking UI/API contracts.
+- SQL runtime starts with real persisted providers only; empty production/staging databases no longer seed demo providers.
 - Normalized runtime tables exist for `customers`, `providers`, `provider_presence`, `orders`, `dispatch_offers`, `sessions`, and `order_events`.
 - SQL schema changes run through an explicit `pomich_schema_migrations` ledger.
 - PostGIS extension/index setup is prepared for PostgreSQL runtime.
@@ -27,11 +29,13 @@ Done:
 - Offer acceptance uses the SQL runtime transaction path so first-accept-wins is enforced at the database boundary.
 - Provider endpoints require configured backend auth; missing `POMICH_PROVIDER_TOKEN` no longer makes partner routes public.
 - Backend can issue HMAC-signed admin/provider sessions and enforces provider session identity against URL `provider_id`.
-- Backend protected provider/admin routes require bearer sessions; bootstrap shared-secret headers are accepted only by session-issuance endpoints.
-- Web provider/admin flows exchange bootstrap tokens for backend-issued sessions, remove bootstrap tokens from the URL, and use `Authorization: Bearer` for protected operational calls.
+- Backend protected provider/admin routes require bearer sessions; bootstrap shared-secret headers are accepted only by dev session-issuance endpoints.
+- Production disables bootstrap admin/provider session issuance; account login is required.
+- Web provider/admin flows exchange dev bootstrap tokens for backend-issued sessions when available, remove bootstrap tokens from the URL, and use `Authorization: Bearer` for protected operational calls.
 - Provider/admin account login endpoints exist through `POMICH_PROVIDER_ACCOUNTS` and `POMICH_ADMIN_ACCOUNTS`; Web flows can log in without bootstrap query tokens.
 - Customer sessions exist for Telegram Mini App and web guests; customer profile/verification endpoints require matching bearer sessions.
 - Public smoke tooling can issue provider sessions, put two providers online, create a real order, verify both offers, assert first-accept-wins, and advance the winning order to completed.
+- Public smoke tooling can use provider account login/passwords for production/staging race checks; shared provider token remains a dev fallback only.
 - Telegram Mini App verifies `initData`, links Telegram users to `tg-*` customer profiles, and creates orders through the same `/api/orders` path.
 - Production-like Docker Compose exists with app + Postgres/PostGIS.
 
@@ -89,6 +93,7 @@ Completed:
 - Admin auth is separate from provider auth.
 - Backend accepts signed admin/provider sessions through `Authorization: Bearer`.
 - Backend no longer accepts provider/admin bootstrap shared-secret headers on operational routes.
+- Production no longer issues provider/admin sessions from bootstrap shared-secret headers.
 - Provider sessions are scoped to one provider id; a session for Provider A cannot operate Provider B routes.
 - Web provider/admin flows use backend-issued sessions for operational calls instead of sending bootstrap tokens repeatedly.
 - Bootstrap `adminToken`/`providerToken` query params are removed from the URL after they are read.

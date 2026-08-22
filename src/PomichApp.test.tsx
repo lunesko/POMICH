@@ -2775,4 +2775,67 @@ describe('POMICH role-based flows', () => {
       )
     })
   })
+
+  it('falls back to admin account login when bootstrap admin session is disabled', async () => {
+    const user = userEvent.setup()
+    const adminSessionToken = 'pomich_auth_v1.admin-account-session'
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/auth/admin/session')) {
+        return Promise.resolve({
+          ok: false,
+          status: 403,
+          json: async () => ({ detail: 'admin_bootstrap_session_disabled' }),
+        })
+      }
+      if (url.includes('/auth/admin/login')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            role: 'admin',
+            subjectId: 'dispatcher',
+            username: 'dispatcher',
+            tokenType: 'Bearer',
+            accessToken: adminSessionToken,
+            expiresAt: Math.floor(Date.now() / 1000) + 3600,
+          }),
+        })
+      }
+      if (url.includes('/admin/stats')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            totals: { clients: 0, providers: 0, dispatchProviders: 0, directoryProviders: 0, orders: 0, activeOrders: 0, completedOrders: 0 },
+            providers: { online: 0, busy: 0, offline: 0, verified: 0, pendingVerification: 0 },
+            clients: { verified: 0, registered: 0, disabled: 0 },
+            orders: { searching: 0, assigned: 0, enRoute: 0, inProgress: 0 },
+            activity: [],
+          }),
+        })
+      }
+      if (url.includes('/admin/ops-log')) return Promise.resolve({ ok: true, json: async () => ({ events: [], counts: { error: 0, warn: 0, info: 0, total: 0 }, limit: 100 }) })
+      if (url.includes('/admin/clients')) return Promise.resolve({ ok: true, json: async () => [] })
+      if (url.includes('/admin/providers')) return Promise.resolve({ ok: true, json: async () => [] })
+      if (url.includes('/admin/orders')) return Promise.resolve({ ok: true, json: async () => [] })
+      if (url.includes('/admin/settings')) return Promise.resolve({ ok: true, json: async () => ({ runtime: 'production', corsOrigins: ['https://pomich.help'], encryptionEnabled: true, databaseUrlConfigured: true, telegramConfigured: true, adminAccountsConfigured: true, providerAccountsConfigured: true, allowHttpPilot: false, bootstrapAuthSessionsEnabled: false, sessionTtlSeconds: 86400 }) })
+      if (url.includes('/map/providers')) return Promise.resolve({ ok: true, json: async () => [] })
+      return Promise.resolve({ ok: true, json: async () => ({}) })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/?role=admin&adminToken=legacy-bootstrap-token')
+
+    renderApp()
+
+    expect(await screen.findByText('Захищена адмін-панель')).toBeInTheDocument()
+    await user.type(screen.getByLabelText('Пароль'), 'admin-pass')
+    await user.click(screen.getByRole('button', { name: /Увійти/i }))
+
+    expect(await screen.findByText('POMICH Admin')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/auth/admin/login'),
+        expect.objectContaining({ method: 'POST' }),
+      )
+    })
+  })
 })
