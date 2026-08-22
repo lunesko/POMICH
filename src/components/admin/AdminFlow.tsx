@@ -419,6 +419,12 @@ function opsEventDetails(item: AdminOpsLogEvent) {
   ].filter(Boolean).join(" · ")
 }
 
+function isProviderPasswordResetRequest(item: AdminOpsLogEvent) {
+  return item.type === "AUTH_ACCOUNT_PASSWORD_RESET_REQUESTED"
+    && Boolean(item.providerId)
+    && (item.accountRole === "provider" || String(item.source || "").includes("auth.provider"))
+}
+
 export default function AdminFlow({ adminToken }: { adminToken?: string }) {
   const adminSessionStorageKey = useMemo(() => authSessionStorageKey("admin", "admin"), [])
   const [adminAccessToken, setAdminAccessToken] = useState<string | undefined>(() => {
@@ -932,7 +938,14 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
 
   const issueProviderTemporaryPassword = async (provider: ProviderAvailability) => {
     const accountId = String(provider.authAccount?.id || "").trim()
-    if (!adminAuthToken || !accountId) return
+    if (!adminAuthToken) return
+    if (!accountId) {
+      setSelectedProviderId(provider.id)
+      setProviderQuery("")
+      setSection("providers")
+      setError("У партнера ще немає auth account. Спочатку схваліть верифікацію або створіть account.")
+      return
+    }
     setSaving(true)
     setError(undefined)
     setAuthAccountStatus(undefined)
@@ -954,6 +967,36 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
     } finally {
       setSaving(false)
     }
+  }
+
+  const issueProviderTemporaryPasswordFromAudit = async (item: AdminOpsLogEvent) => {
+    if (!item.providerId) return
+    let provider = providers.find((providerItem) => providerItem.id === item.providerId)
+    if (!provider && adminAuthToken) {
+      try {
+        const matches = await getAdminProviders(adminAuthToken, item.providerId)
+        provider = matches.find((providerItem) => providerItem.id === item.providerId) ?? matches[0]
+        if (provider) {
+          const loadedProvider = provider
+          setProviders((items) => (
+            items.some((providerItem) => providerItem.id === loadedProvider.id)
+              ? items.map((providerItem) => providerItem.id === loadedProvider.id ? loadedProvider : providerItem)
+              : [loadedProvider, ...items]
+          ))
+        }
+      } catch {
+        setError(`Не вдалося завантажити партнера ${item.providerId}. Оновіть адмін-панель.`)
+        return
+      }
+    }
+    if (!provider) {
+      setError(`Партнера ${item.providerId} не знайдено в поточному списку. Оновіть адмін-панель.`)
+      return
+    }
+    await issueProviderTemporaryPassword(provider)
+    setSelectedProviderId(provider.id)
+    setProviderQuery("")
+    setSection("providers")
   }
 
   const setProviderAuthAccountEnabled = async (provider: ProviderAvailability, enabled: boolean) => {
@@ -1336,62 +1379,74 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
                     : "Тут видно, на якому етапі заявки сталася проблема: dispatch, оффер, статус партнера, оцінка тощо."}
                 </p>
                 <div className="admin-activity-list">
-                  {(opsLog?.events ?? []).map((item: AdminOpsLogEvent) => (
-                    <div key={item.id ?? `${item.type}-${item.at}-${item.orderId}`} className={`admin-activity-item admin-ops-item admin-ops-item--${item.severity || "info"}`}>
-                      <div>
-                        <div className="admin-ops-item__head">
-                          <span className={`admin-ops-severity admin-ops-severity--${item.severity || "info"}`}>
-                            {(item.severity || "info").toUpperCase()}
-                          </span>
-                          <strong>{opsEventTypeLabel(item.type)}</strong>
-                          <span className="admin-muted">{item.type}</span>
+                  {(opsLog?.events ?? []).map((item: AdminOpsLogEvent) => {
+                    return (
+                      <div key={item.id ?? `${item.type}-${item.at}-${item.orderId}`} className={`admin-activity-item admin-ops-item admin-ops-item--${item.severity || "info"}`}>
+                        <div>
+                          <div className="admin-ops-item__head">
+                            <span className={`admin-ops-severity admin-ops-severity--${item.severity || "info"}`}>
+                              {(item.severity || "info").toUpperCase()}
+                            </span>
+                            <strong>{opsEventTypeLabel(item.type)}</strong>
+                            <span className="admin-muted">{item.type}</span>
+                          </div>
+                          <div className="admin-muted">{item.message || "—"}</div>
+                          <div className="admin-muted">{opsEventDetails(item)}</div>
                         </div>
-                        <div className="admin-muted">{item.message || "—"}</div>
-                        <div className="admin-muted">{opsEventDetails(item)}</div>
+                        <div className="admin-activity-meta">
+                          {isProviderPasswordResetRequest(item) ? (
+                            <button
+                              type="button"
+                              className="admin-chip admin-chip-brand"
+                              disabled={saving}
+                              onClick={() => void issueProviderTemporaryPasswordFromAudit(item)}
+                            >
+                              Видати пароль
+                            </button>
+                          ) : null}
+                          {item.orderId ? (
+                            <button
+                              type="button"
+                              className="admin-chip admin-chip-brand"
+                              onClick={() => {
+                                setSelectedOrderId(item.orderId)
+                                setSection("orders")
+                              }}
+                            >
+                              Заявка
+                            </button>
+                          ) : null}
+                          {item.providerId ? (
+                            <button
+                              type="button"
+                              className="admin-chip admin-chip-brand"
+                              onClick={() => {
+                                setSelectedProviderId(item.providerId)
+                                setProviderQuery("")
+                                setSection("providers")
+                              }}
+                            >
+                              Партнер
+                            </button>
+                          ) : null}
+                          {item.customerId ? (
+                            <button
+                              type="button"
+                              className="admin-chip admin-chip-brand"
+                              onClick={() => {
+                                setSelectedClientId(item.customerId)
+                                setClientQuery("")
+                                setSection("clients")
+                              }}
+                            >
+                              Клієнт
+                            </button>
+                          ) : null}
+                          <span className="admin-muted">{item.at ?? "—"}</span>
+                        </div>
                       </div>
-                      <div className="admin-activity-meta">
-                        {item.orderId ? (
-                          <button
-                            type="button"
-                            className="admin-chip admin-chip-brand"
-                            onClick={() => {
-                              setSelectedOrderId(item.orderId)
-                              setSection("orders")
-                            }}
-                          >
-                            Заявка
-                          </button>
-                        ) : null}
-                        {item.providerId ? (
-                          <button
-                            type="button"
-                            className="admin-chip admin-chip-brand"
-                            onClick={() => {
-                              setSelectedProviderId(item.providerId)
-                              setProviderQuery("")
-                              setSection("providers")
-                            }}
-                          >
-                            Партнер
-                          </button>
-                        ) : null}
-                        {item.customerId ? (
-                          <button
-                            type="button"
-                            className="admin-chip admin-chip-brand"
-                            onClick={() => {
-                              setSelectedClientId(item.customerId)
-                              setClientQuery("")
-                              setSection("clients")
-                            }}
-                          >
-                            Клієнт
-                          </button>
-                        ) : null}
-                        <span className="admin-muted">{item.at ?? "—"}</span>
-                      </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                   {(opsLog?.events ?? []).length === 0 ? <EmptyState text="Подій за цим фільтром немає." /> : null}
                 </div>
               </div>

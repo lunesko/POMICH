@@ -2962,7 +2962,7 @@ describe('POMICH role-based flows', () => {
         hasPassword: true,
       },
     }
-    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
       if (url.includes('/auth/admin/session')) {
         return Promise.resolve({
@@ -2991,10 +2991,26 @@ describe('POMICH role-based flows', () => {
       if (url.includes('/admin/ops-log')) {
         opsUrls.push(url)
         const disabledOnly = url.includes('eventType=AUTH_ACCOUNT_DISABLED')
+        const resetOnly = url.includes('eventType=AUTH_ACCOUNT_PASSWORD_RESET_REQUESTED')
+        const resetRequestEvent = {
+          id: 'ops-reset-request',
+          type: 'AUTH_ACCOUNT_PASSWORD_RESET_REQUESTED',
+          at: '2026-08-23T10:03:00',
+          severity: 'info',
+          source: 'auth.provider.password-reset.request',
+          message: 'Provider password reset requested',
+          providerId: 'provider-a',
+          code: 'provider:provider-a',
+          accountRole: 'provider',
+          accountStatus: 'active',
+          requestedLogin: 'provider-a',
+        }
         return Promise.resolve({
           ok: true,
           json: async () => ({
-            events: disabledOnly
+            events: resetOnly
+              ? [resetRequestEvent]
+              : disabledOnly
               ? [
                   {
                     id: 'ops-disabled',
@@ -3034,9 +3050,31 @@ describe('POMICH role-based flows', () => {
                     accountRole: 'provider',
                     accountStatus: 'disabled',
                   },
+                  resetRequestEvent,
                 ],
-            counts: { error: 0, warn: 0, info: disabledOnly ? 1 : 2, total: disabledOnly ? 1 : 2 },
+            counts: {
+              error: 0,
+              warn: 0,
+              info: disabledOnly || resetOnly ? 1 : 3,
+              total: disabledOnly || resetOnly ? 1 : 3,
+            },
             limit: 100,
+          }),
+        })
+      }
+      if (url.includes('/admin/auth/accounts/provider%3Aprovider-a/temporary-password')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: 'provider:provider-a',
+            role: 'provider',
+            providerId: 'provider-a',
+            username: 'provider-a',
+            status: 'active',
+            hasPassword: true,
+            passwordResetRequired: true,
+            temporaryPassword: 'tmp-audit-pass',
+            temporaryPasswordIssuedAt: '2026-08-23T10:04:00',
           }),
         })
       }
@@ -3066,6 +3104,22 @@ describe('POMICH role-based flows', () => {
     await user.click(screen.getByRole('button', { name: /^Партнер$/i }))
     expect((await screen.findAllByText('Provider A')).length).toBeGreaterThan(0)
     expect(screen.getByRole('button', { name: /^Тимчасовий пароль$/i })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /Аудит/i }))
+    await user.selectOptions(screen.getByLabelText('Event type'), 'AUTH_ACCOUNT_PASSWORD_RESET_REQUESTED')
+    expect(await screen.findByText('Provider password reset requested')).toBeInTheDocument()
+    await user.click(await screen.findByRole('button', { name: /^Видати пароль$/i }))
+    expect(await screen.findByText('Запрошення для партнера')).toBeInTheDocument()
+    expect(await screen.findByText('tmp-audit-pass')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/admin/auth/accounts/provider%3Aprovider-a/temporary-password'),
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({ Authorization: `Bearer ${adminSessionToken}` }),
+        }),
+      )
+    })
   })
 
   it('shows provider temporary password after admin approves verification', async () => {
