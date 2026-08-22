@@ -2,7 +2,11 @@
 Deploy POMICH to production server via SSH.
 Uploads project, builds with Docker Compose, configures Nginx.
 """
+import base64
+import hashlib
+import json
 import os
+import secrets
 import sys
 import stat
 import time
@@ -100,6 +104,38 @@ def upload_project(ssh):
     print(f"  Uploaded project to {REMOTE_DIR}")
 
 
+def generated_secret(env_name: str, *, token_bytes: int = 32) -> str:
+    return os.environ.get(env_name, "").strip() or secrets.token_urlsafe(token_bytes)
+
+
+def password_hash(password: str) -> str:
+    return "sha256:" + hashlib.sha256(password.encode("utf-8")).hexdigest()
+
+
+def generated_encryption_key() -> str:
+    configured = os.environ.get("POMICH_ENCRYPTION_KEY", "").strip()
+    if configured:
+        return configured
+    try:
+        from cryptography.fernet import Fernet
+
+        return Fernet.generate_key().decode("ascii")
+    except Exception:
+        return base64.urlsafe_b64encode(secrets.token_bytes(32)).decode("ascii")
+
+
+def account_seed_json(env_name: str, *, role: str, username: str, provider_id: str | None = None) -> str:
+    configured = os.environ.get(env_name, "").strip()
+    if configured:
+        return configured
+    password = secrets.token_urlsafe(18)
+    account = {"username": username, "passwordHash": password_hash(password)}
+    if provider_id:
+        account["providerId"] = provider_id
+    print(f"  Generated initial {role} password for {username}: {password}")
+    return json.dumps([account], separators=(",", ":"))
+
+
 def create_env_production(ssh):
     """Write production env only if missing — never clobber an existing configured file."""
     check, _, rc = run(ssh, f"test -f {REMOTE_DIR}/.env.production && grep -q POMICH_ENCRYPTION_KEY {REMOTE_DIR}/.env.production", check=False)
@@ -107,25 +143,41 @@ def create_env_production(ssh):
         print("  .env.production already configured; skipping overwrite")
         return
     print("  WARNING: creating default .env.production — run server_ops.py deploy for full config")
+    admin_token = generated_secret("POMICH_ADMIN_TOKEN")
+    provider_token = generated_secret("POMICH_PROVIDER_TOKEN")
+    customer_secret = generated_secret("POMICH_CUSTOMER_SESSION_SECRET")
+    postgres_password = generated_secret("POSTGRES_PASSWORD", token_bytes=24)
+    encryption_key = generated_encryption_key()
+    admin_accounts = account_seed_json("POMICH_ADMIN_ACCOUNTS", role="admin", username="dispatcher")
+    provider_accounts = account_seed_json(
+        "POMICH_PROVIDER_ACCOUNTS",
+        role="provider",
+        username="oleksandr",
+        provider_id="provider-oleksandr",
+    )
     env_content = f"""VITE_APP_NAME=POMICH
 VITE_APP_ENV=production
 VITE_APP_VERSION=0.1.0
 POMICH_RUNTIME=production
 POMICH_ALLOW_HTTP_PILOT=true
 POMICH_CORS_ORIGINS={WEB_APP_BASE}
-POMICH_ADMIN_TOKEN=pomich-admin-secret-2026
-POMICH_PROVIDER_TOKEN=pomich-provider-secret-2026
-POMICH_CUSTOMER_SESSION_SECRET=pomich-session-secret-2026-long-random
-POMICH_ADMIN_ACCOUNTS=[{{"username":"dispatcher","password":"admin-pomich-2026"}}]
-POMICH_PROVIDER_ACCOUNTS=[{{"providerId":"provider-oleksandr","username":"oleksandr","password":"provider-pomich-2026"}}]
+POMICH_ADMIN_TOKEN={admin_token}
+POMICH_PROVIDER_TOKEN={provider_token}
+POMICH_CUSTOMER_SESSION_SECRET={customer_secret}
+POMICH_ADMIN_ACCOUNTS={admin_accounts}
+POMICH_PROVIDER_ACCOUNTS={provider_accounts}
+POMICH_AUTH_RATE_LIMIT_WINDOW_SECONDS=600
+POMICH_AUTH_LOGIN_RATE_LIMIT=12
+POMICH_AUTH_RESET_RATE_LIMIT=5
 TELEGRAM_BOT_TOKEN=
 TELEGRAM_MODE=polling
 WEB_APP_URL={WEB_APP_BASE}/
+POMICH_ENCRYPTION_KEY={encryption_key}
 POMICH_STORAGE_BACKEND=sql
 POSTGRES_DB=pomich
 POSTGRES_USER=pomich
-POSTGRES_PASSWORD=pomich-db-pass-2026
-DATABASE_URL=postgresql://pomich:pomich-db-pass-2026@postgres:5432/pomich
+POSTGRES_PASSWORD={postgres_password}
+DATABASE_URL=postgresql://pomich:{postgres_password}@postgres:5432/pomich
 """
     run(ssh, f"cat > {REMOTE_DIR}/.env.production << 'ENVEOF'\n{env_content}\nENVEOF")
     print("  Created .env.production")

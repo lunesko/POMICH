@@ -50,6 +50,8 @@ Requires environment variables (see `.env.example`):
 
 ### Examples
 
+`server_ops.py deploy` preserves existing `.env.production` values when possible. If it must create initial admin/provider account seeds, it generates unique passwords and prints them once in the terminal; store them in a password manager and rotate after first login.
+
 ```powershell
 $env:POMICH_SSH_PASSWORD = "your-ssh-password"
 $env:TELEGRAM_BOT_TOKEN = "123456:your-bot-token"

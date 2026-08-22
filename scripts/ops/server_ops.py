@@ -4,6 +4,9 @@ from __future__ import annotations
 import os
 import sys
 import time
+import hashlib
+import json
+import secrets
 from pathlib import Path
 
 import paramiko
@@ -71,6 +74,46 @@ def read_existing_encryption_key(ssh: paramiko.SSHClient) -> str | None:
     return out.strip() if rc == 0 and out.strip() else None
 
 
+def read_existing_env_value(ssh: paramiko.SSHClient, key: str) -> str | None:
+    out, _, rc = run(ssh, f"grep '^{key}=' {REMOTE_DIR}/.env.production 2>/dev/null | cut -d= -f2-", check=False)
+    return out.strip() if rc == 0 and out.strip() else None
+
+
+def env_or_existing_or_generated(ssh: paramiko.SSHClient, key: str, *, token_bytes: int = 32) -> str:
+    return (
+        os.environ.get(key, "").strip()
+        or (read_existing_env_value(ssh, key) or "").strip()
+        or secrets.token_urlsafe(token_bytes)
+    )
+
+
+def env_or_existing(ssh: paramiko.SSHClient, key: str) -> str:
+    return os.environ.get(key, "").strip() or (read_existing_env_value(ssh, key) or "").strip()
+
+
+def password_hash(password: str) -> str:
+    return "sha256:" + hashlib.sha256(password.encode("utf-8")).hexdigest()
+
+
+def account_seed_json(
+    ssh: paramiko.SSHClient,
+    env_name: str,
+    *,
+    role: str,
+    username: str,
+    provider_id: str | None = None,
+) -> str:
+    existing = env_or_existing(ssh, env_name)
+    if existing:
+        return existing
+    password = secrets.token_urlsafe(18)
+    account = {"username": username, "passwordHash": password_hash(password)}
+    if provider_id:
+        account["providerId"] = provider_id
+    print(f"Generated initial {role} password for {username}: {password}")
+    return json.dumps([account], separators=(",", ":"))
+
+
 def write_env_production(
     ssh: paramiko.SSHClient,
     *,
@@ -89,28 +132,54 @@ def write_env_production(
             encryption_key = Fernet.generate_key().decode("ascii")
         except Exception:
             encryption_key = "replace-with-generated-fernet-key"
-    if not BOT_TOKEN:
-        print("WARNING: TELEGRAM_BOT_TOKEN not set; bot will not start until configured on server")
+    admin_token = env_or_existing_or_generated(ssh, "POMICH_ADMIN_TOKEN")
+    provider_token = env_or_existing_or_generated(ssh, "POMICH_PROVIDER_TOKEN")
+    customer_secret = env_or_existing_or_generated(ssh, "POMICH_CUSTOMER_SESSION_SECRET")
+    postgres_password = env_or_existing_or_generated(ssh, "POSTGRES_PASSWORD", token_bytes=24)
+    admin_accounts = account_seed_json(ssh, "POMICH_ADMIN_ACCOUNTS", role="admin", username="dispatcher")
+    provider_accounts = account_seed_json(
+        ssh,
+        "POMICH_PROVIDER_ACCOUNTS",
+        role="provider",
+        username="oleksandr",
+        provider_id="provider-oleksandr",
+    )
+    telegram_bot_token = env_or_existing(ssh, "TELEGRAM_BOT_TOKEN") or BOT_TOKEN
+    customer_bot_token = env_or_existing(ssh, "TELEGRAM_CUSTOMER_BOT_TOKEN")
+    provider_bot_token = env_or_existing(ssh, "TELEGRAM_PROVIDER_BOT_TOKEN")
+    webhook_secret = env_or_existing_or_generated(ssh, "TELEGRAM_WEBHOOK_SECRET")
+    if not (telegram_bot_token or (customer_bot_token and provider_bot_token)):
+        print("WARNING: Telegram tokens are not configured; bot/webhook setup must be completed separately")
     env_content = f"""VITE_APP_NAME=POMICH
 VITE_APP_ENV=production
 VITE_APP_VERSION=0.1.0
 POMICH_RUNTIME=production
 POMICH_ALLOW_HTTP_PILOT=true
 POMICH_CORS_ORIGINS={cors_origin}
-POMICH_ADMIN_TOKEN=pomich-admin-secret-2026
-POMICH_PROVIDER_TOKEN=pomich-provider-secret-2026
-POMICH_CUSTOMER_SESSION_SECRET=pomich-session-secret-2026-long-random
-POMICH_ADMIN_ACCOUNTS=[{{"username":"dispatcher","password":"admin-pomich-2026"}}]
-POMICH_PROVIDER_ACCOUNTS=[{{"providerId":"provider-oleksandr","username":"oleksandr","password":"provider-pomich-2026"}}]
-TELEGRAM_BOT_TOKEN={BOT_TOKEN}
+POMICH_ADMIN_TOKEN={admin_token}
+POMICH_PROVIDER_TOKEN={provider_token}
+POMICH_CUSTOMER_SESSION_SECRET={customer_secret}
+POMICH_ADMIN_ACCOUNTS={admin_accounts}
+POMICH_PROVIDER_ACCOUNTS={provider_accounts}
+POMICH_AUTH_RATE_LIMIT_WINDOW_SECONDS=600
+POMICH_AUTH_LOGIN_RATE_LIMIT=12
+POMICH_AUTH_RESET_RATE_LIMIT=5
+TELEGRAM_BOT_TOKEN={telegram_bot_token}
+TELEGRAM_CUSTOMER_BOT_USERNAME=pomich_ua_bot
+TELEGRAM_CUSTOMER_BOT_TOKEN={customer_bot_token}
+TELEGRAM_CUSTOMER_WEB_APP_URL={app_url.rstrip("/")}/?role=customer&tgBot=customer
+TELEGRAM_PROVIDER_BOT_USERNAME=pomich_help_bot
+TELEGRAM_PROVIDER_BOT_TOKEN={provider_bot_token}
+TELEGRAM_PROVIDER_WEB_APP_URL={app_url.rstrip("/")}/?role=provider&tgBot=provider
 TELEGRAM_MODE={telegram_mode}
+TELEGRAM_WEBHOOK_SECRET={webhook_secret}
 WEB_APP_URL={app_url if app_url.endswith('/') else app_url + '/'}
 POMICH_ENCRYPTION_KEY={encryption_key}
 POMICH_STORAGE_BACKEND=sql
 POSTGRES_DB=pomich
 POSTGRES_USER=pomich
-POSTGRES_PASSWORD=pomich-db-pass-2026
-DATABASE_URL=postgresql://pomich:pomich-db-pass-2026@postgres:5432/pomich
+POSTGRES_PASSWORD={postgres_password}
+DATABASE_URL=postgresql://pomich:{postgres_password}@postgres:5432/pomich
 """
     run(ssh, f"cat > {REMOTE_DIR}/.env.production << 'ENVEOF'\n{env_content}\nENVEOF")
     print("Wrote .env.production")
@@ -163,7 +232,7 @@ def main() -> int:
             for cmd in [
                 "docker ps --filter name=pomich --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'",
                 "curl -sf http://127.0.0.1:8000/api/health || echo HEALTH_FAILED",
-                f"grep -E '^(WEB_APP_URL|TELEGRAM_MODE|TELEGRAM_BOT_TOKEN|POMICH_CORS)' {REMOTE_DIR}/.env.production 2>/dev/null || echo NO_ENV",
+                f"grep -E '^(WEB_APP_URL|TELEGRAM_MODE|POMICH_RUNTIME|POMICH_STORAGE_BACKEND|POMICH_CORS)' {REMOTE_DIR}/.env.production 2>/dev/null || echo NO_ENV",
                 f"docker compose -f {REMOTE_DIR}/docker-compose.production.yml --env-file {REMOTE_DIR}/.env.production logs --tail=15 pomich-app 2>/dev/null || true",
             ]:
                 print(f"\n=== {cmd} ===")
