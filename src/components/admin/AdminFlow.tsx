@@ -267,6 +267,21 @@ function authAccountIdentity(account: AdminAuthAccount) {
   return account.username || account.email || account.phone || account.providerId || account.id
 }
 
+function authAccountToProviderSummary(account: AdminAuthAccount): ProviderAvailability["authAccount"] {
+  return {
+    id: account.id,
+    role: account.role,
+    username: account.username,
+    email: account.email,
+    phone: account.phone,
+    providerId: account.providerId,
+    status: account.status,
+    hasPassword: account.hasPassword,
+    passwordResetRequired: account.passwordResetRequired,
+    temporaryPasswordIssuedAt: account.temporaryPasswordIssuedAt,
+  }
+}
+
 function providerAuthAccountLabel(account?: ProviderAvailability["authAccount"] | ProviderAvailability["authAccountBootstrap"] | null) {
   if (!account) return "account missing"
   if (account.status === "disabled") return "disabled"
@@ -550,6 +565,18 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
     && Boolean(authAccountForm.username.trim() || authAccountForm.email.trim() || authAccountForm.phone.trim())
     && (authAccountForm.role !== "provider" || Boolean(authAccountForm.providerId.trim()))
 
+  const mergeProviderAuthAccount = useCallback((account: AdminAuthAccount) => {
+    const providerId = String(account.providerId || "").trim()
+    if (!providerId) return
+    const authAccount = authAccountToProviderSummary(account)
+    setProviders((items) => items.map((item) => item.id === providerId ? { ...item, authAccount } : item))
+    setMapProviders((items) => items.map((item) => item.id === providerId ? { ...item, authAccount } : item))
+    setAuthAccounts((items) => {
+      if (!items.some((item) => item.id === account.id)) return items
+      return items.map((item) => item.id === account.id ? account : item)
+    })
+  }, [])
+
   const saveClient = async (payload: Partial<CustomerProfile> & { accountStatus?: string }) => {
     if (!selectedClient?.id || !adminAuthToken) return
     setSaving(true)
@@ -742,6 +769,17 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
         delete next[account.id]
         return next
       })
+      mergeProviderAuthAccount(updated)
+      if (updated.providerId) {
+        setProviderInvite({
+          providerId: updated.providerId,
+          accountId: updated.id,
+          login: updated.username || updated.providerId,
+          temporaryPassword: updated.temporaryPassword,
+          resetRequired: Boolean(updated.passwordResetRequired),
+          status: updated.status,
+        })
+      }
       setAuthAccountStatus(`Temporary password for ${updated.id}: ${updated.temporaryPassword}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Не вдалося видати тимчасовий пароль.")
@@ -760,9 +798,54 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
         ? await adminUpdateAuthAccount(account.id, { status: "active" }, adminAuthToken)
         : await adminDeactivateAuthAccount(account.id, adminAuthToken)
       setAuthAccounts((items) => items.map((item) => item.id === updated.id ? updated : item))
+      mergeProviderAuthAccount(updated)
       setAuthAccountStatus(enabled ? `Акаунт ${updated.id} увімкнено.` : `Акаунт ${updated.id} вимкнено.`)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Не вдалося змінити статус auth-акаунта.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const issueProviderTemporaryPassword = async (provider: ProviderAvailability) => {
+    const accountId = String(provider.authAccount?.id || "").trim()
+    if (!adminAuthToken || !accountId) return
+    setSaving(true)
+    setError(undefined)
+    setAuthAccountStatus(undefined)
+    try {
+      const updated = await adminIssueAuthAccountTemporaryPassword(accountId, adminAuthToken)
+      mergeProviderAuthAccount(updated)
+      setProviderInvite({
+        providerId: updated.providerId || provider.id,
+        accountId: updated.id,
+        login: updated.username || updated.providerId || provider.id,
+        temporaryPassword: updated.temporaryPassword,
+        resetRequired: Boolean(updated.passwordResetRequired),
+        status: updated.status,
+      })
+      setAuthAccountStatus(`Temporary password for ${updated.username || provider.id}: ${updated.temporaryPassword}`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не вдалося видати тимчасовий пароль партнеру.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const setProviderAuthAccountEnabled = async (provider: ProviderAvailability, enabled: boolean) => {
+    const accountId = String(provider.authAccount?.id || "").trim()
+    if (!adminAuthToken || !accountId) return
+    setSaving(true)
+    setError(undefined)
+    setAuthAccountStatus(undefined)
+    try {
+      const updated = enabled
+        ? await adminUpdateAuthAccount(accountId, { status: "active" }, adminAuthToken)
+        : await adminDeactivateAuthAccount(accountId, adminAuthToken)
+      mergeProviderAuthAccount(updated)
+      setAuthAccountStatus(enabled ? `Provider account ${updated.id} увімкнено.` : `Provider account ${updated.id} вимкнено.`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не вдалося змінити статус provider account.")
     } finally {
       setSaving(false)
     }
@@ -987,6 +1070,8 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
                   onSave={saveProvider}
                   onVerify={(status) => setProviderVerification(selectedProvider, status)}
                   onDelete={() => removeProvider(selectedProvider.id)}
+                  onIssueTemporaryPassword={() => void issueProviderTemporaryPassword(selectedProvider)}
+                  onSetAuthAccountEnabled={(enabled) => void setProviderAuthAccountEnabled(selectedProvider, enabled)}
                   onOpenLogs={() => {
                     setOpsOrderQuery("")
                     setOpsProviderQuery(selectedProvider.id)
@@ -1395,6 +1480,8 @@ function ProviderEditor({
   onSave,
   onVerify,
   onDelete,
+  onIssueTemporaryPassword,
+  onSetAuthAccountEnabled,
   onOpenLogs,
   invite,
   verificationMode,
@@ -1404,6 +1491,8 @@ function ProviderEditor({
   onSave: (payload: Partial<ProviderAvailability> & { accountStatus?: string }) => Promise<void>
   onVerify: (status: "verified" | "rejected") => void
   onDelete: () => void
+  onIssueTemporaryPassword?: () => void
+  onSetAuthAccountEnabled?: (enabled: boolean) => void
   onOpenLogs?: () => void
   invite?: ProviderInviteState
   verificationMode?: boolean
@@ -1454,6 +1543,26 @@ function ProviderEditor({
             </strong>
           </div>
           <div><span>Reset required</span><strong>{provider.authAccount ? (provider.authAccount.passwordResetRequired ? "так" : "ні") : "—"}</strong></div>
+        </div>
+        <div className="admin-inline-actions">
+          {provider.authAccount ? (
+            <>
+              <button className="admin-chip admin-chip-brand" disabled={saving || !onIssueTemporaryPassword} onClick={onIssueTemporaryPassword}>
+                Тимчасовий пароль
+              </button>
+              <button
+                className={provider.authAccount.status === "active" ? "admin-chip admin-chip-danger" : "admin-chip admin-chip-brand"}
+                disabled={saving || !onSetAuthAccountEnabled}
+                onClick={() => onSetAuthAccountEnabled?.(provider.authAccount?.status !== "active")}
+              >
+                {provider.authAccount.status === "active" ? "Вимкнути account" : "Увімкнути account"}
+              </button>
+            </>
+          ) : (
+            <button className="admin-chip admin-chip-brand" disabled={saving} onClick={() => onVerify("verified")}>
+              {isVerified(provider.verificationStatus) ? "Створити account" : "Схвалити і створити account"}
+            </button>
+          )}
         </div>
       </div>
       <div className="admin-form-grid">

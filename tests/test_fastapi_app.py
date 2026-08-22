@@ -1046,6 +1046,15 @@ def test_fastapi_admin_manages_sql_auth_accounts(monkeypatch, tmp_path) -> None:
             "/api/auth/provider/login",
             json={"login": "managed-partner", "password": temporary_password.json()["temporaryPassword"]},
         )
+        enabled = client.patch(
+            f"/api/admin/auth/accounts/{created.json()['id']}",
+            headers=admin_headers,
+            json={"status": "active"},
+        )
+        enabled_login = client.post(
+            "/api/auth/provider/login",
+            json={"login": "managed-partner", "password": temporary_password.json()["temporaryPassword"]},
+        )
         ops = client.get("/api/admin/ops-log", headers=admin_headers)
         last_admin_delete = client.delete("/api/admin/auth/accounts/admin-dispatcher", headers=admin_headers)
     finally:
@@ -1075,12 +1084,17 @@ def test_fastapi_admin_manages_sql_auth_accounts(monkeypatch, tmp_path) -> None:
     assert [account["id"] for account in active_accounts.json()] == ["admin-dispatcher"]
     assert [account["id"] for account in all_accounts.json()] == ["admin-dispatcher", "provider:provider-managed"]
     assert disabled_login.status_code == 401
+    assert enabled.status_code == 200
+    assert enabled.json()["status"] == "active"
+    assert enabled_login.status_code == 200
+    assert enabled_login.json()["passwordResetRequired"] is True
     assert ops.status_code == 200
     event_types = {event["type"] for event in ops.json()["events"]}
     assert "AUTH_ACCOUNT_CREATED" in event_types
     assert "AUTH_ACCOUNT_PASSWORD_RESET" in event_types
     assert "AUTH_ACCOUNT_TEMP_PASSWORD_ISSUED" in event_types
     assert "AUTH_ACCOUNT_DISABLED" in event_types
+    assert "AUTH_ACCOUNT_ENABLED" in event_types
     assert last_admin_delete.status_code == 409
     assert last_admin_delete.json()["detail"] == "last_admin_account"
 

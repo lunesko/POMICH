@@ -2853,6 +2853,15 @@ describe('POMICH role-based flows', () => {
       specialties: ['tow'],
       verificationStatus: 'pending' as const,
     }
+    let providerAccount: AdminAuthAccount = {
+      id: 'provider:provider-new',
+      role: 'provider',
+      providerId: 'provider-new',
+      username: 'provider-new',
+      status: 'active',
+      hasPassword: true,
+      passwordResetRequired: true,
+    }
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
       if (url.includes('/auth/admin/session')) {
@@ -2885,6 +2894,24 @@ describe('POMICH role-based flows', () => {
       if (url.includes('/admin/providers')) return Promise.resolve({ ok: true, json: async () => [pendingProvider] })
       if (url.includes('/admin/settings')) return Promise.resolve({ ok: true, json: async () => ({ runtime: 'dev', corsOrigins: ['*'], encryptionEnabled: false, databaseUrlConfigured: true, sqlStorageEnabled: true, storageBackend: 'sql', telegramConfigured: false, adminAccountsConfigured: true, providerAccountsConfigured: false, allowHttpPilot: false, bootstrapAuthSessionsEnabled: false, sessionTtlSeconds: 86400 }) })
       if (url.includes('/map/providers')) return Promise.resolve({ ok: true, json: async () => [] })
+      if (url.includes('/admin/auth/accounts/provider%3Aprovider-new/temporary-password')) {
+        providerAccount = {
+          ...providerAccount,
+          passwordResetRequired: true,
+          temporaryPasswordIssuedAt: '2026-08-22T18:00:00',
+          temporaryPassword: 'tmp-provider-pass-2',
+        }
+        return Promise.resolve({ ok: true, json: async () => providerAccount })
+      }
+      if (url.includes('/admin/auth/accounts/provider%3Aprovider-new') && init?.method === 'DELETE') {
+        providerAccount = { ...providerAccount, status: 'disabled' }
+        return Promise.resolve({ ok: true, json: async () => providerAccount })
+      }
+      if (url.includes('/admin/auth/accounts/provider%3Aprovider-new') && init?.method === 'PATCH') {
+        const payload = JSON.parse(String(init.body))
+        providerAccount = { ...providerAccount, status: payload.status || providerAccount.status }
+        return Promise.resolve({ ok: true, json: async () => providerAccount })
+      }
       if (url.includes('/providers/provider-new/verification/review') && init?.method === 'PATCH') {
         return Promise.resolve({
           ok: true,
@@ -2892,10 +2919,10 @@ describe('POMICH role-based flows', () => {
             ...pendingProvider,
             verificationStatus: 'verified',
             authAccountBootstrap: {
-              id: 'provider:provider-new',
-              providerId: 'provider-new',
-              username: 'provider-new',
-              status: 'active',
+              id: providerAccount.id,
+              providerId: providerAccount.providerId,
+              username: providerAccount.username,
+              status: providerAccount.status,
               created: true,
               activated: true,
               temporaryPassword: 'tmp-provider-pass',
@@ -2913,11 +2940,23 @@ describe('POMICH role-based flows', () => {
 
     expect(await screen.findByText('POMICH Admin')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /Перевірка/i }))
-    await user.click(await screen.findByRole('button', { name: /Схвалити/i }))
+    await user.click(await screen.findByRole('button', { name: /^Схвалити$/i }))
 
     expect(await screen.findByText('Запрошення для партнера')).toBeInTheDocument()
     expect(screen.getByText('tmp-provider-pass')).toBeInTheDocument()
     expect(screen.getByText('зміна пароля обовʼязкова')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /^Тимчасовий пароль$/i }))
+    expect(await screen.findByText('tmp-provider-pass-2')).toBeInTheDocument()
+    expect(await screen.findByText(/Temporary password for provider-new: tmp-provider-pass-2/i)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /Вимкнути account/i }))
+    expect(await screen.findByText(/Provider account provider:provider-new вимкнено/i)).toBeInTheDocument()
+    expect(await screen.findByText('disabled')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /Увімкнути account/i }))
+    expect(await screen.findByText(/Provider account provider:provider-new увімкнено/i)).toBeInTheDocument()
+
     const logButtons = screen.getAllByRole('button', { name: /^Логи$/i })
     await user.click(logButtons[logButtons.length - 1])
     await waitFor(() => {
@@ -2933,6 +2972,18 @@ describe('POMICH role-based flows', () => {
         expect.objectContaining({
           headers: expect.objectContaining({ Authorization: `Bearer ${adminSessionToken}` }),
         }),
+      )
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/admin/auth/accounts/provider%3Aprovider-new/temporary-password'),
+        expect.objectContaining({ method: 'POST' }),
+      )
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/admin/auth/accounts/provider%3Aprovider-new'),
+        expect.objectContaining({ method: 'DELETE' }),
+      )
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/admin/auth/accounts/provider%3Aprovider-new'),
+        expect.objectContaining({ method: 'PATCH' }),
       )
     })
   })

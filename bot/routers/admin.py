@@ -274,8 +274,16 @@ def admin_patch_auth_account(
     if payload.get("role") and str(payload.get("role")).strip().lower() != role:
         raise HTTPException(status_code=400, detail="auth_account_role_immutable")
     try:
+        previous_status = str(existing.get("status") or "active").strip().lower()
         account = upsert_auth_account(role, {**existing, **payload, "id": account_id, "role": role})
-        _record_auth_account_event("AUTH_ACCOUNT_UPDATED", account, source="admin.auth.accounts.patch")
+        next_status = str(account.get("status") or "active").strip().lower()
+        event_type = "AUTH_ACCOUNT_UPDATED"
+        if previous_status != next_status:
+            if next_status == "active":
+                event_type = "AUTH_ACCOUNT_ENABLED"
+            elif next_status == "disabled":
+                event_type = "AUTH_ACCOUNT_DISABLED"
+        _record_auth_account_event(event_type, account, source="admin.auth.accounts.patch")
         return _public_auth_account(account)
     except (KeyError, ValueError) as exc:
         raise _auth_account_http_error(exc) from exc
