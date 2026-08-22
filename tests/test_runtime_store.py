@@ -94,6 +94,7 @@ def test_sql_runtime_store_persists_orders_without_json_file(sql_runtime):
         "dispatch_offers",
         "sessions",
         "order_events",
+        "auth_accounts",
         "pomich_schema_migrations",
     }
     assert [migration["version"] for migration in runtime_store.applied_schema_migrations()] == [
@@ -103,6 +104,7 @@ def test_sql_runtime_store_persists_orders_without_json_file(sql_runtime):
         "2026081104",
         "2026081201",
         "2026082001",
+        "2026082201",
     ]
 
 
@@ -136,6 +138,34 @@ def test_sql_schema_migration_backfills_legacy_provider_capabilities(sql_runtime
 
     assert "capabilities" in columns
     assert capability_index == "|tow|fuel|"
+
+
+def test_sql_auth_accounts_round_trip_without_plaintext_password(sql_runtime):
+    stored = runtime_store.save_auth_accounts(
+        "provider",
+        [
+            {
+                "providerId": "provider-sql",
+                "username": "sql-partner",
+                "email": "partner@example.test",
+                "password": "provider-pass",
+            },
+            {
+                "providerId": "provider-disabled",
+                "username": "disabled-partner",
+                "password": "provider-pass",
+                "status": "disabled",
+            },
+        ],
+    )
+    loaded = runtime_store.load_auth_accounts("provider")
+
+    assert len(stored) == 2
+    assert stored[0]["providerId"] == "provider-sql"
+    assert "password" not in stored[0]
+    assert stored[0]["passwordHash"].startswith("sha256:")
+    assert [account["username"] for account in loaded] == ["sql-partner"]
+    assert _table_count(runtime_store.auth_accounts) == 2
 
 
 def test_sql_runtime_store_supports_dispatch_and_offer_acceptance(sql_runtime):

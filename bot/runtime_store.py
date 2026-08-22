@@ -1,3 +1,4 @@
+import hashlib
 import json
 import math
 import os
@@ -123,6 +124,22 @@ order_events = Table(
     Column("payload", JSON, nullable=False),
 )
 
+auth_accounts = Table(
+    "auth_accounts",
+    _METADATA,
+    Column("id", String(160), primary_key=True),
+    Column("role", String(40), nullable=False),
+    Column("username", String(180)),
+    Column("email", String(320)),
+    Column("phone", String(80)),
+    Column("provider_id", String(120)),
+    Column("password_hash", String(180)),
+    Column("status", String(40), nullable=False),
+    Column("created_at", String(40)),
+    Column("updated_at", String(40)),
+    Column("payload", JSON, nullable=False),
+)
+
 schema_migrations = Table(
     "pomich_schema_migrations",
     _METADATA,
@@ -154,6 +171,10 @@ Index("idx_dispatch_offers_order", dispatch_offers.c.order_id)
 Index("idx_dispatch_offers_provider", dispatch_offers.c.provider_id)
 Index("idx_dispatch_offers_status", dispatch_offers.c.status)
 Index("idx_order_events_order", order_events.c.order_id)
+Index("idx_auth_accounts_role", auth_accounts.c.role)
+Index("idx_auth_accounts_username", auth_accounts.c.username)
+Index("idx_auth_accounts_provider", auth_accounts.c.provider_id)
+Index("idx_auth_accounts_status", auth_accounts.c.status)
 
 
 def _database_url() -> str:
@@ -224,6 +245,7 @@ def _run_schema_migrations(engine: Engine) -> None:
         ("2026081104", "postgis dispatch geo indexes", _migration_postgis_dispatch_geo_indexes),
         ("2026081201", "widen customer encrypted columns", _migration_customer_encrypted_columns),
         ("2026082001", "phone lookup indexes for OTP/login", _migration_phone_lookup_indexes),
+        ("2026082201", "persistent auth accounts", _migration_auth_accounts),
     )
 
     with engine.begin() as connection:
@@ -254,6 +276,7 @@ def _migration_runtime_schema_baseline(connection, engine: Engine) -> None:
         "dispatch_offers",
         "sessions",
         "order_events",
+        "auth_accounts",
         "pomich_schema_migrations",
         "pomich_runtime_collections",
     }
@@ -357,6 +380,18 @@ def _migration_phone_lookup_indexes(connection, engine: Engine) -> None:
         )
 
 
+def _migration_auth_accounts(connection, engine: Engine) -> None:
+    auth_accounts.create(connection, checkfirst=True)
+    index_statements = [
+        "CREATE INDEX IF NOT EXISTS idx_auth_accounts_role ON auth_accounts (role)",
+        "CREATE INDEX IF NOT EXISTS idx_auth_accounts_username ON auth_accounts (username)",
+        "CREATE INDEX IF NOT EXISTS idx_auth_accounts_provider ON auth_accounts (provider_id)",
+        "CREATE INDEX IF NOT EXISTS idx_auth_accounts_status ON auth_accounts (status)",
+    ]
+    for statement in index_statements:
+        connection.execute(text(statement))
+
+
 def applied_schema_migrations() -> list[dict[str, Any]]:
     engine = get_engine()
     with engine.begin() as connection:
@@ -388,6 +423,93 @@ def _capability_index(value: Any) -> str:
         return "|"
     cleaned = [str(item).strip().lower() for item in value if str(item).strip()]
     return "|" + "|".join(dict.fromkeys(cleaned)) + "|" if cleaned else "|"
+
+
+def _auth_account_role(role: Any) -> str:
+    normalized = str(role or "").strip().lower()
+    if normalized not in {"admin", "provider"}:
+        raise ValueError("auth account role must be admin or provider")
+    return normalized
+
+
+def _password_hash_from_payload(payload: dict[str, Any]) -> str:
+    existing = str(payload.get("passwordHash") or payload.get("password_hash") or "").strip()
+    if existing.startswith("sha256:"):
+        return existing
+    password = str(payload.get("password") or "").strip()
+    if not password:
+        return existing
+    return f"sha256:{hashlib.sha256(password.encode('utf-8')).hexdigest()}"
+
+
+def _normalize_auth_account(role: str, account: dict[str, Any], index: int = 0) -> dict[str, Any]:
+    now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat(timespec="seconds")
+    payload = _json_safe_copy(account)
+    payload.pop("password", None)
+    payload["role"] = role
+    status = str(payload.get("status") or "active").strip().lower()
+    payload["status"] = status if status else "active"
+
+    password_hash = _password_hash_from_payload(account)
+    if password_hash:
+        payload["passwordHash"] = password_hash
+
+    provider_id = str(payload.get("providerId") or payload.get("provider_id") or "").strip()
+    username = str(payload.get("username") or "").strip()
+    email = str(payload.get("email") or "").strip()
+    phone = str(payload.get("phone") or "").strip()
+    account_id = str(payload.get("id") or "").strip()
+    if not account_id:
+        stable_key = provider_id or username or email or phone or str(index)
+        account_id = f"{role}:{stable_key}".lower()
+    payload["id"] = account_id
+    if role == "provider" and provider_id:
+        payload["providerId"] = provider_id
+    payload.setdefault("createdAt", now)
+    payload["updatedAt"] = now
+    return payload
+
+
+def save_auth_accounts(role: str, account_payloads: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    normalized_role = _auth_account_role(role)
+    stored_accounts = [
+        _normalize_auth_account(normalized_role, account, index)
+        for index, account in enumerate(account_payloads)
+        if isinstance(account, dict)
+    ]
+    engine = get_engine()
+    with engine.begin() as connection:
+        connection.execute(delete(auth_accounts).where(auth_accounts.c.role == normalized_role))
+        for account in stored_accounts:
+            connection.execute(
+                insert(auth_accounts).values(
+                    id=str(account["id"]),
+                    role=normalized_role,
+                    username=str(account.get("username") or "") or None,
+                    email=str(account.get("email") or "") or None,
+                    phone=str(account.get("phone") or "") or None,
+                    provider_id=str(account.get("providerId") or "") or None,
+                    password_hash=str(account.get("passwordHash") or "") or None,
+                    status=str(account.get("status") or "active"),
+                    created_at=str(account.get("createdAt") or "") or None,
+                    updated_at=str(account.get("updatedAt") or "") or None,
+                    payload=account,
+                )
+            )
+    return _json_safe_copy(stored_accounts)
+
+
+def load_auth_accounts(role: str) -> list[dict[str, Any]]:
+    normalized_role = _auth_account_role(role)
+    engine = get_engine()
+    with engine.begin() as connection:
+        rows = connection.execute(
+            select(auth_accounts.c.payload)
+            .where(auth_accounts.c.role == normalized_role)
+            .where(auth_accounts.c.status == "active")
+            .order_by(auth_accounts.c.username, auth_accounts.c.id)
+        ).all()
+    return [_json_safe_copy(row[0]) for row in rows if isinstance(row[0], dict)]
 
 
 def _parse_iso(value: Any) -> datetime | None:

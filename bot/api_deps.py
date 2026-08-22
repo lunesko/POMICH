@@ -18,7 +18,7 @@ from fastapi import HTTPException
 from bot.field_encryption import encryption_enabled
 from bot.order_store import DispatchConflict
 from bot.otp_verification import OtpVerificationError
-from bot.runtime_store import sql_storage_enabled
+from bot.runtime_store import load_auth_accounts, sql_storage_enabled
 from bot.telegram_auth import verify_telegram_init_data, verify_telegram_init_data_any_bot
 from bot.telegram_config import (
     any_telegram_bot_configured,
@@ -59,6 +59,15 @@ def allow_http_pilot() -> bool:
 def bootstrap_auth_sessions_enabled() -> bool:
     """Legacy shared-token session issuance is a local/dev convenience only."""
     return not is_production_runtime()
+
+
+def auth_accounts_source() -> str:
+    raw = (os.getenv("POMICH_AUTH_ACCOUNTS_SOURCE") or "env").strip().lower()
+    if raw in {"sql", "database", "postgres", "postgresql"}:
+        return "sql"
+    if raw in {"mixed", "hybrid"}:
+        return "mixed"
+    return "env"
 
 
 def _is_public_http_pilot_origin(origin: str) -> bool:
@@ -121,10 +130,10 @@ def runtime_config_errors() -> list[str]:
     if not is_configured_secret(os.getenv("POMICH_CUSTOMER_SESSION_SECRET")):
         errors.append("POMICH_CUSTOMER_SESSION_SECRET must be a non-placeholder secret in production")
 
-    if not load_account_configs("POMICH_ADMIN_ACCOUNTS"):
+    if not account_configs_available("POMICH_ADMIN_ACCOUNTS"):
         errors.append("POMICH_ADMIN_ACCOUNTS must be configured in production; bootstrap admin sessions are disabled")
 
-    if not load_account_configs("POMICH_PROVIDER_ACCOUNTS"):
+    if not account_configs_available("POMICH_PROVIDER_ACCOUNTS"):
         errors.append("POMICH_PROVIDER_ACCOUNTS must be configured in production; bootstrap provider sessions are disabled")
 
     database_url = (os.getenv("DATABASE_URL") or "").strip()
@@ -229,7 +238,14 @@ def configured_customer_secret() -> str:
     return "dev-customer-session-secret"
 
 
-def load_account_configs(env_name: str) -> list[dict]:
+def account_role_for_env(env_name: str) -> str | None:
+    return {
+        "POMICH_ADMIN_ACCOUNTS": "admin",
+        "POMICH_PROVIDER_ACCOUNTS": "provider",
+    }.get(env_name)
+
+
+def load_env_account_configs(env_name: str) -> list[dict]:
     raw_value = (os.getenv(env_name) or "").strip()
     if not raw_value:
         return []
@@ -252,6 +268,25 @@ def load_account_configs(env_name: str) -> list[dict]:
             accounts.append(account)
         return accounts
     return []
+
+
+def account_configs_available(env_name: str) -> bool:
+    if load_env_account_configs(env_name):
+        return True
+    source = auth_accounts_source()
+    role = account_role_for_env(env_name)
+    return bool(role and source in {"sql", "mixed"} and sql_storage_enabled())
+
+
+def load_account_configs(env_name: str) -> list[dict]:
+    source = auth_accounts_source()
+    role = account_role_for_env(env_name)
+    accounts: list[dict] = []
+    if role and source in {"sql", "mixed"} and sql_storage_enabled():
+        accounts.extend(load_auth_accounts(role))
+    if source != "sql":
+        accounts.extend(load_env_account_configs(env_name))
+    return accounts
 
 
 def password_matches(account: dict, password: str) -> bool:
@@ -614,6 +649,7 @@ def build_admin_settings_payload() -> dict:
         "telegramConfigured": bool(get_configured_token()),
         "adminAccountsConfigured": bool(load_account_configs("POMICH_ADMIN_ACCOUNTS")),
         "providerAccountsConfigured": bool(load_account_configs("POMICH_PROVIDER_ACCOUNTS")),
+        "authAccountsSource": auth_accounts_source(),
         "allowHttpPilot": allow_http_pilot(),
         "bootstrapAuthSessionsEnabled": bootstrap_auth_sessions_enabled(),
         "sessionTtlSeconds": session_ttl_seconds(),

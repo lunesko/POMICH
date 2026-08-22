@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from bot import fastapi_app
 from bot import order_store
+from bot import runtime_store
 
 app = fastapi_app.app
 PROVIDER_TOKEN = "partner-secret"
@@ -60,6 +61,17 @@ def _use_temp_store(monkeypatch, tmp_path) -> tuple:
     monkeypatch.setattr(order_store, "_default_offer_store_path", lambda: offer_path)
     monkeypatch.setattr(order_store, "_default_customer_store_path", lambda: customer_path)
     return order_path, provider_path, offer_path
+
+
+def _use_sql_runtime(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("POMICH_STORAGE_BACKEND", "sql")
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'pomich-api-runtime.db'}")
+    monkeypatch.setenv("POMICH_ORDER_STORE_PATH", str(tmp_path / "orders.json"))
+    monkeypatch.setenv("POMICH_PROVIDER_STORE_PATH", str(tmp_path / "providers.json"))
+    monkeypatch.setenv("POMICH_OFFER_STORE_PATH", str(tmp_path / "offers.json"))
+    monkeypatch.setenv("POMICH_CUSTOMER_STORE_PATH", str(tmp_path / "customers.json"))
+    monkeypatch.setenv("POMICH_SESSION_STORE_PATH", str(tmp_path / "sessions.json"))
+    runtime_store.reset_runtime_store_for_tests()
 
 
 def _use_provider_auth(monkeypatch) -> dict:
@@ -145,6 +157,24 @@ def test_production_runtime_config_accepts_release_settings(monkeypatch) -> None
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     monkeypatch.delenv("VITE_TELEGRAM_BOT_TOKEN", raising=False)
     monkeypatch.setenv("WEB_APP_URL", "https://app.pomich.example")
+
+    assert fastapi_app._runtime_config_errors() == []
+
+
+def test_production_runtime_config_accepts_sql_auth_account_source(monkeypatch) -> None:
+    monkeypatch.setenv("POMICH_RUNTIME", "production")
+    monkeypatch.setenv("POMICH_CORS_ORIGINS", "https://app.pomich.example")
+    monkeypatch.setenv("POMICH_ADMIN_TOKEN", "admin-secret-1234567890-release")
+    monkeypatch.setenv("POMICH_PROVIDER_TOKEN", "provider-secret-1234567890-release")
+    monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", "customer-secret-1234567890-release")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@localhost:5432/pomich_prod")
+    monkeypatch.setenv("POMICH_STORAGE_BACKEND", "sql")
+    monkeypatch.setenv("POMICH_AUTH_ACCOUNTS_SOURCE", "sql")
+    monkeypatch.setenv("WEB_APP_URL", "https://app.pomich.example")
+    monkeypatch.delenv("POMICH_ADMIN_ACCOUNTS", raising=False)
+    monkeypatch.delenv("POMICH_PROVIDER_ACCOUNTS", raising=False)
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("VITE_TELEGRAM_BOT_TOKEN", raising=False)
 
     assert fastapi_app._runtime_config_errors() == []
 
@@ -516,6 +546,31 @@ def test_fastapi_provider_account_login_issues_scoped_session(monkeypatch, tmp_p
     assert other_profile.status_code == 403
 
 
+def test_fastapi_provider_account_login_reads_sql_account(monkeypatch, tmp_path) -> None:
+    _use_sql_runtime(monkeypatch, tmp_path)
+    monkeypatch.setenv("POMICH_AUTH_ACCOUNTS_SOURCE", "sql")
+    monkeypatch.setenv("POMICH_PROVIDER_TOKEN", PROVIDER_TOKEN)
+    runtime_store.save_auth_accounts(
+        "provider",
+        [{"providerId": "p-sql", "username": "sql-partner", "password": "provider-pass"}],
+    )
+    order_store.save_providers([_api_provider("p-sql", 48.6218, 22.2879), _api_provider("p-other", 48.6228, 22.2879)])
+    client = TestClient(app)
+
+    try:
+        login_response = client.post("/api/auth/provider/login", json={"login": "sql-partner", "password": "provider-pass"})
+        access_token = login_response.json()["accessToken"]
+        own_profile = client.get("/api/providers/p-sql/profile", headers={"Authorization": f"Bearer {access_token}"})
+        other_profile = client.get("/api/providers/p-other/profile", headers={"Authorization": f"Bearer {access_token}"})
+    finally:
+        runtime_store.reset_runtime_store_for_tests()
+
+    assert login_response.status_code == 200
+    assert login_response.json()["providerId"] == "p-sql"
+    assert own_profile.status_code == 200
+    assert other_profile.status_code == 403
+
+
 def test_fastapi_admin_account_login_can_access_admin_routes(monkeypatch) -> None:
     monkeypatch.setenv("POMICH_ADMIN_TOKEN", ADMIN_TOKEN)
     monkeypatch.setenv("POMICH_ADMIN_ACCOUNTS", json.dumps([{"username": "dispatcher", "password": "admin-pass"}]))
@@ -529,6 +584,30 @@ def test_fastapi_admin_account_login_can_access_admin_routes(monkeypatch) -> Non
     assert login_response.json()["role"] == "admin"
     assert login_response.json()["username"] == "dispatcher"
     assert orders_response.status_code == 200
+
+
+def test_fastapi_admin_account_login_reads_sql_account(monkeypatch, tmp_path) -> None:
+    _use_sql_runtime(monkeypatch, tmp_path)
+    monkeypatch.setenv("POMICH_AUTH_ACCOUNTS_SOURCE", "sql")
+    monkeypatch.setenv("POMICH_ADMIN_TOKEN", ADMIN_TOKEN)
+    runtime_store.save_auth_accounts(
+        "admin",
+        [{"id": "admin-dispatcher", "username": "dispatcher", "password": "admin-pass"}],
+    )
+    client = TestClient(app)
+
+    try:
+        login_response = client.post("/api/auth/admin/login", json={"username": "dispatcher", "password": "admin-pass"})
+        access_token = login_response.json()["accessToken"]
+        settings_response = client.get("/api/admin/settings", headers={"Authorization": f"Bearer {access_token}"})
+    finally:
+        runtime_store.reset_runtime_store_for_tests()
+
+    assert login_response.status_code == 200
+    assert login_response.json()["role"] == "admin"
+    assert login_response.json()["username"] == "dispatcher"
+    assert settings_response.status_code == 200
+    assert settings_response.json()["authAccountsSource"] == "sql"
 
 
 def test_fastapi_telegram_customer_session_links_profile(monkeypatch, tmp_path) -> None:

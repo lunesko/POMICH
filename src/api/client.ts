@@ -1346,6 +1346,7 @@ export interface AdminSettings {
   telegramConfigured: boolean
   adminAccountsConfigured: boolean
   providerAccountsConfigured: boolean
+  authAccountsSource: string
   allowHttpPilot: boolean
   bootstrapAuthSessionsEnabled: boolean
   sessionTtlSeconds: number
