@@ -117,10 +117,26 @@ def test_fastapi_serves_health_and_api_prefix(monkeypatch) -> None:
     assert health.status_code == 200
     assert health.json()["status"] == "ok"
     assert health.json()["runtime"] == "dev"
+    assert health.json()["storage"]["backend"] in {"json", "sql"}
+    assert health.json()["storage"]["ok"] is True
     assert orders.status_code == 200
     assert isinstance(orders.json(), list)
     assert providers.status_code == 200
     assert isinstance(providers.json(), list)
+
+
+def test_fastapi_health_reports_sql_storage(monkeypatch, tmp_path) -> None:
+    _use_sql_runtime(monkeypatch, tmp_path)
+    client = TestClient(app)
+
+    try:
+        response = client.get("/api/health")
+    finally:
+        runtime_store.reset_runtime_store_for_tests()
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
+    assert response.json()["storage"] == {"backend": "sql", "ok": True, "dialect": "sqlite"}
 
 
 def test_production_runtime_config_rejects_insecure_defaults(monkeypatch) -> None:

@@ -29,6 +29,8 @@ The app container exposes FastAPI and the built SPA on port `8000`. Your public 
 
 On startup the backend bootstraps normalized runtime tables and applies explicit schema migrations recorded in `pomich_schema_migrations`. On PostgreSQL it enables PostGIS and migration-manages GiST indexes for provider and customer coordinates so dispatch can use `ST_DWithin` queries without changing the public API.
 
+`/api/health` checks FastAPI plus runtime storage. With SQL/PostGIS enabled it runs a DB probe, so the Docker healthcheck fails if Postgres is not reachable.
+
 ## Smoke Gate
 Run the non-mutating smoke check:
 
