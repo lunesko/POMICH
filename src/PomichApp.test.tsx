@@ -2944,6 +2944,24 @@ describe('POMICH role-based flows', () => {
     const user = userEvent.setup()
     const adminSessionToken = 'pomich_auth_v1.admin-session'
     const opsUrls: string[] = []
+    const auditProvider = {
+      id: 'provider-a',
+      name: 'Provider A',
+      phone: '+380501112233',
+      status: 'offline',
+      vehicle: 'Iveco Daily',
+      serviceRadiusKm: 12,
+      specialties: ['tow'],
+      verificationStatus: 'verified' as const,
+      authAccount: {
+        id: 'provider:provider-a',
+        role: 'provider' as const,
+        providerId: 'provider-a',
+        username: 'provider-a',
+        status: 'active' as const,
+        hasPassword: true,
+      },
+    }
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input)
       if (url.includes('/auth/admin/session')) {
@@ -3023,7 +3041,7 @@ describe('POMICH role-based flows', () => {
         })
       }
       if (url.includes('/admin/clients')) return Promise.resolve({ ok: true, json: async () => [] })
-      if (url.includes('/admin/providers')) return Promise.resolve({ ok: true, json: async () => [] })
+      if (url.includes('/admin/providers')) return Promise.resolve({ ok: true, json: async () => [auditProvider] })
       if (url.includes('/admin/orders')) return Promise.resolve({ ok: true, json: async () => [] })
       if (url.includes('/admin/settings')) return Promise.resolve({ ok: true, json: async () => ({ runtime: 'dev', corsOrigins: ['*'], encryptionEnabled: false, databaseUrlConfigured: true, sqlStorageEnabled: true, storageBackend: 'sql', telegramConfigured: false, adminAccountsConfigured: true, providerAccountsConfigured: true, authAccountsSource: 'sql', allowHttpPilot: false, bootstrapAuthSessionsEnabled: false, sessionTtlSeconds: 86400 }) })
       if (url.includes('/map/providers')) return Promise.resolve({ ok: true, json: async () => [] })
@@ -3045,6 +3063,9 @@ describe('POMICH role-based flows', () => {
     await waitFor(() => {
       expect(opsUrls.some((url) => url.includes('auditOnly=true') && url.includes('eventType=AUTH_ACCOUNT_DISABLED'))).toBe(true)
     })
+    await user.click(screen.getByRole('button', { name: /^Партнер$/i }))
+    expect((await screen.findAllByText('Provider A')).length).toBeGreaterThan(0)
+    expect(screen.getByRole('button', { name: /^Тимчасовий пароль$/i })).toBeInTheDocument()
   })
 
   it('shows provider temporary password after admin approves verification', async () => {

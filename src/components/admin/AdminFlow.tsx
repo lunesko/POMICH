@@ -1362,6 +1362,32 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
                             Заявка
                           </button>
                         ) : null}
+                        {item.providerId ? (
+                          <button
+                            type="button"
+                            className="admin-chip admin-chip-brand"
+                            onClick={() => {
+                              setSelectedProviderId(item.providerId)
+                              setProviderQuery("")
+                              setSection("providers")
+                            }}
+                          >
+                            Партнер
+                          </button>
+                        ) : null}
+                        {item.customerId ? (
+                          <button
+                            type="button"
+                            className="admin-chip admin-chip-brand"
+                            onClick={() => {
+                              setSelectedClientId(item.customerId)
+                              setClientQuery("")
+                              setSection("clients")
+                            }}
+                          >
+                            Клієнт
+                          </button>
+                        ) : null}
                         <span className="admin-muted">{item.at ?? "—"}</span>
                       </div>
                     </div>
