@@ -14,6 +14,7 @@ from bot.api_deps import (
     find_admin_account,
     find_provider_account,
     issue_role_session,
+    load_account_configs,
     otp_http_detail,
     otp_http_status,
     password_matches,
@@ -41,6 +42,55 @@ from bot.runtime_store import get_auth_account, set_auth_account_password
 from bot.telegram_config import normalize_telegram_bot_kind
 
 router = APIRouter(tags=["auth"])
+
+
+def _account_login_identifiers(account: dict) -> set[str]:
+    values = {
+        account.get("id"),
+        account.get("username"),
+        account.get("email"),
+        account.get("phone"),
+        account.get("providerId"),
+        account.get("provider_id"),
+    }
+    return {str(value).strip().lower() for value in values if str(value or "").strip()}
+
+
+def _find_account_for_reset(role: str, login: str, provider_id: str | None = None) -> dict | None:
+    normalized_login = str(login or "").strip().lower()
+    normalized_provider_id = str(provider_id or "").strip()
+    if not normalized_login and not normalized_provider_id:
+        return None
+    env_name = "POMICH_ADMIN_ACCOUNTS" if role == "admin" else "POMICH_PROVIDER_ACCOUNTS"
+    for account in load_account_configs(env_name, include_disabled=True):
+        account_provider_id = str(account.get("providerId") or account.get("provider_id") or "").strip()
+        if normalized_provider_id and account_provider_id != normalized_provider_id:
+            continue
+        identifiers = _account_login_identifiers(account)
+        if normalized_login and normalized_login not in identifiers:
+            continue
+        return {**account, "providerId": account_provider_id or account.get("providerId")}
+    return None
+
+
+def _password_reset_request_payload(role: str, login: str, account: dict | None, *, provider_id: str | None = None) -> dict:
+    normalized_login = str(login or "").strip()
+    normalized_provider_id = str(provider_id or "").strip()
+    account_id = str((account or {}).get("id") or "").strip()
+    account_provider_id = str((account or {}).get("providerId") or normalized_provider_id or "").strip()
+    record_ops_event(
+        event_type="AUTH_ACCOUNT_PASSWORD_RESET_REQUESTED",
+        message=f"{role.title()} password reset requested",
+        provider_id=account_provider_id if role == "provider" and account_provider_id else None,
+        code=account_id or normalized_login or normalized_provider_id or role,
+        source=f"auth.{role}.password-reset.request",
+        extra={
+            "accountRole": role,
+            "accountStatus": str((account or {}).get("status") or "unknown"),
+            "requestedLogin": normalized_login[:80],
+        },
+    )
+    return {"ok": True, "queued": True}
 
 
 def _provider_account_summary(customer_id: str, profile: dict | None = None) -> dict:
@@ -77,6 +127,13 @@ def create_admin_account_session(payload: dict) -> dict:
     session["username"] = str(account.get("username") or subject_id)
     session["passwordResetRequired"] = bool(account.get("passwordResetRequired"))
     return session
+
+
+@router.post("/auth/admin/password-reset/request")
+def request_admin_account_password_reset(payload: dict) -> dict:
+    login = str(payload.get("login") or payload.get("username") or "").strip()
+    account = _find_account_for_reset("admin", login)
+    return _password_reset_request_payload("admin", login, account)
 
 
 @router.post("/auth/provider/session")
@@ -127,6 +184,14 @@ def create_provider_account_session(payload: dict) -> dict:
     session["username"] = str(account.get("username") or login)
     session["passwordResetRequired"] = bool(account.get("passwordResetRequired"))
     return session
+
+
+@router.post("/auth/provider/password-reset/request")
+def request_provider_account_password_reset(payload: dict) -> dict:
+    provider_id = str(payload.get("providerId") or "").strip()
+    login = str(payload.get("login") or payload.get("username") or provider_id).strip()
+    account = _find_account_for_reset("provider", login, provider_id)
+    return _password_reset_request_payload("provider", login, account, provider_id=provider_id)
 
 
 @router.post("/auth/provider/password")

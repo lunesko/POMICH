@@ -2118,6 +2118,43 @@ describe('POMICH role-based flows', () => {
     })
   })
 
+  it('lets a provider request a password reset from account login', async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes('/auth/provider/session')) {
+        return Promise.resolve({
+          ok: false,
+          status: 403,
+          json: async () => ({ detail: 'provider_bootstrap_session_disabled' }),
+        })
+      }
+      if (url.includes('/auth/provider/password-reset/request')) {
+        return Promise.resolve({ ok: true, json: async () => ({ ok: true, queued: true }) })
+      }
+      if (url.includes('/map/providers')) return Promise.resolve({ ok: true, json: async () => [] })
+      return Promise.resolve({ ok: true, json: async () => [] })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/?providerToken=legacy-provider-token&providerId=provider-oleksandr')
+
+    renderApp()
+
+    expect(await screen.findByText('Вхід партнера')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /Забули пароль\? Запросити reset/i }))
+
+    expect(await screen.findByText(/Запит на reset надіслано/i)).toBeInTheDocument()
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/auth/provider/password-reset/request'),
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ login: 'provider-oleksandr', providerId: 'provider-oleksandr' }),
+        }),
+      )
+    })
+  })
+
   it('forces provider password update after temporary password login', async () => {
     const user = userEvent.setup()
     const providerSessionToken = 'pomich_auth_v1.provider-session'
@@ -2985,6 +3022,35 @@ describe('POMICH role-based flows', () => {
         expect.objectContaining({
           method: 'POST',
           headers: expect.not.objectContaining({ 'X-POMICH-Admin-Token': expect.any(String) }),
+        }),
+      )
+    })
+  })
+
+  it('lets an admin request a password reset from account login', async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/auth/admin/password-reset/request')) {
+        return Promise.resolve({ ok: true, json: async () => ({ ok: true, queued: true }) })
+      }
+      return Promise.resolve({ ok: true, json: async () => ({}) })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/?role=admin')
+
+    renderApp()
+
+    expect(await screen.findByText('Захищена адмін-панель')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /Забули пароль\? Запросити reset/i }))
+
+    expect(await screen.findByText(/Запит на reset надіслано/i)).toBeInTheDocument()
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/auth/admin/password-reset/request'),
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ login: 'dispatcher' }),
         }),
       )
     })

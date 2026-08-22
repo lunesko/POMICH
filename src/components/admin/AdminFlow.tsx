@@ -21,6 +21,7 @@ import {
   getMapProviders,
   importUzhgorodProviders,
   purgeStaleGuestClients,
+  requestAdminPasswordReset,
   reviewProviderVerification,
   retryDispatch,
   updateAdminAccountPassword,
@@ -135,17 +136,23 @@ function AdminLogin({
   password,
   saving,
   error,
+  resetStatus,
+  resetSaving,
   onLoginChange,
   onPasswordChange,
   onSubmit,
+  onResetRequest,
 }: {
   login: string
   password: string
   saving: boolean
   error?: string
+  resetStatus?: string
+  resetSaving?: boolean
   onLoginChange: (value: string) => void
   onPasswordChange: (value: string) => void
   onSubmit: () => void
+  onResetRequest?: () => void
 }) {
   return (
     <div className="admin-login-shell">
@@ -165,6 +172,12 @@ function AdminLogin({
         <button className="admin-primary-btn" onClick={onSubmit} disabled={!login.trim() || !password.trim() || saving}>
           {saving ? "Входимо…" : "Увійти"}
         </button>
+        {onResetRequest ? (
+          <button className="admin-ghost-btn admin-login-reset-btn" onClick={onResetRequest} disabled={!login.trim() || resetSaving}>
+            {resetSaving ? "Надсилаємо запит…" : "Забули пароль? Запросити reset"}
+          </button>
+        ) : null}
+        {resetStatus ? <div className="admin-alert admin-alert-info">{resetStatus}</div> : null}
       </div>
     </div>
   )
@@ -321,6 +334,8 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
   const [accountLogin, setAccountLogin] = useState("dispatcher")
   const [accountPassword, setAccountPassword] = useState("")
   const [authSaving, setAuthSaving] = useState(false)
+  const [adminResetRequestSaving, setAdminResetRequestSaving] = useState(false)
+  const [adminResetRequestStatus, setAdminResetRequestStatus] = useState<string | undefined>()
   const [newAdminPassword, setNewAdminPassword] = useState("")
   const [newAdminPasswordConfirm, setNewAdminPasswordConfirm] = useState("")
   const [adminPasswordSaving, setAdminPasswordSaving] = useState(false)
@@ -367,6 +382,7 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
   const submitAdminAccountLogin = async () => {
     setAuthSaving(true)
     setAuthError(undefined)
+    setAdminResetRequestStatus(undefined)
     try {
       const session = await createAdminAccountSession(accountLogin, accountPassword)
       storeAuthSession(adminSessionStorageKey, session)
@@ -377,6 +393,22 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
       setAuthError(error instanceof Error ? error.message : "Не вдалося увійти в адмін-акаунт.")
     } finally {
       setAuthSaving(false)
+    }
+  }
+
+  const requestAdminAccountReset = async () => {
+    const login = accountLogin.trim()
+    if (!login) return
+    setAdminResetRequestSaving(true)
+    setAuthError(undefined)
+    setAdminResetRequestStatus(undefined)
+    try {
+      await requestAdminPasswordReset(login)
+      setAdminResetRequestStatus("Запит на reset надіслано. Власник системи зможе видати тимчасовий пароль в admin accounts.")
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : "Не вдалося надіслати запит на reset.")
+    } finally {
+      setAdminResetRequestSaving(false)
     }
   }
 
@@ -743,9 +775,12 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
         password={accountPassword}
         saving={authSaving}
         error={authError}
+        resetStatus={adminResetRequestStatus}
+        resetSaving={adminResetRequestSaving}
         onLoginChange={setAccountLogin}
         onPasswordChange={setAccountPassword}
         onSubmit={submitAdminAccountLogin}
+        onResetRequest={requestAdminAccountReset}
       />
     )
   }

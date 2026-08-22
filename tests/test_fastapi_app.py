@@ -799,6 +799,52 @@ def test_admin_completes_temporary_password_reset(monkeypatch, tmp_path) -> None
     assert "AUTH_ACCOUNT_PASSWORD_COMPLETED" in event_types
 
 
+def test_auth_password_reset_requests_are_logged_without_account_enumeration(monkeypatch, tmp_path) -> None:
+    _use_sql_runtime(monkeypatch, tmp_path)
+    monkeypatch.setenv("POMICH_AUTH_ACCOUNTS_SOURCE", "sql")
+    monkeypatch.setenv("POMICH_ADMIN_TOKEN", ADMIN_TOKEN)
+    runtime_store.save_auth_accounts(
+        "admin",
+        [{"id": "admin-dispatcher", "username": "dispatcher", "password": "admin-pass"}],
+    )
+    runtime_store.save_auth_accounts(
+        "provider",
+        [{"providerId": "provider-reset", "username": "reset-partner", "password": "provider-pass"}],
+    )
+    client = TestClient(app)
+
+    try:
+        provider_reset = client.post(
+            "/api/auth/provider/password-reset/request",
+            json={"login": "reset-partner"},
+        )
+        admin_reset = client.post(
+            "/api/auth/admin/password-reset/request",
+            json={"login": "dispatcher"},
+        )
+        unknown_reset = client.post(
+            "/api/auth/provider/password-reset/request",
+            json={"login": "not-a-real-account"},
+        )
+        admin_login = client.post("/api/auth/admin/login", json={"username": "dispatcher", "password": "admin-pass"})
+        admin_headers = {"Authorization": f"Bearer {admin_login.json()['accessToken']}"}
+        provider_ops = client.get("/api/admin/ops-log?providerId=provider-reset", headers=admin_headers)
+        all_ops = client.get("/api/admin/ops-log", headers=admin_headers)
+    finally:
+        runtime_store.reset_runtime_store_for_tests()
+
+    assert provider_reset.status_code == 200
+    assert provider_reset.json() == {"ok": True, "queued": True}
+    assert admin_reset.status_code == 200
+    assert admin_reset.json() == {"ok": True, "queued": True}
+    assert unknown_reset.status_code == 200
+    assert unknown_reset.json() == {"ok": True, "queued": True}
+    assert provider_ops.status_code == 200
+    assert all(event["providerId"] == "provider-reset" for event in provider_ops.json()["events"])
+    event_types = [event["type"] for event in all_ops.json()["events"]]
+    assert event_types.count("AUTH_ACCOUNT_PASSWORD_RESET_REQUESTED") >= 3
+
+
 def test_admin_verifying_provider_creates_sql_provider_auth_account_and_ops_log(monkeypatch, tmp_path) -> None:
     _use_sql_runtime(monkeypatch, tmp_path)
     monkeypatch.setenv("POMICH_AUTH_ACCOUNTS_SOURCE", "sql")

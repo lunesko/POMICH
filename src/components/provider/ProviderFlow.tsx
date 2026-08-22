@@ -13,6 +13,7 @@ import {
   getProviderProfile,
   getNearbyMapOrders,
   messageFromFetchError,
+  requestProviderPasswordReset,
   retryDispatch,
   setUserPreferredRole,
   submitOrderReview,
@@ -353,6 +354,8 @@ export default function ProviderFlow({
   const [accountLogin, setAccountLogin] = useState(providerId)
   const [accountPassword, setAccountPassword] = useState("")
   const [authSaving, setAuthSaving] = useState(false)
+  const [passwordResetRequestSaving, setPasswordResetRequestSaving] = useState(false)
+  const [passwordResetRequestStatus, setPasswordResetRequestStatus] = useState<string | undefined>()
   const [newAccountPassword, setNewAccountPassword] = useState("")
   const [newAccountPasswordConfirm, setNewAccountPasswordConfirm] = useState("")
   const [passwordResetSaving, setPasswordResetSaving] = useState(false)
@@ -1780,6 +1783,7 @@ export default function ProviderFlow({
   const submitProviderAccountLogin = async () => {
     setAuthSaving(true)
     setAuthError(undefined)
+    setPasswordResetRequestStatus(undefined)
     try {
       const session = await createProviderAccountSession(providerId, accountLogin, accountPassword)
       applyProviderSession(session)
@@ -1788,6 +1792,21 @@ export default function ProviderFlow({
       setAuthError(error instanceof Error ? error.message : "Не вдалося увійти в акаунт партнера.")
     } finally {
       setAuthSaving(false)
+    }
+  }
+
+  const requestProviderAccountReset = async () => {
+    const login = accountLogin.trim()
+    if (!login) return
+    setPasswordResetRequestSaving(true)
+    setPasswordResetRequestStatus(undefined)
+    try {
+      await requestProviderPasswordReset({ login, providerId })
+      setPasswordResetRequestStatus("Запит на reset надіслано. Оператор видасть тимчасовий пароль після перевірки.")
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : "Не вдалося надіслати запит на reset.")
+    } finally {
+      setPasswordResetRequestSaving(false)
     }
   }
 
@@ -2050,11 +2069,15 @@ export default function ProviderFlow({
         password={accountPassword}
         saving={authSaving}
         error={authError}
+        resetStatus={passwordResetRequestStatus}
+        resetSaving={passwordResetRequestSaving}
         onLoginChange={setAccountLogin}
         onPasswordChange={setAccountPassword}
         onSubmit={submitProviderAccountLogin}
+        onResetRequest={requestProviderAccountReset}
         onRegister={() => {
           setAuthError(undefined)
+          setPasswordResetRequestStatus(undefined)
           setLoginView("register")
         }}
       />

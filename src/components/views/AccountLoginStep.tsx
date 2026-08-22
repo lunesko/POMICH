@@ -10,10 +10,13 @@ interface AccountLoginStepProps {
   password: string
   saving: boolean
   error?: string
+  resetStatus?: string
+  resetSaving?: boolean
   onLoginChange: (value: string) => void
   onPasswordChange: (value: string) => void
   onSubmit: () => void
   onRegister?: () => void
+  onResetRequest?: () => void
 }
 
 export function AccountLoginStep({
@@ -23,10 +26,13 @@ export function AccountLoginStep({
   password,
   saving,
   error,
+  resetStatus,
+  resetSaving,
   onLoginChange,
   onPasswordChange,
   onSubmit,
   onRegister,
+  onResetRequest,
 }: AccountLoginStepProps) {
   return (
     <ScreenLayout footer={<PrimaryButton label={saving ? "Входимо…" : "Увійти"} onClick={onSubmit} disabled={!login.trim() || !password.trim() || saving} />}>
@@ -47,7 +53,19 @@ export function AccountLoginStep({
             Новий партнер? Зареєструватись
           </button>
         ) : null}
+        {onResetRequest ? (
+          <button
+            type="button"
+            onClick={onResetRequest}
+            disabled={!login.trim() || resetSaving}
+            className="pomich-ghost-btn"
+            style={{ width: "100%" }}
+          >
+            {resetSaving ? "Надсилаємо запит…" : "Забули пароль? Запросити reset"}
+          </button>
+        ) : null}
         {error ? <div className="pomich-form-error">{error}</div> : null}
+        {resetStatus ? <div className="pomich-form-success">{resetStatus}</div> : null}
       </FormContainer>
     </ScreenLayout>
   )

@@ -579,6 +579,20 @@ export async function updateAdminAccountPassword(payload: { newPassword: string;
   return response.json() as Promise<{ ok: boolean; adminId: string; passwordResetRequired: boolean }>
 }
 
+export async function requestAdminPasswordReset(login: string) {
+  const response = await fetch(`${getBaseUrl()}/auth/admin/password-reset/request`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ login }),
+  })
+
+  if (!response.ok) {
+    throw new Error(await parseApiError(response, 'Не вдалося надіслати запит на reset.'))
+  }
+
+  return response.json() as Promise<{ ok: boolean; queued: boolean }>
+}
+
 export async function createProviderSession(providerId: string, providerToken: string) {
   const response = await fetch(`${getBaseUrl()}/auth/provider/session`, {
     method: 'POST',
@@ -619,6 +633,20 @@ export async function updateProviderAccountPassword(payload: { newPassword: stri
   }
 
   return response.json() as Promise<{ ok: boolean; providerId: string; passwordResetRequired: boolean }>
+}
+
+export async function requestProviderPasswordReset(payload: { login: string; providerId?: string }) {
+  const response = await fetch(`${getBaseUrl()}/auth/provider/password-reset/request`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+
+  if (!response.ok) {
+    throw new Error(await parseApiError(response, 'Не вдалося надіслати запит на reset.'))
+  }
+
+  return response.json() as Promise<{ ok: boolean; queued: boolean }>
 }
 
 export async function createGuestCustomerSession(customerId?: string) {

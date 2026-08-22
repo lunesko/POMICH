@@ -7144,6 +7144,7 @@ html.tg-compact .pomich-ride-screen__map .leaflet-top.leaflet-left {
 }
 .admin-login-title { margin: 0; font-size: 28px; font-weight: 950; color: #eef2f7; }
 .admin-login-subtitle { margin: 0; color: #94a3b8; font-weight: 700; line-height: 1.45; }
+.admin-login-reset-btn { width: 100%; margin-left: 0; justify-content: center; }
 .admin-backdrop {
   position: fixed;
   inset: 0;
