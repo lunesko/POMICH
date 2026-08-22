@@ -139,6 +139,14 @@ function resolveSessionProviderId(session: { providerId?: string; subjectId?: st
   return String(session.providerId || session.subjectId || fallback).trim() || fallback
 }
 
+function requestErrorCode(error: unknown): string {
+  if (error instanceof ApiRequestError && error.code) return error.code
+  if (error && typeof error === "object" && "detail" in error) {
+    return String((error as { detail?: unknown }).detail || "").trim()
+  }
+  return ""
+}
+
 function PrimaryButton({
   label,
   onClick,
@@ -297,6 +305,81 @@ function Header({ title, subtitle, onBack, status }: { title: string; subtitle?:
   )
 }
 
+function ProviderLinkPendingStep({
+  telegramUserId,
+  telegramUsername,
+  checking,
+  onRefresh,
+  onLogout,
+}: {
+  telegramUserId?: string
+  telegramUsername?: string
+  checking?: boolean
+  onRefresh: () => void
+  onLogout?: () => void
+}) {
+  return (
+    <ScreenLayout
+      className="pomich-screen-layout--form"
+      footer={
+        <PrimaryButton
+          label="Перевірити доступ"
+          loading={checking}
+          loadingLabel="Перевіряємо…"
+          onClick={onRefresh}
+        />
+      }
+    >
+      <Header
+        title="Доступ очікує інвайт"
+        subtitle="Диспетчер має прив'язати цей Telegram до партнерського акаунта POMICH."
+      />
+      <FormContainer>
+        <div className="pomich-form-card">
+          <div style={{ display: "grid", gap: 10 }}>
+            <div style={{ fontSize: 18, fontWeight: 950, color: DARK }}>Ваш Telegram-профіль ще не прив'язаний</div>
+            <div style={{ color: MUTED, fontWeight: 750, lineHeight: 1.45 }}>
+              Коли адмін підтвердить партнера, тут відкриється кабінет із лінією, заявками та статусами роботи.
+            </div>
+          </div>
+          <div style={{ display: "grid", gap: 8, marginTop: 16 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 10, borderTop: `1px solid ${BORDER}`, paddingTop: 12 }}>
+              <span style={{ color: MUTED, fontWeight: 800 }}>Telegram ID</span>
+              <strong style={{ color: DARK }}>{telegramUserId || "невідомо"}</strong>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+              <span style={{ color: MUTED, fontWeight: 800 }}>Telegram</span>
+              <strong style={{ color: DARK }}>{telegramUsername ? `@${telegramUsername.replace(/^@+/, "")}` : "—"}</strong>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+              <span style={{ color: MUTED, fontWeight: 800 }}>Статус</span>
+              <strong style={{ color: "var(--pomich-warn-text)" }}>Очікує прив'язку</strong>
+            </div>
+          </div>
+        </div>
+
+        <div className="pomich-form-card">
+          <div style={{ fontWeight: 950, color: DARK }}>Що далі</div>
+          <div style={{ display: "grid", gap: 10, marginTop: 12, color: MUTED, fontWeight: 750, lineHeight: 1.45 }}>
+            <div>1. Адмін перевіряє партнера та створює акаунт.</div>
+            <div>2. Ви отримуєте логін і тимчасовий пароль.</div>
+            <div>3. Після зміни пароля можна виходити на лінію.</div>
+          </div>
+        </div>
+
+        <a href="https://t.me/pomich_ua_bot" target="_blank" rel="noreferrer" className="pomich-ghost-btn" style={{ width: "100%", textDecoration: "none" }}>
+          Відкрити клієнтський бот
+        </a>
+        {onLogout ? (
+          <button type="button" onClick={onLogout} className="pomich-link-btn" style={{ width: "100%" }}>
+            Вийти
+          </button>
+        ) : null}
+      </FormContainer>
+    </ScreenLayout>
+  )
+}
+
 
 export default function ProviderFlow({
   providerToken,
@@ -335,6 +418,9 @@ export default function ProviderFlow({
   })
   const providerAuthToken = providerAccessToken
   const [authError, setAuthError] = useState<string | undefined>()
+  const [authErrorCode, setAuthErrorCode] = useState<string | undefined>()
+  const [providerSelfSessionChecking, setProviderSelfSessionChecking] = useState(false)
+  const [providerSessionRetryKey, setProviderSessionRetryKey] = useState(0)
   const [entryScreenApplied, setEntryScreenApplied] = useState(false)
   const providerBootstrapToken = providerToken && !isAuthSessionToken(providerToken) ? providerToken : undefined
   const providerBootstrapPending = Boolean(providerBootstrapToken && !providerAuthToken && !authError)
@@ -349,6 +435,8 @@ export default function ProviderFlow({
     setProviderAccessToken(session.accessToken)
     setProviderPasswordResetRequired(Boolean(session.passwordResetRequired))
     setAuthError(undefined)
+    setAuthErrorCode(undefined)
+    setProviderSelfSessionChecking(false)
     return resolvedId || providerId
   }
   const [accountLogin, setAccountLogin] = useState(providerId)
@@ -608,12 +696,15 @@ export default function ProviderFlow({
       })
       setProviderAccessToken(providerToken)
       setAuthError(undefined)
+      setAuthErrorCode(undefined)
+      setProviderSelfSessionChecking(false)
       return
     }
 
     let cancelled = false
     const customerId = customerIdForOtp
     const customerToken = customerTokenForOtp
+    setProviderSelfSessionChecking(Boolean(customerId && customerToken && !providerBootstrapToken))
 
     const openSession = async () => {
       // Prefer customer→provider self-session so a stale demo providerToken cannot bind the UI to provider-oleksandr.
@@ -632,7 +723,14 @@ export default function ProviderFlow({
         applyProviderSession(session)
       })
       .catch((error) => {
-        if (!cancelled && (providerBootstrapToken || effectiveProviderRegistered)) {
+        if (cancelled) return
+        setProviderSelfSessionChecking(false)
+        const code = requestErrorCode(error)
+        setAuthErrorCode(code || undefined)
+        if (code === "provider_not_linked" && telegramContext.botKind === "provider") {
+          return
+        }
+        if (providerBootstrapToken || effectiveProviderRegistered) {
           if (providerBootstrapToken && typeof window !== "undefined") {
             window.sessionStorage.removeItem("pomichProviderToken")
           }
@@ -647,7 +745,7 @@ export default function ProviderFlow({
     return () => {
       cancelled = true
     }
-  }, [customerIdForOtp, customerTokenForOtp, providerAuthToken, providerId, effectiveProviderRegistered, providerToken, providerBootstrapToken])
+  }, [customerIdForOtp, customerTokenForOtp, providerAuthToken, providerId, effectiveProviderRegistered, providerToken, providerBootstrapToken, providerSessionRetryKey, telegramContext.botKind])
 
   useEffect(() => {
     if (step !== "verify" || !customerIdForOtp || !customerTokenForOtp) return
@@ -2039,8 +2137,36 @@ export default function ProviderFlow({
     setLoginView("login")
   }
 
+  const providerTelegramLinkPending = Boolean(
+    telegramContext.isTelegram &&
+      telegramContext.botKind === "provider" &&
+      customerIdForOtp &&
+      customerTokenForOtp &&
+      !providerAuthToken &&
+      !providerBootstrapToken &&
+      !effectiveProviderRegistered &&
+      !linkedPartnerId &&
+      (!authError || authErrorCode === "provider_not_linked"),
+  )
+
   if (!providerAuthToken && providerBootstrapPending) {
     return <div className="pomich-boot-screen">Відкриваємо партнерську сесію...</div>
+  }
+
+  if (providerTelegramLinkPending) {
+    return (
+      <ProviderLinkPendingStep
+        telegramUserId={telegramContext.chatId || String(telegramContext.user?.id || "")}
+        telegramUsername={telegramContext.user?.username}
+        checking={providerSelfSessionChecking}
+        onRefresh={() => {
+          setAuthError(undefined)
+          setAuthErrorCode(undefined)
+          setProviderSessionRetryKey((value) => value + 1)
+        }}
+        onLogout={onLogout}
+      />
+    )
   }
 
   if (!providerAuthToken && (!providerBootstrapToken || authError)) {

@@ -530,6 +530,106 @@ describe('POMICH role-based flows', () => {
     expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/auth/customer/telegram/session'), expect.any(Object))
   })
 
+  it('shows invite pending screen for unlinked Telegram provider bot user', async () => {
+    window.history.pushState({}, '', '/?role=provider&tgBot=provider')
+    window.Telegram = {
+      WebApp: {
+        initData: 'telegram-init-data-stub',
+        initDataUnsafe: {
+          start_param: 'partner',
+          user: { id: 77, first_name: 'Partner', username: 'partner77' },
+        },
+      },
+    }
+
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes('/auth/customer/telegram/session')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            role: 'customer',
+            subjectId: 'tg-77',
+            customerId: 'tg-77',
+            accessToken: TEST_CUSTOMER_TOKEN,
+            expiresAt: Math.floor(Date.now() / 1000) + 3600,
+            profile: {
+              id: 'tg-77',
+              name: 'Partner',
+              phone: '',
+              telegram: 'partner77',
+              verificationStatus: 'unverified',
+              preferredRole: 'provider',
+              linkedProviderId: '',
+              rolesRegistered: [],
+              telegramBotKind: 'provider',
+              telegramNotificationChannel: 'provider',
+              customerIdentity: { type: 'telegram', telegramUserId: '77', username: 'partner77' },
+            },
+            account: {
+              customerId: 'tg-77',
+              preferredRole: 'provider',
+              linkedProviderId: '',
+              rolesRegistered: [],
+              clientRegistered: false,
+              providerRegistered: false,
+              needsOnboarding: true,
+              profile: {
+                id: 'tg-77',
+                name: 'Partner',
+                phone: '',
+                telegram: 'partner77',
+                verificationStatus: 'unverified',
+              },
+            },
+            telegramBotKind: 'provider',
+            providerAccount: {
+              linked: false,
+              providerId: null,
+              verificationStatus: 'unverified',
+              canOpenProviderSession: false,
+              authAccount: {
+                id: null,
+                username: null,
+                status: 'missing',
+                active: false,
+                passwordResetRequired: false,
+                required: true,
+              },
+            },
+          }),
+        })
+      }
+      if (url.includes('/auth/provider/self/session')) {
+        return Promise.resolve({
+          ok: false,
+          status: 400,
+          json: async () => ({ detail: 'provider_not_linked' }),
+        })
+      }
+      if (url.includes('/map/providers') || url.endsWith('/providers')) {
+        return Promise.resolve({ ok: true, json: async () => [] })
+      }
+      return Promise.resolve({ ok: true, json: async () => ({}) })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderApp()
+
+    expect(await screen.findByText('Доступ очікує інвайт')).toBeInTheDocument()
+    expect(screen.getByText("Ваш Telegram-профіль ще не прив'язаний")).toBeInTheDocument()
+    expect(screen.getByText('77')).toBeInTheDocument()
+    expect(screen.getByText('@partner77')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Відкрити клієнтський бот/i })).toHaveAttribute('href', 'https://t.me/pomich_ua_bot')
+    expect(screen.queryByText('Реєстрація партнера')).not.toBeInTheDocument()
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/auth/provider/self/session'),
+        expect.objectContaining({ method: 'POST' }),
+      )
+    })
+  })
+
   it('prefers telegram session over stale web guest token in Telegram WebApp', async () => {
     const tgProfile = { ...verifiedTestProfile, id: 'tg-42' }
     window.Telegram = {
