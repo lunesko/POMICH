@@ -174,7 +174,13 @@ export function OtpVerificationPanel({
       }
       if (response.alreadyVerified) {
         setError(undefined)
-        setSending(false)
+        onVerified?.(
+          response.profile ?? {
+            ...profile,
+            verificationStatus: "verified",
+            verification: { ...(profile.verification ?? {}), phone: true, status: "verified" },
+          },
+        )
         return
       }
       setSentChannel(channel)

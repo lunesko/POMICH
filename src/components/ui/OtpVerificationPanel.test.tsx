@@ -216,4 +216,41 @@ describe("OtpVerificationPanel", () => {
     await user.click(screen.getByRole("button", { name: /Вийти на лінію/i }))
     expect(onVerified).toHaveBeenCalled()
   })
+
+  it("calls onVerified when send reports alreadyVerified", async () => {
+    const user = userEvent.setup()
+    const onVerified = vi.fn()
+    const verifiedProfile = {
+      ...profile,
+      verificationStatus: "verified" as const,
+      verification: { phone: true, status: "verified" as const },
+    }
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: async () => ({
+            ok: true,
+            sent: false,
+            alreadyVerified: true,
+            channel: "telegram",
+            expiresAt: new Date().toISOString(),
+            expiresInSeconds: 0,
+            cooldownSeconds: 0,
+            profile: verifiedProfile,
+          }),
+        }),
+      ),
+    )
+
+    render(
+      <OtpVerificationPanel profile={profile} customerToken="token" onVerified={onVerified} />,
+    )
+    await user.click(screen.getByRole("button", { name: /Надіслати код у Telegram/i }))
+
+    await waitFor(() => {
+      expect(onVerified).toHaveBeenCalledWith(verifiedProfile)
+    })
+  })
 })

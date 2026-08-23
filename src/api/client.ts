@@ -926,6 +926,7 @@ export interface CustomerVerifySendResponse {
   alreadyVerified?: boolean
   sent?: boolean
   devCode?: string
+  profile?: CustomerProfile
 }
 
 export interface CustomerVerifyConfirmResponse {

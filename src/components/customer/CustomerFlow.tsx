@@ -1734,6 +1734,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
     if (typeof navigator === "undefined" || !("geolocation" in navigator)) return
     if (typeof navigator.geolocation.watchPosition !== "function") return
 
+    let cancelled = false
     let watchId: number | undefined
     let denied = false
 
@@ -1753,38 +1754,47 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
       setPickup(nextPoint)
     }
 
-    watchId = navigator.geolocation.watchPosition(
-      (position) => {
-        if (denied) return
-        window.clearTimeout(geoWatchDebounceRef.current)
-        geoWatchDebounceRef.current = window.setTimeout(() => {
-          applyGeoPosition(position)
-        }, MAP_GEO_WATCH_DEBOUNCE_MS)
-      },
-      (error) => {
-        if (error.code === error.PERMISSION_DENIED) {
-          denied = true
-          writeRememberedGeoPermission("denied")
+    const startWatch = () => {
+      if (cancelled || denied || typeof watchId === "number") return
+      watchId = navigator.geolocation.watchPosition(
+        (position) => {
+          if (denied) return
+          window.clearTimeout(geoWatchDebounceRef.current)
+          geoWatchDebounceRef.current = window.setTimeout(() => {
+            applyGeoPosition(position)
+          }, MAP_GEO_WATCH_DEBOUNCE_MS)
+        },
+        (error) => {
+          if (error.code === error.PERMISSION_DENIED) {
+            denied = true
+            writeRememberedGeoPermission("denied")
+            setGeoSpeedMps(null)
+            geoSpeedSmoothRef.current = null
+            setGeoState("permission-denied")
+            setGeoMessage(
+              "Дозвольте доступ до геолокації в браузері або Telegram, потім натисніть «Оновити».",
+            )
+            if (typeof watchId === "number") {
+              navigator.geolocation.clearWatch(watchId)
+              watchId = undefined
+            }
+            return
+          }
+          // Transient timeout / unavailable — keep last point; clear speed so HUD shows "—".
           setGeoSpeedMps(null)
           geoSpeedSmoothRef.current = null
-          setGeoState("permission-denied")
-          setGeoMessage(
-            "Дозвольте доступ до геолокації в браузері або Telegram, потім натисніть «Оновити».",
-          )
-          if (typeof watchId === "number") {
-            navigator.geolocation.clearWatch(watchId)
-            watchId = undefined
-          }
-          return
-        }
-        // Transient timeout / unavailable — keep last point; clear speed so HUD shows "—".
-        setGeoSpeedMps(null)
-        geoSpeedSmoothRef.current = null
-      },
-      { enableHighAccuracy: true, maximumAge: 1000, timeout: 15000 },
-    )
+        },
+        { enableHighAccuracy: true, maximumAge: 1000, timeout: 15000 },
+      )
+    }
+
+    void canRequestGeoSilently().then((ok) => {
+      if (cancelled || !ok) return
+      startWatch()
+    })
 
     return () => {
+      cancelled = true
       window.clearTimeout(geoWatchDebounceRef.current)
       if (typeof watchId === "number") navigator.geolocation.clearWatch(watchId)
       setGeoSpeedMps(null)

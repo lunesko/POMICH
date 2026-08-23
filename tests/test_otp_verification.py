@@ -510,6 +510,7 @@ def test_verified_profile_does_not_send_another_telegram_otp(otp_env, monkeypatc
     assert result.get("alreadyVerified") is True
     assert result.get("sent") is False
     assert sent == []
+    assert result.get("profile", {}).get("verificationStatus") == "verified"
 
 
 def test_guest_otp_does_not_duplicate_telegram_when_tg_row_already_sent(otp_env, monkeypatch) -> None:
@@ -550,6 +551,62 @@ def test_guest_otp_does_not_duplicate_telegram_when_tg_row_already_sent(otp_env,
     assert first.get("sent") is True
     assert second.get("alreadySent") is True
     assert len(sent) == 1
+
+
+def test_guest_can_confirm_live_otp_stored_under_telegram_customer(otp_env, monkeypatch) -> None:
+    customer_path, _ = otp_env
+    monkeypatch.setattr(otp_verification, "_generate_otp_code", lambda: "654321")
+    from bot.order_store import save_customer_profiles
+
+    save_customer_profiles(
+        [
+            {
+                "id": "tg-829741830",
+                "name": "Vitaliy",
+                "phone": "+380661007434",
+                "verificationStatus": "unverified",
+            },
+            {
+                "id": "guest-dup-vitaliy",
+                "name": "Vitaliy Guest",
+                "phone": "380661007434",
+                "verificationStatus": "unverified",
+            },
+        ],
+        customer_path,
+    )
+
+    otp_verification.send_customer_verification_code(
+        "tg-829741830", "telegram", customer_store_path=customer_path
+    )
+    profile = otp_verification.confirm_customer_verification_code(
+        "guest-dup-vitaliy",
+        "654321",
+        customer_store_path=customer_path,
+    )
+    assert profile["id"] == "guest-dup-vitaliy"
+    assert profile["verificationStatus"] == "verified"
+    assert profile["verification"]["phone"] is True
+
+
+def test_chat_guard_does_not_queue_second_telegram_otp(otp_env, monkeypatch) -> None:
+    customer_path, _ = otp_env
+    sent: list[str] = []
+    monkeypatch.setattr(
+        otp_verification,
+        "_send_telegram_otp",
+        lambda chat_id, code, **kwargs: sent.append(str(code)) or 1,
+    )
+    update_customer_profile("tg-42", {"name": "Maria", "phone": "+380501112233"}, customer_path)
+    otp_verification._telegram_otp_guard_stamp("42")
+    otp_verification._telegram_otp_guard_stamp("42")
+    otp_verification._telegram_otp_guard_stamp("42")
+
+    result = otp_verification.send_customer_verification_code(
+        "tg-42", "telegram", customer_store_path=customer_path
+    )
+    assert result["ok"] is True
+    assert sent == []
 
 
 def test_otp_falls_back_to_customer_bot_when_provider_send_fails(otp_env, monkeypatch) -> None:
