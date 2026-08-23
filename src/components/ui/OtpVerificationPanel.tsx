@@ -28,11 +28,6 @@ interface OtpVerificationPanelProps {
   telegramBotKind?: "customer" | "provider"
   /** Button label after the phone is already verified (partner duty screen). */
   verifiedActionLabel?: string
-  /**
-   * @deprecated Ignored — OTP is never auto-sent. Kept optional so call sites compile
-   * until props are cleaned up; send only on explicit button tap.
-   */
-  autoSendChannel?: "telegram" | "email"
   onVerified?: (profile: CustomerProfile) => void
   /** Called after phone is saved (inline save or via OTP send patch). */
   onPhoneSaved?: (phone: string, profile?: CustomerProfile) => void

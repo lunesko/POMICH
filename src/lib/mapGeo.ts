@@ -4,6 +4,11 @@ import { requestTelegramLocation } from "../telegram"
 
 export type GeoPoint = { lat: number; lng: number }
 
+/** True inside a real Telegram Mini App session (non-empty initData). */
+export function isTelegramMiniApp(): boolean {
+  return Boolean(typeof window !== "undefined" && String(window.Telegram?.WebApp?.initData || "").trim())
+}
+
 export type SheetSnapForPadding = "collapsed" | "half" | "expanded"
 
 /** Minimum movement before the map recenters on passive geo updates (address / city sync). */
@@ -467,9 +472,7 @@ export function requestCurrentPosition(
     // or inside Telegram Mini App (WebView prompts work without a website gesture).
     // Public Safari/Chrome often suppress the OS prompt without a tap — leave UI idle for «Оновити».
     void resolveGeoPermission().then((state) => {
-      const inTelegramMiniApp = Boolean(
-        typeof window !== "undefined" && String(window.Telegram?.WebApp?.initData || "").trim(),
-      )
+      const inTelegramMiniApp = isTelegramMiniApp()
       if (state === "granted" || inTelegramMiniApp) {
         navigator.geolocation.getCurrentPosition(
           (position) => {

@@ -84,7 +84,7 @@ import {
   resolveCustomerAuthSession,
 } from "../../lib/customerSession"
 import { reverseGeocodeAddress } from "../../lib/reverseGeocode"
-import { MAP_GEO_DEBOUNCE_MS, MAP_GEO_WATCH_DEBOUNCE_MS, MAP_RECENTER_THRESHOLD_M, canRequestGeoSilently, readCachedGeoPosition, readRememberedGeoPermission, requestCurrentPosition, resolveGroundSpeedMps, shouldRecenterMap, smoothSpeedMps, writeCachedGeoPosition, writeRememberedGeoPermission } from "../../lib/mapGeo"
+import { MAP_GEO_DEBOUNCE_MS, MAP_GEO_WATCH_DEBOUNCE_MS, MAP_RECENTER_THRESHOLD_M, canRequestGeoSilently, isTelegramMiniApp, readCachedGeoPosition, readRememberedGeoPermission, requestCurrentPosition, resolveGroundSpeedMps, shouldRecenterMap, smoothSpeedMps, writeCachedGeoPosition, writeRememberedGeoPermission } from "../../lib/mapGeo"
 import { syncProfileCityFromGeo } from "../../lib/syncProfileCityFromGeo"
 import { OrderErrorStep, OrderFinalStep } from "./OrderTerminalStep"
 import { useTelegramMainButton, useTelegramBackButton, useTelegramUx } from "../../hooks/useTelegramUx"
@@ -1767,16 +1767,19 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
         (error) => {
           if (error.code === error.PERMISSION_DENIED) {
             denied = true
-            writeRememberedGeoPermission("denied")
             setGeoSpeedMps(null)
             geoSpeedSmoothRef.current = null
-            setGeoState("permission-denied")
-            setGeoMessage(
-              "Дозвольте доступ до геолокації в браузері або Telegram, потім натисніть «Оновити».",
-            )
             if (typeof watchId === "number") {
               navigator.geolocation.clearWatch(watchId)
               watchId = undefined
+            }
+            // Telegram Mini App: LM/session pin must survive a WebView geolocation deny.
+            if (!isTelegramMiniApp()) {
+              writeRememberedGeoPermission("denied")
+              setGeoState("permission-denied")
+              setGeoMessage(
+                "Дозвольте доступ до геолокації в браузері або Telegram, потім натисніть «Оновити».",
+              )
             }
             return
           }
@@ -1789,8 +1792,10 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
     }
 
     void canRequestGeoSilently().then((ok) => {
-      if (cancelled || !ok) return
-      startWatch()
+      if (cancelled) return
+      // Mini App WebView often reports permission as "prompt"/"unknown" after a real GPS
+      // fix — still start live watch so speed HUD works. Session-only pins stay on geoState "telegram".
+      if (ok || isTelegramMiniApp()) startWatch()
     })
 
     return () => {

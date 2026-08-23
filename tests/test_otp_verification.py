@@ -587,6 +587,22 @@ def test_guest_can_confirm_live_otp_stored_under_telegram_customer(otp_env, monk
     assert profile["id"] == "guest-dup-vitaliy"
     assert profile["verificationStatus"] == "verified"
     assert profile["verification"]["phone"] is True
+    telegram_profile = get_customer_profile("tg-829741830", customer_path)
+    assert telegram_profile["verificationStatus"] == "verified"
+    assert telegram_profile["verification"]["phone"] is True
+
+
+def test_telegram_chat_target_is_not_treated_as_phone() -> None:
+    record = {
+        "channel": "telegram",
+        "target": "829741830",
+        "telegramChatId": "829741830",
+        "phone": "+380661007434",
+    }
+    assert otp_verification._record_matches_destination(record, telegram_chat_id="829741830") is True
+    assert otp_verification._record_matches_destination(record, phone="+380661007434") is True
+    # 9-digit chat ids must not be normalized into a fake 380XXXXXXXXX phone.
+    assert otp_verification._record_matches_destination(record, phone="380829741830") is False
 
 
 def test_chat_guard_does_not_queue_second_telegram_otp(otp_env, monkeypatch) -> None:

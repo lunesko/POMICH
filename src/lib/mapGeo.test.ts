@@ -8,6 +8,7 @@ import {
   GEO_PERMISSION_STORAGE_KEY,
   GEO_POSITION_STORAGE_KEY,
   formatSpeedKmh,
+  isTelegramMiniApp,
   MAP_FLY_THRESHOLD_M,
   MAP_GEO_DEBOUNCE_MS,
   MAP_GEO_WATCH_DEBOUNCE_MS,
@@ -52,6 +53,13 @@ describe("mapGeo", () => {
     })
     expect(await resolveGeoPermission()).toBe("granted")
     expect(await canRequestGeoSilently()).toBe(true)
+  })
+
+  it("detects Telegram Mini App only with non-empty initData", () => {
+    vi.stubGlobal("Telegram", { WebApp: { initData: "" } })
+    expect(isTelegramMiniApp()).toBe(false)
+    vi.stubGlobal("Telegram", { WebApp: { initData: "query_id=1" } })
+    expect(isTelegramMiniApp()).toBe(true)
   })
 
   it("classifies permission denied separately from timeout", () => {

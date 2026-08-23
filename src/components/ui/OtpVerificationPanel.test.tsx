@@ -40,35 +40,6 @@ describe("OtpVerificationPanel", () => {
     })
   })
 
-  it("ignores deprecated autoSendChannel and still requires button tap", async () => {
-    const fetchMock = vi.fn(() =>
-      Promise.resolve({
-        ok: true,
-        json: async () => ({
-          ok: true,
-          channel: "telegram",
-          expiresAt: new Date(Date.now() + 600_000).toISOString(),
-          expiresInSeconds: 600,
-          cooldownSeconds: 45,
-        }),
-      }),
-    )
-    vi.stubGlobal("fetch", fetchMock)
-
-    render(
-      <OtpVerificationPanel
-        profile={profile}
-        customerToken="token"
-        autoSendChannel="telegram"
-      />,
-    )
-
-    expect(await screen.findByRole("button", { name: /Надіслати код у Telegram/i })).toBeInTheDocument()
-    await waitFor(() => {
-      expect(fetchMock).not.toHaveBeenCalled()
-    })
-  })
-
   it("sends OTP only after explicit button tap", async () => {
     const user = userEvent.setup()
     const fetchMock = vi.fn((url: string) => {

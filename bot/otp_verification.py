@@ -426,9 +426,14 @@ def _record_matches_destination(
     chat_key = str(telegram_chat_id or "").strip()
     phone_key = _normalize_ukraine_phone_digits(str(phone or ""))
     email_key = str(email or "").strip().lower()
-    record_chat = str(record.get("telegramChatId") or record.get("target") or "").strip()
-    record_phone = _normalize_ukraine_phone_digits(str(record.get("phone") or record.get("target") or ""))
-    record_email = str(record.get("email") or record.get("target") or "").strip().lower()
+    channel = str(record.get("channel") or "").strip().lower()
+    record_chat = str(record.get("telegramChatId") or "").strip()
+    if not record_chat and channel == "telegram":
+        record_chat = str(record.get("target") or "").strip()
+    record_phone = _normalize_ukraine_phone_digits(str(record.get("phone") or ""))
+    record_email = str(record.get("email") or "").strip().lower()
+    if not record_email and channel == "email":
+        record_email = str(record.get("target") or "").strip().lower()
     if chat_key and record_chat == chat_key:
         return True
     if phone_key and record_phone and record_phone == phone_key:
@@ -792,6 +797,7 @@ def confirm_customer_verification_code(
         raise OtpVerificationError("invalid_code_format", "code must be a 6-digit number")
 
     now = datetime.now(timezone.utc).replace(tzinfo=None)
+    linked_owner_id = ""
     with OTP_LOCK:
         otp_path = store_path or _default_otp_store_path()
         store = _cleanup_expired_otp_records(_load_otp_store(otp_path), now)
@@ -844,7 +850,12 @@ def confirm_customer_verification_code(
                 store.pop(customer_id, None)
             _save_otp_store(store, otp_path)
             raise OtpVerificationError("code_locked", "too many invalid verification attempts")
-        if not hmac.compare_digest(expected_hash, actual_hash):
+        hash_mismatch = (
+            not expected_hash
+            or len(expected_hash) != len(actual_hash)
+            or not hmac.compare_digest(expected_hash, actual_hash)
+        )
+        if hash_mismatch:
             record["failedAttempts"] = failed_attempts + 1
             store[store_key] = record
             _save_otp_store(store, otp_path)
@@ -856,8 +867,15 @@ def confirm_customer_verification_code(
         if store_key != customer_id:
             store.pop(customer_id, None)
         _save_otp_store(store, otp_path)
+        linked_owner_id = hashed_customer_id if hashed_customer_id != customer_id else ""
 
-    return _apply_customer_otp_verification(customer_id, channel, customer_store_path)
+    updated = _apply_customer_otp_verification(customer_id, channel, customer_store_path)
+    if linked_owner_id:
+        try:
+            _apply_customer_otp_verification(linked_owner_id, channel, customer_store_path)
+        except OtpVerificationError:
+            pass
+    return updated
 
 
 def _apply_customer_otp_verification(
