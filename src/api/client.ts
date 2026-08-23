@@ -923,6 +923,8 @@ export interface CustomerVerifySendResponse {
   expiresInSeconds: number
   cooldownSeconds?: number
   alreadySent?: boolean
+  alreadyVerified?: boolean
+  sent?: boolean
   devCode?: string
 }
 

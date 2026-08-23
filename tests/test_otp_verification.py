@@ -19,6 +19,7 @@ def otp_env(monkeypatch, tmp_path):
     monkeypatch.setattr(otp_verification, "_default_otp_store_path", lambda: otp_path)
     monkeypatch.setattr(otp_verification, "_send_telegram_otp", lambda chat_id, code, **kwargs: 12345)
     monkeypatch.setattr(otp_verification, "_run_in_background", lambda fn: fn())
+    otp_verification._TELEGRAM_OTP_GUARD.clear()
     return customer_path, otp_path
 
 
@@ -165,14 +166,14 @@ def test_send_cooldown_blocks_cross_customer_same_phone(otp_env) -> None:
         send_reason="auth/customer/verify/send",
     )
 
-    with pytest.raises(otp_verification.OtpVerificationError) as exc:
-        otp_verification.send_customer_verification_code(
-            "tg-777888",
-            "telegram",
-            customer_store_path=customer_path,
-            send_reason="auth/customer/phone/login/send",
-        )
-    assert exc.value.code == "send_cooldown"
+    second = otp_verification.send_customer_verification_code(
+        "tg-777888",
+        "telegram",
+        customer_store_path=customer_path,
+        send_reason="auth/customer/phone/login/send",
+    )
+    assert second.get("alreadySent") is True
+    assert second.get("sent") is True
 
 
 def test_resend_after_cooldown_deletes_previous_telegram_message(otp_env, monkeypatch) -> None:
@@ -475,6 +476,80 @@ def test_otp_prefers_provider_bot_for_partner_mini_app(otp_env, monkeypatch) -> 
     otp_verification.send_customer_verification_code("tg-42", "telegram", customer_store_path=customer_path)
 
     assert sent == ["provider"]
+
+
+def test_verified_profile_does_not_send_another_telegram_otp(otp_env, monkeypatch) -> None:
+    customer_path, _ = otp_env
+    sent: list[str] = []
+    monkeypatch.setattr(
+        otp_verification,
+        "_send_telegram_otp",
+        lambda chat_id, code, **kwargs: sent.append(str(code)) or 1,
+    )
+    from bot.order_store import save_customer_profiles
+
+    save_customer_profiles(
+        [
+            {
+                "id": "tg-42",
+                "name": "Maria",
+                "phone": "+380501112233",
+                "verificationStatus": "verified",
+                "verification": {"phone": True, "status": "verified"},
+            }
+        ],
+        customer_path,
+    )
+    result = otp_verification.send_customer_verification_code(
+        "tg-42",
+        "telegram",
+        customer_store_path=customer_path,
+        send_reason="auth/customer/verify/send",
+    )
+    assert result["ok"] is True
+    assert result.get("alreadyVerified") is True
+    assert result.get("sent") is False
+    assert sent == []
+
+
+def test_guest_otp_does_not_duplicate_telegram_when_tg_row_already_sent(otp_env, monkeypatch) -> None:
+    customer_path, _ = otp_env
+    monkeypatch.setattr(otp_verification, "OTP_SEND_COOLDOWN_SECONDS", 0)
+    sent: list[str] = []
+    monkeypatch.setattr(
+        otp_verification,
+        "_send_telegram_otp",
+        lambda chat_id, code, **kwargs: sent.append(f"{chat_id}:{code}") or 11,
+    )
+    from bot.order_store import save_customer_profiles
+
+    save_customer_profiles(
+        [
+            {
+                "id": "tg-829741830",
+                "name": "Vitaliy",
+                "phone": "+380661007434",
+                "verificationStatus": "unverified",
+            },
+            {
+                "id": "guest-dup-vitaliy",
+                "name": "Vitaliy Guest",
+                "phone": "+380661007434",
+                "verificationStatus": "unverified",
+            },
+        ],
+        customer_path,
+    )
+
+    first = otp_verification.send_customer_verification_code(
+        "tg-829741830", "telegram", customer_store_path=customer_path
+    )
+    second = otp_verification.send_customer_verification_code(
+        "guest-dup-vitaliy", "telegram", customer_store_path=customer_path
+    )
+    assert first.get("sent") is True
+    assert second.get("alreadySent") is True
+    assert len(sent) == 1
 
 
 def test_otp_falls_back_to_customer_bot_when_provider_send_fails(otp_env, monkeypatch) -> None:

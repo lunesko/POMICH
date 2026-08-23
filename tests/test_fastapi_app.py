@@ -59,6 +59,9 @@ def _use_temp_store(monkeypatch, tmp_path) -> tuple:
     monkeypatch.setattr(order_store, "_default_provider_store_path", lambda: provider_path)
     monkeypatch.setattr(order_store, "_default_offer_store_path", lambda: offer_path)
     monkeypatch.setattr(order_store, "_default_customer_store_path", lambda: customer_path)
+    from bot import otp_verification as otp_mod
+
+    otp_mod._TELEGRAM_OTP_GUARD.clear()
     return order_path, provider_path, offer_path
 
 

@@ -172,6 +172,11 @@ export function OtpVerificationPanel({
         setPhoneCommitted(true)
         onPhoneSaved?.(effectivePhoneValidation.e164)
       }
+      if (response.alreadyVerified) {
+        setError(undefined)
+        setSending(false)
+        return
+      }
       setSentChannel(channel)
       setExpiresAt(response.expiresAt)
       setResendCooldown(response.cooldownSeconds ?? OTP_RESEND_COOLDOWN_SECONDS)
