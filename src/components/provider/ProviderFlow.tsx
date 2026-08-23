@@ -57,7 +57,7 @@ import { readBootstrapProfile, resolveProviderIdForCustomer, storeLinkedProvider
 import { readCachedProviderProfile, writeCachedProviderProfile } from "../../lib/providerProfileCache"
 import { clearActiveOrder, isActiveOrderStatus, persistActiveOrder, pickLatestActiveOrder, readActiveOrder } from "../../lib/customerSession"
 import { clearPendingPartnerReview, persistPendingPartnerReview, readPendingPartnerReview } from "../../lib/appRole"
-import { readCachedGeoPosition, requestCurrentPosition, resolveGroundSpeedMps, smoothSpeedMps, writeCachedGeoPosition } from "../../lib/mapGeo"
+import { canRequestGeoSilently, isTelegramMiniApp, readCachedGeoPosition, requestCurrentPosition, resolveGroundSpeedMps, smoothSpeedMps, writeCachedGeoPosition } from "../../lib/mapGeo"
 import { validateUkraineMobilePhone } from "../../lib/ukrainePhone"
 import { validateUkrainePlate } from "../../lib/ukrainePlate"
 import { isPartnerProfileComplete } from "../../lib/partnerProfileComplete"
@@ -818,7 +818,7 @@ export default function ProviderFlow({
         (error) => {
           setProviderSpeedMps(null)
           providerSpeedSmoothRef.current = null
-          if (error.code === error.PERMISSION_DENIED) {
+          if (error.code === error.PERMISSION_DENIED && !isTelegramMiniApp()) {
             setProviderGeoError(
               "Дозвольте доступ до геолокації в браузері або Telegram, потім натисніть «Оновити».",
             )
@@ -832,17 +832,23 @@ export default function ProviderFlow({
       }
     }
 
-    // Seed from auto cache when possible; always start watch if we already have a point
-    // (go-online / stale ref) so live GPS + speed HUD are not stuck after auto failure.
+    const maybeStartWatch = () => {
+      void canRequestGeoSilently().then((ok) => {
+        if (cancelled) return
+        if (ok || isTelegramMiniApp()) startWatch()
+      })
+    }
+
+    // Seed from auto cache; live watch only with a silent browser grant or Mini App WebView.
     requestCurrentPosition(
       (point) => {
         if (cancelled) return
         setProviderLocation(point)
-        startWatch()
+        maybeStartWatch()
       },
       () => {
         if (cancelled) return
-        if (providerLocationRef.current) startWatch()
+        if (providerLocationRef.current) maybeStartWatch()
       },
       { mode: "auto" },
     )

@@ -1728,9 +1728,9 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
   useEffect(() => {
     const mapScreens: Screen[] = ["home", "location", "destination"]
     if (!mapScreens.includes(screen)) return
-    // Live browser watch only after a real browser geo success — Telegram session pins
-    // must not start watchPosition (deny would wipe the pin / fake sticky deny).
-    if (geoState !== "success") return
+    // Live watch after browser success, or Telegram Mini App session pin (WebView GPS).
+    // Deny in Mini App must not sticky-wipe the session pin.
+    if (geoState !== "success" && !(geoState === "telegram" && isTelegramMiniApp())) return
     if (typeof navigator === "undefined" || !("geolocation" in navigator)) return
     if (typeof navigator.geolocation.watchPosition !== "function") return
 
@@ -1752,6 +1752,8 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
       // Navigator-style: always move the live point; do not wait for a 40m jump.
       pickupRef.current = nextPoint
       setPickup(nextPoint)
+      if (isTelegramMiniApp()) writeRememberedGeoPermission("granted")
+      setGeoState((current) => (current === "telegram" ? "success" : current))
     }
 
     const startWatch = () => {
@@ -1793,8 +1795,6 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
 
     void canRequestGeoSilently().then((ok) => {
       if (cancelled) return
-      // Mini App WebView often reports permission as "prompt"/"unknown" after a real GPS
-      // fix — still start live watch so speed HUD works. Session-only pins stay on geoState "telegram".
       if (ok || isTelegramMiniApp()) startWatch()
     })
 
