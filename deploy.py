@@ -207,8 +207,10 @@ server {
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
         proxy_connect_timeout 3s;
-        proxy_read_timeout 120s;
-        proxy_send_timeout 120s;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+        # WebSocket / SSE: avoid buffering that stalls heartbeats
+        proxy_buffering off;
         client_max_body_size 25m;
     }
 }
