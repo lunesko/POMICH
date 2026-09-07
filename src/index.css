@@ -1350,19 +1350,14 @@ html:not([data-pomich-theme]) .pomich-map-tools-panel__close {
 .pomich-ride-screen__map .leaflet-tile-container img,
 .pomich-map-shell .leaflet-tile-container img,
 .landing-hero-map-clip .leaflet-tile-container img {
-  /* Slight oversize closes subpixel gaps without visible stretch */
-  width: 257px !important;
-  height: 257px !important;
+  /* Exact Leaflet tile size — fractional oversize (256.5/257) can itself draw a grid */
+  width: 256px !important;
+  height: 256px !important;
   max-width: none !important;
   max-height: none !important;
-  /* Beat Tailwind preflight height:auto on img */
-  min-height: 257px !important;
 }
-/* Decorative atmosphere only: soft blur hides residual hairline seams behind chrome */
-.pomich-map-shell__map--static .leaflet-tile-pane {
-  filter: blur(0.6px);
-}
-/* Interactive ride maps stay sharp — no blur on .pomich-ride-screen__map */
+/* Do NOT filter/blur .leaflet-tile-pane — tiles use translate3d layers; blur
+   composites per-tile and paints a soft square grid (worse on iOS WebApp). */
 /* Atmosphere / hero map: never animate transform — Ken Burns = square tile grid on PC */
 .pomich-map-shell__map--static {
   position: absolute;
