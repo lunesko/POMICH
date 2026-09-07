@@ -120,7 +120,11 @@ async def pump_websocket(
     *,
     heartbeat_seconds: float = 15.0,
 ) -> None:
-    """Stream channel events to a WebSocket until disconnect."""
+    """Stream channel events to a WebSocket until disconnect.
+
+    Heartbeats keep nginx/proxy idle timeouts from killing the socket and let
+    clients detect half-open ("dead cat") connections when frames stop.
+    """
     from starlette.websockets import WebSocketDisconnect
 
     queue = subscribe(channel)
@@ -132,7 +136,10 @@ async def pump_websocket(
                 await websocket.send_json(message)
             except asyncio.TimeoutError:
                 await websocket.send_json({"type": "heartbeat", "ts": int(time.time())})
-    except WebSocketDisconnect:
+    except (WebSocketDisconnect, asyncio.CancelledError):
+        pass
+    except Exception:
+        # Broken pipe / RuntimeError on closed socket — drop the subscriber.
         pass
     finally:
         unsubscribe(channel, queue)

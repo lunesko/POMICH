@@ -343,7 +343,8 @@ def _deliver_telegram_otp_and_record(
 
 def _send_email_otp(email: str, code: str) -> None:
     if not _smtp_configured():
-        print(f"[POMICH OTP] email to {email}: {code}", flush=True)
+        # Never print OTP codes — even in local/dev logs can leak to shared host logs.
+        print(f"[POMICH OTP] email skipped (SMTP not configured) target={email}", flush=True)
         return
 
     host = os.getenv("SMTP_HOST", "")

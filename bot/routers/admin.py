@@ -170,8 +170,11 @@ def admin_import_uzhgorod_providers(
         try:
             require_admin_auth(x_pomich_admin_token, authorization)
         except HTTPException:
+            import hmac
+
             secret = (os.getenv("POMICH_ADMIN_TOKEN") or "").strip()
-            if not secret or x_pomich_admin_token != secret:
+            supplied = str(x_pomich_admin_token or "")
+            if not secret or not supplied or not hmac.compare_digest(supplied, secret):
                 raise
     else:
         raise HTTPException(status_code=401, detail="admin_session_required")

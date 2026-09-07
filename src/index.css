@@ -1319,7 +1319,22 @@ html:not([data-pomich-theme]) .pomich-map-tools-panel__close {
   backface-visibility: visible;
   -webkit-font-smoothing: antialiased;
 }
-/* Hide 1px gaps between raster tiles (retina / subpixel rounding / Tailwind img max-width) */
+/* Kill Leaflet's default tile opacity fade (blinks a square grid on load/pan) */
+.pomich-route-map.leaflet-fade-anim .leaflet-tile,
+.pomich-route-map .leaflet-fade-anim .leaflet-tile,
+.pomich-ride-screen__map .leaflet-fade-anim .leaflet-tile,
+.pomich-map-shell .leaflet-fade-anim .leaflet-tile,
+.landing-hero-map-clip .leaflet-fade-anim .leaflet-tile,
+.pomich-route-map .leaflet-tile,
+.pomich-ride-screen__map .leaflet-tile,
+.pomich-map-shell .leaflet-tile,
+.landing-hero-map-clip .leaflet-tile {
+  opacity: 1 !important;
+  transition: none !important;
+}
+/* Hide 1px gaps between raster tiles (retina / subpixel rounding / Tailwind img max-width).
+   Do NOT zero transforms on .leaflet-tile-pane / .leaflet-tile-container — Leaflet
+   positions the grid with translate3d on those nodes. */
 .pomich-route-map .leaflet-tile,
 .pomich-ride-screen__map .leaflet-tile,
 .pomich-map-shell .leaflet-tile,
@@ -1327,19 +1342,86 @@ html:not([data-pomich-theme]) .pomich-map-tools-panel__close {
   border: none !important;
   outline: none !important;
   box-shadow: none !important;
-  /* Tailwind preflight sets max-width:100% on img — that opens tile seams */
+  /* Tailwind preflight: img { max-width:100%; height:auto } opens tile seams */
   max-width: none !important;
   max-height: none !important;
 }
+.pomich-route-map .leaflet-container img.leaflet-tile,
+.pomich-ride-screen__map .leaflet-container img.leaflet-tile,
+.pomich-map-shell .leaflet-container img.leaflet-tile,
+.landing-hero-map-clip .leaflet-container img.leaflet-tile,
 .pomich-route-map .leaflet-tile-container img,
 .pomich-ride-screen__map .leaflet-tile-container img,
 .pomich-map-shell .leaflet-tile-container img,
 .landing-hero-map-clip .leaflet-tile-container img {
-  /* Slight oversize closes subpixel gaps without visible stretch */
-  width: 256.5px !important;
-  height: 256.5px !important;
+  /*
+   Leaflet ships mix-blend-mode: plus-lighter to hide Chrome seams
+   (chromium#600120). On iOS Safari / Telegram WebView that blend paints
+   bright WHITE hairlines at every tile edge — the flickering squares.
+  */
+  mix-blend-mode: normal !important;
+  /* iOS subpixel gaps: 1px oversize closes them without plus-lighter */
+  width: 257px !important;
+  height: 257px !important;
   max-width: none !important;
   max-height: none !important;
+  padding: 0 !important;
+  image-rendering: auto !important;
+}
+/* Canvas basemap already paints 1px overlap inside 256×256 — do not CSS-oversize */
+.pomich-route-map canvas.leaflet-tile,
+.pomich-ride-screen__map canvas.leaflet-tile,
+.pomich-map-shell canvas.leaflet-tile {
+  mix-blend-mode: normal !important;
+  width: 256px !important;
+  height: 256px !important;
+  max-width: none !important;
+  max-height: none !important;
+  opacity: 1 !important;
+}
+/* Fill under loading tiles so gaps never flash white (looks like blinking grid) */
+.pomich-route-map .leaflet-container,
+.pomich-ride-screen__map .leaflet-container,
+.pomich-ride-map-bg {
+  background: #e8e0d8 !important;
+}
+[data-pomich-theme="dark"] .pomich-route-map .leaflet-container,
+[data-pomich-theme="dark"] .pomich-ride-screen__map .leaflet-container,
+[data-pomich-theme="dark"] .pomich-ride-map-bg {
+  background: #1a2228 !important;
+}
+/* Leaflet Safari hw-layer hack (1600px tile-container) worsens seams in TG WebView */
+.pomich-route-map .leaflet-safari .leaflet-tile-container,
+.pomich-ride-screen__map .leaflet-safari .leaflet-tile-container {
+  width: auto !important;
+  height: auto !important;
+  -webkit-transform-origin: 0 0;
+}
+/* Do NOT filter/blur .leaflet-tile-pane — tiles use translate3d layers; blur
+   composites per-tile and paints a soft square grid (worse on iOS WebApp). */
+/* Seamless decorative basemap (landing / atmosphere) — single image, no Leaflet tiles */
+.pomich-decorative-basemap {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: #e8e0d8;
+}
+.pomich-decorative-basemap__img {
+  position: absolute;
+  inset: -3%;
+  width: 106%;
+  height: 106%;
+  max-width: none !important;
+  max-height: none !important;
+  object-fit: cover;
+  object-position: 48% 42%;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+  /* Kill any residual abutment aliasing from the source raster on retina */
+  filter: blur(0.35px);
+  -webkit-filter: blur(0.35px);
+  transform: translateZ(0);
 }
 /* Atmosphere / hero map: never animate transform — Ken Burns = square tile grid on PC */
 .pomich-map-shell__map--static {
@@ -1351,6 +1433,7 @@ html:not([data-pomich-theme]) .pomich-map-tools-panel__close {
   transform: none !important;
   animation: none !important;
   will-change: auto;
+  filter: none !important;
 }
 /* Ukraine mask / occupied overlay — below markers (600), above tiles (200) */
 .pomich-route-map .leaflet-pane.pomich-ukraine-pane,
@@ -2551,16 +2634,18 @@ html:not([data-pomich-theme]) .pomich-map-shell--root .pomich-cabinet-footer {
   pointer-events: none;
   z-index: 0;
 }
-/* Hero map stays static (no Ken Burns). Oversized slightly so clip edges stay covered. */
+/* Hero map stays static (no Ken Burns). Exact 100% — any CSS scale/oversized wrapper
+   reopens Leaflet tile seams on desktop Chrome/Firefox. */
 .landing-hero-map {
   position: absolute;
-  inset: -4%;
-  width: 108%;
-  height: 108%;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   pointer-events: none;
   transform: none !important;
   animation: none !important;
   will-change: auto;
+  filter: none !important;
 }
 .landing-hero-atmosphere {
   position: absolute;
@@ -3006,9 +3091,9 @@ html:not([data-pomich-theme]) .landing-hero-eyebrow {
     right: 4%;
   }
   .landing-hero-map {
-    inset: -3%;
-    width: 106%;
-    height: 106%;
+    inset: 0;
+    width: 100%;
+    height: 100%;
   }
   .pomich-landing .landing-hero-title {
     font-size: 20px !important;
