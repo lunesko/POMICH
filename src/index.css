@@ -1319,7 +1319,9 @@ html:not([data-pomich-theme]) .pomich-map-tools-panel__close {
   backface-visibility: visible;
   -webkit-font-smoothing: antialiased;
 }
-/* Hide 1px gaps between raster tiles (retina / subpixel rounding / Tailwind img max-width) */
+/* Hide 1px gaps between raster tiles (retina / subpixel rounding / Tailwind img max-width).
+   Do NOT zero transforms on .leaflet-tile-pane / .leaflet-tile-container — Leaflet
+   positions the grid with translate3d on those nodes. */
 .pomich-route-map .leaflet-tile,
 .pomich-ride-screen__map .leaflet-tile,
 .pomich-map-shell .leaflet-tile,
@@ -1327,7 +1329,7 @@ html:not([data-pomich-theme]) .pomich-map-tools-panel__close {
   border: none !important;
   outline: none !important;
   box-shadow: none !important;
-  /* Tailwind preflight sets max-width:100% on img — that opens tile seams */
+  /* Tailwind preflight: img { max-width:100%; height:auto } opens tile seams */
   max-width: none !important;
   max-height: none !important;
 }
@@ -1340,6 +1342,8 @@ html:not([data-pomich-theme]) .pomich-map-tools-panel__close {
   height: 256.5px !important;
   max-width: none !important;
   max-height: none !important;
+  /* Beat Tailwind preflight height:auto on img */
+  min-height: 256.5px !important;
 }
 /* Atmosphere / hero map: never animate transform — Ken Burns = square tile grid on PC */
 .pomich-map-shell__map--static {
@@ -1351,6 +1355,7 @@ html:not([data-pomich-theme]) .pomich-map-tools-panel__close {
   transform: none !important;
   animation: none !important;
   will-change: auto;
+  filter: none !important;
 }
 /* Ukraine mask / occupied overlay — below markers (600), above tiles (200) */
 .pomich-route-map .leaflet-pane.pomich-ukraine-pane,
@@ -2551,16 +2556,18 @@ html:not([data-pomich-theme]) .pomich-map-shell--root .pomich-cabinet-footer {
   pointer-events: none;
   z-index: 0;
 }
-/* Hero map stays static (no Ken Burns). Oversized slightly so clip edges stay covered. */
+/* Hero map stays static (no Ken Burns). Exact 100% — any CSS scale/oversized wrapper
+   reopens Leaflet tile seams on desktop Chrome/Firefox. */
 .landing-hero-map {
   position: absolute;
-  inset: -4%;
-  width: 108%;
-  height: 108%;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   pointer-events: none;
   transform: none !important;
   animation: none !important;
   will-change: auto;
+  filter: none !important;
 }
 .landing-hero-atmosphere {
   position: absolute;
@@ -3006,9 +3013,9 @@ html:not([data-pomich-theme]) .landing-hero-eyebrow {
     right: 4%;
   }
   .landing-hero-map {
-    inset: -3%;
-    width: 106%;
-    height: 106%;
+    inset: 0;
+    width: 100%;
+    height: 100%;
   }
   .pomich-landing .landing-hero-title {
     font-size: 20px !important;
