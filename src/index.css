@@ -1346,25 +1346,45 @@ html:not([data-pomich-theme]) .pomich-map-tools-panel__close {
   max-width: none !important;
   max-height: none !important;
 }
+.pomich-route-map .leaflet-container img.leaflet-tile,
+.pomich-ride-screen__map .leaflet-container img.leaflet-tile,
+.pomich-map-shell .leaflet-container img.leaflet-tile,
+.landing-hero-map-clip .leaflet-container img.leaflet-tile,
 .pomich-route-map .leaflet-tile-container img,
 .pomich-ride-screen__map .leaflet-tile-container img,
 .pomich-map-shell .leaflet-tile-container img,
 .landing-hero-map-clip .leaflet-tile-container img {
-  /* iOS Safari leaves 1px subpixel gaps at exact 256 — slight oversize closes them */
+  /*
+   Leaflet ships mix-blend-mode: plus-lighter to hide Chrome seams
+   (chromium#600120). On iOS Safari / Telegram WebView that blend paints
+   bright WHITE hairlines at every tile edge — the flickering squares.
+  */
+  mix-blend-mode: normal !important;
+  /* iOS subpixel gaps: 1px oversize closes them without plus-lighter */
   width: 257px !important;
   height: 257px !important;
   max-width: none !important;
   max-height: none !important;
+  padding: 0 !important;
+  image-rendering: auto !important;
 }
 /* Fill under loading tiles so gaps never flash white (looks like blinking grid) */
 .pomich-route-map .leaflet-container,
-.pomich-ride-screen__map .leaflet-container {
+.pomich-ride-screen__map .leaflet-container,
+.pomich-ride-map-bg {
   background: #e8e0d8 !important;
 }
-.pomich-route-map .leaflet-tile,
-.pomich-ride-screen__map .leaflet-tile {
-  /* Transparent outline tricks Safari anti-alias gaps between adjacent imgs */
-  outline: 1px solid transparent !important;
+[data-pomich-theme="dark"] .pomich-route-map .leaflet-container,
+[data-pomich-theme="dark"] .pomich-ride-screen__map .leaflet-container,
+[data-pomich-theme="dark"] .pomich-ride-map-bg {
+  background: #1a2228 !important;
+}
+/* Leaflet Safari hw-layer hack (1600px tile-container) worsens seams in TG WebView */
+.pomich-route-map .leaflet-safari .leaflet-tile-container,
+.pomich-ride-screen__map .leaflet-safari .leaflet-tile-container {
+  width: auto !important;
+  height: auto !important;
+  -webkit-transform-origin: 0 0;
 }
 /* Do NOT filter/blur .leaflet-tile-pane — tiles use translate3d layers; blur
    composites per-tile and paints a soft square grid (worse on iOS WebApp). */

@@ -4,7 +4,7 @@ import type { LatLngTuple } from "leaflet"
 
 import L from "leaflet"
 
-import { MapContainer, Marker, Polyline, Popup, TileLayer, useMap } from "react-leaflet"
+import { MapContainer, Marker, Polyline, Popup, useMap } from "react-leaflet"
 
 import "leaflet/dist/leaflet.css"
 
@@ -62,6 +62,8 @@ import UkraineMapLayers from "./UkraineMapLayers"
 
 import MapSizeController from "./MapSizeController"
 
+import SeamlessTileLayer from "./SeamlessTileLayer"
+
 import {
   MAP_GEO_WATCH_DEBOUNCE_MS,
   MAP_LIVE_FOLLOW_THRESHOLD_M,
@@ -74,7 +76,7 @@ import {
 } from "../../lib/mapGeo"
 
 import { readSheetHeights, type SheetSnap } from "../../hooks/useMobileSheetSnap"
-import { resolveMapTileConfig, type MapTileTheme } from "../../lib/theme"
+import { type MapTileTheme } from "../../lib/theme"
 import { isOccupiedCoordinates, OCCUPIED_PICK_MESSAGE } from "../../lib/occupiedTerritories"
 import { isMapRequestPinActive } from "../../lib/dispatchOffer"
 import type { DirectoryScopeMode } from "../../lib/directoryScope"
@@ -144,22 +146,7 @@ function MapPointerScrollZoom() {
 }
 
 function MapThemeTileLayer({ mapTileTheme }: { mapTileTheme: MapTileTheme }) {
-  const tile = resolveMapTileConfig({ mapTileTheme })
-  const usesSubdomains = tile.url.includes("{s}")
-  return (
-    <TileLayer
-      key={tile.url}
-      url={tile.url}
-      maxZoom={19}
-      keepBuffer={2}
-      updateWhenIdle
-      updateWhenZooming={false}
-      /* Opacity fade between tiles = blinking square grid during pan/zoom */
-      className="pomich-basemap-tiles"
-      {...(usesSubdomains && tile.subdomains ? { subdomains: tile.subdomains } : {})}
-      attribution={tile.attribution}
-    />
-  )
+  return <SeamlessTileLayer mapTileTheme={mapTileTheme} />
 }
 
 function FitRouteBounds({ coords, fitKey }: { coords: LatLngTuple[]; fitKey?: string }) {
