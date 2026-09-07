@@ -75,8 +75,6 @@ export function isMapRequestPinActive(pin: Pick<MapRequestPin, "status">): boole
   return ACTIVE_ORDER_STATUSES.has(status)
 }
 
-export const isOpenRequestPin = isMapRequestPinActive
-
 export function filterActiveMapRequestPins(pins: MapRequestPin[]): MapRequestPin[] {
   return pins.filter((pin) => Boolean(pin.id && pin.customerCoordinates) && isMapRequestPinActive(pin))
 }
