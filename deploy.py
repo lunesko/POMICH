@@ -3,6 +3,7 @@ Deploy POMICH to production server via SSH.
 Uploads project, builds with Docker Compose, configures Nginx.
 """
 import os
+import secrets
 import sys
 import stat
 import time
@@ -31,6 +32,19 @@ SKIP_DIRS = {
     ".mypy_cache", ".pytest_cache", ".vscode",
 }
 SKIP_FILES = {".env.deploy", "deploy.py"}
+
+
+def _generate_bootstrap_secret(nbytes: int = 32) -> str:
+    return secrets.token_urlsafe(nbytes)
+
+
+def _generate_fernet_key() -> str:
+    try:
+        from cryptography.fernet import Fernet
+
+        return Fernet.generate_key().decode("ascii")
+    except Exception:
+        return _generate_bootstrap_secret(32)
 
 
 def ssh_connect():
@@ -106,29 +120,37 @@ def create_env_production(ssh):
     if rc == 0:
         print("  .env.production already configured; skipping overwrite")
         return
-    print("  WARNING: creating default .env.production — run server_ops.py deploy for full config")
+    print("  WARNING: creating .env.production with freshly generated secrets — rotate admin/provider account passwords after first login")
+    admin_token = os.environ.get("POMICH_ADMIN_TOKEN") or _generate_bootstrap_secret()
+    provider_token = os.environ.get("POMICH_PROVIDER_TOKEN") or _generate_bootstrap_secret()
+    session_secret = os.environ.get("POMICH_CUSTOMER_SESSION_SECRET") or _generate_bootstrap_secret()
+    db_password = os.environ.get("POSTGRES_PASSWORD") or _generate_bootstrap_secret(24)
+    encryption_key = os.environ.get("POMICH_ENCRYPTION_KEY") or _generate_fernet_key()
+    admin_password = os.environ.get("POMICH_BOOTSTRAP_ADMIN_PASSWORD") or _generate_bootstrap_secret(18)
+    provider_password = os.environ.get("POMICH_BOOTSTRAP_PROVIDER_PASSWORD") or _generate_bootstrap_secret(18)
     env_content = f"""VITE_APP_NAME=POMICH
 VITE_APP_ENV=production
 VITE_APP_VERSION=0.1.0
 POMICH_RUNTIME=production
 POMICH_ALLOW_HTTP_PILOT=true
 POMICH_CORS_ORIGINS={WEB_APP_BASE}
-POMICH_ADMIN_TOKEN=pomich-admin-secret-2026
-POMICH_PROVIDER_TOKEN=pomich-provider-secret-2026
-POMICH_CUSTOMER_SESSION_SECRET=pomich-session-secret-2026-long-random
-POMICH_ADMIN_ACCOUNTS=[{{"username":"dispatcher","password":"admin-pomich-2026"}}]
-POMICH_PROVIDER_ACCOUNTS=[{{"providerId":"provider-oleksandr","username":"oleksandr","password":"provider-pomich-2026"}}]
+POMICH_ADMIN_TOKEN={admin_token}
+POMICH_PROVIDER_TOKEN={provider_token}
+POMICH_CUSTOMER_SESSION_SECRET={session_secret}
+POMICH_ENCRYPTION_KEY={encryption_key}
+POMICH_ADMIN_ACCOUNTS=[{{"username":"dispatcher","password":"{admin_password}"}}]
+POMICH_PROVIDER_ACCOUNTS=[{{"providerId":"provider-oleksandr","username":"oleksandr","password":"{provider_password}"}}]
 TELEGRAM_BOT_TOKEN=
 TELEGRAM_MODE=polling
 WEB_APP_URL={WEB_APP_BASE}/
 POMICH_STORAGE_BACKEND=sql
 POSTGRES_DB=pomich
 POSTGRES_USER=pomich
-POSTGRES_PASSWORD=pomich-db-pass-2026
-DATABASE_URL=postgresql://pomich:pomich-db-pass-2026@postgres:5432/pomich
+POSTGRES_PASSWORD={db_password}
+DATABASE_URL=postgresql://pomich:{db_password}@postgres:5432/pomich
 """
     run(ssh, f"cat > {REMOTE_DIR}/.env.production << 'ENVEOF'\n{env_content}\nENVEOF")
-    print("  Created .env.production")
+    print("  Created .env.production with generated secrets (not logged)")
 
 
 def setup_nginx(ssh):

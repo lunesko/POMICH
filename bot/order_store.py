@@ -1338,6 +1338,16 @@ def get_customer_profile(customer_id: str, store_path: Optional[Path] = None) ->
     return _sync_phone_linked_verification(_default_customer_profile(customer_id), store_path)
 
 
+def customer_profile_exists(customer_id: str, store_path: Optional[Path] = None) -> bool:
+    """True only when a row was actually persisted — unlike get_customer_profile, which synthesizes defaults."""
+    normalized = str(customer_id or "").strip()
+    if not normalized:
+        return False
+    if _should_use_sql_store(store_path, _default_customer_store_path):
+        return sql_get_customer(normalized) is not None
+    return any(str(profile.get("id")) == normalized for profile in load_customer_profiles(store_path))
+
+
 def update_customer_profile(customer_id: str, data: Dict[str, Any], store_path: Optional[Path] = None) -> Dict[str, Any]:
     with STORE_LOCK:
         path = store_path or _default_customer_store_path()

@@ -111,6 +111,37 @@ _INDEX_NO_CACHE_HEADERS = {
     "Pragma": "no-cache",
 }
 
+# Dotfiles and VCS/config paths must never fall through to SPA index.html (scanners get HTML 200).
+_SENSITIVE_SPA_PREFIXES = (
+    ".env",
+    ".git",
+    ".svn",
+    ".hg",
+    ".bzr",
+    ".ds_store",
+    ".aws",
+    ".ssh",
+    ".docker",
+    ".npmrc",
+    ".htaccess",
+    ".htpasswd",
+    "docker-compose",
+    "compose.yaml",
+    "compose.yml",
+    "id_rsa",
+    "id_ed25519",
+    "credentials",
+)
+
+
+def _is_sensitive_spa_path(normalized: str) -> bool:
+    lowered = normalized.lower().lstrip("/")
+    if not lowered:
+        return False
+    if lowered.startswith(".") or "/." in lowered:
+        return True
+    return any(lowered == prefix or lowered.startswith(f"{prefix}/") or lowered.startswith(f"{prefix}.") for prefix in _SENSITIVE_SPA_PREFIXES)
+
 
 def _resolve_dist_root_file(normalized: str) -> Path | None:
     """Serve Vite public/root artifacts (pomich-sw.js, favicon, etc.) before SPA fallback."""
@@ -134,6 +165,8 @@ def robots_txt():
 @app.get("/{full_path:path}")
 def serve_frontend(full_path: str = ""):
     normalized = str(full_path or "").lstrip("/")
+    if _is_sensitive_spa_path(normalized):
+        raise HTTPException(status_code=404, detail="Not found")
     if normalized.startswith("geo/"):
         geo_name = normalized.removeprefix("geo/")
         geo_path = _resolve_geo_file(geo_name)
