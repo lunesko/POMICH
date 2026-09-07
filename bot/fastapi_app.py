@@ -32,6 +32,9 @@ _DIST_GEO_DIR = DIST_DIR / "geo"
 _PUBLIC_GEO_DIR = PROJECT_ROOT / "public" / "geo"
 GEO_DIR = _DIST_GEO_DIR if _DIST_GEO_DIR.is_dir() else _PUBLIC_GEO_DIR
 DATA_GEO_DIR = PROJECT_ROOT / "data" / "geo"
+_DIST_MAPS_DIR = DIST_DIR / "maps"
+_PUBLIC_MAPS_DIR = PROJECT_ROOT / "public" / "maps"
+MAPS_DIR = _DIST_MAPS_DIR if _DIST_MAPS_DIR.is_dir() else _PUBLIC_MAPS_DIR
 
 # Backwards-compatible aliases used by tests and older imports.
 _is_production_runtime = is_production_runtime
@@ -99,12 +102,30 @@ def _resolve_geo_file(filename: str) -> Path | None:
     return None
 
 
+def _resolve_maps_file(filename: str) -> Path | None:
+    if not filename or filename.startswith(".") or ".." in filename.split("/"):
+        return None
+    for base in (MAPS_DIR, _PUBLIC_MAPS_DIR, _DIST_MAPS_DIR):
+        candidate = (base / filename).resolve()
+        try:
+            candidate.relative_to(base.resolve())
+        except ValueError:
+            continue
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 _GEO_CACHE_CONTROL = "public, max-age=3600"
+_MAPS_CACHE_CONTROL = "public, max-age=86400"
 
 if GEO_DIR.exists():
     app.mount("/geo", CachedStaticFiles(directory=GEO_DIR, cache_control=_GEO_CACHE_CONTROL), name="geo")
 elif DATA_GEO_DIR.exists():
     app.mount("/geo", CachedStaticFiles(directory=DATA_GEO_DIR, cache_control=_GEO_CACHE_CONTROL), name="geo")
+
+if MAPS_DIR.exists():
+    app.mount("/maps", CachedStaticFiles(directory=MAPS_DIR, cache_control=_MAPS_CACHE_CONTROL), name="maps")
 
 _INDEX_NO_CACHE_HEADERS = {
     "Cache-Control": "no-cache, no-store, must-revalidate",
@@ -146,6 +167,17 @@ def serve_frontend(full_path: str = ""):
         raise HTTPException(status_code=404, detail="GeoJSON file not found")
     if normalized.startswith("assets/"):
         raise HTTPException(status_code=404, detail="Asset not found")
+    if normalized.startswith("maps/"):
+        maps_name = normalized.removeprefix("maps/")
+        maps_path = _resolve_maps_file(maps_name)
+        if maps_path is not None:
+            media = "image/webp" if maps_path.suffix.lower() == ".webp" else None
+            return FileResponse(
+                maps_path,
+                media_type=media,
+                headers={"Cache-Control": _MAPS_CACHE_CONTROL},
+            )
+        raise HTTPException(status_code=404, detail="Map asset not found")
 
     root_file = _resolve_dist_root_file(normalized)
     if root_file is not None:
