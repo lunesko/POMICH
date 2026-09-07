@@ -151,9 +151,11 @@ export function applyPomichThemeToDocument(mode: PomichThemeMode) {
   syncPomichThemeToTelegramWebApp(mode)
 }
 
-/** Readable basemaps — Carto dark_all is verified working (dark_matter path 404s). */
+/** Readable basemaps — prefer free raster hosts that do not watermark without a key. */
 export const MAP_TILE_URLS = {
+  /** OSM standard — free, no API key. Pair with no CSS transform on the map wrapper. */
   light: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+  /** Carto dark_all is verified working without a public API key (dark_matter 404s). */
   darkInApp: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
   /** Esri World Imagery — free for non-commercial use with attribution. */
   satellite: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
