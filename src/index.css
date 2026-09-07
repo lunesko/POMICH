@@ -1338,12 +1338,16 @@ html:not([data-pomich-theme]) .pomich-map-tools-panel__close {
 .pomich-map-shell .leaflet-tile-container img,
 .landing-hero-map-clip .leaflet-tile-container img {
   /* Slight oversize closes subpixel gaps without visible stretch */
-  width: 256.5px !important;
-  height: 256.5px !important;
+  width: 257px !important;
+  height: 257px !important;
   max-width: none !important;
   max-height: none !important;
   /* Beat Tailwind preflight height:auto on img */
-  min-height: 256.5px !important;
+  min-height: 257px !important;
+}
+/* Decorative atmosphere only: micro-blur hides residual hairline seams behind chrome */
+.pomich-map-shell__map--static .leaflet-tile-pane {
+  filter: blur(0.35px);
 }
 /* Atmosphere / hero map: never animate transform — Ken Burns = square tile grid on PC */
 .pomich-map-shell__map--static {
