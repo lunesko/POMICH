@@ -1350,14 +1350,44 @@ html:not([data-pomich-theme]) .pomich-map-tools-panel__close {
 .pomich-ride-screen__map .leaflet-tile-container img,
 .pomich-map-shell .leaflet-tile-container img,
 .landing-hero-map-clip .leaflet-tile-container img {
-  /* Exact Leaflet tile size — fractional oversize (256.5/257) can itself draw a grid */
-  width: 256px !important;
-  height: 256px !important;
+  /* iOS Safari leaves 1px subpixel gaps at exact 256 — slight oversize closes them */
+  width: 257px !important;
+  height: 257px !important;
   max-width: none !important;
   max-height: none !important;
 }
+/* Fill under loading tiles so gaps never flash white (looks like blinking grid) */
+.pomich-route-map .leaflet-container,
+.pomich-ride-screen__map .leaflet-container {
+  background: #e8e0d8 !important;
+}
+.pomich-route-map .leaflet-tile,
+.pomich-ride-screen__map .leaflet-tile {
+  /* Transparent outline tricks Safari anti-alias gaps between adjacent imgs */
+  outline: 1px solid transparent !important;
+}
 /* Do NOT filter/blur .leaflet-tile-pane — tiles use translate3d layers; blur
    composites per-tile and paints a soft square grid (worse on iOS WebApp). */
+/* Seamless decorative basemap (landing / atmosphere) — single image, no Leaflet tiles */
+.pomich-decorative-basemap {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: #e8e0d8;
+}
+.pomich-decorative-basemap__img {
+  position: absolute;
+  inset: -2%;
+  width: 104%;
+  height: 104%;
+  max-width: none !important;
+  max-height: none !important;
+  object-fit: cover;
+  object-position: 48% 42%;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
 /* Atmosphere / hero map: never animate transform — Ken Burns = square tile grid on PC */
 .pomich-map-shell__map--static {
   position: absolute;
