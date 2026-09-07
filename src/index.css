@@ -1368,6 +1368,17 @@ html:not([data-pomich-theme]) .pomich-map-tools-panel__close {
   padding: 0 !important;
   image-rendering: auto !important;
 }
+/* Canvas basemap already paints 1px overlap inside 256×256 — do not CSS-oversize */
+.pomich-route-map canvas.leaflet-tile,
+.pomich-ride-screen__map canvas.leaflet-tile,
+.pomich-map-shell canvas.leaflet-tile {
+  mix-blend-mode: normal !important;
+  width: 256px !important;
+  height: 256px !important;
+  max-width: none !important;
+  max-height: none !important;
+  opacity: 1 !important;
+}
 /* Fill under loading tiles so gaps never flash white (looks like blinking grid) */
 .pomich-route-map .leaflet-container,
 .pomich-ride-screen__map .leaflet-container,
@@ -1397,9 +1408,9 @@ html:not([data-pomich-theme]) .pomich-map-tools-panel__close {
 }
 .pomich-decorative-basemap__img {
   position: absolute;
-  inset: -2%;
-  width: 104%;
-  height: 104%;
+  inset: -3%;
+  width: 106%;
+  height: 106%;
   max-width: none !important;
   max-height: none !important;
   object-fit: cover;
@@ -1407,6 +1418,10 @@ html:not([data-pomich-theme]) .pomich-map-tools-panel__close {
   pointer-events: none;
   user-select: none;
   -webkit-user-drag: none;
+  /* Kill any residual abutment aliasing from the source raster on retina */
+  filter: blur(0.35px);
+  -webkit-filter: blur(0.35px);
+  transform: translateZ(0);
 }
 /* Atmosphere / hero map: never animate transform — Ken Burns = square tile grid on PC */
 .pomich-map-shell__map--static {

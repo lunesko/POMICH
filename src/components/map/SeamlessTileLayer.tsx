@@ -5,11 +5,69 @@ import { useMap } from "react-leaflet"
 
 import { resolveMapTileConfig, type MapTileTheme } from "../../lib/theme"
 
+type CanvasBasemapOptions = L.GridLayerOptions & {
+  tileUrl: string
+  subdomains: string
+}
+
 /**
- * Interactive basemap with iOS / Telegram WebView seam hardening.
- * Leaflet's default CSS uses mix-blend-mode: plus-lighter (Chrome seam hack)
- * which paints bright white tile edges on WebKit — overridden in index.css.
+ * Draw OSM/Carto tiles onto one canvas with 1px overlap.
+ * Avoids WebKit hairlines from individual <img> tiles + mix-blend-mode: plus-lighter.
  */
+const CanvasBasemapLayer = L.GridLayer.extend({
+  options: {
+    tileUrl: "",
+    subdomains: "abc",
+    keepBuffer: 2,
+    updateWhenIdle: true,
+    updateWhenZooming: false,
+  },
+
+  createTile(coords: L.Coords, done: (error?: Error, tile?: HTMLElement) => void) {
+    const canvas = document.createElement("canvas")
+    canvas.width = 256
+    canvas.height = 256
+    canvas.className = "pomich-basemap-tiles pomich-basemap-tiles--canvas"
+    const ctx = canvas.getContext("2d")
+    if (!ctx) {
+      setTimeout(() => done(new Error("canvas_unavailable"), canvas), 0)
+      return canvas
+    }
+
+    const img = new Image()
+    img.crossOrigin = "anonymous"
+    img.onload = () => {
+      try {
+        // Paint slightly oversized to close subpixel gaps between neighboring canvases.
+        ctx.drawImage(img, -1, -1, 258, 258)
+      } catch {
+        ctx.fillStyle = "#e8e0d8"
+        ctx.fillRect(0, 0, 256, 256)
+      }
+      done(undefined, canvas)
+    }
+    img.onerror = () => {
+      ctx.fillStyle = "#e8e0d8"
+      ctx.fillRect(0, 0, 256, 256)
+      done(undefined, canvas)
+    }
+
+    const opts = this.options as CanvasBasemapOptions
+    let url = opts.tileUrl
+      .replace("{z}", String(coords.z))
+      .replace("{x}", String(coords.x))
+      .replace("{y}", String(coords.y))
+      .replace("{r}", L.Browser.retina ? "@2x" : "")
+    if (url.includes("{s}")) {
+      const subs = opts.subdomains || "abc"
+      const s = subs[Math.abs(coords.x + coords.y) % subs.length]
+      url = url.replace("{s}", s)
+    }
+    img.src = url
+    return canvas
+  },
+})
+
 export default function SeamlessTileLayer({ mapTileTheme }: { mapTileTheme: MapTileTheme }) {
   const map = useMap()
   const tile = resolveMapTileConfig({ mapTileTheme })
@@ -17,30 +75,20 @@ export default function SeamlessTileLayer({ mapTileTheme }: { mapTileTheme: MapT
   useEffect(() => {
     if (!map) return
 
-    const usesSubdomains = tile.url.includes("{s}")
-    const layer = L.tileLayer(tile.url, {
+    // L.GridLayer.extend returns a constructor that accepts options at runtime.
+    const LayerCtor = CanvasBasemapLayer as unknown as new (options: CanvasBasemapOptions) => L.GridLayer
+    const layer = new LayerCtor({
       maxZoom: 19,
       keepBuffer: 2,
       updateWhenIdle: true,
       updateWhenZooming: false,
       className: "pomich-basemap-tiles",
       attribution: tile.attribution,
-      ...(usesSubdomains && tile.subdomains ? { subdomains: tile.subdomains } : {}),
-      // Detect retina so HiDPI phones request denser tiles when URL supports {r}
-      detectRetina: tile.url.includes("{r}"),
+      tileUrl: tile.url,
+      subdomains: tile.subdomains || "abc",
     })
 
     layer.addTo(map)
-
-    // Force opaque tiles as soon as each image loads (no fade blink).
-    layer.on("tileload", (event: L.TileEvent) => {
-      const el = event.tile as HTMLElement
-      if (el) {
-        el.style.opacity = "1"
-        el.style.visibility = "inherit"
-      }
-    })
-
     return () => {
       map.removeLayer(layer)
     }
