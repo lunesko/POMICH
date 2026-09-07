@@ -1319,6 +1319,19 @@ html:not([data-pomich-theme]) .pomich-map-tools-panel__close {
   backface-visibility: visible;
   -webkit-font-smoothing: antialiased;
 }
+/* Kill Leaflet's default tile opacity fade (blinks a square grid on load/pan) */
+.pomich-route-map.leaflet-fade-anim .leaflet-tile,
+.pomich-route-map .leaflet-fade-anim .leaflet-tile,
+.pomich-ride-screen__map .leaflet-fade-anim .leaflet-tile,
+.pomich-map-shell .leaflet-fade-anim .leaflet-tile,
+.landing-hero-map-clip .leaflet-fade-anim .leaflet-tile,
+.pomich-route-map .leaflet-tile,
+.pomich-ride-screen__map .leaflet-tile,
+.pomich-map-shell .leaflet-tile,
+.landing-hero-map-clip .leaflet-tile {
+  opacity: 1 !important;
+  transition: none !important;
+}
 /* Hide 1px gaps between raster tiles (retina / subpixel rounding / Tailwind img max-width).
    Do NOT zero transforms on .leaflet-tile-pane / .leaflet-tile-container — Leaflet
    positions the grid with translate3d on those nodes. */
@@ -1345,10 +1358,11 @@ html:not([data-pomich-theme]) .pomich-map-tools-panel__close {
   /* Beat Tailwind preflight height:auto on img */
   min-height: 257px !important;
 }
-/* Decorative atmosphere only: micro-blur hides residual hairline seams behind chrome */
+/* Decorative atmosphere only: soft blur hides residual hairline seams behind chrome */
 .pomich-map-shell__map--static .leaflet-tile-pane {
-  filter: blur(0.35px);
+  filter: blur(0.6px);
 }
+/* Interactive ride maps stay sharp — no blur on .pomich-ride-screen__map */
 /* Atmosphere / hero map: never animate transform — Ken Burns = square tile grid on PC */
 .pomich-map-shell__map--static {
   position: absolute;

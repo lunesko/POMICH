@@ -114,13 +114,13 @@ describe("pomich theme", () => {
     applyPomichThemeToDocument("light")
     const tile = resolveMapTileConfig({ ukraineMask: true, mapTileTheme: "light" })
     expect(tile.url).toBe(MAP_TILE_URLS.light)
-    expect(tile.attribution).toBe(MAP_TILE_ATTRIBUTIONS.carto)
+    expect(tile.attribution).toBe(MAP_TILE_ATTRIBUTIONS.osm)
   })
 
   it("keeps OSM for city ride maps without mask", () => {
     applyPomichThemeToDocument("light")
     const tile = resolveMapTileConfig({ ukraineMask: false, mapTileTheme: "light" })
     expect(tile.url).toBe(MAP_TILE_URLS.light)
-    expect(tile.attribution).toBe(MAP_TILE_ATTRIBUTIONS.carto)
+    expect(tile.attribution).toBe(MAP_TILE_ATTRIBUTIONS.osm)
   })
 })

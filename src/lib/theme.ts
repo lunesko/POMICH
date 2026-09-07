@@ -151,10 +151,11 @@ export function applyPomichThemeToDocument(mode: PomichThemeMode) {
   syncPomichThemeToTelegramWebApp(mode)
 }
 
-/** Readable basemaps — Carto `{r}` retina tiles avoid OSM upscale seams on HiDPI. */
+/** Readable basemaps — prefer free raster hosts that do not watermark without a key. */
 export const MAP_TILE_URLS = {
-  /** Carto light_all with retina — OSM 256px tiles upscale into a visible square grid on desktop. */
-  light: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
+  /** OSM standard — free, no API key. Pair with no CSS transform on the map wrapper. */
+  light: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+  /** Carto dark_all is verified working without a public API key (dark_matter 404s). */
   darkInApp: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
   /** Esri World Imagery — free for non-commercial use with attribution. */
   satellite: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
@@ -192,8 +193,8 @@ export function resolveMapTileConfig(options: {
   }
   return {
     url: MAP_TILE_URLS.light,
-    attribution: MAP_TILE_ATTRIBUTIONS.carto,
-    subdomains: "abcd",
+    attribution: MAP_TILE_ATTRIBUTIONS.osm,
+    subdomains: "abc",
   }
 }
 

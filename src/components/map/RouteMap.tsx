@@ -151,9 +151,11 @@ function MapThemeTileLayer({ mapTileTheme }: { mapTileTheme: MapTileTheme }) {
       key={tile.url}
       url={tile.url}
       maxZoom={19}
-      keepBuffer={1}
+      keepBuffer={2}
       updateWhenIdle
       updateWhenZooming={false}
+      /* Opacity fade between tiles = blinking square grid during pan/zoom */
+      className="pomich-basemap-tiles"
       {...(usesSubdomains && tile.subdomains ? { subdomains: tile.subdomains } : {})}
       attribution={tile.attribution}
     />
@@ -1750,9 +1752,9 @@ export function RouteMap({
         doubleClickZoom={mapInteractive}
         boxZoom={mapInteractive}
         keyboard={mapInteractive}
-        /* Fade/zoom CSS transforms on the tile pane exaggerate square seams on desktop */
-        fadeAnimation={!decorative}
-        zoomAnimation={!decorative}
+        /* Fade/zoom CSS transforms on the tile pane exaggerate square seams (desktop + TG WebApp) */
+        fadeAnimation={false}
+        zoomAnimation={false}
         markerZoomAnimation={!decorative}
         style={{ width: "100%", height: "100%" }}
       >
