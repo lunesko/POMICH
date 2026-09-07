@@ -1372,6 +1372,29 @@ def test_geo_static_files_served_before_spa_fallback(tmp_path, monkeypatch):
     assert response.json()["type"] == "Feature"
 
 
+def test_maps_static_files_served_before_spa_fallback(tmp_path, monkeypatch):
+    maps_dir = tmp_path / "dist" / "maps"
+    maps_dir.mkdir(parents=True)
+    basemap = maps_dir / "ukraine-basemap.jpg"
+    basemap.write_bytes(b"\xff\xd8\xff\xd9")  # minimal JPEG SOI/EOI
+
+    from importlib import reload
+
+    reload(fastapi_app)
+    monkeypatch.setattr(fastapi_app, "DIST_DIR", tmp_path / "dist")
+    monkeypatch.setattr(fastapi_app, "ASSETS_DIR", tmp_path / "dist" / "assets")
+    monkeypatch.setattr(fastapi_app, "GEO_DIR", tmp_path / "dist" / "geo")
+    monkeypatch.setattr(fastapi_app, "MAPS_DIR", maps_dir)
+    monkeypatch.setattr(fastapi_app, "_DIST_MAPS_DIR", maps_dir)
+    monkeypatch.setattr(fastapi_app, "_PUBLIC_MAPS_DIR", maps_dir)
+
+    client = TestClient(fastapi_app.app)
+    response = client.get("/maps/ukraine-basemap.jpg")
+    assert response.status_code == 200
+    assert "text/html" not in (response.headers.get("content-type") or "")
+    assert response.content.startswith(b"\xff\xd8")
+
+
 def test_dist_root_static_files_served_before_spa_fallback(tmp_path, monkeypatch):
     dist_dir = tmp_path / "dist"
     dist_dir.mkdir(parents=True)
