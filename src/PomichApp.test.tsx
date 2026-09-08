@@ -195,7 +195,8 @@ describe('POMICH role-based flows', () => {
     if (screen.queryByText('Реєстрація клієнта')) {
       await user.click(screen.getByRole('button', { name: /Продовжити/i }))
     }
-    await screen.findByRole('button', { name: /Евакуатор/i })
+    // Full + peek sheets both render tow cards — take the first match.
+    await screen.findAllByRole('button', { name: /Евакуатор/i })
   }
 
   it('shows stale web session on registration and allows logout', async () => {
@@ -2550,7 +2551,7 @@ describe('POMICH role-based flows', () => {
     const user = userEvent.setup()
     await openCustomerHome(user)
 
-    await user.click(screen.getByRole('button', { name: /Акумулятор/i }))
+    await user.click(screen.getByRole('button', { name: /Не заводиться/i }))
     expect(screen.getByText('Де ви зараз?')).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: /Підтвердити місце/i }))
@@ -2583,7 +2584,7 @@ describe('POMICH role-based flows', () => {
 
     await openCustomerHome(user)
 
-    await user.click(screen.getByRole('button', { name: /Акумулятор/i }))
+    await user.click(screen.getByRole('button', { name: /Не заводиться/i }))
     await user.click(screen.getByRole('button', { name: /Підтвердити місце/i }))
     await user.click(screen.getByRole('button', { name: /Авто не заводиться/i }))
     await user.click(screen.getByRole('button', { name: /^Далі$/i }))

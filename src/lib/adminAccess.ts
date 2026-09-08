@@ -13,12 +13,6 @@ export function isHiddenAdminHash(): boolean {
   return window.location.hash === ADMIN_HASH
 }
 
-export function clearHiddenAdminHash() {
-  if (typeof window === "undefined") return
-  if (window.location.hash !== ADMIN_HASH) return
-  window.history.replaceState({}, "", `${window.location.pathname}${window.location.search}`)
-}
-
 /** Persist hidden admin entry as ?role=admin and drop the hash from the address bar. */
 export function applyHiddenAdminEntry() {
   if (typeof window === "undefined") return
