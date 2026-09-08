@@ -16,9 +16,7 @@ type PartnerDutyPanelProps = {
   offerError?: string
   onToggleDuty: () => void
   onPrimaryAction: () => void
-  onLeaveDuty?: () => void
   onRefreshMap?: () => void
-  showLeaveDuty?: boolean
   showRefresh?: boolean
   primaryDisabled?: boolean
 }
@@ -35,9 +33,7 @@ export default function PartnerDutyPanel({
   offerError,
   onToggleDuty,
   onPrimaryAction,
-  onLeaveDuty,
   onRefreshMap,
-  showLeaveDuty = false,
   showRefresh = false,
   primaryDisabled = false,
 }: PartnerDutyPanelProps) {
@@ -78,9 +74,6 @@ export default function PartnerDutyPanel({
         <PrimaryButton label={ctaLabel} onClick={onPrimaryAction} disabled={primaryDisabled || presenceSaving} />
         {showRefresh && onRefreshMap ? (
           <SecondaryButton label="Оновити карту" onClick={onRefreshMap} disabled={presenceSaving} />
-        ) : null}
-        {showLeaveDuty && onLeaveDuty ? (
-          <SecondaryButton label="Піти з лінії" onClick={onLeaveDuty} disabled={presenceSaving} />
         ) : null}
       </div>
     </div>

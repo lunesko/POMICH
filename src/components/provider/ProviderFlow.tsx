@@ -2154,7 +2154,6 @@ export default function ProviderFlow({
             offerBanner={offerBanner}
             onToggleDuty={handleDutyToggle}
             onPrimaryAction={onDutyPrimary}
-            showLeaveDuty={false}
             primaryDisabled={offerSaving}
           />
         </div>
@@ -2171,8 +2170,6 @@ export default function ProviderFlow({
             offerError={panelOfferError}
             onToggleDuty={handleDutyToggle}
             onPrimaryAction={onDutyPrimary}
-            showLeaveDuty={onDuty}
-            onLeaveDuty={() => void setDuty(false)}
             primaryDisabled={offerSaving}
           />
         </div>
