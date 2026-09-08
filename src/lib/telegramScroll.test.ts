@@ -89,4 +89,14 @@ describe('Telegram WebApp scroll init', () => {
     expect(document.documentElement.style.getPropertyValue('--tg-content-safe-area-inset-top')).toBe('12px')
     expect(document.documentElement.style.getPropertyValue('--tg-content-safe-area-inset-bottom')).toBe('8px')
   })
+
+  it('syncAppViewportHeight falls back to chrome inset when fullscreen reports no content top', () => {
+    syncAppViewportHeight({
+      viewportStableHeight: 640,
+      isFullscreen: true,
+      contentSafeAreaInset: { top: 0, bottom: 0, left: 0, right: 0 },
+    })
+
+    expect(document.documentElement.style.getPropertyValue('--tg-content-safe-area-inset-top')).toBe('48px')
+  })
 })
