@@ -1,5 +1,5 @@
 import type { CSSProperties, ReactNode, WheelEvent } from "react"
-import { Children, isValidElement, useEffect, useMemo, useState } from "react"
+import { Children, isValidElement, useEffect, useMemo, useRef, useState } from "react"
 
 import type { MapRequestPin, ProviderAvailability } from "../../api/client"
 import { mediaQueries } from "../../lib/breakpoints"
@@ -48,6 +48,8 @@ interface RideScreenProps {
   expandedSheet?: boolean
   mapFocus?: boolean
   defaultSnap?: "collapsed" | "half" | "expanded"
+  /** Hug sheet height to content (no empty gap under CTAs). */
+  fitSheetToContent?: boolean
   onRetryGeo?: () => void
   geoLoading?: boolean
   geoError?: string
@@ -86,6 +88,7 @@ export function RideScreen({
   expandedSheet = false,
   mapFocus = false,
   defaultSnap = "half",
+  fitSheetToContent = false,
   onRetryGeo,
   geoLoading = false,
   geoError,
@@ -126,18 +129,56 @@ export function RideScreen({
   const sheetCompact = compactChrome
 
   const { snap, heightVh, isDragging, setSnap, handleProps, sheetStyle } = useMobileSheetSnap({
-    enabled: mobileSheet,
+    enabled: mobileSheet && !fitSheetToContent,
     mapFocus,
     expandedSheet,
     defaultSnap,
   })
 
+  const contentSnap = fitSheetToContent ? "half" : snap
+  const sheetChildren = useMemo(
+    () => filterSheetChildren(children, mobileSheet, contentSnap),
+    [children, mobileSheet, contentSnap],
+  )
+
+  const sheetPanelRef = useRef<HTMLDivElement | null>(null)
+  const [fittedSheetPx, setFittedSheetPx] = useState<number | null>(null)
+
+  useEffect(() => {
+    if (!mobileSheet || !fitSheetToContent) {
+      setFittedSheetPx(null)
+      return
+    }
+    const panel = sheetPanelRef.current
+    if (!panel || typeof ResizeObserver === "undefined") return
+    const sync = () => {
+      const next = Math.ceil(panel.getBoundingClientRect().height)
+      if (next > 0) setFittedSheetPx(next)
+    }
+    const observer = new ResizeObserver(sync)
+    observer.observe(panel)
+    sync()
+    return () => observer.disconnect()
+  }, [mobileSheet, fitSheetToContent, sheetChildren])
+
   useEffect(() => {
     if (!mobileSheet) return
     window.dispatchEvent(new Event("resize"))
-  }, [mobileSheet, snap, heightVh])
+  }, [mobileSheet, snap, heightVh, fittedSheetPx, fitSheetToContent])
 
-  const sheetChildren = useMemo(() => filterSheetChildren(children, mobileSheet, snap), [children, mobileSheet, snap])
+  const overlaySheetStyle = useMemo((): CSSProperties | undefined => {
+    if (!mobileSheet) return undefined
+    if (fitSheetToContent) {
+      return {
+        ...(fittedSheetPx != null ? { ["--pomich-sheet-height"]: `${fittedSheetPx}px` } : {}),
+        ["--pomich-sheet-snap"]: "fit",
+      } as CSSProperties
+    }
+    return {
+      ...(sheetStyle ?? {}),
+      ["--pomich-sheet-snap"]: snap,
+    } as CSSProperties
+  }, [mobileSheet, fitSheetToContent, fittedSheetPx, sheetStyle, snap])
 
   /* Defer Leaflet mount one frame so sheet/text paint first (cuts "full load" scripting contention). */
   const [mapReady, setMapReady] = useState(false)
@@ -188,7 +229,7 @@ export function RideScreen({
     mapTileTheme,
     overlayMode: mobileSheet,
     /* Snap must reach the map so locate/flyTo can pad above the bottom sheet (incl. TG). */
-    sheetSnap: mobileSheet ? snap : undefined,
+    sheetSnap: mobileSheet ? (fitSheetToContent ? "half" : snap) : undefined,
   }), [
     pickup,
     destination,
@@ -222,6 +263,7 @@ export function RideScreen({
     mapZoom,
     mobileSheet,
     snap,
+    fitSheetToContent,
     mapTileTheme,
   ])
 
@@ -253,31 +295,32 @@ export function RideScreen({
     )
   }
 
-  const rideScreenStyle = mobileSheet ? ({ ...sheetStyle, "--pomich-sheet-snap": snap } as CSSProperties) : undefined
-
   return (
     <div
       className={`pomich-ride-screen relative h-full min-h-0 overflow-hidden pomich-ride-map-bg${mobileSheet ? " pomich-ride-screen--overlay" : ""}`}
-      style={rideScreenStyle}
-      data-sheet-snap={mobileSheet ? snap : undefined}
+      style={overlaySheetStyle}
+      data-sheet-snap={mobileSheet ? (fitSheetToContent ? "fit" : snap) : undefined}
+      data-sheet-fit={fitSheetToContent ? "true" : undefined}
     >
       <div className="pomich-ride-screen__map">
         {mapReady ? <LazyRouteMap key="pomich-ride-map" {...mapProps} /> : null}
       </div>
       <div
+        ref={sheetPanelRef}
         className={`pomich-sheet-panel pomich-sheet-panel--bottom ${sheetCompact ? "tg-sheet-compact rounded-t-2xl" : "rounded-t-2xl"}`}
-        data-snap={mobileSheet ? snap : undefined}
-        data-dragging={mobileSheet && isDragging ? "true" : undefined}
+        data-snap={mobileSheet ? (fitSheetToContent ? "fit" : snap) : undefined}
+        data-fit-content={fitSheetToContent ? "true" : undefined}
+        data-dragging={mobileSheet && !fitSheetToContent && isDragging ? "true" : undefined}
         style={{
-          ...sheetStyle,
+          ...(fitSheetToContent ? undefined : sheetStyle),
           paddingLeft: sheetCompact ? "var(--pomich-space-3)" : "16px",
           paddingRight: sheetCompact ? "var(--pomich-space-3)" : "16px",
           paddingTop: 0,
         }}
       >
-        <div className="pomich-sheet-handle" {...(mobileSheet ? handleProps : {})}>
+        <div className="pomich-sheet-handle" {...(mobileSheet && !fitSheetToContent ? handleProps : {})}>
           <span className="pomich-sheet-handle__bar" aria-hidden="true" />
-          {mobileSheet && snap === "collapsed" ? (
+          {mobileSheet && !fitSheetToContent && snap === "collapsed" ? (
             <button
               type="button"
               className="pomich-sheet-handle__expand"

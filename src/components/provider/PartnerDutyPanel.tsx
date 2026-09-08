@@ -54,7 +54,7 @@ export default function PartnerDutyPanel({
             <span className={`pomich-duty-panel__dot${onDuty ? " is-on" : ""}`} aria-hidden="true" />
             <div className="pomich-duty-panel__status">{statusLabel}</div>
           </div>
-          {!isPeek ? <div className="pomich-duty-panel__hint">{hint}</div> : null}
+          <div className="pomich-duty-panel__hint">{hint}</div>
         </div>
         <DutyStatusToggle onDuty={onDuty} saving={presenceSaving} disabled={presenceSaving} onToggle={onToggleDuty} />
       </div>

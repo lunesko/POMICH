@@ -2141,6 +2141,7 @@ export default function ProviderFlow({
         geoError={providerGeoError}
         recenterTrigger={providerRecenterTrigger}
         geoSpeedMps={providerSpeedMps}
+        fitSheetToContent
       >
         <div data-sheet-peek>
           <PartnerDutyPanel
@@ -2448,6 +2449,7 @@ export default function ProviderFlow({
           geoError={providerGeoError}
           recenterTrigger={providerRecenterTrigger}
           geoSpeedMps={providerSpeedMps}
+          fitSheetToContent
         >
           <div data-sheet-peek>
             <PartnerDutyPanel
