@@ -71,3 +71,32 @@ def test_realtime_ws_and_sse_share_bus():
     finally:
         realtime.unsubscribe(channel, sse_queue)
         realtime.reset_realtime_for_tests()
+
+
+def test_pump_websocket_unsubscribes_on_send_failure():
+    """Broken pipe / RuntimeError must not leave a dead-cat queue subscriber."""
+    realtime.reset_realtime_for_tests()
+    channel = realtime.channel_for_order("order-dead")
+
+    class DyingWs:
+        async def send_json(self, data):
+            if data.get("type") == "connected":
+                return
+            raise RuntimeError("Connection closed")
+
+    async def _run():
+        task = asyncio.create_task(realtime.pump_websocket(DyingWs(), channel, heartbeat_seconds=0.05))
+        await asyncio.sleep(0.12)
+        if not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+        with realtime._LOCK:
+            listeners = list(realtime._CHANNELS.get(channel, []))
+        return listeners
+
+    listeners = asyncio.run(_run())
+    assert listeners == []
+    realtime.reset_realtime_for_tests()

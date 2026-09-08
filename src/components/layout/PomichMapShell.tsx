@@ -8,35 +8,7 @@ import {
   type ReactNode,
 } from "react"
 
-import type { ProviderAvailability } from "../../api/client"
-import type { Point } from "../../lib/constants"
-import LazyRouteMap from "../map/LazyRouteMap"
-
-const MAP_CENTER: Point = { lat: 48.6208, lng: 22.2879 }
-const MAP_DESTINATION: Point = { lat: 48.625, lng: 22.295 }
-
-const fallbackProviders: ProviderAvailability[] = [
-  {
-    id: "shell-oleksandr",
-    name: "Олександр",
-    status: "online",
-    vehicle: "Volkswagen Transporter",
-    rating: 4.9,
-    etaMinutes: 12,
-    location: { lat: 48.618, lng: 22.282 },
-    specialties: ["tow", "fuel"],
-  },
-  {
-    id: "shell-mykhailo",
-    name: "Михайло",
-    status: "busy",
-    vehicle: "Renault Master",
-    rating: 4.8,
-    etaMinutes: 18,
-    location: { lat: 48.628, lng: 22.301 },
-    specialties: ["battery", "wheel"],
-  },
-]
+import DecorativeBasemap from "../map/DecorativeBasemap"
 
 interface MapAtmosphereContextValue {
   suppress: () => void
@@ -48,22 +20,19 @@ const MapAtmosphereContext = createContext<MapAtmosphereContextValue | null>(nul
 
 /** Decorative map + atmosphere + scrim — same treatment as landing hero. */
 export function PomichMapBackground({
-  providers,
   fadeBottom,
   variant = "shell",
   fixed = false,
 }: {
-  providers?: ProviderAvailability[]
+  providers?: unknown
   fadeBottom?: string
   /** `hero` = lighter landing scrim; `shell` = stronger readable overlay for forms/cabinets */
   variant?: "hero" | "shell"
   /** Pin to viewport so content scrolls over the map (landing + app shell). */
   fixed?: boolean
 }) {
-  const heroProviders = providers && providers.length > 0 ? providers : fallbackProviders
-  /* Never CSS-transform the Leaflet tile layer — scale/translate opens a visible square
-     grid between raster tiles on desktop Chrome/Firefox (and flicker on iOS). Motion stays
-     on atmosphere orbs / brand / CTAs instead. */
+  /* Live Leaflet tiles always show a square grid on iOS Safari (subpixel gaps + flicker).
+     Decorative atmosphere uses one stitched raster instead — zero tile seams. */
   const mapLayerClass =
     variant === "hero" ? "landing-hero-map pomich-map-shell__map--static" : "pomich-map-shell__map--static"
 
@@ -74,18 +43,7 @@ export function PomichMapBackground({
     >
       <div className="pomich-map-shell__clip landing-hero-map-clip">
         <div className={`pomich-map-shell__map ${mapLayerClass}`.trim()}>
-          <LazyRouteMap
-            pickup={MAP_CENTER}
-            destination={MAP_DESTINATION}
-            providers={heroProviders}
-            subtitle="POMICH live map"
-            full
-            showBadges={false}
-            directoryOnly
-            decorative
-            mapTileTheme="light"
-            ukraineMapFitCountry
-          />
+          <DecorativeBasemap />
         </div>
       </div>
       {fadeBottom ? (
@@ -105,7 +63,7 @@ export function PomichMapShell({
 }: {
   children: ReactNode
   className?: string
-  providers?: ProviderAvailability[]
+  providers?: unknown
   variant?: "hero" | "shell"
   fadeBottom?: string
 }) {

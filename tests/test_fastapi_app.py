@@ -82,8 +82,13 @@ def _admin_session_headers(client: TestClient) -> dict:
     return {"Authorization": f"Bearer {response.json()['accessToken']}"}
 
 
-def _customer_session_headers(client: TestClient, customer_id: str = "guest-customer-42") -> dict:
-    response = client.post("/api/auth/customer/guest/session", json={"customerId": customer_id})
+def _customer_session_headers(client: TestClient, customer_id: str | None = None) -> dict:
+    payload: dict = {}
+    if customer_id:
+        if not order_store.customer_profile_exists(customer_id):
+            order_store.update_customer_profile(customer_id, {})
+        payload = {"customerId": customer_id}
+    response = client.post("/api/auth/customer/guest/session", json=payload)
     assert response.status_code == 200
     return {"Authorization": f"Bearer {response.json()['accessToken']}"}
 
@@ -120,6 +125,7 @@ def test_production_runtime_config_rejects_insecure_defaults(monkeypatch) -> Non
     monkeypatch.setenv("POMICH_ADMIN_TOKEN", "replace-me-admin-token")
     monkeypatch.delenv("POMICH_PROVIDER_TOKEN", raising=False)
     monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("POMICH_ENCRYPTION_KEY", raising=False)
 
     errors = fastapi_app._runtime_config_errors()
 
@@ -127,7 +133,26 @@ def test_production_runtime_config_rejects_insecure_defaults(monkeypatch) -> Non
     assert any("POMICH_ADMIN_TOKEN" in error for error in errors)
     assert any("POMICH_PROVIDER_TOKEN" in error for error in errors)
     assert any("POMICH_CUSTOMER_SESSION_SECRET" in error for error in errors)
+    assert any("POMICH_ENCRYPTION_KEY" in error for error in errors)
     assert any("DATABASE_URL" in error for error in errors)
+
+
+def test_production_runtime_config_rejects_hardcoded_deploy_defaults(monkeypatch) -> None:
+    monkeypatch.setenv("POMICH_RUNTIME", "production")
+    monkeypatch.setenv("POMICH_CORS_ORIGINS", "https://pomich.help")
+    monkeypatch.setenv("POMICH_ADMIN_TOKEN", "pomich-admin-secret-2026")
+    monkeypatch.setenv("POMICH_PROVIDER_TOKEN", "pomich-provider-secret-2026")
+    monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", "pomich-session-secret-2026-long-random")
+    monkeypatch.setenv("POMICH_ENCRYPTION_KEY", "replace-with-generated-fernet-key")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@localhost:5432/pomich_prod")
+    monkeypatch.setenv("POMICH_STORAGE_BACKEND", "sql")
+
+    errors = fastapi_app._runtime_config_errors()
+
+    assert any("POMICH_ADMIN_TOKEN" in error for error in errors)
+    assert any("POMICH_PROVIDER_TOKEN" in error for error in errors)
+    assert any("POMICH_CUSTOMER_SESSION_SECRET" in error for error in errors)
+    assert any("POMICH_ENCRYPTION_KEY" in error for error in errors)
 
 
 def test_production_runtime_config_accepts_release_settings(monkeypatch) -> None:
@@ -136,6 +161,7 @@ def test_production_runtime_config_accepts_release_settings(monkeypatch) -> None
     monkeypatch.setenv("POMICH_ADMIN_TOKEN", "admin-secret-1234567890-release")
     monkeypatch.setenv("POMICH_PROVIDER_TOKEN", "provider-secret-1234567890-release")
     monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", "customer-secret-1234567890-release")
+    monkeypatch.setenv("POMICH_ENCRYPTION_KEY", "0" * 44)
     monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@localhost:5432/pomich_prod")
     monkeypatch.setenv("POMICH_STORAGE_BACKEND", "sql")
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
@@ -151,6 +177,7 @@ def test_production_runtime_config_rejects_sqlite_and_json_backend(monkeypatch) 
     monkeypatch.setenv("POMICH_ADMIN_TOKEN", "admin-secret-1234567890-release")
     monkeypatch.setenv("POMICH_PROVIDER_TOKEN", "provider-secret-1234567890-release")
     monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", "customer-secret-1234567890-release")
+    monkeypatch.setenv("POMICH_ENCRYPTION_KEY", "0" * 44)
     monkeypatch.setenv("DATABASE_URL", "sqlite:///release.db")
     monkeypatch.setenv("POMICH_STORAGE_BACKEND", "json")
     monkeypatch.delenv("POMICH_ALLOW_JSON_STORE_IN_PRODUCTION", raising=False)
@@ -167,6 +194,7 @@ def test_production_runtime_config_requires_telegram_public_url(monkeypatch) -> 
     monkeypatch.setenv("POMICH_ADMIN_TOKEN", "admin-secret-1234567890-release")
     monkeypatch.setenv("POMICH_PROVIDER_TOKEN", "provider-secret-1234567890-release")
     monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", "customer-secret-1234567890-release")
+    monkeypatch.setenv("POMICH_ENCRYPTION_KEY", "0" * 44)
     monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@localhost:5432/pomich_prod")
     monkeypatch.setenv("POMICH_STORAGE_BACKEND", "sql")
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123456:telegram-token")
@@ -1032,8 +1060,8 @@ def test_customer_phone_login_send_and_confirm(monkeypatch, tmp_path) -> None:
 
     client = TestClient(app)
     missing = client.post("/api/auth/customer/phone/login/send", json={"phone": "+380000000000"})
-    assert missing.status_code == 404
-    assert missing.json()["detail"] == "customer_not_found"
+    assert missing.status_code == 200
+    assert missing.json().get("masked") is True
 
     send_response = client.post("/api/auth/customer/phone/login/send", json={"phone": "+380661007434"})
     assert send_response.status_code == 200
@@ -1370,6 +1398,57 @@ def test_geo_static_files_served_before_spa_fallback(tmp_path, monkeypatch):
     response = client.get("/geo/ukraine-border.geojson")
     assert response.status_code == 200
     assert response.json()["type"] == "Feature"
+
+
+def test_maps_static_files_served_before_spa_fallback(tmp_path, monkeypatch):
+    maps_dir = tmp_path / "dist" / "maps"
+    maps_dir.mkdir(parents=True)
+    basemap = maps_dir / "ukraine-basemap.jpg"
+    basemap.write_bytes(b"\xff\xd8\xff\xd9")  # minimal JPEG SOI/EOI
+
+    from importlib import reload
+
+    reload(fastapi_app)
+    monkeypatch.setattr(fastapi_app, "DIST_DIR", tmp_path / "dist")
+    monkeypatch.setattr(fastapi_app, "ASSETS_DIR", tmp_path / "dist" / "assets")
+    monkeypatch.setattr(fastapi_app, "GEO_DIR", tmp_path / "dist" / "geo")
+    monkeypatch.setattr(fastapi_app, "MAPS_DIR", maps_dir)
+    monkeypatch.setattr(fastapi_app, "_DIST_MAPS_DIR", maps_dir)
+    monkeypatch.setattr(fastapi_app, "_PUBLIC_MAPS_DIR", maps_dir)
+
+    client = TestClient(fastapi_app.app)
+    response = client.get("/maps/ukraine-basemap.jpg")
+    assert response.status_code == 200
+    assert "text/html" not in (response.headers.get("content-type") or "")
+    assert response.content.startswith(b"\xff\xd8")
+
+
+def test_robots_sitemap_and_seo_landings_are_indexable(monkeypatch, tmp_path):
+    public_dir = tmp_path / "public"
+    public_dir.mkdir()
+    (public_dir / "robots.txt").write_text("User-agent: *\nAllow: /\nSitemap: https://pomich.help/sitemap.xml\n", encoding="utf-8")
+    (public_dir / "sitemap.xml").write_text(
+        '<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(fastapi_app, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(fastapi_app, "DIST_DIR", tmp_path / "dist")
+
+    client = TestClient(fastapi_app.app)
+    robots = client.get("/robots.txt")
+    assert robots.status_code == 200
+    assert "text/plain" in (robots.headers.get("content-type") or "")
+    assert "Sitemap:" in robots.text
+
+    sitemap = client.get("/sitemap.xml")
+    assert sitemap.status_code == 200
+    assert "xml" in (sitemap.headers.get("content-type") or "")
+
+    landing = client.get("/evakuator")
+    assert landing.status_code == 200
+    assert "Евакуатор" in landing.text
+    assert 'rel="canonical"' in landing.text
+    assert "text/html" in (landing.headers.get("content-type") or "")
 
 
 def test_dist_root_static_files_served_before_spa_fallback(tmp_path, monkeypatch):

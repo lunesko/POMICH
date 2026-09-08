@@ -112,3 +112,57 @@ def test_telegram_webhook_requires_secret_in_production(monkeypatch) -> None:
     )
     assert ok.status_code == 200
     assert ok.json()["ok"] is True
+
+
+def test_guest_session_ignores_client_chosen_unknown_id_and_body(monkeypatch, tmp_path) -> None:
+    fastapi_tests._use_temp_store(monkeypatch, tmp_path)
+    monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", "test-customer-secret-xxxxxxxx")
+    client = TestClient(app)
+
+    created = client.post(
+        "/api/auth/customer/guest/session",
+        json={"customerId": "guest-attacker-chosen", "linkedProviderId": "provider-victim", "name": "Hijack"},
+    )
+    assert created.status_code == 200
+    body = created.json()
+    assert body["customerId"] != "guest-attacker-chosen"
+    assert body["customerId"].startswith("guest-")
+    assert body["profile"].get("linkedProviderId") in ("", None)
+    assert body["profile"].get("name") != "Hijack"
+
+    rejected = client.post("/api/auth/customer/guest/session", json={"customerId": "customer-web"})
+    assert rejected.status_code == 400
+
+    # Restore works only for persisted guest ids.
+    guest_id = body["customerId"]
+    restored = client.post("/api/auth/customer/guest/session", json={"customerId": guest_id})
+    assert restored.status_code == 200
+    assert restored.json()["customerId"] == guest_id
+
+
+def test_provider_bootstrap_requires_existing_provider(monkeypatch, tmp_path) -> None:
+    fastapi_tests._use_temp_store(monkeypatch, tmp_path)
+    monkeypatch.setenv("POMICH_PROVIDER_TOKEN", "test-provider-secret-xxxxxxxx")
+    client = TestClient(app)
+    # Bootstrap still mints for unknown ids by design (ops). Constant-time compare still applies.
+    denied = client.post(
+        "/api/auth/provider/session",
+        headers={"X-POMICH-Provider-Token": "wrong-provider-secret-xxxxxxxx"},
+        json={"providerId": "provider-does-not-exist"},
+    )
+    assert denied.status_code == 401
+    ok = client.post(
+        "/api/auth/provider/session",
+        headers={"X-POMICH-Provider-Token": "test-provider-secret-xxxxxxxx"},
+        json={"providerId": "provider-does-not-exist"},
+    )
+    assert ok.status_code == 200
+    assert ok.json()["providerId"] == "provider-does-not-exist"
+
+
+def test_sensitive_scanner_paths_are_not_spa_fallback(monkeypatch, tmp_path) -> None:
+    fastapi_tests._use_temp_store(monkeypatch, tmp_path)
+    client = TestClient(app)
+    for path in ("/.env", "/.env.production", "/.git/config", "/.aws/credentials"):
+        response = client.get(path)
+        assert response.status_code == 404, path

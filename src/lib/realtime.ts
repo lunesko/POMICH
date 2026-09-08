@@ -131,9 +131,16 @@ export function subscribeSse(
 const WS_CONNECT_TIMEOUT_MS = 3000
 const WS_RECONNECT_MS = 2000
 const MAX_WS_RECONNECT_FAILURES = 3
+/** Server heartbeats every 15s — miss ~3 and treat the socket as a dead cat. */
+const WS_HEARTBEAT_TIMEOUT_MS = 45_000
+const WS_WATCHDOG_TICK_MS = 5_000
 
 /**
  * Prefer WebSocket, fall back to SSE on handshake/connect failure or repeated disconnects.
+ *
+ * Dead-cat detection: after open, if no frame (including server `heartbeat`) arrives for
+ * WS_HEARTBEAT_TIMEOUT_MS, force-close and reconnect. Without this, mobile / Telegram
+ * WebViews keep readyState=OPEN on half-open sockets while callers slow polling to 20s.
  */
 export function subscribeRealtime(
   wsPath: string,
@@ -151,8 +158,15 @@ export function subscribeRealtime(
   let sseStop: (() => void) | null = null
   let connectTimer: number | undefined
   let reconnectTimer: number | undefined
+  let watchdogTimer: number | undefined
+  let lastFrameAt = 0
   let wsFailures = 0
   let usingSse = false
+
+  const clearWatchdog = () => {
+    if (watchdogTimer) window.clearInterval(watchdogTimer)
+    watchdogTimer = undefined
+  }
 
   const stopSse = () => {
     sseStop?.()
@@ -162,8 +176,37 @@ export function subscribeRealtime(
   const startSse = () => {
     if (closed || usingSse) return
     usingSse = true
+    clearWatchdog()
     stopSse()
     sseStop = subscribeSse(ssePath, onEvent, options)
+  }
+
+  const noteFrame = () => {
+    lastFrameAt = Date.now()
+  }
+
+  const forceDeadSocket = (socket: WebSocket | null) => {
+    clearWatchdog()
+    if (!socket) return
+    try {
+      socket.close()
+    } catch {
+      // ignore
+    }
+  }
+
+  const startWatchdog = (socket: WebSocket) => {
+    clearWatchdog()
+    noteFrame()
+    watchdogTimer = window.setInterval(() => {
+      if (closed || usingSse || ws !== socket) {
+        clearWatchdog()
+        return
+      }
+      if (Date.now() - lastFrameAt < WS_HEARTBEAT_TIMEOUT_MS) return
+      // Half-open / NAT-dead socket: onclose may never fire until we close().
+      forceDeadSocket(socket)
+    }, WS_WATCHDOG_TICK_MS)
   }
 
   const connectWebSocket = () => {
@@ -173,28 +216,44 @@ export function subscribeRealtime(
       return
     }
 
-    ws?.close()
-    ws = new WebSocket(buildWsUrl(wsPath, options.accessToken))
+    clearWatchdog()
+    if (ws) {
+      try {
+        ws.onclose = null
+        ws.onerror = null
+        ws.onmessage = null
+        ws.onopen = null
+        ws.close()
+      } catch {
+        // ignore
+      }
+      ws = null
+    }
+
+    const socket = new WebSocket(buildWsUrl(wsPath, options.accessToken))
+    ws = socket
     let opened = false
 
     if (connectTimer) window.clearTimeout(connectTimer)
     connectTimer = window.setTimeout(() => {
-      if (closed || opened || usingSse) return
-      ws?.close()
+      if (closed || opened || usingSse || ws !== socket) return
+      forceDeadSocket(socket)
       ws = null
       startSse()
     }, WS_CONNECT_TIMEOUT_MS)
 
-    ws.onopen = () => {
-      if (closed) return
+    socket.onopen = () => {
+      if (closed || ws !== socket) return
       opened = true
       wsFailures = 0
       if (connectTimer) window.clearTimeout(connectTimer)
+      startWatchdog(socket)
       options.onConnected?.()
     }
 
-    ws.onmessage = (event) => {
-      if (closed) return
+    socket.onmessage = (event) => {
+      if (closed || ws !== socket) return
+      noteFrame()
       let data: unknown = event.data
       try {
         data = JSON.parse(String(event.data))
@@ -205,17 +264,22 @@ export function subscribeRealtime(
       handleRealtimePayload(eventType, data, onEvent)
     }
 
-    ws.onerror = () => {
-      if (closed || opened || usingSse) return
+    socket.onerror = () => {
+      if (closed || usingSse || ws !== socket) return
       if (connectTimer) window.clearTimeout(connectTimer)
-      ws = null
-      startSse()
+      // Always close so onclose runs cleanup; don't leave a zombie OPEN socket.
+      if (!opened) {
+        forceDeadSocket(socket)
+        ws = null
+        startSse()
+      }
     }
 
-    ws.onclose = () => {
+    socket.onclose = () => {
       if (connectTimer) window.clearTimeout(connectTimer)
+      clearWatchdog()
+      if (ws === socket) ws = null
       if (closed) return
-      ws = null
 
       if (!opened) {
         if (!usingSse) startSse()
@@ -239,7 +303,15 @@ export function subscribeRealtime(
     closed = true
     if (connectTimer) window.clearTimeout(connectTimer)
     if (reconnectTimer) window.clearTimeout(reconnectTimer)
-    ws?.close()
+    clearWatchdog()
+    if (ws) {
+      try {
+        ws.onclose = null
+        ws.close()
+      } catch {
+        // ignore
+      }
+    }
     ws = null
     stopSse()
   }
@@ -281,5 +353,7 @@ export const __realtimeTestHooks = {
   subscribeRealtime,
   subscribeSse,
   WS_CONNECT_TIMEOUT_MS,
+  WS_HEARTBEAT_TIMEOUT_MS,
+  WS_WATCHDOG_TICK_MS,
   MAX_WS_RECONNECT_FAILURES,
 }

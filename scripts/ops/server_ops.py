@@ -66,9 +66,24 @@ def upload_project(ssh: paramiko.SSHClient) -> None:
     print(f"Uploaded project to {REMOTE_DIR}")
 
 
+def read_existing_env_value(ssh: paramiko.SSHClient, key: str) -> str | None:
+    out, _, rc = run(
+        ssh,
+        f"grep '^{key}=' {REMOTE_DIR}/.env.production 2>/dev/null | head -1 | cut -d= -f2-",
+        check=False,
+    )
+    value = out.strip() if rc == 0 and out.strip() else ""
+    return value or None
+
+
 def read_existing_encryption_key(ssh: paramiko.SSHClient) -> str | None:
-    out, _, rc = run(ssh, f"grep '^POMICH_ENCRYPTION_KEY=' {REMOTE_DIR}/.env.production 2>/dev/null | cut -d= -f2-", check=False)
-    return out.strip() if rc == 0 and out.strip() else None
+    return read_existing_env_value(ssh, "POMICH_ENCRYPTION_KEY")
+
+
+def _bootstrap_secret(nbytes: int = 32) -> str:
+    import secrets
+
+    return secrets.token_urlsafe(nbytes)
 
 
 def write_env_production(
@@ -88,7 +103,24 @@ def write_env_production(
 
             encryption_key = Fernet.generate_key().decode("ascii")
         except Exception:
-            encryption_key = "replace-with-generated-fernet-key"
+            encryption_key = _bootstrap_secret(32)
+
+    def _secret(env_name: str, nbytes: int = 32) -> str:
+        from_env = (os.environ.get(env_name) or "").strip()
+        if from_env:
+            return from_env
+        existing = read_existing_env_value(ssh, env_name)
+        if existing and "2026" not in existing and "replace" not in existing.lower():
+            return existing
+        return _bootstrap_secret(nbytes)
+
+    admin_token = _secret("POMICH_ADMIN_TOKEN")
+    provider_token = _secret("POMICH_PROVIDER_TOKEN")
+    session_secret = _secret("POMICH_CUSTOMER_SESSION_SECRET")
+    db_password = _secret("POSTGRES_PASSWORD", 24)
+    admin_password = (os.environ.get("POMICH_BOOTSTRAP_ADMIN_PASSWORD") or "").strip() or _bootstrap_secret(18)
+    provider_password = (os.environ.get("POMICH_BOOTSTRAP_PROVIDER_PASSWORD") or "").strip() or _bootstrap_secret(18)
+
     if not BOT_TOKEN:
         print("WARNING: TELEGRAM_BOT_TOKEN not set; bot will not start until configured on server")
     env_content = f"""VITE_APP_NAME=POMICH
@@ -97,11 +129,11 @@ VITE_APP_VERSION=0.1.0
 POMICH_RUNTIME=production
 POMICH_ALLOW_HTTP_PILOT=true
 POMICH_CORS_ORIGINS={cors_origin}
-POMICH_ADMIN_TOKEN=pomich-admin-secret-2026
-POMICH_PROVIDER_TOKEN=pomich-provider-secret-2026
-POMICH_CUSTOMER_SESSION_SECRET=pomich-session-secret-2026-long-random
-POMICH_ADMIN_ACCOUNTS=[{{"username":"dispatcher","password":"admin-pomich-2026"}}]
-POMICH_PROVIDER_ACCOUNTS=[{{"providerId":"provider-oleksandr","username":"oleksandr","password":"provider-pomich-2026"}}]
+POMICH_ADMIN_TOKEN={admin_token}
+POMICH_PROVIDER_TOKEN={provider_token}
+POMICH_CUSTOMER_SESSION_SECRET={session_secret}
+POMICH_ADMIN_ACCOUNTS=[{{"username":"dispatcher","password":"{admin_password}"}}]
+POMICH_PROVIDER_ACCOUNTS=[{{"providerId":"provider-oleksandr","username":"oleksandr","password":"{provider_password}"}}]
 TELEGRAM_BOT_TOKEN={BOT_TOKEN}
 TELEGRAM_MODE={telegram_mode}
 WEB_APP_URL={app_url if app_url.endswith('/') else app_url + '/'}
@@ -109,11 +141,11 @@ POMICH_ENCRYPTION_KEY={encryption_key}
 POMICH_STORAGE_BACKEND=sql
 POSTGRES_DB=pomich
 POSTGRES_USER=pomich
-POSTGRES_PASSWORD=pomich-db-pass-2026
-DATABASE_URL=postgresql://pomich:pomich-db-pass-2026@postgres:5432/pomich
+POSTGRES_PASSWORD={db_password}
+DATABASE_URL=postgresql://pomich:{db_password}@postgres:5432/pomich
 """
     run(ssh, f"cat > {REMOTE_DIR}/.env.production << 'ENVEOF'\n{env_content}\nENVEOF")
-    print("Wrote .env.production")
+    print("Wrote .env.production (secrets generated or preserved; values not logged)")
     return encryption_key
 
 

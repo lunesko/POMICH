@@ -29,6 +29,21 @@ from bot.telegram_config import (
 )
 
 _PLACEHOLDER_SECRET_FRAGMENTS = ("replace-me", "change-this", "changeme", "example", "placeholder")
+# Known defaults previously baked into deploy.py / server_ops.py — never treat as production-ready.
+_INSECURE_SECRET_VALUES = frozenset(
+    {
+        "pomich-admin-secret-2026",
+        "pomich-provider-secret-2026",
+        "pomich-session-secret-2026-long-random",
+        "pomich-db-pass-2026",
+        "admin-pomich-2026",
+        "provider-pomich-2026",
+        "dev-customer-session-secret",
+        "local-provider-secret",
+        "replace-with-generated-fernet-key",
+    }
+)
+_INSECURE_SECRET_FRAGMENTS = ("-secret-2026", "pomich-2026", "db-pass-2026")
 _AUTH_SESSION_PREFIX = "pomich_auth_v1"
 _DEFAULT_SESSION_TTL_SECONDS = 86400
 
@@ -79,7 +94,14 @@ def is_configured_secret(value: str | None, *, min_length: int = 24) -> bool:
     normalized = (value or "").strip()
     if len(normalized) < min_length:
         return False
-    return not any(fragment in normalized.lower() for fragment in _PLACEHOLDER_SECRET_FRAGMENTS)
+    lowered = normalized.lower()
+    if lowered in _INSECURE_SECRET_VALUES or normalized in _INSECURE_SECRET_VALUES:
+        return False
+    if any(fragment in lowered for fragment in _PLACEHOLDER_SECRET_FRAGMENTS):
+        return False
+    if any(fragment in lowered for fragment in _INSECURE_SECRET_FRAGMENTS):
+        return False
+    return True
 
 
 def get_cors_origins() -> list[str]:
@@ -115,6 +137,10 @@ def runtime_config_errors() -> list[str]:
 
     if not is_configured_secret(os.getenv("POMICH_CUSTOMER_SESSION_SECRET")):
         errors.append("POMICH_CUSTOMER_SESSION_SECRET must be a non-placeholder secret in production")
+
+    encryption_key = (os.getenv("POMICH_ENCRYPTION_KEY") or "").strip()
+    if not encryption_key or encryption_key in _INSECURE_SECRET_VALUES or "replace-with-generated" in encryption_key.lower():
+        errors.append("POMICH_ENCRYPTION_KEY must be set to a generated Fernet key in production")
 
     database_url = (os.getenv("DATABASE_URL") or "").strip()
     allow_json = os.getenv("POMICH_ALLOW_JSON_STORE_IN_PRODUCTION") == "true"
