@@ -80,7 +80,8 @@ import {
 } from "../../lib/auth"
 import { isCustomerVerified } from "../../lib/customerProfile"
 import { OrderFinalStep } from "../customer/OrderTerminalStep"
-import { DutyStatusToggle, PresenceToast, presenceErrorMessage } from "../ui/DutyStatusToggle"
+import { PresenceToast, presenceErrorMessage } from "../ui/DutyStatusToggle"
+import PartnerDutyPanel from "./PartnerDutyPanel"
 import { OrderRequestSheet } from "./OrderRequestSheet"
 import { IncomingOfferStep } from "./IncomingOfferStep"
 import { filterActiveMapRequestPins, filterActiveOffers, filterVisibleOffers, formatCountdown, acceptedIdleSecondsLeft, isOfferActive, isPresentableOffer, mergeRequestPins, offerActionErrorMessage, offerSecondsLeft, parseOfferPrice, pinFromOffer, readPersistedOfferDismissals, writePersistedOfferDismissals } from "../../lib/dispatchOffer"
@@ -356,8 +357,8 @@ export default function ProviderFlow({
     if (effectiveProviderRegistered || window.localStorage.getItem(`pomichPartnerRegistered:${getActiveProviderId()}`) || Boolean(linkedPartnerId)) return "duty"
     return "register"
   })
-  const [dutySheetSnap, setDutySheetSnap] = useState<"half" | "expanded">(() =>
-    initialScreen === "offers" ? "expanded" : "half",
+  const [dutySheetSnap, setDutySheetSnap] = useState<"collapsed" | "half" | "expanded">(() =>
+    initialScreen === "offers" ? "expanded" : "collapsed",
   )
   const [onDuty, setOnDuty] = useState(false)
   const [presenceSaving, setPresenceSaving] = useState(false)
@@ -1707,6 +1708,7 @@ export default function ProviderFlow({
           : {}),
       }, session.token)
       setOnDuty(nextDuty)
+      setDutySheetSnap(nextDuty ? "half" : "collapsed")
       setProviderProfile((profile) => ({ ...profile, ...updated, status: updated.status ?? (nextDuty ? "online" : "offline") }))
     } catch (error) {
       setOnDuty(false)
@@ -2069,6 +2071,57 @@ export default function ProviderFlow({
   }
 
   if (step === "duty") {
+    const activeOfferCount = incomingOffers.filter((offer) => isPresentableOffer(offer, offerClock)).length
+    const dutyCtaLabel = !isPartnerRegisteredAndCompleted
+      ? "Завершити профіль"
+      : !providerCanGoOnline
+        ? "Підтвердити телефон"
+        : presenceSaving
+          ? "Оновлюємо статус…"
+          : onDuty
+            ? activeOffer
+              ? offerSaving
+                ? "Приймаємо…"
+                : "Відкрити заявку"
+              : "Оновити карту"
+            : "Вийти на лінію"
+    const refreshNearby = () => {
+      const subjectId = readAuthSessionSubject(providerAuthToken || "") || providerId
+      if (!providerAuthToken) return
+      getProviderOffers(subjectId, providerAuthToken)
+        .then((offers) => {
+          setIncomingOffers(filterVisibleOffers(Array.isArray(offers) ? offers : [], {
+            dismissedOfferIds: dismissedOfferIdsRef.current,
+            dismissedOrderIds: dismissedOrderIdsRef.current,
+          }))
+        })
+        .catch(() => undefined)
+      const radiusKm = providerProfile.serviceRadiusKm ?? registrationForm.serviceRadiusKm ?? DEFAULT_SERVICE_RADIUS_KM
+      getNearbyMapOrders(providerLocation.lat, providerLocation.lng, radiusKm, undefined, providerAuthToken)
+        .then((orders) => setNearbyRequestPins(Array.isArray(orders) ? orders : []))
+        .catch(() => undefined)
+    }
+    const onDutyPrimary = () => {
+      if (!isPartnerRegisteredAndCompleted || !providerCanGoOnline) {
+        openPhoneOrProfileGate()
+        return
+      }
+      if (onDuty) {
+        if (activeOffer) {
+          openOfferDetail(activeOffer)
+          return
+        }
+        refreshNearby()
+        return
+      }
+      void setDuty(true)
+    }
+    const offerBanner = activeOffer
+      ? `Нова заявка · ${secondsLeft > 0 ? `${secondsLeft} сек` : "час вийшов"}`
+      : undefined
+    const panelOfferError =
+      offerError && offerError !== "Вкажіть вартість послуги в гривнях." ? offerError : undefined
+
     return (
       <>
       <RideScreen
@@ -2078,7 +2131,7 @@ export default function ProviderFlow({
         mapSubtitle={onDuty ? `На лінії · ${mapRequestPins.length} заявок поруч` : "Україна · партнер"}
         showAllProviders={false}
         showDirectoryProviders={false}
-        expandedSheet={onDuty || dutySheetSnap === "expanded"}
+        expandedSheet={dutySheetSnap === "expanded"}
         defaultSnap={dutySheetSnap}
         onAcceptRequest={acceptFromMapPin}
         onContactRequest={contactFromMapPin}
@@ -2088,130 +2141,40 @@ export default function ProviderFlow({
         geoError={providerGeoError}
         recenterTrigger={providerRecenterTrigger}
         geoSpeedMps={providerSpeedMps}
+        fitSheetToContent
       >
         <div data-sheet-peek>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
-            <div>
-              <div style={{ color: MUTED, fontWeight: 800, fontSize: 12 }}>Партнер POMICH</div>
-              <div style={{ color: DARK, fontWeight: 950, fontSize: 18, marginTop: 2 }}>{onDuty ? "На лінії" : "Поза лінією"}</div>
-            </div>
-            <DutyStatusToggle onDuty={onDuty} saving={presenceSaving} disabled={presenceSaving} onToggle={handleDutyToggle} />
-          </div>
-          {activeOffer ? (
-            <div style={{ marginTop: 10, background: "var(--pomich-warn-bg)", color: "var(--pomich-warn-text)", borderRadius: 14, padding: 10, fontWeight: 850, fontSize: "var(--pomich-text-sm)" }}>
-              Нова заявка · {secondsLeft > 0 ? `${secondsLeft} сек` : "час вийшов"}
-            </div>
-          ) : null}
-          {onDuty ? (
-            <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
-              <SecondaryButton label="Піти з лінії" onClick={() => setDuty(false)} disabled={!providerAuthToken} />
-              {activeOffer ? (
-                <PrimaryButton
-                  label={offerSaving ? "Приймаємо…" : "Відкрити заявку"}
-                  onClick={() => openOfferDetail(activeOffer)}
-                  disabled={offerSaving}
-                />
-              ) : null}
-            </div>
-          ) : (
-            <div style={{ marginTop: 10 }}>
-              <PrimaryButton
-                label={
-                  !isPartnerRegisteredAndCompleted
-                    ? "Завершити профіль"
-                    : !providerCanGoOnline
-                      ? "Підтвердити телефон"
-                      : presenceSaving
-                        ? "Оновлюємо статус…"
-                        : "Вийти на лінію"
-                }
-                onClick={() => {
-                  if (!isPartnerRegisteredAndCompleted || !providerCanGoOnline) {
-                    openPhoneOrProfileGate()
-                    return
-                  }
-                  void setDuty(true)
-                }}
-                disabled={presenceSaving}
-              />
-            </div>
-          )}
+          <PartnerDutyPanel
+            mode="peek"
+            onDuty={onDuty}
+            presenceSaving={presenceSaving}
+            mapRequestCount={mapRequestPins.length}
+            activeOfferCount={activeOfferCount}
+            ctaLabel={dutyCtaLabel}
+            offerBanner={offerBanner}
+            onToggleDuty={handleDutyToggle}
+            onPrimaryAction={onDutyPrimary}
+            showLeaveDuty={false}
+            primaryDisabled={offerSaving}
+          />
         </div>
         <div data-sheet-full>
-        <SheetHeading title="Партнер POMICH" subtitle={onDuty ? "Ви на лінії — заявки на карті" : "Вийдіть на лінію, щоб бачити заявки"} />
-        <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
-          {onDuty ? (
-            <>
-              <PrimaryButton
-                label={offerSaving ? "Приймаємо…" : activeOffer ? "Відкрити заявку" : "Оновити карту"}
-                onClick={() => {
-                  if (activeOffer) {
-                    openOfferDetail(activeOffer)
-                    return
-                  }
-                  const subjectId = readAuthSessionSubject(providerAuthToken || "") || providerId
-                  if (!providerAuthToken) return
-                  getProviderOffers(subjectId, providerAuthToken)
-                    .then((offers) => {
-                      setIncomingOffers(filterVisibleOffers(Array.isArray(offers) ? offers : [], {
-                        dismissedOfferIds: dismissedOfferIdsRef.current,
-                        dismissedOrderIds: dismissedOrderIdsRef.current,
-                      }))
-                    })
-                    .catch(() => undefined)
-                  const radiusKm = providerProfile.serviceRadiusKm ?? registrationForm.serviceRadiusKm ?? DEFAULT_SERVICE_RADIUS_KM
-                  getNearbyMapOrders(providerLocation.lat, providerLocation.lng, radiusKm, undefined, providerAuthToken)
-                    .then((orders) => setNearbyRequestPins(Array.isArray(orders) ? orders : []))
-                    .catch(() => undefined)
-                }}
-                disabled={offerSaving}
-              />
-              <SecondaryButton label="Піти з лінії" onClick={() => setDuty(false)} disabled={!providerAuthToken} />
-            </>
-          ) : (
-            <PrimaryButton
-              label={
-                !isPartnerRegisteredAndCompleted
-                  ? "Завершити профіль"
-                  : !providerCanGoOnline
-                    ? "Підтвердити телефон"
-                    : presenceSaving
-                      ? "Оновлюємо статус…"
-                      : "Вийти на лінію"
-              }
-              onClick={() => void setDuty(true)}
-              disabled={presenceSaving}
-            />
-          )}
-        </div>
-        <div style={{ marginTop: 14, display: "grid", gap: 12 }}>
-          {authError ? <div style={{ background: "var(--pomich-error-bg)", color: "var(--pomich-error-text)", borderRadius: 14, padding: 12, fontWeight: 800 }}>{authError}</div> : null}
-          {activeOffer ? (
-            <div style={{ background: "var(--pomich-warn-bg)", color: "var(--pomich-warn-text)", borderRadius: 14, padding: 12, fontWeight: 850, fontSize: "var(--pomich-text-sm)" }}>
-              Нова заявка · {secondsLeft > 0 ? `${secondsLeft} сек` : "час вийшов"} — відкрийте деталі нижче
-            </div>
-          ) : null}
-          <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 18, padding: 16 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
-              <div>
-                <div style={{ color: MUTED, fontWeight: 800, fontSize: 12 }}>Статус зміни</div>
-                <div style={{ color: DARK, fontWeight: 950, fontSize: 22, marginTop: 4 }}>{onDuty ? "На лінії" : "Поза лінією"}</div>
-              </div>
-              <DutyStatusToggle onDuty={onDuty} saving={presenceSaving} disabled={presenceSaving} onToggle={handleDutyToggle} />
-            </div>
-            <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-              <div style={{ background: BG, borderRadius: 14, padding: 12 }}>
-                <div style={{ color: MUTED, fontSize: 12, fontWeight: 800 }}>Заявки на карті</div>
-                <div style={{ color: DARK, fontWeight: 950, marginTop: 4 }}>{mapRequestPins.length}</div>
-              </div>
-              <div style={{ background: BG, borderRadius: 14, padding: 12 }}>
-                <div style={{ color: MUTED, fontSize: 12, fontWeight: 800 }}>Активних пропозицій</div>
-                <div style={{ color: DARK, fontWeight: 950, marginTop: 4 }}>{incomingOffers.filter((offer) => isPresentableOffer(offer, offerClock)).length}</div>
-              </div>
-            </div>
-          </div>
-          {offerError && offerError !== "Вкажіть вартість послуги в гривнях." ? <div style={{ background: "var(--pomich-warn-bg)", color: "var(--pomich-warn-text)", borderRadius: 14, padding: 12, fontWeight: 850 }}>{offerError}</div> : null}
-        </div>
+          <PartnerDutyPanel
+            mode="full"
+            onDuty={onDuty}
+            presenceSaving={presenceSaving}
+            mapRequestCount={mapRequestPins.length}
+            activeOfferCount={activeOfferCount}
+            ctaLabel={dutyCtaLabel}
+            authError={authError}
+            offerBanner={offerBanner ? `${offerBanner} — відкрийте деталі` : undefined}
+            offerError={panelOfferError}
+            onToggleDuty={handleDutyToggle}
+            onPrimaryAction={onDutyPrimary}
+            showLeaveDuty={onDuty}
+            onLeaveDuty={() => void setDuty(false)}
+            primaryDisabled={offerSaving}
+          />
         </div>
         {presenceToast ? <PresenceToast message={presenceToast} /> : null}
       </RideScreen>
@@ -2447,92 +2410,75 @@ export default function ProviderFlow({
   }
 
   // Fallback: always restore duty controls (never a map-only shell without «Вийти на лінію»).
-  return (
-    <>
-      <RideScreen
-        pickup={providerLocation}
-        providers={onDuty ? [providerPresence] : []}
-        requestPins={mapRequestPins}
-        mapSubtitle={onDuty ? `На лінії · ${mapRequestPins.length} заявок поруч` : "Україна · партнер"}
-        showAllProviders={false}
-        showDirectoryProviders={false}
-        expandedSheet={onDuty || dutySheetSnap === "expanded"}
-        defaultSnap={dutySheetSnap}
-        onAcceptRequest={acceptFromMapPin}
-        onContactRequest={contactFromMapPin}
-        onRequestPinSelect={openRequestPin}
-        onRetryGeo={retryProviderGeolocation}
-        geoLoading={providerGeoLoading}
-        geoError={providerGeoError}
-        recenterTrigger={providerRecenterTrigger}
-        geoSpeedMps={providerSpeedMps}
-      >
-        <div data-sheet-peek>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
-            <div>
-              <div style={{ color: MUTED, fontWeight: 800, fontSize: 12 }}>Партнер POMICH</div>
-              <div style={{ color: DARK, fontWeight: 950, fontSize: 18, marginTop: 2 }}>{onDuty ? "На лінії" : "Поза лінією"}</div>
-            </div>
-            <DutyStatusToggle onDuty={onDuty} saving={presenceSaving} disabled={presenceSaving} onToggle={handleDutyToggle} />
-          </div>
-          <div style={{ marginTop: 10 }}>
-            <PrimaryButton
-              label={
-                !isPartnerRegisteredAndCompleted
-                  ? "Завершити профіль"
-                  : !providerCanGoOnline
-                    ? "Підтвердити телефон"
-                    : presenceSaving
-                      ? "Оновлюємо статус…"
-                      : onDuty
-                        ? "Знятися з лінії"
-                        : "Вийти на лінію"
-              }
-              onClick={() => {
-                if (onDuty) {
-                  void setDuty(false)
-                } else if (!isPartnerRegisteredAndCompleted || !providerCanGoOnline) {
-                  openPhoneOrProfileGate()
-                } else {
-                  void setDuty(true)
-                }
-              }}
-              disabled={presenceSaving}
+  {
+    const fallbackOfferCount = incomingOffers.filter((offer) => isPresentableOffer(offer, offerClock)).length
+    const fallbackCta = !isPartnerRegisteredAndCompleted
+      ? "Завершити профіль"
+      : !providerCanGoOnline
+        ? "Підтвердити телефон"
+        : presenceSaving
+          ? "Оновлюємо статус…"
+          : onDuty
+            ? "Знятися з лінії"
+            : "Вийти на лінію"
+    const fallbackPrimary = () => {
+      if (onDuty) {
+        void setDuty(false)
+      } else if (!isPartnerRegisteredAndCompleted || !providerCanGoOnline) {
+        openPhoneOrProfileGate()
+      } else {
+        void setDuty(true)
+      }
+    }
+    return (
+      <>
+        <RideScreen
+          pickup={providerLocation}
+          providers={onDuty ? [providerPresence] : []}
+          requestPins={mapRequestPins}
+          mapSubtitle={onDuty ? `На лінії · ${mapRequestPins.length} заявок поруч` : "Україна · партнер"}
+          showAllProviders={false}
+          showDirectoryProviders={false}
+          expandedSheet={dutySheetSnap === "expanded"}
+          defaultSnap={dutySheetSnap}
+          onAcceptRequest={acceptFromMapPin}
+          onContactRequest={contactFromMapPin}
+          onRequestPinSelect={openRequestPin}
+          onRetryGeo={retryProviderGeolocation}
+          geoLoading={providerGeoLoading}
+          geoError={providerGeoError}
+          recenterTrigger={providerRecenterTrigger}
+          geoSpeedMps={providerSpeedMps}
+          fitSheetToContent
+        >
+          <div data-sheet-peek>
+            <PartnerDutyPanel
+              mode="peek"
+              onDuty={onDuty}
+              presenceSaving={presenceSaving}
+              mapRequestCount={mapRequestPins.length}
+              activeOfferCount={fallbackOfferCount}
+              ctaLabel={fallbackCta}
+              onToggleDuty={handleDutyToggle}
+              onPrimaryAction={fallbackPrimary}
+              primaryDisabled={presenceSaving}
             />
           </div>
-        </div>
-        <div data-sheet-full>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 12 }}>
-            <SheetHeading title="Партнер POMICH" subtitle={onDuty ? "Ви на лінії — заявки на карті" : "Вийдіть на лінію, щоб бачити заявки"} />
-            <DutyStatusToggle onDuty={onDuty} saving={presenceSaving} disabled={presenceSaving} onToggle={handleDutyToggle} />
-          </div>
-          <div style={{ marginTop: 14 }}>
-            <PrimaryButton
-              label={
-                !isPartnerRegisteredAndCompleted
-                  ? "Завершити профіль"
-                  : !providerCanGoOnline
-                    ? "Підтвердити телефон"
-                    : presenceSaving
-                      ? "Оновлюємо статус…"
-                      : onDuty
-                        ? "Знятися з лінії"
-                        : "Вийти на лінію"
-              }
-              onClick={() => {
-                if (onDuty) {
-                  void setDuty(false)
-                } else if (!isPartnerRegisteredAndCompleted || !providerCanGoOnline) {
-                  openPhoneOrProfileGate()
-                } else {
-                  void setDuty(true)
-                }
-              }}
-              disabled={presenceSaving}
+          <div data-sheet-full>
+            <PartnerDutyPanel
+              mode="full"
+              onDuty={onDuty}
+              presenceSaving={presenceSaving}
+              mapRequestCount={mapRequestPins.length}
+              activeOfferCount={fallbackOfferCount}
+              ctaLabel={fallbackCta}
+              onToggleDuty={handleDutyToggle}
+              onPrimaryAction={fallbackPrimary}
+              primaryDisabled={presenceSaving}
             />
           </div>
-        </div>
-      </RideScreen>
-    </>
-  )
+        </RideScreen>
+      </>
+    )
+  }
 }

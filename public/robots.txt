@@ -1,0 +1,35 @@
+# POMICH — https://pomich.help
+# Technical SEO / crawler policy (2026)
+
+User-agent: *
+Allow: /
+Allow: /assets/
+Allow: /maps/
+Allow: /geo/
+Allow: /manifest.webmanifest
+Allow: /sitemap.xml
+Allow: /robots.txt
+
+# App / API shells — not for organic landing index
+Disallow: /api/
+Disallow: /admin
+Disallow: /?role=admin
+Disallow: /?role=provider
+Disallow: /?adminToken=
+Disallow: /?providerToken=
+Disallow: /?access_token=
+
+# AI retrieval bots (allow citations); block heavy trainers if needed later
+User-agent: GPTBot
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+Sitemap: https://pomich.help/sitemap.xml
