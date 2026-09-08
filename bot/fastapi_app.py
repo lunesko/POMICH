@@ -111,8 +111,16 @@ def _resolve_maps_file(filename: str) -> Path | None:
             candidate.relative_to(base.resolve())
         except ValueError:
             continue
-        if candidate.is_file():
-            return candidate
+        if not candidate.is_file():
+            continue
+        # Never serve Git LFS pointer stubs as images.
+        try:
+            head = candidate.read_bytes()[:64]
+        except OSError:
+            continue
+        if head.startswith(b"version https://git-lfs.github.com/spec/v1"):
+            continue
+        return candidate
     return None
 
 
@@ -124,8 +132,8 @@ if GEO_DIR.exists():
 elif DATA_GEO_DIR.exists():
     app.mount("/geo", CachedStaticFiles(directory=DATA_GEO_DIR, cache_control=_GEO_CACHE_CONTROL), name="geo")
 
-if MAPS_DIR.exists():
-    app.mount("/maps", CachedStaticFiles(directory=MAPS_DIR, cache_control=_MAPS_CACHE_CONTROL), name="maps")
+# Maps are served only via serve_frontend → _resolve_maps_file (not StaticFiles mount).
+# A mount binds the directory at import time and breaks tests / can serve Git LFS pointers.
 
 _INDEX_NO_CACHE_HEADERS = {
     "Cache-Control": "no-cache, no-store, must-revalidate",
