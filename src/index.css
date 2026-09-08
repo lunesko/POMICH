@@ -1809,20 +1809,34 @@ html.mobile-compact .pomich-map-occupied-hint {
   max-width: none;
   width: auto;
   box-sizing: border-box;
-  background: rgba(232, 238, 235, 0.92);
-  border-radius: 999px;
-  padding: 8px 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.42)),
+    rgba(232, 238, 235, 0.9);
+  border-radius: 16px;
+  padding: 10px 14px;
   font-size: 12px;
-  font-weight: 800;
-  color: #1A2332;
+  font-weight: 850;
+  line-height: 1.25;
+  color: #0f172a;
   pointer-events: auto;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  box-shadow: 0 2px 12px rgba(28, 42, 36, 0.08);
-  border: 1px solid rgba(28, 42, 36, 0.12);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  box-shadow:
+    0 12px 28px rgba(17, 24, 20, 0.16),
+    0 1px 0 rgba(255, 255, 255, 0.75) inset;
+  border: 1px solid rgba(28, 42, 36, 0.14);
+  backdrop-filter: blur(18px) saturate(1.35);
+  -webkit-backdrop-filter: blur(18px) saturate(1.35);
+}
+.pomich-map-address-pill::before {
+  content: "📍";
+  flex-shrink: 0;
+  font-size: 13px;
+  line-height: 1;
 }
 /* Pin address pill just above the live bottom sheet (same --pomich-sheet-height as drag/snap). */
 .pomich-ride-screen--overlay .pomich-map-address-pill {
@@ -1839,10 +1853,15 @@ html.mobile-compact .pomich-map-occupied-hint {
   left: 16px;
 }
 [data-pomich-theme="dark"] .pomich-map-address-pill {
-  background: rgba(24, 28, 36, 0.94);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.04)),
+    rgba(12, 16, 22, 0.9);
   color: #f8fafc;
-  border-color: rgba(255, 255, 255, 0.14);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  border-color: rgba(255, 255, 255, 0.18);
+  box-shadow:
+    0 12px 28px rgba(0, 0, 0, 0.4),
+    0 1px 0 rgba(255, 255, 255, 0.12) inset;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
 }
 [data-sheet-peek] {
   display: none;

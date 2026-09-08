@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { extractCityFromNominatim, reverseGeocodeCity } from "./reverseGeocode"
+import { extractCityFromNominatim, formatNominatimAddress, reverseGeocodeCity } from "./reverseGeocode"
 
 describe("reverseGeocode", () => {
   it("extracts city from nominatim address fields", () => {
@@ -9,6 +9,31 @@ describe("reverseGeocode", () => {
     expect(extractCityFromNominatim({ address: { village: "Середнє" } })).toBe("Середнє")
     expect(extractCityFromNominatim({ address: { municipality: "Ужгородська громада" } })).toBe("Ужгородська громада")
     expect(extractCityFromNominatim({})).toBe("")
+  })
+
+  it("formats address without noisy neighbourhood nicknames like Каліфорнія", () => {
+    expect(
+      formatNominatimAddress({
+        display_name: "Промислова вулиця, Каліфорнія, Перечин, Україна",
+        address: {
+          road: "Промислова вулиця",
+          neighbourhood: "Каліфорнія",
+          town: "Перечин",
+          state: "Закарпатська область",
+          country: "Україна",
+        },
+      }),
+    ).toBe("Промислова вулиця, Перечин")
+
+    expect(
+      formatNominatimAddress({
+        address: {
+          road: "вулиця Корзо",
+          house_number: "12",
+          city: "Ужгород",
+        },
+      }),
+    ).toBe("вулиця Корзо, 12, Ужгород")
   })
 
   it("reverseGeocodeCity returns parsed city from nominatim", async () => {

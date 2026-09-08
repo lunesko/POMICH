@@ -684,7 +684,7 @@ function HomeStep({
       pickup={pickup}
       providers={nearby}
       showDirectoryProviders={false}
-      mapSubtitle={`${locationLabel} · ${serviceCity}`}
+      mapSubtitle={locationLabel}
       defaultSnap="collapsed"
       recenterTrigger={recenterTrigger}
       geoSpeedMps={geoSpeedMps}
