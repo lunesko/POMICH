@@ -2036,11 +2036,11 @@ html.mobile-compact .pomich-map-occupied-hint {
   overflow: visible;
   filter: drop-shadow(0 3px 5px rgba(15, 23, 42, 0.22));
 }
-.pomich-role-icon-vehicle {
-  transform-origin: 24px 30px;
+.pomich-role-icon-glyph {
+  transform-origin: 12px 12px;
   animation: pomichRoleVehicleIdle 5.2s ease-in-out infinite;
 }
-.pomich-role-icon-svg--partner .pomich-role-icon-vehicle {
+.pomich-role-icon-svg--partner .pomich-role-icon-glyph {
   animation-delay: 0.7s;
 }
 .pomich-role-card:hover .pomich-role-icon,
@@ -2055,8 +2055,8 @@ html.mobile-compact .pomich-map-occupied-hint {
 .pomich-role-card--partner:focus-visible .pomich-role-icon {
   transform: translateZ(36px) scale(1.07) rotate(2deg);
 }
-.pomich-role-card:hover .pomich-role-icon-vehicle,
-.pomich-role-card:focus-visible .pomich-role-icon-vehicle {
+.pomich-role-card:hover .pomich-role-icon-glyph,
+.pomich-role-card:focus-visible .pomich-role-icon-glyph {
   animation: pomichRoleVehicleHover 1s ease-in-out infinite;
 }
 .pomich-role-card:hover .pomich-role-icon__glow,
@@ -2201,7 +2201,7 @@ html.mobile-compact .pomich-map-occupied-hint {
 @media (prefers-reduced-motion: reduce) {
   .pomich-role-card,
   .pomich-role-icon,
-  .pomich-role-icon-vehicle,
+  .pomich-role-icon-glyph,
   .pomich-role-icon__glow,
   .pomich-role-badge,
   .pomich-role-badge__dot,

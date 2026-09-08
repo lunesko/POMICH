@@ -18,57 +18,47 @@ interface RoleSelectionScreenProps {
   onShowLanding?: () => void
 }
 
-function ClientCarIcon() {
+/** Lucide map-pinned — ISC https://lucide.dev/icons/map-pinned */
+function ClientRoleIcon() {
   return (
     <svg
       className="pomich-role-icon-svg pomich-role-icon-svg--client"
-      viewBox="0 0 48 48"
-      width="40"
-      height="40"
+      viewBox="0 0 24 24"
+      width="34"
+      height="34"
       fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
       aria-hidden="true"
     >
-      <g className="pomich-role-icon-vehicle">
-        <path
-          d="M8.5 28.5c1.1-6.2 5.8-10.2 15.5-10.2s14.4 4 15.5 10.2c.7 3.2.5 6.2-.4 7.8H8.9c-.9-1.6-1.1-4.6-.4-7.8Z"
-          fill="#fff"
-        />
-        <path
-          d="M16.5 21c1.8-2.8 4.8-4.2 7.5-4.2s5.7 1.4 7.5 4.2"
-          fill="rgba(15,118,110,0.28)"
-        />
-        <path d="M11.5 29.2h7.2M29.3 29.2h7.2" stroke="rgba(15,118,110,0.45)" strokeWidth="2" strokeLinecap="round" />
-        <circle cx="15.5" cy="35.2" r="3.7" fill="#0B1220" />
-        <circle cx="15.5" cy="35.2" r="1.4" fill="#E2E8F0" />
-        <circle cx="32.5" cy="35.2" r="3.7" fill="#0B1220" />
-        <circle cx="32.5" cy="35.2" r="1.4" fill="#E2E8F0" />
-        <circle cx="37.8" cy="28.4" r="1.4" fill="#FDE68A" />
+      <g className="pomich-role-icon-glyph">
+        <path d="M18 8c0 3.613-3.869 7.429-5.393 8.795a1 1 0 0 1-1.214 0C9.87 15.429 6 11.613 6 8a6 6 0 0 1 12 0" />
+        <circle cx="12" cy="8" r="2" />
+        <path d="M8.714 14h-3.71a1 1 0 0 0-.948.683l-2.004 6A1 1 0 0 0 3 22h18a1 1 0 0 0 .948-1.316l-2-6a1 1 0 0 0-.949-.684h-3.712" />
       </g>
     </svg>
   )
 }
 
-function PartnerTruckIcon() {
+/** Lucide wrench — ISC https://lucide.dev/icons/wrench */
+function PartnerRoleIcon() {
   return (
     <svg
       className="pomich-role-icon-svg pomich-role-icon-svg--partner"
-      viewBox="0 0 48 48"
-      width="40"
-      height="40"
+      viewBox="0 0 24 24"
+      width="34"
+      height="34"
       fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
       aria-hidden="true"
     >
-      <g className="pomich-role-icon-vehicle">
-        <rect x="6.5" y="20.5" width="20" height="13.5" rx="2.4" fill="#fff" />
-        <path d="M26.5 23.2h9.2L40 30.2v3.8H26.5V23.2Z" fill="#fff" />
-        <path d="M29.2 25h5.4l2.7 3.6H29.2V25Z" fill="rgba(29,78,216,0.35)" />
-        <path d="M8.2 17.8h14.2l1.8 2.7H8.2v-2.7Z" fill="#F8FAFC" />
-        <path d="M9.2 25.2h5.4M9.2 28.6h8.2" stroke="rgba(29,78,216,0.4)" strokeWidth="1.7" strokeLinecap="round" />
-        <circle cx="14.2" cy="35.4" r="3.6" fill="#0B1220" />
-        <circle cx="14.2" cy="35.4" r="1.35" fill="#E2E8F0" />
-        <circle cx="33.2" cy="35.4" r="3.6" fill="#0B1220" />
-        <circle cx="33.2" cy="35.4" r="1.35" fill="#E2E8F0" />
-        <circle cx="38.6" cy="29.4" r="1.35" fill="#FDE68A" />
+      <g className="pomich-role-icon-glyph">
+        <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
       </g>
     </svg>
   )
@@ -82,7 +72,7 @@ const roleCards = [
     description: "Потрібна допомога на дорозі — евакуатор, акумулятор, колесо чи пальне.",
     accentVar: "--pomich-accent",
     tone: "client" as const,
-    Icon: ClientCarIcon,
+    Icon: ClientRoleIcon,
   },
   {
     key: "provider" as const,
@@ -91,7 +81,7 @@ const roleCards = [
     description: "Надаю послуги автодопомоги та приймаю заявки поруч із собою.",
     accentVar: "--pomich-accent-blue",
     tone: "partner" as const,
-    Icon: PartnerTruckIcon,
+    Icon: PartnerRoleIcon,
   },
 ] as const
 
