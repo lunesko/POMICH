@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hmac
 import uuid
 
 from fastapi import APIRouter, Header, HTTPException
@@ -19,6 +20,7 @@ from bot.api_deps import (
 )
 from bot.order_store import (
     build_user_account_status,
+    customer_profile_exists,
     ensure_linked_provider_profile,
     find_registered_customer_by_phone,
     get_customer_profile,
@@ -32,7 +34,6 @@ from bot.otp_verification import OtpVerificationError, confirm_customer_verifica
 from bot.telegram_config import normalize_telegram_bot_kind
 
 router = APIRouter(tags=["auth"])
-
 
 def _provider_account_summary(customer_id: str, profile: dict | None = None) -> dict:
     """Telegram identity alone does not grant provider API permissions — only reports link state."""
@@ -48,10 +49,18 @@ def _provider_account_summary(customer_id: str, profile: dict | None = None) -> 
     }
 
 
+def _secrets_match(supplied: str | None, expected: str) -> bool:
+    left = str(supplied or "")
+    right = str(expected or "")
+    if not left or not right:
+        return False
+    return hmac.compare_digest(left, right)
+
+
 @router.post("/auth/admin/session")
 def create_admin_session(x_pomich_admin_token: str | None = Header(default=None)) -> dict:
     secret = configured_admin_secret()
-    if x_pomich_admin_token != secret:
+    if not _secrets_match(x_pomich_admin_token, secret):
         raise HTTPException(status_code=401, detail="admin_token_invalid")
     return issue_role_session("admin", "admin", secret)
 
@@ -70,11 +79,13 @@ def create_admin_account_session(payload: dict) -> dict:
 @router.post("/auth/provider/session")
 def create_provider_session(payload: dict, x_pomich_provider_token: str | None = Header(default=None)) -> dict:
     secret = configured_provider_secret()
-    if x_pomich_provider_token != secret:
+    if not _secrets_match(x_pomich_provider_token, secret):
         raise HTTPException(status_code=401, detail="provider_token_invalid")
     provider_id = str(payload.get("providerId") or "").strip()
     if not provider_id:
         raise HTTPException(status_code=400, detail="providerId missing")
+    # Bootstrap token is ops-only: possession alone can mint any providerId. Prefer
+    # /auth/provider/login or /auth/provider/self/session for day-to-day partner auth.
     session = issue_role_session("provider", provider_id, secret)
     session["providerId"] = provider_id
     return session
@@ -115,11 +126,29 @@ def create_provider_account_session(payload: dict) -> dict:
 
 @router.post("/auth/customer/guest/session")
 def create_guest_customer_session(payload: dict | None = None) -> dict:
+    """Mint a guest customer bearer.
+
+    Security rules:
+    - Never apply untrusted profile fields from the request body.
+    - Never honor the shared ``customer-web`` singleton as a client-chosen id.
+    - Restore only a previously persisted ``guest-<32hex>`` id; unknown ids get a fresh UUID.
+    """
     requested_customer_id = str((payload or {}).get("customerId") or "").strip()
-    if requested_customer_id and not (requested_customer_id == "customer-web" or requested_customer_id.startswith("guest-")):
-        raise HTTPException(status_code=400, detail="guest_customer_id_invalid")
-    customer_id = requested_customer_id or f"guest-{uuid.uuid4().hex}"
-    profile = update_customer_profile(customer_id, payload or {})
+    customer_id: str | None = None
+
+    if requested_customer_id:
+        if requested_customer_id == "customer-web" or not requested_customer_id.startswith("guest-"):
+            raise HTTPException(status_code=400, detail="guest_customer_id_invalid")
+        # Restore only — never create under a client-chosen id (blocks guest takeover / IDOR mint).
+        if customer_profile_exists(requested_customer_id):
+            customer_id = requested_customer_id
+
+    if customer_id is None:
+        customer_id = f"guest-{uuid.uuid4().hex}"
+        profile = update_customer_profile(customer_id, {})
+    else:
+        profile = get_customer_profile(customer_id)
+
     session = issue_role_session("customer", customer_id, configured_customer_secret())
     session["customerId"] = customer_id
     session["profile"] = profile
@@ -206,7 +235,8 @@ def customer_phone_login_send(payload: dict) -> dict:
         raise HTTPException(status_code=400, detail="invalid_phone")
     profile = find_registered_customer_by_phone(phone)
     if profile is None:
-        raise HTTPException(status_code=404, detail="customer_not_found")
+        # Anti-enumeration: same shape as a successful "queued" response.
+        return {"ok": True, "channel": "telegram", "masked": True}
     customer_id = str(profile.get("id") or "").strip()
     try:
         return send_customer_verification_code(
@@ -230,12 +260,12 @@ def customer_phone_login_confirm(payload: dict) -> dict:
         raise HTTPException(status_code=400, detail="invalid_phone")
     profile = find_registered_customer_by_phone(phone)
     if profile is None:
-        raise HTTPException(status_code=404, detail="customer_not_found")
+        raise HTTPException(status_code=401, detail="login_failed")
     customer_id = str(profile.get("id") or "").strip()
     try:
         confirmed_profile = confirm_customer_verification_code(customer_id, code)
-    except OtpVerificationError as exc:
-        raise HTTPException(status_code=400, detail=exc.code) from exc
+    except OtpVerificationError:
+        raise HTTPException(status_code=401, detail="login_failed") from None
     session = issue_role_session("customer", customer_id, configured_customer_secret())
     session["customerId"] = customer_id
     session["profile"] = confirmed_profile

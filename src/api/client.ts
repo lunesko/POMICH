@@ -28,6 +28,7 @@ const providerErrorMessages: Record<string, string> = {
   email_missing: 'Введіть email для підтвердження.',
   invalid_phone: 'Невірний номер телефону.',
   customer_not_found: 'Акаунт з цим номером не знайдено. Зареєструйтеся або перевірте номер.',
+  login_failed: 'Не вдалося увійти. Перевірте номер і код.',
   code_not_found: 'Код не знайдено. Надішліть новий.',
   code_expired: 'Код прострочено. Надішліть новий.',
   code_invalid: 'Невірний код. Перевірте та спробуйте ще раз.',
@@ -497,16 +498,6 @@ function providerJsonHeaders(providerToken?: string): Record<string, string> {
   return { 'Content-Type': 'application/json', ...(providerHeaders(providerToken) ?? {}) }
 }
 
-export async function getOrders(adminToken?: string) {
-  const response = await fetch(`${getBaseUrl()}/orders`, { headers: adminHeaders(adminToken) })
-
-  if (!response.ok) {
-    throw new Error(`Orders request failed with ${response.status}`)
-  }
-
-  return response.json() as Promise<OrderResponse[]>
-}
-
 export async function createAdminSession(adminToken: string) {
   const response = await fetch(`${getBaseUrl()}/auth/admin/session`, {
     method: 'POST',
@@ -858,38 +849,6 @@ export async function importUzhgorodProviders(adminToken?: string, options?: { s
   }>
 }
 
-export async function importUkraineProviders(
-  adminToken?: string,
-  options?: {
-    settlementIds?: string[]
-    oblast?: string
-    preferOsm?: boolean
-    seedOnly?: boolean
-    delaySeconds?: number
-  },
-) {
-  const response = await fetch(`${getBaseUrl()}/admin/providers/import/ukraine`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...(adminHeaders(adminToken) ?? {}) },
-    body: JSON.stringify(options ?? {}),
-  })
-
-  if (!response.ok) {
-    throw new Error(`Ukraine import request failed with ${response.status}`)
-  }
-
-  return response.json() as Promise<{
-    counts: { total: number; withPhone: number; directoryOnly: number }
-    perSettlement: Array<{
-      settlementId: string
-      city: string
-      counts: { osm: number; seed: number; total: number; withPhone: number; directoryOnly: number }
-      source: string
-    }>
-    merge: { added: number; updated: number; total: number; directory: number }
-  }>
-}
-
 export async function getCustomerProfile(customerId: string, customerToken?: string) {
   const response = await fetchApi(`${getBaseUrl()}/customers/${encodeURIComponent(customerId)}/profile`, {
     headers: authHeaders(customerToken),
@@ -1003,20 +962,6 @@ export async function confirmCustomerPhoneLoginCode(payload: { phone: string; co
   return response.json() as Promise<AuthSession>
 }
 
-export async function submitCustomerVerification(customerId: string, payload: Record<string, unknown>, customerToken?: string) {
-  const response = await fetch(`${getBaseUrl()}/customers/${encodeURIComponent(customerId)}/verification/submit`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...(authHeaders(customerToken) ?? {}) },
-    body: JSON.stringify(payload),
-  })
-
-  if (!response.ok) {
-    throw new Error(`Customer verification request failed with ${response.status}`)
-  }
-
-  return response.json() as Promise<CustomerProfile>
-}
-
 export async function getProviderProfile(providerId: string, providerToken?: string) {
   const response = await fetchApi(`${getBaseUrl()}/providers/${encodeURIComponent(providerId)}/profile`, {
     headers: providerHeaders(providerToken),
@@ -1042,20 +987,6 @@ export async function getProviderPublicProfile(providerId: string, limit = 20, s
   }
 
   return response.json() as Promise<ProviderPublicProfile>
-}
-
-export async function submitProviderVerification(providerId: string, payload: Record<string, unknown>, providerToken?: string) {
-  const response = await fetch(`${getBaseUrl()}/providers/${encodeURIComponent(providerId)}/verification/submit`, {
-    method: 'POST',
-    headers: providerJsonHeaders(providerToken),
-    body: JSON.stringify(payload),
-  })
-
-  if (!response.ok) {
-    throw new Error(`Provider verification request failed with ${response.status}`)
-  }
-
-  return response.json() as Promise<ProviderAvailability>
 }
 
 export async function reviewProviderVerification(providerId: string, payload: { status: 'verified' | 'rejected'; reviewNote?: string }, adminToken?: string) {
