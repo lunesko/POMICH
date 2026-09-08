@@ -9,7 +9,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.gzip import GZipMiddleware
 
@@ -174,20 +174,148 @@ def _is_sensitive_spa_path(normalized: str) -> bool:
 
 def _resolve_dist_root_file(normalized: str) -> Path | None:
     """Serve Vite public/root artifacts (pomich-sw.js, favicon, etc.) before SPA fallback."""
-    if not normalized or "/" in normalized or normalized.startswith("."):
+    if not normalized or normalized.startswith("."):
         return None
-    candidate = (DIST_DIR / normalized).resolve()
-    if candidate.parent != DIST_DIR.resolve() or not candidate.is_file():
+    # Allow flat root files and one-level paths like cities/uzhhorod.html if present.
+    if "/" in normalized and normalized.count("/") > 1:
         return None
-    return candidate
+    for base in (DIST_DIR, PROJECT_ROOT / "public"):
+        candidate = (base / normalized).resolve()
+        try:
+            candidate.relative_to(base.resolve())
+        except ValueError:
+            continue
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+_SEO_PUBLIC_PAGES: dict[str, dict[str, str]] = {
+    "evakuator": {
+        "title": "Евакуатор в Ужгороді та Україні — виклик через POMICH",
+        "h1": "Евакуатор поруч",
+        "lead": "Викликайте евакуатор через POMICH: підтвердіть місце — і ми знайдемо партнера поруч.",
+    },
+    "akumulyator": {
+        "title": "Не заводиться авто / запуск АКБ — POMICH",
+        "h1": "Не заводиться?",
+        "lead": "Швидкий виклик допомоги з акумулятором поруч із вами.",
+    },
+    "zamina-kolesa": {
+        "title": "Пробило колесо — допомога на дорозі POMICH",
+        "h1": "Пробило колесо",
+        "lead": "Заміна або ремонт колеса на місці через перевірених партнерів POMICH.",
+    },
+    "dostavka-palnogo": {
+        "title": "Закінчилось пальне — доставка через POMICH",
+        "h1": "Закінчилось пальне",
+        "lead": "Доставка пального до вас без пошуку номерів і торгу по телефону.",
+    },
+    "partner": {
+        "title": "Стати партнером POMICH — заявки поруч",
+        "h1": "Стати партнером",
+        "lead": "Приймайте реальні заявки поруч у Telegram. Безкоштовний вхід для пілоту в Ужгороді.",
+    },
+    "about": {
+        "title": "Про POMICH — допомога автомобілістам на дорозі",
+        "h1": "Про POMICH",
+        "lead": "POMICH — платформа швидкої допомоги на дорозі: від проблеми до перевіреного виконавця поруч.",
+    },
+    "safety": {
+        "title": "Безпека в POMICH",
+        "h1": "Безпека",
+        "lead": "POMICH не замінює екстрені служби 112. При ДТП з постраждалими спочатку викличте 112.",
+    },
+    "cities/uzhhorod": {
+        "title": "Допомога на дорозі в Ужгороді — POMICH",
+        "h1": "Допомога в Ужгороді",
+        "lead": "Пілот POMICH: евакуатор, АКБ, колесо, пальне — виклик за хвилини.",
+    },
+}
+
+
+def _seo_landing_html(slug: str, page: dict[str, str]) -> str:
+    title = page["title"]
+    h1 = page["h1"]
+    lead = page["lead"]
+    canonical = f"https://pomich.help/{slug}"
+    return f"""<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{title}</title>
+  <meta name="description" content="{lead}" />
+  <link rel="canonical" href="{canonical}" />
+  <meta property="og:title" content="{title}" />
+  <meta property="og:description" content="{lead}" />
+  <meta property="og:url" content="{canonical}" />
+  <meta property="og:type" content="website" />
+  <meta property="og:image" content="https://pomich.help/og-cover.jpg" />
+  <meta property="og:locale" content="uk_UA" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" href="/favicon.ico" />
+  <style>
+    body{{margin:0;font-family:system-ui,sans-serif;background:#0F172A;color:#F8FAFC;line-height:1.5}}
+    main{{max-width:40rem;margin:0 auto;padding:2rem 1.25rem 4rem}}
+    a{{color:#4ade80}}
+    .cta{{display:inline-block;margin-top:1.25rem;padding:.9rem 1.2rem;border-radius:999px;background:#22c55e;color:#052e16;font-weight:800;text-decoration:none}}
+    ul{{padding-left:1.1rem}}
+  </style>
+</head>
+<body>
+  <main>
+    <p><a href="/">POMICH</a></p>
+    <h1>{h1}</h1>
+    <p>{lead}</p>
+    <p><a class="cta" href="/?utm_source=seo&amp;utm_campaign={slug}">Відкрити застосунок</a></p>
+    <p>Або Telegram: <a href="https://t.me/pomich_ua_bot">@pomich_ua_bot</a></p>
+    <h2>Послуги</h2>
+    <ul>
+      <li><a href="/evakuator">Евакуатор</a></li>
+      <li><a href="/akumulyator">Не заводиться</a></li>
+      <li><a href="/zamina-kolesa">Пробило колесо</a></li>
+      <li><a href="/dostavka-palnogo">Закінчилось пальне</a></li>
+      <li><a href="/cities/uzhhorod">Ужгород</a></li>
+      <li><a href="/partner">Партнерам</a></li>
+    </ul>
+  </main>
+</body>
+</html>
+"""
+
+
+def _media_type_for_root_file(path: Path) -> str | None:
+    suffix = path.suffix.lower()
+    return {
+        ".txt": "text/plain; charset=utf-8",
+        ".xml": "application/xml",
+        ".webmanifest": "application/manifest+json",
+        ".json": "application/json",
+        ".ico": "image/x-icon",
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".webp": "image/webp",
+        ".svg": "image/svg+xml",
+    }.get(suffix)
 
 
 @app.get("/robots.txt")
 def robots_txt():
-    robots_path = DIST_DIR / "robots.txt"
-    if robots_path.exists():
-        return FileResponse(robots_path, media_type="text/plain")
-    return {"detail": "robots.txt not built"}
+    for candidate in (DIST_DIR / "robots.txt", PROJECT_ROOT / "public" / "robots.txt"):
+        if candidate.is_file():
+            return FileResponse(candidate, media_type="text/plain; charset=utf-8")
+    raise HTTPException(status_code=404, detail="robots.txt not found")
+
+
+@app.get("/sitemap.xml")
+def sitemap_xml():
+    for candidate in (DIST_DIR / "sitemap.xml", PROJECT_ROOT / "public" / "sitemap.xml"):
+        if candidate.is_file():
+            return FileResponse(candidate, media_type="application/xml")
+    raise HTTPException(status_code=404, detail="sitemap.xml not found")
 
 
 @app.get("/")
@@ -220,10 +348,18 @@ def serve_frontend(full_path: str = ""):
             )
         raise HTTPException(status_code=404, detail="Map asset not found")
 
+    seo_page = _SEO_PUBLIC_PAGES.get(normalized.rstrip("/"))
+    if seo_page is not None:
+        return HTMLResponse(
+            _seo_landing_html(normalized.rstrip("/"), seo_page),
+            headers={"Cache-Control": "public, max-age=300"},
+        )
+
     root_file = _resolve_dist_root_file(normalized)
     if root_file is not None:
-        headers = {"Cache-Control": "no-cache"} if root_file.name == "pomich-sw.js" else None
-        return FileResponse(root_file, headers=headers)
+        headers = {"Cache-Control": "no-cache"} if root_file.name == "pomich-sw.js" else {"Cache-Control": "public, max-age=86400"}
+        media = _media_type_for_root_file(root_file)
+        return FileResponse(root_file, media_type=media, headers=headers)
 
     index_path = DIST_DIR / "index.html"
     if index_path.exists():

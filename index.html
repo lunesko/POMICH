@@ -5,9 +5,29 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <meta name="theme-color" content="#0F172A" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="format-detection" content="telephone=no" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="POMICH" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="application-name" content="POMICH" />
+    <meta name="author" content="POMICH" />
+    <meta name="geo.region" content="UA-21" />
+    <meta name="geo.placename" content="Uzhhorod" />
+    <link rel="canonical" href="https://pomich.help/" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="POMICH" />
+    <meta property="og:locale" content="uk_UA" />
+    <meta property="og:url" content="https://pomich.help/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="POMICH — допомога на дорозі" />
+    <meta name="twitter:description" content="Викликайте евакуатор, АКБ, колесо або пальне поруч із вами." />
+    <meta name="twitter:image" content="https://pomich.help/og-cover.jpg" />
     <link rel="preconnect" href="https://telegram.org" crossorigin />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -17,11 +37,63 @@
     <link rel="dns-prefetch" href="https://tile.openstreetmap.org" />
     <link rel="dns-prefetch" href="https://basemaps.cartocdn.com" />
     <title><!-- figma:title --></title>
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "Organization",
+          "@id": "https://pomich.help/#organization",
+          "name": "POMICH",
+          "url": "https://pomich.help/",
+          "logo": "https://pomich.help/icon-512.png",
+          "sameAs": [
+            "https://t.me/pomich_ua_bot",
+            "https://t.me/pomich_help_bot"
+          ]
+        },
+        {
+          "@type": "WebSite",
+          "@id": "https://pomich.help/#website",
+          "url": "https://pomich.help/",
+          "name": "POMICH — допомога на дорозі",
+          "inLanguage": "uk-UA",
+          "publisher": { "@id": "https://pomich.help/#organization" }
+        },
+        {
+          "@type": "Service",
+          "name": "Допомога на дорозі POMICH",
+          "serviceType": "Roadside assistance",
+          "provider": { "@id": "https://pomich.help/#organization" },
+          "areaServed": {
+            "@type": "City",
+            "name": "Uzhhorod",
+            "containedInPlace": { "@type": "Country", "name": "Ukraine" }
+          }
+        }
+      ]
+    }
+    </script>
     <script src="https://telegram.org/js/telegram-web-app.js" defer></script>
     <!-- figma:head-end -->
   </head>
   <body>
     <!-- figma:body-start -->
+    <noscript>
+      <main style="font-family: system-ui, sans-serif; max-width: 40rem; margin: 2rem auto; padding: 0 1rem; color: #0f172a;">
+        <h1>POMICH — допомога на дорозі</h1>
+        <p>Викликайте евакуатор, запуск АКБ, допомогу з колесом або пальним поруч із вами в Ужгороді та Україні.</p>
+        <ul>
+          <li><a href="/evakuator">Евакуатор</a></li>
+          <li><a href="/akumulyator">Не заводиться / АКБ</a></li>
+          <li><a href="/zamina-kolesa">Пробило колесо</a></li>
+          <li><a href="/dostavka-palnogo">Закінчилось пальне</a></li>
+          <li><a href="/cities/uzhhorod">Допомога в Ужгороді</a></li>
+          <li><a href="/partner">Стати партнером</a></li>
+        </ul>
+        <p>Увімкніть JavaScript або відкрийте Telegram-бота <a href="https://t.me/pomich_ua_bot">@pomich_ua_bot</a>.</p>
+      </main>
+    </noscript>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
     <!-- figma:body-end -->

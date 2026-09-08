@@ -1423,6 +1423,34 @@ def test_maps_static_files_served_before_spa_fallback(tmp_path, monkeypatch):
     assert response.content.startswith(b"\xff\xd8")
 
 
+def test_robots_sitemap_and_seo_landings_are_indexable(monkeypatch, tmp_path):
+    public_dir = tmp_path / "public"
+    public_dir.mkdir()
+    (public_dir / "robots.txt").write_text("User-agent: *\nAllow: /\nSitemap: https://pomich.help/sitemap.xml\n", encoding="utf-8")
+    (public_dir / "sitemap.xml").write_text(
+        '<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(fastapi_app, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(fastapi_app, "DIST_DIR", tmp_path / "dist")
+
+    client = TestClient(fastapi_app.app)
+    robots = client.get("/robots.txt")
+    assert robots.status_code == 200
+    assert "text/plain" in (robots.headers.get("content-type") or "")
+    assert "Sitemap:" in robots.text
+
+    sitemap = client.get("/sitemap.xml")
+    assert sitemap.status_code == 200
+    assert "xml" in (sitemap.headers.get("content-type") or "")
+
+    landing = client.get("/evakuator")
+    assert landing.status_code == 200
+    assert "Евакуатор" in landing.text
+    assert 'rel="canonical"' in landing.text
+    assert "text/html" in (landing.headers.get("content-type") or "")
+
+
 def test_dist_root_static_files_served_before_spa_fallback(tmp_path, monkeypatch):
     dist_dir = tmp_path / "dist"
     dist_dir.mkdir(parents=True)
