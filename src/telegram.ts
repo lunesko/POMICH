@@ -102,6 +102,8 @@ export interface TelegramWebApp {
   colorScheme?: "light" | "dark"
   themeParams?: TelegramThemeParams
   isExpanded?: boolean
+  /** Bot API 8.0+ — Mini App is covering the full screen under Telegram chrome. */
+  isFullscreen?: boolean
   viewportHeight?: number
   viewportStableHeight?: number
   /** Bot API 7.0+ — system safe area (notch / home indicator). */
@@ -119,6 +121,8 @@ export interface TelegramWebApp {
   ready?: () => void
   expand?: () => void
   close?: () => void
+  requestFullscreen?: () => void
+  exitFullscreen?: () => void
   isVersionAtLeast?: (version: string) => boolean
   setHeaderColor?: (color: string) => void
   setBackgroundColor?: (color: string) => void
@@ -388,7 +392,14 @@ export function syncAppViewportHeight(webApp?: TelegramWebApp) {
   setInsetCssVar(root, "--tg-safe-area-inset-left", safe?.left)
 
   const content = webApp?.contentSafeAreaInset
-  setInsetCssVar(root, "--tg-content-safe-area-inset-top", content?.top)
+  /* Fullscreen without a reported content inset still needs room under Close/⋯ */
+  const contentTop =
+    typeof content?.top === "number" && content.top > 0
+      ? content.top
+      : webApp?.isFullscreen
+        ? 48
+        : content?.top
+  setInsetCssVar(root, "--tg-content-safe-area-inset-top", contentTop)
   setInsetCssVar(root, "--tg-content-safe-area-inset-right", content?.right)
   setInsetCssVar(root, "--tg-content-safe-area-inset-bottom", content?.bottom)
   setInsetCssVar(root, "--tg-content-safe-area-inset-left", content?.left)
