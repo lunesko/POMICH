@@ -2,7 +2,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { __realtimeTestHooks } from "./realtime"
 
-const { buildEventsUrl, buildWsUrl, subscribeRealtime, subscribeSse, WS_CONNECT_TIMEOUT_MS } = __realtimeTestHooks
+const {
+  buildEventsUrl,
+  buildWsUrl,
+  subscribeRealtime,
+  subscribeSse,
+  WS_CONNECT_TIMEOUT_MS,
+  WS_HEARTBEAT_TIMEOUT_MS,
+  WS_WATCHDOG_TICK_MS,
+} = __realtimeTestHooks
 
 class MockWebSocket {
   static instances: MockWebSocket[] = []
@@ -24,6 +32,7 @@ class MockWebSocket {
   }
 
   close() {
+    if (this.readyState === MockWebSocket.CLOSED) return
     this.readyState = MockWebSocket.CLOSED
     this.onclose?.(new CloseEvent("close"))
   }
@@ -147,5 +156,31 @@ describe("realtime transport preference", () => {
     stop()
 
     ;(globalThis as { WebSocket?: unknown }).WebSocket = prev
+  })
+
+  it("force-closes a dead-cat websocket when heartbeats stop", () => {
+    ;(globalThis as unknown as { WebSocket: typeof MockWebSocket }).WebSocket = MockWebSocket
+
+    const disconnected = vi.fn()
+    const stop = subscribeRealtime("/ws/orders/dead", "/events/orders/dead", () => undefined, {
+      onDisconnected: disconnected,
+    })
+
+    const socket = MockWebSocket.instances[0]
+    const closeSpy = vi.spyOn(socket, "close")
+    socket.emitOpen()
+    socket.emitMessage({ type: "heartbeat", ts: 1 })
+
+    // Still within timeout — no force close
+    vi.advanceTimersByTime(WS_HEARTBEAT_TIMEOUT_MS - WS_WATCHDOG_TICK_MS)
+    expect(closeSpy).not.toHaveBeenCalled()
+    expect(disconnected).not.toHaveBeenCalled()
+
+    // Past timeout with no further frames — watchdog closes the zombie socket
+    vi.advanceTimersByTime(WS_WATCHDOG_TICK_MS * 2)
+    expect(closeSpy).toHaveBeenCalled()
+    expect(disconnected).toHaveBeenCalled()
+
+    stop()
   })
 })

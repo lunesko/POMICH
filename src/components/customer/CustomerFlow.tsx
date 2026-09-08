@@ -46,6 +46,8 @@ import {
 import {
   PICKUP,
   services,
+  homeProblemCards,
+  homeOtherProblemCards,
   vehicleOptions,
   orderStatusLabels,
   getServiceLabel,
@@ -649,11 +651,33 @@ function HomeStep({
 }) {
   const nearby = nearbyProvidersFor(pickup, providers)
   const profileReady = isCustomerReadyForOrder(customerProfile)
+  const [showOtherProblems, setShowOtherProblems] = useState(false)
 
   const handleSelect = (service: ServiceKey) => {
     if (!profileReady) return
     onSelect(service)
   }
+
+  const problemGrid = (
+    <div className="pomich-problem-grid">
+      {homeProblemCards.map((card, index) => (
+        <button
+          key={card.key}
+          type="button"
+          onClick={() => handleSelect(card.key)}
+          disabled={!profileReady}
+          className="pomich-problem-card"
+          style={{ animationDelay: `${index * 60}ms`, opacity: profileReady ? 1 : 0.72 }}
+        >
+          <span className="pomich-problem-card__emoji" aria-hidden="true">
+            {card.emoji}
+          </span>
+          <span className="pomich-problem-card__label">{card.label}</span>
+          <span className="pomich-problem-card__hint">{card.hint}</span>
+        </button>
+      ))}
+    </div>
+  )
 
   return (
     <RideScreen
@@ -670,7 +694,75 @@ function HomeStep({
     >
       <div data-sheet-full>
       <StepBadge step={1} />
-      <SheetHeading title="Потрібна допомога на дорозі?" subtitle="Спочатку заповніть профіль, потім оберіть проблему." />
+      <SheetHeading title="Що сталося?" subtitle="Оберіть проблему — далі підтвердимо місце і знайдемо партнера поруч." />
+
+      <div className="pomich-sheet-section-head" style={{ marginTop: 4 }}>
+        <div className="pomich-sheet-section-title">Швидка допомога</div>
+        <div className="pomich-sheet-badge" style={{ background: nearby.length > 0 ? SELECTED : "var(--pomich-warn-bg)", color: nearby.length > 0 ? BRAND : "var(--pomich-warn-text)" }}>
+          {nearby.length > 0 ? `${nearby.length} поруч` : "підберемо партнера"}
+        </div>
+      </div>
+
+      {problemGrid}
+
+      <div className="pomich-problem-other">
+        <button
+          type="button"
+          className="pomich-problem-other__toggle"
+          aria-expanded={showOtherProblems}
+          onClick={() => setShowOtherProblems((open) => !open)}
+        >
+          Інша проблема
+          <span aria-hidden="true">{showOtherProblems ? "▴" : "▾"}</span>
+        </button>
+        {showOtherProblems ? (
+          <div className="pomich-flow-stack" style={{ marginTop: 8 }}>
+            {homeOtherProblemCards.map((card) => (
+              <button
+                key={card.key}
+                type="button"
+                onClick={() => handleSelect(card.key)}
+                disabled={!profileReady}
+                className="pomich-service-row"
+                style={{ background: profileReady ? CARD : GHOST, opacity: profileReady ? 1 : 0.7 }}
+              >
+                <span className="pomich-service-row__icon" style={{ background: SURFACE_TONE }}>
+                  <span aria-hidden="true">{card.emoji}</span>
+                </span>
+                <span style={{ minWidth: 0 }}>
+                  <span className="pomich-service-row__label">{card.label}</span>
+                  <span className="pomich-service-row__hint">{card.hint}</span>
+                </span>
+                <span className="pomich-service-row__chevron" aria-hidden="true">›</span>
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </div>
+
+      {!profileReady ? (
+        <div style={{ marginTop: 12, background: "var(--pomich-info-bg)", color: "var(--pomich-info-text)", borderRadius: 14, padding: 12, fontSize: 13, fontWeight: 800 }}>
+          {isCustomerProfileComplete(customerProfile)
+            ? "Підтвердіть телефон кодом, щоб викликати допомогу."
+            : "Вкажіть ім'я та телефон нижче — потім можна викликати допомогу."}
+        </div>
+      ) : null}
+
+      <div style={{ marginTop: 14 }}>
+        {!profileReady ? (
+          isCustomerProfileComplete(customerProfile) ? (
+            <OtpVerificationPanel
+              profile={customerProfile}
+              customerToken={customerToken}
+              isTelegram={isTelegram}
+              compact
+              onVerified={onProfileVerified}
+            />
+          ) : (
+            <CustomerTrustPanel profile={customerProfile} saving={customerVerificationSaving} error={customerVerificationError} customerToken={customerToken} isTelegram={isTelegram} onChange={onProfileChange} onVerify={onVerifyCustomer} onVerified={onProfileVerified} />
+          )
+        ) : null}
+      </div>
 
       <CurrentLocationCard
         locationLabel={locationLabel}
@@ -695,66 +787,7 @@ function HomeStep({
       </div>
 
       <div style={{ marginTop: 14 }}>
-        {!profileReady ? (
-          isCustomerProfileComplete(customerProfile) ? (
-            <OtpVerificationPanel
-              profile={customerProfile}
-              customerToken={customerToken}
-              isTelegram={isTelegram}
-              compact
-              onVerified={onProfileVerified}
-            />
-          ) : (
-            <CustomerTrustPanel profile={customerProfile} saving={customerVerificationSaving} error={customerVerificationError} customerToken={customerToken} isTelegram={isTelegram} onChange={onProfileChange} onVerify={onVerifyCustomer} onVerified={onProfileVerified} />
-          )
-        ) : null}
-      </div>
-
-      {!profileReady ? (
-        <div style={{ marginTop: 12, background: "var(--pomich-info-bg)", color: "var(--pomich-info-text)", borderRadius: 14, padding: 12, fontSize: 13, fontWeight: 800 }}>
-          {isCustomerProfileComplete(customerProfile)
-            ? "Підтвердіть профіль кодом з Telegram або email, щоб викликати допомогу."
-            : "Заповніть ім'я та телефон, щоб викликати допомогу."}
-        </div>
-      ) : null}
-
-      <div style={{ marginTop: 14 }}>
         <AvailabilityPanel pickup={pickup} providers={providers} loading={providersLoading} />
-      </div>
-
-      <div className="pomich-sheet-section-head">
-        <div className="pomich-sheet-section-title">Що сталося?</div>
-        <div className="pomich-sheet-badge" style={{ background: nearby.length > 0 ? SELECTED : "var(--pomich-warn-bg)", color: nearby.length > 0 ? BRAND : "var(--pomich-warn-text)" }}>
-          {nearby.length > 0 ? `${nearby.length} поруч` : "підберемо партнера"}
-        </div>
-      </div>
-
-      <div className="pomich-flow-stack">
-        {services.map((service, index) => (
-          <button
-            key={service.key}
-            type="button"
-            onClick={() => handleSelect(service.key as ServiceKey)}
-            disabled={!profileReady}
-            className="pomich-service-row"
-            style={{
-              background: profileReady ? CARD : GHOST,
-              opacity: profileReady ? 1 : 0.7,
-              animationDelay: `${index * 70}ms`,
-            }}
-          >
-            <span className="pomich-service-row__icon" style={{ background: service.tone, animationDelay: `${index * 120}ms` }}>
-              <ServiceIcon service={service.key as ServiceKey} />
-            </span>
-            <span style={{ minWidth: 0 }}>
-              <span className="pomich-service-row__label">{service.label}</span>
-              <span className="pomich-service-row__hint">{getServiceDescription(service.key)}</span>
-            </span>
-            <span className="pomich-service-row__chevron" aria-hidden="true">
-              ›
-            </span>
-          </button>
-        ))}
       </div>
       </div>
 
@@ -762,23 +795,24 @@ function HomeStep({
         <div className="pomich-sheet-section-head" style={{ marginTop: 4 }}>
           <div className="pomich-sheet-section-title">Що сталося?</div>
           <div className="pomich-sheet-badge" style={{ background: nearby.length > 0 ? SELECTED : "var(--pomich-warn-bg)", color: nearby.length > 0 ? BRAND : "var(--pomich-warn-text)" }}>
-            {nearby.length > 0 ? `${nearby.length} поруч` : "підберемо партнера"}
+            {nearby.length > 0 ? `${nearby.length} поруч` : "підберемо"}
           </div>
         </div>
-        {services[0] ? (
-          <button type="button" onClick={() => handleSelect(services[0].key as ServiceKey)} disabled={!profileReady} className="pomich-service-row" style={{ background: profileReady ? CARD : GHOST, opacity: profileReady ? 1 : 0.7 }}>
-            <span className="pomich-service-row__icon" style={{ background: services[0].tone }}>
-              <ServiceIcon service={services[0].key as ServiceKey} />
-            </span>
-            <span style={{ minWidth: 0 }}>
-              <span className="pomich-service-row__label">{services[0].label}</span>
-              <span className="pomich-service-row__hint">{getServiceDescription(services[0].key)} · ↑ усі</span>
-            </span>
-            <span className="pomich-service-row__chevron" aria-hidden="true">
-              ›
-            </span>
-          </button>
-        ) : null}
+        <div className="pomich-problem-grid pomich-problem-grid--peek">
+          {homeProblemCards.map((card) => (
+            <button
+              key={card.key}
+              type="button"
+              onClick={() => handleSelect(card.key)}
+              disabled={!profileReady}
+              className="pomich-problem-card pomich-problem-card--peek"
+              style={{ opacity: profileReady ? 1 : 0.72 }}
+            >
+              <span className="pomich-problem-card__emoji" aria-hidden="true">{card.emoji}</span>
+              <span className="pomich-problem-card__label">{card.label}</span>
+            </button>
+          ))}
+        </div>
       </div>
     </RideScreen>
   )

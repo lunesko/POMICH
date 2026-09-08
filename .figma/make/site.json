@@ -1,9 +1,15 @@
 {
   "title": "POMICH — допомога на дорозі",
-  "description": "POMICH допомагає швидко викликати евакуатор, запуск АКБ, допомогу з колесом, пальним або іншою несправністю.",
+  "description": "Викликайте евакуатор, запуск АКБ, допомогу з колесом або пальним поруч із вами. POMICH знаходить перевіреного партнера без десятків дзвінків.",
   "language": "uk",
   "robots": {
     "index": true
+  },
+  "icons": {
+    "icon": "/favicon.ico"
+  },
+  "openGraph": {
+    "image": "https://pomich.help/og-cover.jpg"
   },
   "accessibility": {
     "addBypassLinks": false,
