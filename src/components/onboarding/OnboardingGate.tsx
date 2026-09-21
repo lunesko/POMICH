@@ -646,13 +646,17 @@ export default function OnboardingGate({ skip, startAtRoleSelect, loginMode = fa
         session.profile,
       )
       const targetRole =
-        initialPreferredRole === "provider" || pendingLoginRole === "provider"
-          ? "provider"
-          : initialPreferredRole === "customer"
-            ? "customer"
-            : status.providerRegistered || status.preferredRole === "provider"
-              ? "provider"
-              : "customer"
+        loginMode
+          ? initialPreferredRole === "provider" || pendingLoginRole === "provider"
+            ? "provider"
+            : "customer"
+          : initialPreferredRole === "provider" || pendingLoginRole === "provider"
+            ? "provider"
+            : initialPreferredRole === "customer"
+              ? "customer"
+              : status.providerRegistered || status.preferredRole === "provider"
+                ? "provider"
+                : "customer"
 
       if (targetRole === "provider") {
         try {
