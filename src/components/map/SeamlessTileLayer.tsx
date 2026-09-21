@@ -75,41 +75,54 @@ export default function SeamlessTileLayer({ mapTileTheme }: { mapTileTheme: MapT
   const tile = resolveMapTileConfig({ mapTileTheme })
 
   useEffect(() => {
-    if (!map) return
+    if (!map || typeof (map as { addLayer?: unknown }).addLayer !== "function") return
 
     let layer: L.Layer
+    let added = false
 
-    if (typeof L.GridLayer?.extend === "function") {
-      const LayerCtor = createCanvasBasemapLayerClass() as unknown as new (
-        options: CanvasBasemapOptions,
-      ) => L.GridLayer
-      layer = new LayerCtor({
-        maxZoom: 19,
-        keepBuffer: 2,
-        updateWhenIdle: true,
-        updateWhenZooming: false,
-        className: "pomich-basemap-tiles",
-        attribution: tile.attribution,
-        tileUrl: tile.url,
-        subdomains: tile.subdomains || "abc",
-      })
-    } else {
-      const usesSubdomains = tile.url.includes("{s}")
-      layer = L.tileLayer(tile.url, {
-        maxZoom: 19,
-        keepBuffer: 2,
-        updateWhenIdle: true,
-        updateWhenZooming: false,
-        className: "pomich-basemap-tiles",
-        attribution: tile.attribution,
-        ...(usesSubdomains && tile.subdomains ? { subdomains: tile.subdomains } : {}),
-        detectRetina: tile.url.includes("{r}"),
-      })
+    try {
+      if (typeof L.GridLayer?.extend === "function") {
+        const LayerCtor = createCanvasBasemapLayerClass() as unknown as new (
+          options: CanvasBasemapOptions,
+        ) => L.GridLayer
+        layer = new LayerCtor({
+          maxZoom: 19,
+          keepBuffer: 2,
+          updateWhenIdle: true,
+          updateWhenZooming: false,
+          className: "pomich-basemap-tiles",
+          attribution: tile.attribution,
+          tileUrl: tile.url,
+          subdomains: tile.subdomains || "abc",
+        })
+      } else {
+        const usesSubdomains = tile.url.includes("{s}")
+        layer = L.tileLayer(tile.url, {
+          maxZoom: 19,
+          keepBuffer: 2,
+          updateWhenIdle: true,
+          updateWhenZooming: false,
+          className: "pomich-basemap-tiles",
+          attribution: tile.attribution,
+          ...(usesSubdomains && tile.subdomains ? { subdomains: tile.subdomains } : {}),
+          detectRetina: tile.url.includes("{r}"),
+        })
+      }
+
+      layer.addTo(map)
+      added = true
+    } catch (error) {
+      console.warn("[POMICH] SeamlessTileLayer skipped", error)
+      return
     }
 
-    layer.addTo(map)
     return () => {
-      map.removeLayer(layer)
+      if (!added) return
+      try {
+        map.removeLayer(layer)
+      } catch {
+        // Map may already be torn down during role/cabinet transitions.
+      }
     }
   }, [map, tile.url, tile.attribution, tile.subdomains])
 

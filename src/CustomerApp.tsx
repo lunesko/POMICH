@@ -49,11 +49,36 @@ import {
 import { syncProfileCityFromGeo } from "./lib/syncProfileCityFromGeo"
 import { canRequestGeoSilently, readCachedGeoPosition, requestCurrentPosition } from "./lib/mapGeo"
 
-const CustomerFlow = lazy(() => import("./components/customer/CustomerFlow"))
-const ProviderFlow = lazy(() => import("./components/provider/ProviderFlow"))
-const ClientCabinet = lazy(() => import("./components/cabinet/ClientCabinet"))
-const ProviderCabinet = lazy(() => import("./components/cabinet/ProviderCabinet"))
-const AdminFlow = lazy(() => import("./components/admin/AdminFlow"))
+const CustomerFlow = lazy(() =>
+  import("./components/customer/CustomerFlow").catch((error) => {
+    console.error("[POMICH] CustomerFlow chunk failed", error)
+    throw error
+  }),
+)
+const ProviderFlow = lazy(() =>
+  import("./components/provider/ProviderFlow").catch((error) => {
+    console.error("[POMICH] ProviderFlow chunk failed", error)
+    throw error
+  }),
+)
+const ClientCabinet = lazy(() =>
+  import("./components/cabinet/ClientCabinet").catch((error) => {
+    console.error("[POMICH] ClientCabinet chunk failed", error)
+    throw error
+  }),
+)
+const ProviderCabinet = lazy(() =>
+  import("./components/cabinet/ProviderCabinet").catch((error) => {
+    console.error("[POMICH] ProviderCabinet chunk failed", error)
+    throw error
+  }),
+)
+const AdminFlow = lazy(() =>
+  import("./components/admin/AdminFlow").catch((error) => {
+    console.error("[POMICH] AdminFlow chunk failed", error)
+    throw error
+  }),
+)
 
 function FlowSuspense({ children }: { children: ReactNode }) {
   return (

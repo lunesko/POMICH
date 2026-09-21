@@ -283,7 +283,21 @@ function ScreenLayout({ children, footer, className = "" }: { children: React.Re
   )
 }
 
-function Header({ title, subtitle, onBack, status }: { title: string; subtitle?: string; onBack?: () => void; status?: OrderStatus }) {
+function Header({
+  title,
+  subtitle,
+  onBack,
+  status,
+  showThemeToggle: _showThemeToggle,
+  compactToggle: _compactToggle,
+}: {
+  title: string
+  subtitle?: string
+  onBack?: () => void
+  status?: OrderStatus
+  showThemeToggle?: boolean
+  compactToggle?: boolean
+}) {
   return (
     <FormHeader>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
@@ -294,9 +308,7 @@ function Header({ title, subtitle, onBack, status }: { title: string; subtitle?:
             {subtitle ? <div className="pomich-header-subtitle">{subtitle}</div> : null}
           </div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-          {status ? <StatusPill status={status} /> : null}
-        </div>
+        {status ? <StatusPill status={status} /> : null}
       </div>
     </FormHeader>
   )

@@ -8,6 +8,33 @@ interface PomichErrorBoundaryState {
   error: Error | null
 }
 
+const CHUNK_RELOAD_KEY = "pomich-chunk-reload"
+
+function isChunkLoadError(error: Error | null | undefined): boolean {
+  if (!error) return false
+  const text = `${error.name} ${error.message}`
+  return /Failed to fetch dynamically imported module|Loading chunk|ChunkLoadError|Importing a module script failed|error loading dynamically imported module/i.test(
+    text,
+  )
+}
+
+async function clearClientCaches(): Promise<void> {
+  try {
+    if ("caches" in window) {
+      const keys = await caches.keys()
+      await Promise.all(keys.map((key) => caches.delete(key)))
+    }
+  } catch {
+    // ignore
+  }
+  try {
+    const regs = await navigator.serviceWorker?.getRegistrations()
+    if (regs) await Promise.all(regs.map((reg) => reg.unregister()))
+  } catch {
+    // ignore
+  }
+}
+
 export default class PomichErrorBoundary extends Component<PomichErrorBoundaryProps, PomichErrorBoundaryState> {
   state: PomichErrorBoundaryState = { error: null }
 
@@ -17,10 +44,16 @@ export default class PomichErrorBoundary extends Component<PomichErrorBoundaryPr
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error("[POMICH] UI crash", error, info.componentStack)
+    if (typeof window === "undefined" || !isChunkLoadError(error)) return
+    if (window.sessionStorage.getItem(CHUNK_RELOAD_KEY) === "1") return
+    window.sessionStorage.setItem(CHUNK_RELOAD_KEY, "1")
+    void clearClientCaches().finally(() => window.location.reload())
   }
 
   private reload = () => {
-    window.location.reload()
+    if (typeof window === "undefined") return
+    window.sessionStorage.removeItem(CHUNK_RELOAD_KEY)
+    void clearClientCaches().finally(() => window.location.reload())
   }
 
   render() {
@@ -53,7 +86,7 @@ export default class PomichErrorBoundary extends Component<PomichErrorBoundaryPr
         >
           <h1 style={{ margin: 0, fontSize: 20, fontWeight: 900 }}>POMICH</h1>
           <p style={{ margin: "12px 0 0", lineHeight: 1.5, fontWeight: 700 }}>
-            Не вдалося завантажити інтерфейс. Спробуйте оновити сторінку.
+            Не вдалося завантажити інтерфейс. Часто це старий кеш після оновлення — натисніть «Оновити».
           </p>
           <button
             type="button"

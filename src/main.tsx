@@ -27,6 +27,17 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/pomich-sw.js').catch(() => undefined)
+    navigator.serviceWorker
+      .register('/pomich-sw.js')
+      .then((registration) => {
+        // Pick up new SW quickly after deploy so hashed chunks stay in sync.
+        registration.update().catch(() => undefined)
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+          if (sessionStorage.getItem('pomich-sw-refresh') === '1') return
+          sessionStorage.setItem('pomich-sw-refresh', '1')
+          window.location.reload()
+        })
+      })
+      .catch(() => undefined)
   })
 }
