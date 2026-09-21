@@ -106,7 +106,7 @@ def test_fastapi_serves_health_and_api_prefix(monkeypatch) -> None:
     client = TestClient(app)
     admin_headers = _admin_session_headers(client)
 
-    health = client.get("/health")
+    health = client.get("/api/health")
     orders = client.get("/api/orders", headers=admin_headers)
     providers = client.get("/api/providers", headers=admin_headers)
 
@@ -114,6 +114,8 @@ def test_fastapi_serves_health_and_api_prefix(monkeypatch) -> None:
     assert health.json() == {"status": "ok"}
     assert "telegramQueue" not in health.json()
     assert "protocol" not in health.json()
+    # Dual registration removed — bare /health must not exist.
+    assert client.get("/health").status_code == 404
     assert orders.status_code == 200
     assert isinstance(orders.json(), list)
     assert providers.status_code == 200
@@ -1471,6 +1473,33 @@ def test_unknown_paths_return_real_html_404(monkeypatch, tmp_path):
     assert response.headers.get("x-content-type-options") == "nosniff"
     assert "max-age=" in (response.headers.get("strict-transport-security") or "")
     assert "Content-Security-Policy" in {k.title() for k in response.headers.keys()} or response.headers.get("content-security-policy")
+
+
+
+def test_internal_ready_and_metrics(monkeypatch):
+    monkeypatch.setenv("POMICH_INTERNAL_TOKEN", "internal-secret-token-xxxx")
+    client = TestClient(app)
+    ready = client.get("/internal/ready")
+    assert ready.status_code in (200, 503)
+    assert "postgres" in ready.json()
+    denied = client.get("/internal/metrics")
+    assert denied.status_code == 404
+    ok = client.get("/internal/metrics", headers={"X-POMICH-Internal-Token": "internal-secret-token-xxxx"})
+    assert ok.status_code == 200
+    assert ok.json()["status"] == "ok"
+
+
+def test_argon2id_password_hash_roundtrip():
+    from bot.api_deps import hash_password, password_matches
+
+    hashed = hash_password("correct-horse-battery")
+    assert hashed.startswith("$argon2id$") or hashed.startswith("sha256:")
+    assert password_matches({"passwordHash": hashed}, "correct-horse-battery")
+    assert not password_matches({"passwordHash": hashed}, "wrong-password")
+    # Legacy sha256 still works
+    import hashlib
+    legacy = "sha256:" + hashlib.sha256(b"legacy-pass").hexdigest()
+    assert password_matches({"passwordHash": legacy}, "legacy-pass")
 
 
 def test_public_health_hides_internals(monkeypatch):

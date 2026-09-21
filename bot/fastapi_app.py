@@ -20,7 +20,7 @@ from bot.api_deps import (
     runtime_config_errors,
     validate_runtime_config,
 )
-from bot.routers import admin, auth, customers, events, health, orders, providers, telegram, ws
+from bot.routers import admin, auth, customers, events, health, internal, orders, providers, telegram, ws
 from bot.security_headers import SecurityHeadersMiddleware
 from bot.telegram_bot import notify_dispatch_offers, notify_order_accepted, notify_order_cancelled, notify_order_created
 from bot.runtime_store import get_engine, sql_storage_enabled
@@ -67,14 +67,27 @@ def _warm_runtime_on_startup() -> None:
 
 
 app.add_middleware(GZipMiddleware, minimum_size=400)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=get_cors_origins(),
-    allow_origin_regex=r"https://.*\.trycloudflare\.com",
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+
+_cors_origins = get_cors_origins()
+_cors_kwargs: dict = {
+    "allow_origins": _cors_origins,
+    "allow_credentials": True,
+    "allow_methods": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    "allow_headers": [
+        "Authorization",
+        "Content-Type",
+        "X-Requested-With",
+        "X-POMICH-Admin-Token",
+        "X-POMICH-Provider-Token",
+        "X-POMICH-Health-Token",
+        "X-POMICH-Internal-Token",
+    ],
+}
+# Tunnel regex only outside production — production must list exact HTTPS origins.
+if not is_production_runtime():
+    _cors_kwargs["allow_origin_regex"] = r"https://.*\.trycloudflare\.com"
+
+app.add_middleware(CORSMiddleware, **_cors_kwargs)
 # Outer-most for response headers on every path (HTML + API).
 app.add_middleware(SecurityHeadersMiddleware)
 
@@ -90,9 +103,12 @@ _API_ROUTERS = (
     ws.router,
 )
 
+# Single mount under /api — frontend always uses VITE_API_BASE_URL=/api.
 for router in _API_ROUTERS:
-    app.include_router(router)
     app.include_router(router, prefix="/api")
+
+# Internal ops (nginx allowlist + optional token on metrics).
+app.include_router(internal.router)
 
 if ASSETS_DIR.exists():
     app.mount("/assets", CachedStaticFiles(directory=ASSETS_DIR), name="assets")
