@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -19,6 +20,17 @@ SKIP_DIRS = {
 }
 SKIP_FILES = {".env.deploy", "deploy.py"}
 
+_LFS_POINTER_PREFIX = b"version https://git-lfs.github.com/spec/v1"
+# Landing hero + PWA icons break silently if only LFS pointer stubs are uploaded.
+_REQUIRED_BINARY_ASSETS = (
+    PROJECT_ROOT / "public" / "maps" / "ukraine-basemap.webp",
+    PROJECT_ROOT / "public" / "maps" / "ukraine-basemap.jpg",
+    PROJECT_ROOT / "public" / "og-cover.jpg",
+    PROJECT_ROOT / "public" / "favicon.ico",
+    PROJECT_ROOT / "public" / "icon-192.png",
+    PROJECT_ROOT / "public" / "apple-touch-icon.png",
+)
+
 
 def run(ssh: paramiko.SSHClient, cmd: str, *, check: bool = False, timeout: int = 600) -> tuple[str, str, int]:
     print(f"$ {cmd}")
@@ -32,9 +44,49 @@ def run(ssh: paramiko.SSHClient, cmd: str, *, check: bool = False, timeout: int 
     return out, err, rc
 
 
+def _is_lfs_pointer(path: Path) -> bool:
+    try:
+        return path.read_bytes()[:64].startswith(_LFS_POINTER_PREFIX)
+    except OSError:
+        return False
+
+
+def ensure_git_lfs_assets() -> None:
+    """Materialize Git LFS binaries before SFTP upload (cloud VMs often have pointers only)."""
+    print("Ensuring Git LFS assets are pulled (maps/icons)...")
+    try:
+        subprocess.run(
+            ["git", "lfs", "pull"],
+            cwd=PROJECT_ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
+        print(f"WARNING: git lfs pull failed: {exc}")
+
+    missing = [str(path) for path in _REQUIRED_BINARY_ASSETS if not path.is_file()]
+    pointers = [str(path) for path in _REQUIRED_BINARY_ASSETS if path.is_file() and _is_lfs_pointer(path)]
+    if missing or pointers:
+        detail = []
+        if missing:
+            detail.append(f"missing: {', '.join(missing)}")
+        if pointers:
+            detail.append(f"still LFS pointers: {', '.join(pointers)}")
+        raise RuntimeError(
+            "Required binary assets are not ready for deploy ("
+            + "; ".join(detail)
+            + "). Run `git lfs pull` and retry."
+        )
+    print("Git LFS assets OK (basemap + icons).")
+
+
 def upload_project(ssh: paramiko.SSHClient) -> None:
+    ensure_git_lfs_assets()
     sftp = ssh.open_sftp()
     local_root = PROJECT_ROOT
+    skipped_lfs = 0
 
     def ensure_remote_dir(remote_path: str) -> None:
         parts = remote_path.strip("/").split("/")
@@ -59,10 +111,15 @@ def upload_project(ssh: paramiko.SSHClient) -> None:
             if filename.endswith(".pyc"):
                 continue
             local_path = os.path.join(root, filename)
+            if _is_lfs_pointer(Path(local_path)):
+                skipped_lfs += 1
+                continue
             remote_path = f"{remote_base}/{filename}"
             sftp.put(local_path, remote_path)
 
     sftp.close()
+    if skipped_lfs:
+        print(f"Skipped {skipped_lfs} Git LFS pointer stub(s) during upload")
     print(f"Uploaded project to {REMOTE_DIR}")
 
 

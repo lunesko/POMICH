@@ -10,9 +10,13 @@ export default function DecorativeBasemap({ className = "" }: { className?: stri
         fetchPriority="low"
         onError={(event) => {
           const img = event.currentTarget
-          if (img.src.endsWith(".webp")) {
-            img.src = "/maps/ukraine-basemap.jpg"
+          if (img.dataset.fallback === "jpg") {
+            // Both formats failed (often Git LFS pointer on server) — hide broken-icon glyph.
+            img.style.display = "none"
+            return
           }
+          img.dataset.fallback = "jpg"
+          img.src = "/maps/ukraine-basemap.jpg"
         }}
       />
     </div>
