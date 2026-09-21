@@ -4,6 +4,7 @@ import { getUserAccount, updateProviderPresence, type UserAccountStatus } from "
 import AppShell from "./components/layout/AppShell"
 import LandingPage from "./components/landing/LandingPage"
 import CustomerAppFallback from "./components/CustomerAppFallback"
+import FlowChunkBoundary from "./components/ui/FlowChunkBoundary"
 import OnboardingGate from "./components/onboarding/OnboardingGate"
 import { getTelegramContext, resolveEntryRole, resolveEntryScreen, clearEntryScreenParam, sanitizePublicAppUrl, type PomichEntryScreen } from "./telegram"
 import { DEFAULT_CUSTOMER_NAME, isCustomerProfileComplete, isCustomerVerified } from "./lib/customerProfile"
@@ -82,24 +83,26 @@ const AdminFlow = lazy(() =>
 
 function FlowSuspense({ children }: { children: ReactNode }) {
   return (
-    <Suspense
-      fallback={
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            minHeight: "40dvh",
-            color: "var(--pomich-muted, #64748b)",
-            fontWeight: 700,
-          }}
-        >
-          Завантаження…
-        </div>
-      }
-    >
-      {children}
-    </Suspense>
+    <FlowChunkBoundary>
+      <Suspense
+        fallback={
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              minHeight: "40dvh",
+              color: "var(--pomich-muted, #64748b)",
+              fontWeight: 700,
+            }}
+          >
+            Завантаження…
+          </div>
+        }
+      >
+        {children}
+      </Suspense>
+    </FlowChunkBoundary>
   )
 }
 
@@ -179,8 +182,10 @@ export default function CustomerApp() {
     const target = role ?? initialRole
     if (target === "provider") {
       void import("./components/provider/ProviderFlow")
+      void import("./components/cabinet/ProviderCabinet")
     } else if (target === "customer") {
       void import("./components/customer/CustomerFlow")
+      void import("./components/cabinet/ClientCabinet")
     }
   }, [role, initialRole])
 
