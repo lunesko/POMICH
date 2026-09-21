@@ -28,8 +28,9 @@ export function AppShell({
   const { isTelegram } = useTelegramUx()
   const showTelegramBack = Boolean(compact && role && isTelegram)
   const showSessionName = Boolean(loggedInName && !isTelegram)
-  // Always keep an explicit «Кабінет» chip — name alone was too easy to miss.
-  const showCabinetChip = Boolean(onOpenCabinet)
+  // Compact: the green session pill IS the cabinet entry (labeled «Кабінет»).
+  // Desktop keeps a separate chip in the actions cluster.
+  const showCabinetChip = Boolean(onOpenCabinet && !compact)
   // Compact chrome: logout only inside cabinet.
   const showLogoutChip = Boolean(onLogout && !compact)
 
