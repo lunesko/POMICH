@@ -32,7 +32,8 @@ function createCanvasBasemapLayerClass() {
       }
 
       const img = new Image()
-      img.crossOrigin = "anonymous"
+      // Do not set crossOrigin — anonymous CORS failures blank the whole basemap
+      // on iOS ("Карта пропала"). We never read pixels, so a tainted canvas is fine.
       img.onload = () => {
         try {
           ctx.drawImage(img, -1, -1, 258, 258)
@@ -80,8 +81,25 @@ export default function SeamlessTileLayer({ mapTileTheme }: { mapTileTheme: MapT
     let layer: L.Layer
     let added = false
 
+    const addImgTileLayer = () => {
+      const usesSubdomains = tile.url.includes("{s}")
+      return L.tileLayer(tile.url, {
+        maxZoom: 19,
+        keepBuffer: 2,
+        updateWhenIdle: true,
+        updateWhenZooming: false,
+        className: "pomich-basemap-tiles",
+        attribution: tile.attribution,
+        ...(usesSubdomains && tile.subdomains ? { subdomains: tile.subdomains } : {}),
+        detectRetina: tile.url.includes("{r}"),
+      })
+    }
+
     try {
-      if (typeof L.GridLayer?.extend === "function") {
+      // Safari / TG WebView: prefer img tiles — canvas+CORS blanks the map.
+      const preferImg =
+        typeof L.Browser !== "undefined" && (L.Browser.safari || L.Browser.mobile || L.Browser.android)
+      if (!preferImg && typeof L.GridLayer?.extend === "function") {
         const LayerCtor = createCanvasBasemapLayerClass() as unknown as new (
           options: CanvasBasemapOptions,
         ) => L.GridLayer
@@ -96,24 +114,26 @@ export default function SeamlessTileLayer({ mapTileTheme }: { mapTileTheme: MapT
           subdomains: tile.subdomains || "abc",
         })
       } else {
-        const usesSubdomains = tile.url.includes("{s}")
-        layer = L.tileLayer(tile.url, {
-          maxZoom: 19,
-          keepBuffer: 2,
-          updateWhenIdle: true,
-          updateWhenZooming: false,
-          className: "pomich-basemap-tiles",
-          attribution: tile.attribution,
-          ...(usesSubdomains && tile.subdomains ? { subdomains: tile.subdomains } : {}),
-          detectRetina: tile.url.includes("{r}"),
-        })
+        layer = addImgTileLayer()
       }
 
       layer.addTo(map)
       added = true
+      try {
+        map.invalidateSize(false)
+      } catch {
+        // ignore
+      }
     } catch (error) {
       console.warn("[POMICH] SeamlessTileLayer skipped", error)
-      return
+      try {
+        layer = addImgTileLayer()
+        layer.addTo(map)
+        added = true
+      } catch (fallbackError) {
+        console.warn("[POMICH] SeamlessTileLayer fallback failed", fallbackError)
+        return
+      }
     }
 
     return () => {

@@ -28,9 +28,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker
-      .register('/pomich-sw.js')
+      // Cache-bust the SW script URL so Safari does not keep a deleted-chunk SW.
+      .register('/pomich-sw.js?v=34')
       .then((registration) => {
-        // Pick up new SW quickly after deploy so hashed chunks stay in sync.
         registration.update().catch(() => undefined)
         navigator.serviceWorker.addEventListener('controllerchange', () => {
           if (sessionStorage.getItem('pomich-sw-refresh') === '1') return

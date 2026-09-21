@@ -1,6 +1,11 @@
 import { Suspense, lazy, type ComponentProps } from "react"
 
-const RouteMapLazy = lazy(() => import("./RouteMap"))
+const RouteMapLazy = lazy(() =>
+  import("./RouteMap").catch((error) => {
+    console.error("[POMICH] RouteMap chunk failed", error)
+    throw error
+  }),
+)
 
 function MapPlaceholder({ full }: { full?: boolean }) {
   return (

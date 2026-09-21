@@ -8,9 +8,20 @@ import { formatCabinetOrderStatus, formatCabinetReviewStars } from "../customer/
 import ServiceIcon from "../ui/ServiceIcon"
 import { SecondaryButton } from "../ui/SecondaryButton"
 
-const LazyRouteMap = lazy(() => import("../map/RouteMap"))
+const LazyRouteMap = lazy(() =>
+  import("../map/RouteMap").catch((error) => {
+    console.error("[POMICH] RouteMap chunk failed", error)
+    throw error
+  }),
+)
 
 export type OrderHistoryViewer = "customer" | "partner"
+
+function shortOrderId(id?: string): string {
+  if (!id) return "—"
+  if (id.length <= 14) return id
+  return `${id.slice(0, 8)}…${id.slice(-4)}`
+}
 
 function parseTime(value?: string): number | undefined {
   if (!value) return undefined
@@ -165,7 +176,9 @@ export default function OrderHistoryDetailSheet({
             </span>
             {getServiceLabel(order.service)}
           </div>
-          <h2 className="pomich-history-detail__title">Заявка #{order.id || "—"}</h2>
+          <h2 className="pomich-history-detail__title" title={order.id || undefined}>
+            Заявка #{shortOrderId(order.id)}
+          </h2>
           <div className="pomich-history-detail__status">{formatCabinetOrderStatus(order.status)}</div>
 
           <div className="pomich-history-detail__grid">

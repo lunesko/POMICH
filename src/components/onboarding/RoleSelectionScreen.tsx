@@ -6,9 +6,9 @@ import type { Role } from "../../lib/constants"
 import { ThemeToggle } from "../ui/ThemeToggle"
 
 const roleStats = [
-  ["24/7", "Заявка з дороги"],
-  ["UA", "По всій Україні"],
-  ["2 ролі", "Клієнт і партнер"],
+  ["24/7", "Заявка"],
+  ["UA", "Україна"],
+  ["2", "Ролі"],
 ] as const
 
 interface RoleSelectionScreenProps {
@@ -24,11 +24,11 @@ function ClientRoleIcon() {
     <svg
       className="pomich-role-icon-svg pomich-role-icon-svg--client"
       viewBox="0 0 24 24"
-      width="34"
-      height="34"
+      width="22"
+      height="22"
       fill="none"
       stroke="currentColor"
-      strokeWidth="2"
+      strokeWidth="2.1"
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
@@ -48,11 +48,11 @@ function PartnerRoleIcon() {
     <svg
       className="pomich-role-icon-svg pomich-role-icon-svg--partner"
       viewBox="0 0 24 24"
-      width="34"
-      height="34"
+      width="22"
+      height="22"
       fill="none"
       stroke="currentColor"
-      strokeWidth="2"
+      strokeWidth="2.1"
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
@@ -69,7 +69,7 @@ const roleCards = [
     key: "customer" as const,
     title: "Я клієнт",
     eyebrow: "Водіям",
-    description: "Потрібна допомога на дорозі — евакуатор, акумулятор, колесо чи пальне.",
+    description: "Евакуатор · АКБ · колесо · пальне",
     accentVar: "--pomich-accent",
     tone: "client" as const,
     Icon: ClientRoleIcon,
@@ -78,7 +78,7 @@ const roleCards = [
     key: "provider" as const,
     title: "Я партнер",
     eyebrow: "Партнерам",
-    description: "Надаю послуги автодопомоги та приймаю заявки поруч із собою.",
+    description: "Приймаю заявки поруч із собою",
     accentVar: "--pomich-accent-blue",
     tone: "partner" as const,
     Icon: PartnerRoleIcon,
@@ -114,17 +114,17 @@ export default function RoleSelectionScreen({
   return (
     <div className="relative min-h-dvh overflow-x-hidden pomich-role-select" style={{ color: colors.text }}>
       <header
-        className={`relative z-10 flex items-center justify-between ${isCompact ? "px-[18px] pt-4" : "px-7 pt-5"}`}
-        style={{ paddingTop: "calc(16px + env(safe-area-inset-top, 0px))" }}
+        className={`relative z-10 flex items-center justify-between ${isCompact ? "px-3.5 pt-3" : "px-6 pt-4"}`}
+        style={{ paddingTop: "calc(10px + env(safe-area-inset-top, 0px))" }}
       >
-        <div className="inline-flex items-center gap-3 font-extrabold">
+        <div className="inline-flex items-center gap-2 font-extrabold">
           <span className="pomich-role-brand-mark" aria-hidden="true">
             P
           </span>
-          <span className="pomich-role-brand-wordmark text-xl">POMICH</span>
+          <span className="pomich-role-brand-wordmark text-base">POMICH</span>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <ThemeToggle compact={isCompact} />
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <ThemeToggle compact />
           {onShowLanding ? (
             <button
               type="button"
@@ -132,7 +132,7 @@ export default function RoleSelectionScreen({
                 haptic("light")
                 onShowLanding()
               }}
-              className="pomich-ghost-btn min-h-[42px] rounded-xl px-4 text-sm"
+              className="pomich-ghost-btn pomich-role-header-link"
             >
               Про сервіс
             </button>
@@ -141,35 +141,29 @@ export default function RoleSelectionScreen({
       </header>
 
       <div
-        className={`relative z-[2] flex min-h-[calc(100dvh-58px)] flex-col items-center justify-center ${
-          isCompact ? "px-[18px] pb-8 pt-5" : "px-6 pb-14 pt-8"
+        className={`relative z-[2] flex min-h-[calc(100dvh-48px)] flex-col items-center justify-center ${
+          isCompact ? "px-3.5 pb-5 pt-3" : "px-5 pb-10 pt-5"
         }`}
-        style={{ paddingBottom: "calc(32px + env(safe-area-inset-bottom, 0px))" }}
+        style={{ paddingBottom: "calc(20px + env(safe-area-inset-bottom, 0px))" }}
       >
-        <div className="w-full max-w-[520px] text-center">
-          <div className="pomich-map-copy-plate pomich-role-hero-plate" style={{ marginBottom: 14 }}>
-            <LiveBadge label="Український roadside assistance marketplace" />
-            <h1
-              className={`pomich-role-hero-title mt-4 font-extrabold leading-[1.02] ${
-                isCompact ? "text-[32px]" : "text-[clamp(34px,5vw,48px)]"
-              }`}
-            >
-              Ласкаво просимо до
-              <br />
-              <span className="pomich-brand-gradient-text">POMICH</span>
+        <div className="w-full max-w-[440px] text-center">
+          <div className="pomich-map-copy-plate pomich-role-hero-plate pomich-role-hero-plate--compact">
+            <LiveBadge label="Допомога на дорозі · UA" />
+            <h1 className="pomich-role-hero-title pomich-role-hero-title--compact font-extrabold leading-[1.05]">
+              Ласкаво просимо до <span className="pomich-brand-gradient-text">POMICH</span>
             </h1>
             <p
-              className={`mx-auto mt-3.5 max-w-[420px] font-bold leading-relaxed ${isCompact ? "text-[15px]" : "text-[17px]"}`}
-              style={{ color: isDark ? "rgba(226,232,240,0.95)" : "#1e293b" }}
+              className="pomich-role-hero-lead"
+              style={{ color: isDark ? "rgba(226,232,240,0.92)" : "#334155" }}
             >
-              Оберіть, як ви користуєтесь сервісом. Пізніше можна змінити роль у кабінеті.
+              Оберіть роль — змінити можна пізніше в кабінеті.
             </p>
-            <div className="mt-3 text-sm font-extrabold" style={{ color: colors.badgeText }}>
-              Оберіть вашу роль
-            </div>
           </div>
 
-          <div className="pomich-role-card-stack mt-3 grid gap-3.5">
+          <div className="pomich-role-card-stack mt-2.5 grid gap-2" role="list">
+            <div className="pomich-role-section-label" style={{ color: colors.badgeText }}>
+              Оберіть вашу роль
+            </div>
             {roleCards.map((card, index) => {
               const Icon = card.Icon
               return (
@@ -178,22 +172,22 @@ export default function RoleSelectionScreen({
                   type="button"
                   disabled={saving}
                   onClick={() => handleSelect(card.key)}
-                  className={`pomich-role-card pomich-role-card--${card.tone} w-full disabled:opacity-60`}
-                  style={{ animationDelay: `${120 + index * 90}ms` }}
+                  className={`pomich-role-card pomich-role-card--compact pomich-role-card--${card.tone} w-full disabled:opacity-60`}
+                  style={{ animationDelay: `${80 + index * 70}ms` }}
                 >
                   <span className="pomich-role-card__shine" aria-hidden="true" />
-                  <div className="flex items-start gap-3.5">
-                    <div className={`pomich-role-icon pomich-role-icon--${card.tone}`}>
+                  <div className="flex items-center gap-2.5">
+                    <div className={`pomich-role-icon pomich-role-icon--compact pomich-role-icon--${card.tone}`}>
                       <span className="pomich-role-icon__glow" aria-hidden="true" />
                       <Icon />
                     </div>
                     <div className="min-w-0 flex-1 text-left">
-                      <div className="text-xs font-extrabold tracking-wide" style={{ color: `var(${card.accentVar})` }}>
+                      <div className="text-[10px] font-extrabold tracking-wide uppercase" style={{ color: `var(${card.accentVar})` }}>
                         {card.eyebrow}
                       </div>
-                      <div className="pomich-role-card__title mt-1 text-lg font-extrabold">{card.title}</div>
+                      <div className="pomich-role-card__title mt-0.5 text-[15px] font-extrabold leading-tight">{card.title}</div>
                       <div
-                        className="mt-2 text-sm font-bold leading-snug"
+                        className="mt-0.5 text-[11px] font-semibold leading-snug"
                         style={{ color: "var(--pomich-role-card-muted)" }}
                       >
                         {card.description}
@@ -208,32 +202,25 @@ export default function RoleSelectionScreen({
             })}
           </div>
 
-          <a href="https://t.me/pomich_ua_bot" target="_blank" rel="noreferrer" className="mt-3.5 block no-underline">
-            <div className="pomich-ghost-btn flex min-h-[50px] items-center justify-center gap-2.5 rounded-xl px-4 text-sm">
-              <span className="text-lg" aria-hidden="true">
-                ✈
-              </span>
-              Відкрити @pomich_ua_bot у Telegram
+          <a href="https://t.me/pomich_ua_bot" target="_blank" rel="noreferrer" className="mt-2.5 block no-underline">
+            <div className="pomich-ghost-btn pomich-role-tg-link flex items-center justify-center gap-2">
+              <span aria-hidden="true">✈</span>
+              @pomich_ua_bot
             </div>
           </a>
 
-          <div
-            className={`pomich-map-copy-plate pomich-role-stats mx-auto mt-8 grid max-w-[480px] grid-cols-3 gap-2.5 ${
-              isCompact ? "" : "gap-5"
-            }`}
-            style={{ padding: isCompact ? "12px 10px" : "14px 16px" }}
-          >
+          <div className="pomich-map-copy-plate pomich-role-stats pomich-role-stats--compact mx-auto mt-4 grid max-w-[400px] grid-cols-3 gap-1.5">
             {roleStats.map(([value, label], index) => (
-              <div key={value} className="pomich-role-stat" style={{ animationDelay: `${320 + index * 70}ms` }}>
+              <div key={value} className="pomich-role-stat" style={{ animationDelay: `${220 + index * 50}ms` }}>
                 <div
-                  className={`font-extrabold ${isCompact ? "text-[22px]" : "text-[28px]"}`}
+                  className="text-base font-extrabold"
                   style={{ color: isDark ? "#FACC15" : colors.brand }}
                 >
                   {value}
                 </div>
                 <div
-                  className={`mt-1 font-extrabold ${isCompact ? "text-[10px]" : "text-xs"}`}
-                  style={{ color: isDark ? "rgba(226,232,240,0.9)" : "#334155" }}
+                  className="mt-0.5 text-[9px] font-bold"
+                  style={{ color: isDark ? "rgba(226,232,240,0.85)" : "#475569" }}
                 >
                   {label}
                 </div>

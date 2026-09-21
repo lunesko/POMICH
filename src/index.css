@@ -1,5 +1,5 @@
 @import 'tailwindcss';
-@import url("https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Outfit:wght@600;700;800&family=Sora:wght@600;700;800&display=swap");
 
 /* POMICH theme tokens — toggled via html[data-pomich-theme] */
 [data-pomich-theme="light"],
@@ -169,12 +169,12 @@ html:not([data-pomich-theme]) {
   --pomich-space-2: 0.5rem;
   --pomich-space-3: 0.75rem;
   --pomich-space-4: 1rem;
-  --pomich-btn-height: 2.75rem;
-  --pomich-btn-height-sm: 2.5rem;
+  --pomich-btn-height: 2.5rem;
+  --pomich-btn-height-sm: 2.25rem;
   --pomich-input-height: 2.5rem;
   --pomich-app-header-height: 3.875rem;
-  /* Cabinet fixed header: title + subtitle row + chip actions + vertical padding */
-  --pomich-cabinet-header-block: calc(4.75rem + 12px);
+  /* Cabinet fixed header: compact title row + chip actions */
+  --pomich-cabinet-header-block: calc(3.35rem + 8px);
   --pomich-cabinet-chrome-top: calc(var(--pomich-chrome-inset-top) + var(--pomich-cabinet-header-block));
   --pomich-header-stack-height: calc(var(--pomich-app-header-height) + var(--pomich-chrome-inset-top));
   --pomich-safe-pad-bottom: calc(
@@ -183,11 +183,11 @@ html:not([data-pomich-theme]) {
   --pomich-card-radius: 1.125rem;
   --pomich-card-padding: 0.875rem;
   /* % of ride-screen — taller half so primary CTAs stay above Safari/Chrome toolbars */
-  --pomich-sheet-peek: 28%;
-  --pomich-sheet-half: 54%;
-  --pomich-sheet-expanded: 74%;
-  --pomich-sheet-min: 22%;
-  --pomich-sheet-max: 82%;
+  --pomich-sheet-peek: 24%;
+  --pomich-sheet-half: 48%;
+  --pomich-sheet-expanded: 72%;
+  --pomich-sheet-min: 20%;
+  --pomich-sheet-max: 80%;
   --pomich-service-row-height: 4rem;
   --pomich-service-icon: 3rem;
 }
@@ -202,17 +202,17 @@ html:not([data-pomich-theme]) {
     --pomich-space-2: clamp(0.375rem, 0.34rem + 0.18vw, 0.5rem);
     --pomich-space-3: clamp(0.5rem, 0.46rem + 0.2vw, 0.625rem);
     --pomich-space-4: clamp(0.625rem, 0.58rem + 0.22vw, 0.75rem);
-    --pomich-btn-height: clamp(2.75rem, 2.62rem + 0.55vw, 2.875rem);
-    --pomich-btn-height-sm: clamp(2.625rem, 2.5rem + 0.5vw, 2.75rem);
+    --pomich-btn-height: clamp(2.4rem, 2.28rem + 0.45vw, 2.55rem);
+    --pomich-btn-height-sm: clamp(2.2rem, 2.1rem + 0.4vw, 2.4rem);
     --pomich-input-height: clamp(2.625rem, 2.5rem + 0.5vw, 2.75rem);
     --pomich-app-header-height: clamp(2.625rem, 2.5rem + 0.5vw, 2.75rem);
     --pomich-card-radius: clamp(0.875rem, 0.82rem + 0.28vw, 1rem);
     --pomich-card-padding: clamp(0.625rem, 0.58rem + 0.22vw, 0.75rem);
-    --pomich-sheet-peek: 28%;
-    --pomich-sheet-half: 54%;
-    --pomich-sheet-expanded: 76%;
-    --pomich-sheet-min: 24%;
-    --pomich-sheet-max: 84%;
+    --pomich-sheet-peek: 24%;
+    --pomich-sheet-half: 48%;
+    --pomich-sheet-expanded: 72%;
+    --pomich-sheet-min: 22%;
+    --pomich-sheet-max: 82%;
     --pomich-service-row-height: clamp(3rem, 2.85rem + 0.65vw, 3.25rem);
     --pomich-service-icon: clamp(2.25rem, 2.12rem + 0.55vw, 2.5rem);
   }
@@ -228,23 +228,24 @@ html:not([data-pomich-theme]) {
     --pomich-space-2: 0.375rem;
     --pomich-space-3: 0.5rem;
     --pomich-space-4: 0.625rem;
-    --pomich-btn-height: 2.75rem;
-    --pomich-btn-height-sm: 2.625rem;
+    --pomich-btn-height: 2.4rem;
+    --pomich-btn-height-sm: 2.2rem;
     --pomich-input-height: 2.625rem;
     --pomich-app-header-height: 2.625rem;
     --pomich-card-radius: 0.875rem;
     --pomich-card-padding: 0.625rem;
-    --pomich-sheet-peek: 30%;
-    --pomich-sheet-half: 56%;
-    --pomich-sheet-expanded: 78%;
-    --pomich-sheet-min: 26%;
-    --pomich-sheet-max: 86%;
+    --pomich-sheet-peek: 26%;
+    --pomich-sheet-half: 50%;
+    --pomich-sheet-expanded: 74%;
+    --pomich-sheet-min: 24%;
+    --pomich-sheet-max: 84%;
     --pomich-service-row-height: 3.125rem;
     --pomich-service-icon: 2.125rem;
   }
 }
 @theme inline {
-  --font-sans: "Sora", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-sans: "Sora", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Outfit", "Sora", system-ui, sans-serif;
   --color-brand: var(--pomich-brand);
   --color-brand-dark: #0f7a4e;
   --color-brand-light: #d1f5e7;
@@ -599,12 +600,12 @@ button.pomich-app-header-session {
   cursor: pointer;
 }
 .pomich-app-header-chip--compact {
-  padding: 2px 7px;
-  font-size: 11px;
+  padding: 1px 6px;
+  font-size: 10px;
   font-weight: 750;
   line-height: 1.1;
-  height: 28px;
-  min-height: 28px;
+  height: 24px;
+  min-height: 24px;
   min-width: 0;
   max-width: none;
   display: inline-flex;
@@ -613,10 +614,11 @@ button.pomich-app-header-session {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  border-radius: 8px;
 }
 .pomich-app-header-chip--regular {
-  padding: 8px 12px;
-  font-size: 14px;
+  padding: 6px 10px;
+  font-size: 13px;
 }
 .pomich-app-header-chip.is-active {
   border: 1.5px solid var(--pomich-brand);
@@ -634,10 +636,10 @@ button.pomich-app-header-session {
   flex-direction: row;
   flex-wrap: nowrap;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   overflow-x: auto;
   overflow-y: visible;
-  min-height: 42px;
+  min-height: 32px;
   flex-shrink: 0;
   -ms-overflow-style: none;
   scrollbar-width: none;
@@ -1454,11 +1456,33 @@ html:not([data-pomich-theme]) .pomich-map-tools-panel__close {
   overflow: hidden;
   background: #e8e0d8;
 }
+.pomich-decorative-basemap--css {
+  background-color: #d7e2db;
+  background-image:
+    linear-gradient(165deg, rgba(226, 233, 230, 0.42) 0%, rgba(208, 221, 215, 0.28) 48%, rgba(190, 208, 198, 0.5) 100%),
+    repeating-linear-gradient(
+      90deg,
+      transparent 0,
+      transparent 36px,
+      rgba(90, 110, 100, 0.045) 36px,
+      rgba(90, 110, 100, 0.045) 37px
+    ),
+    repeating-linear-gradient(
+      0deg,
+      transparent 0,
+      transparent 36px,
+      rgba(90, 110, 100, 0.04) 36px,
+      rgba(90, 110, 100, 0.04) 37px
+    ),
+    radial-gradient(ellipse at 42% 48%, #b9cfc0 0%, #d5e2da 42%, #c2d3c8 72%, #aebfb4 100%);
+  background-size: cover, 72px 72px, 72px 72px, cover;
+  background-position: center;
+}
 .pomich-decorative-basemap__img {
   position: absolute;
-  inset: -3%;
-  width: 106%;
-  height: 106%;
+  inset: -2%;
+  width: 104%;
+  height: 104%;
   max-width: none !important;
   max-height: none !important;
   object-fit: cover;
@@ -1466,10 +1490,11 @@ html:not([data-pomich-theme]) .pomich-map-tools-panel__close {
   pointer-events: none;
   user-select: none;
   -webkit-user-drag: none;
-  /* Kill any residual abutment aliasing from the source raster on retina */
-  filter: blur(0.35px);
-  -webkit-filter: blur(0.35px);
+  /* Keep roads/cities sharp — soft blur made the map look like a blank wash on iOS */
+  filter: none;
+  -webkit-filter: none;
   transform: translateZ(0);
+  opacity: 0.92;
 }
 /* Atmosphere / hero map: never animate transform — Ken Burns = square tile grid on PC */
 .pomich-map-shell__map--static {
@@ -1979,6 +2004,71 @@ html.mobile-compact .pomich-map-occupied-hint {
     box-shadow 0.28s ease;
   animation: pomichRoleCardIn 0.55s cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
+.pomich-role-card--compact {
+  border-radius: 14px;
+  padding: 10px 11px;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.3) inset,
+    0 6px 16px rgba(28, 42, 36, 0.06);
+  animation-duration: 0.4s;
+}
+.pomich-role-card--compact:hover {
+  --role-tilt-x: -3deg;
+  --role-tilt-y: 2deg;
+  transform: perspective(900px) rotateX(var(--role-tilt-x)) rotateY(var(--role-tilt-y)) translateY(-2px);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.4) inset,
+    0 12px 24px rgba(22, 163, 106, 0.12),
+    0 4px 10px rgba(28, 42, 36, 0.06);
+}
+.pomich-role-card--compact.pomich-role-card--partner:hover {
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.4) inset,
+    0 12px 24px rgba(29, 111, 212, 0.14),
+    0 4px 10px rgba(28, 42, 36, 0.06);
+}
+.pomich-role-header-link {
+  min-height: 32px !important;
+  padding: 0 10px !important;
+  border-radius: 9px !important;
+  font-size: 12px !important;
+  font-weight: 800 !important;
+}
+.pomich-role-hero-plate--compact {
+  padding: 12px 12px 10px !important;
+  border-radius: 14px !important;
+  margin-bottom: 0 !important;
+}
+.pomich-role-hero-title--compact {
+  margin-top: 8px !important;
+  font-size: clamp(1.15rem, 4.6vw, 1.45rem) !important;
+  letter-spacing: -0.03em;
+}
+.pomich-role-hero-lead {
+  margin: 6px auto 0;
+  max-width: 320px;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+.pomich-role-section-label {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 850;
+  margin: 0 2px 2px;
+  letter-spacing: 0.01em;
+}
+.pomich-role-tg-link {
+  min-height: 36px !important;
+  border-radius: 10px !important;
+  padding: 0 12px !important;
+  font-size: 12px !important;
+  font-weight: 800 !important;
+}
+.pomich-role-stats--compact {
+  padding: 8px 8px !important;
+  border-radius: 12px !important;
+}
 .pomich-role-card__shine {
   pointer-events: none;
   position: absolute;
@@ -2061,6 +2151,27 @@ html.mobile-compact .pomich-map-occupied-hint {
     0 14px 28px rgba(15, 23, 42, 0.22);
   animation: pomichRoleIconFloat 3.6s ease-in-out infinite;
 }
+.pomich-role-icon--compact {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  transform: translateZ(16px);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.4) inset,
+    0 8px 16px rgba(15, 23, 42, 0.18);
+  animation-duration: 4.2s;
+}
+.pomich-role-icon--compact .pomich-role-icon__glow {
+  inset: 4px;
+  border-radius: 9px;
+}
+.pomich-role-card--compact .pomich-role-card__chevron {
+  font-size: 1rem;
+}
+.pomich-role-card--compact:hover .pomich-role-icon,
+.pomich-role-card--compact:focus-visible .pomich-role-icon {
+  transform: translateZ(22px) scale(1.05) rotate(-2deg);
+}
 .pomich-role-icon--client {
   background: linear-gradient(160deg, #34d399 0%, #16a36a 48%, #0f766e 100%);
   color: #ecfdf5;
@@ -2128,6 +2239,22 @@ html.mobile-compact .pomich-map-occupied-hint {
     0 1px 0 rgba(255, 255, 255, 0.35) inset,
     0 10px 24px rgba(22, 163, 106, 0.28);
   transform: rotateX(8deg) rotateY(-8deg);
+}
+.pomich-role-select .pomich-role-brand-mark {
+  height: 30px;
+  width: 30px;
+  border-radius: 9px;
+  font-size: 0.9rem;
+  transform: none;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.3) inset,
+    0 6px 14px rgba(22, 163, 106, 0.22);
+}
+.pomich-role-select .pomich-role-badge {
+  gap: 6px;
+  padding: 4px 9px;
+  font-size: 10px;
+  font-weight: 750;
 }
 .pomich-role-brand-wordmark {
   letter-spacing: -0.03em;
@@ -4896,10 +5023,10 @@ html:not([data-pomich-theme]) select.pomich-form-input {
   flex-shrink: 0;
   margin: 0 !important;
   padding:
-    calc(10px + var(--pomich-chrome-inset-top))
-    max(16px, var(--pomich-chrome-inset-right))
-    10px
-    max(16px, var(--pomich-chrome-inset-left));
+    calc(6px + var(--pomich-chrome-inset-top))
+    max(10px, var(--pomich-chrome-inset-right))
+    6px
+    max(10px, var(--pomich-chrome-inset-left));
   background: rgba(8, 12, 14, 0.22) !important;
   border-bottom: 1px solid color-mix(in srgb, var(--pomich-border) 55%, transparent);
   backdrop-filter: blur(16px) saturate(1.2);
@@ -4947,23 +5074,24 @@ html:not([data-pomich-theme]) .pomich-cabinet-header .pomich-cabinet-chip-btn {
 .pomich-cabinet-header-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 5px;
   flex-shrink: 0;
 }
 .pomich-cabinet-chip-btn {
-  min-height: var(--pomich-btn-height-sm);
-  min-width: var(--pomich-touch-min);
-  padding: 8px 12px;
-  border-radius: 999px;
+  min-height: 28px;
+  min-width: 0;
+  padding: 3px 8px;
+  border-radius: 8px;
   border: 1px solid var(--pomich-ghost-border);
   background: var(--pomich-ghost-bg);
   color: var(--pomich-text);
   font-family: inherit;
-  font-size: var(--pomich-text-xs);
-  font-weight: 850;
+  font-size: 11px;
+  font-weight: 800;
   cursor: pointer;
   white-space: nowrap;
   touch-action: manipulation;
+  line-height: 1.1;
 }
 .pomich-cabinet-chip-btn--muted {
   color: var(--pomich-muted);
@@ -5059,7 +5187,7 @@ html:not([data-pomich-theme]) .pomich-cabinet-header .pomich-cabinet-chip-btn {
   border: 1px solid var(--pomich-glass-border);
   border-radius: 12px;
   background: var(--pomich-glass-card);
-  padding: 10px 11px;
+  padding: 8px 9px;
   box-shadow: var(--pomich-card-shadow);
   color: var(--pomich-text);
   backdrop-filter: blur(18px) saturate(180%);
@@ -5070,20 +5198,20 @@ html:not([data-pomich-theme]) .pomich-cabinet-header .pomich-cabinet-chip-btn {
 }
 .pomich-cabinet-profile {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  align-items: flex-start;
+  gap: 8px;
 }
 .pomich-cabinet-avatar {
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
   background: linear-gradient(135deg, var(--pomich-brand), var(--pomich-accent-blue));
   color: #fff;
   display: flex;
   align-items: center;
   justify-content: center;
   font-weight: 950;
-  font-size: 14px;
+  font-size: 13px;
   flex-shrink: 0;
   box-shadow: none;
 }
@@ -5093,28 +5221,72 @@ html:not([data-pomich-theme]) .pomich-cabinet-header .pomich-cabinet-chip-btn {
 }
 .pomich-cabinet-profile-name {
   font-weight: 950;
-  font-size: 15px;
-  line-height: 1.2;
+  font-size: 14px;
+  line-height: 1.15;
   color: var(--pomich-text);
 }
 .pomich-cabinet-profile-phone {
-  margin-top: 2px;
+  margin-top: 1px;
   color: var(--pomich-muted);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
 }
 .pomich-cabinet-profile-badges {
-  margin-top: 6px;
+  margin-top: 5px;
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 4px;
   align-items: center;
 }
 .pomich-cabinet-profile-extra {
-  margin-top: 3px;
+  margin-top: 2px;
   color: var(--pomich-muted);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
+}
+.pomich-cabinet-profile-services {
+  margin-top: 5px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.pomich-cabinet-profile-service {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--pomich-border) 85%, transparent);
+  background: color-mix(in srgb, var(--pomich-service-tone-default) 80%, transparent);
+  font-size: 10px;
+  font-weight: 750;
+  line-height: 1.2;
+  color: var(--pomich-text);
+}
+.pomich-cabinet-line-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: 999px;
+  padding: 3px 8px;
+  background: var(--pomich-service-tone-default);
+  color: var(--pomich-muted);
+  font-size: 10px;
+  font-weight: 850;
+  border: 1px solid var(--pomich-border);
+}
+.pomich-cabinet-line-pill[data-online="1"] {
+  background: var(--pomich-selected-bg);
+  color: var(--pomich-brand);
+}
+.pomich-cabinet-line-pill__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--pomich-subtle);
+}
+.pomich-cabinet-line-pill[data-online="1"] .pomich-cabinet-line-pill__dot {
+  background: var(--pomich-brand);
 }
 .pomich-cabinet-edit-form {
   display: grid;
@@ -5379,15 +5551,24 @@ html.mobile-compact .pomich-plate-input .pomich-plate__field {
   background: rgba(22, 163, 106, 0.12);
 }
 .pomich-cabinet-empty {
-  padding: 12px 10px;
-  border-radius: 10px;
+  padding: 8px 8px;
+  border-radius: 9px;
   border: 1px dashed color-mix(in srgb, var(--pomich-border) 80%, transparent);
   background: transparent;
   color: var(--pomich-muted);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
-  line-height: 1.4;
-  text-align: center;
+  line-height: 1.35;
+  text-align: left;
+}
+.pomich-cabinet-order-item {
+  padding: 6px 8px;
+  border-radius: 9px;
+  border: 1px solid color-mix(in srgb, var(--pomich-glass-border) 80%, transparent);
+  background: color-mix(in srgb, var(--pomich-service-tone-default) 55%, transparent);
+  margin-bottom: 0;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 .pomich-cabinet-skeleton-block,
 .pomich-cabinet-skeleton-line {
@@ -5432,15 +5613,6 @@ html.mobile-compact .pomich-plate-input .pomich-plate__field {
   overflow-y: auto;
   overscroll-behavior: contain;
   padding-right: 2px;
-}
-.pomich-cabinet-order-item {
-  padding: 8px 10px;
-  border-radius: 10px;
-  border: 1px solid color-mix(in srgb, var(--pomich-glass-border) 80%, transparent);
-  background: color-mix(in srgb, var(--pomich-service-tone-default) 55%, transparent);
-  margin-bottom: 0;
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
 }
 button.pomich-cabinet-order-item--button {
   display: grid;
@@ -5578,18 +5750,20 @@ button.pomich-cabinet-order-item--button:active {
   background: color-mix(in srgb, var(--pomich-brand) 14%, transparent);
 }
 .pomich-history-detail__title {
-  margin: 4px 0 0;
-  font-size: 22px;
+  margin: 2px 0 0;
+  font-size: 0.95rem;
   font-weight: 900;
   letter-spacing: -0.02em;
   color: var(--pomich-text);
+  line-height: 1.25;
+  word-break: break-word;
 }
 .pomich-history-detail__status {
-  margin-top: 6px;
+  margin-top: 4px;
   display: inline-flex;
   border-radius: 999px;
-  padding: 5px 10px;
-  font-size: 12px;
+  padding: 3px 8px;
+  font-size: 11px;
   font-weight: 800;
   background: color-mix(in srgb, var(--pomich-brand) 16%, transparent);
   color: var(--pomich-brand);
@@ -5597,44 +5771,44 @@ button.pomich-cabinet-order-item--button:active {
 .pomich-history-detail__grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  margin-top: 14px;
+  gap: 6px;
+  margin-top: 10px;
 }
 .pomich-history-detail__stat {
-  border-radius: 14px;
-  padding: 10px 12px;
+  border-radius: 10px;
+  padding: 6px 8px;
   border: 1px solid color-mix(in srgb, var(--pomich-glass-border) 80%, transparent);
   background: color-mix(in srgb, var(--pomich-service-tone-default) 50%, transparent);
 }
 .pomich-history-detail__stat-label {
   display: block;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
   color: var(--pomich-muted);
 }
 .pomich-history-detail__stat-value {
   display: block;
-  margin-top: 3px;
-  font-size: 15px;
+  margin-top: 1px;
+  font-size: 13px;
   font-weight: 900;
   color: var(--pomich-text);
 }
 .pomich-history-detail__block {
   display: grid;
-  gap: 6px;
-  margin-top: 14px;
-  font-size: 13px;
+  gap: 4px;
+  margin-top: 10px;
+  font-size: 12px;
   font-weight: 700;
-  line-height: 1.4;
+  line-height: 1.35;
   color: var(--pomich-text);
 }
 .pomich-history-detail__block strong {
   font-weight: 900;
 }
 .pomich-history-detail__map {
-  margin-top: 14px;
-  height: 220px;
-  border-radius: 16px;
+  margin-top: 10px;
+  height: 160px;
+  border-radius: 12px;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--pomich-glass-border) 80%, transparent);
   position: relative;
@@ -5703,8 +5877,15 @@ button.pomich-cabinet-order-item--button:active {
   background: color-mix(in srgb, var(--pomich-service-tone-default) 45%, transparent);
 }
 .pomich-history-detail__footer {
-  padding: 10px 16px var(--pomich-safe-pad-bottom);
+  padding: 8px 12px var(--pomich-safe-pad-bottom);
   border-top: 1px solid color-mix(in srgb, var(--pomich-glass-border) 70%, transparent);
+}
+.pomich-history-detail__footer .pomich-secondary-btn,
+.pomich-history-detail__footer button {
+  min-height: 36px !important;
+  padding: 6px 12px !important;
+  font-size: 13px !important;
+  border-radius: 10px !important;
 }
 @keyframes pomichHistoryDetailIn {
   from {
@@ -5726,7 +5907,7 @@ button.pomich-cabinet-order-item--button:active {
 }
 .pomich-cabinet-footer {
   flex-shrink: 0;
-  padding: var(--pomich-space-3) 12px var(--pomich-safe-pad-bottom);
+  padding: 6px 10px var(--pomich-safe-pad-bottom);
   border-top: 1px solid color-mix(in srgb, var(--pomich-border) 55%, transparent);
   background: rgba(8, 12, 14, 0.22);
   backdrop-filter: blur(16px) saturate(1.2);
@@ -5744,18 +5925,18 @@ html:not([data-pomich-theme]) .pomich-cabinet-footer {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 6px;
+  gap: 4px;
 }
 .pomich-cabinet-footer .pomich-primary-btn {
   width: 100%;
   min-width: 0;
   max-width: 100%;
-  min-height: var(--pomich-btn-height);
+  min-height: 38px;
   height: auto;
-  padding: var(--pomich-space-3) var(--pomich-space-4);
-  font-size: var(--pomich-text-base);
+  padding: 8px 12px;
+  font-size: 13px;
   font-weight: 850;
-  border-radius: var(--pomich-card-radius);
+  border-radius: 11px;
   box-shadow: none;
   white-space: normal;
   text-wrap: balance;
@@ -5778,6 +5959,14 @@ html:not([data-pomich-theme]) .pomich-cabinet-footer {
   border: none;
   border-radius: 0;
   box-shadow: none;
+}
+.pomich-cabinet-shell .pomich-header-title {
+  font-size: 0.95rem !important;
+  line-height: 1.15 !important;
+}
+.pomich-cabinet-shell .pomich-header-subtitle {
+  font-size: 10px !important;
+  margin-top: 1px !important;
 }
 @media (min-width: 1024px) {
   .pomich-form-input {
@@ -6278,95 +6467,104 @@ html:not([data-pomich-theme]) .pomich-cabinet-footer {
 /* POMICH 1.0 Home — compact emergency problem cards («Що сталося?») */
 .pomich-home-sheet {
   display: grid;
-  gap: 8px;
+  gap: 6px;
 }
 .pomich-home-sheet__intro {
   display: grid;
-  gap: 4px;
+  gap: 2px;
 }
 .pomich-home-sheet__intro .pomich-step-badge {
   margin-bottom: 0;
-  padding: 5px 9px;
-  font-size: 11px;
+  padding: 4px 8px;
+  font-size: 10px;
 }
 .pomich-home-sheet__title {
   margin: 0;
-  font-size: 1.15rem;
+  font-size: 1.05rem;
   font-weight: 950;
   letter-spacing: -0.03em;
-  line-height: 1.15;
+  line-height: 1.12;
   color: var(--pomich-text);
 }
 .pomich-home-sheet__subtitle {
   margin: 0;
   color: var(--pomich-muted);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
-  line-height: 1.35;
+  line-height: 1.3;
 }
 .pomich-home-sheet .pomich-sheet-section-head {
-  margin-top: 2px;
+  margin-top: 0;
   margin-bottom: 0;
 }
 .pomich-home-sheet .pomich-sheet-section-title {
-  font-size: 0.92rem;
+  font-size: 0.86rem;
 }
 .pomich-home-sheet .pomich-sheet-badge {
-  padding: 4px 8px;
-  font-size: 10px;
+  padding: 3px 7px;
+  font-size: 9px;
 }
 .pomich-problem-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 8px;
+  gap: 6px;
   margin-top: 0;
 }
 .pomich-problem-grid--peek {
-  gap: 6px;
-  margin-top: 4px;
+  gap: 5px;
+  margin-top: 2px;
 }
 .pomich-problem-card {
   display: grid;
-  grid-template-columns: 1.75rem 1fr;
+  grid-template-columns: 1.35rem 1fr;
   grid-template-areas:
     "emoji label"
     "emoji hint";
-  column-gap: 8px;
-  row-gap: 2px;
+  column-gap: 7px;
+  row-gap: 1px;
   align-items: start;
   min-height: 0;
-  padding: 10px;
-  border: 1px solid var(--pomich-border);
-  border-radius: 14px;
-  background: var(--pomich-card-bg);
+  padding: 8px 9px;
+  border: 1px solid color-mix(in srgb, var(--pomich-border) 85%, transparent);
+  border-radius: 12px;
+  background:
+    linear-gradient(
+      155deg,
+      color-mix(in srgb, var(--pomich-card-bg) 92%, #fff) 0%,
+      var(--pomich-card-bg) 100%
+    );
   color: var(--pomich-text);
   text-align: left;
   cursor: pointer;
   font-family: inherit;
-  box-shadow: 0 6px 16px rgba(17, 19, 21, 0.05);
-  backdrop-filter: blur(16px) saturate(180%);
-  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.35) inset,
+    0 4px 12px rgba(17, 19, 21, 0.04);
+  backdrop-filter: blur(12px) saturate(160%);
+  -webkit-backdrop-filter: blur(12px) saturate(160%);
   transition:
-    transform 0.2s cubic-bezier(0.4, 0, 0.2, 1),
-    border-color 0.2s ease,
-    box-shadow 0.2s ease;
-  animation: pomichServiceRowIn 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+    transform 0.18s cubic-bezier(0.4, 0, 0.2, 1),
+    border-color 0.18s ease,
+    box-shadow 0.18s ease;
+  animation: pomichServiceRowIn 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 .pomich-problem-card--peek {
   grid-template-areas: "emoji label";
   grid-template-rows: auto;
   align-items: center;
-  padding: 8px 9px;
-  border-radius: 12px;
-  min-height: 2.75rem;
+  padding: 6px 8px;
+  border-radius: 10px;
+  min-height: 2.35rem;
 }
 .pomich-problem-card:hover:not(:disabled) {
   transform: translateY(-1px);
-  border-color: rgba(34, 197, 94, 0.45);
-  box-shadow: 0 10px 20px -4px rgba(34, 197, 94, 0.14);
+  border-color: rgba(34, 197, 94, 0.4);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.4) inset,
+    0 8px 16px -4px rgba(34, 197, 94, 0.12);
 }
 .pomich-problem-card:active:not(:disabled) {
-  transform: translateY(1px) scale(0.98);
+  transform: translateY(1px) scale(0.985);
 }
 .pomich-problem-card:disabled {
   cursor: not-allowed;
@@ -6374,30 +6572,31 @@ html:not([data-pomich-theme]) .pomich-cabinet-footer {
 .pomich-problem-card__emoji {
   grid-area: emoji;
   align-self: center;
-  font-size: 1.35rem;
+  font-size: 1.15rem;
   line-height: 1;
+  filter: drop-shadow(0 1px 1px rgba(17, 19, 21, 0.12));
 }
 .pomich-problem-card--peek .pomich-problem-card__emoji {
-  font-size: 1.15rem;
+  font-size: 1.05rem;
 }
 .pomich-problem-card__label {
   grid-area: label;
   display: block;
-  font-size: 0.86rem;
-  font-weight: 950;
+  font-size: 0.8rem;
+  font-weight: 900;
   letter-spacing: -0.02em;
-  line-height: 1.2;
+  line-height: 1.15;
 }
 .pomich-problem-card--peek .pomich-problem-card__label {
-  font-size: 0.78rem;
-  line-height: 1.15;
+  font-size: 0.74rem;
+  line-height: 1.1;
 }
 .pomich-problem-card__hint {
   grid-area: hint;
   display: block;
-  font-size: 0.68rem;
+  font-size: 0.62rem;
   font-weight: 650;
-  line-height: 1.25;
+  line-height: 1.2;
   color: var(--pomich-muted);
 }
 .pomich-problem-other {
@@ -6409,14 +6608,14 @@ html:not([data-pomich-theme]) .pomich-cabinet-footer {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  min-height: 2.4rem;
-  padding: 0 12px;
+  min-height: 2.15rem;
+  padding: 0 11px;
   border: 1px dashed var(--pomich-border);
-  border-radius: 12px;
+  border-radius: 10px;
   background: transparent;
   color: var(--pomich-text);
   font-family: inherit;
-  font-size: 0.86rem;
+  font-size: 0.8rem;
   font-weight: 850;
   cursor: pointer;
 }
@@ -6543,6 +6742,127 @@ html:not([data-pomich-theme]) .pomich-cabinet-footer {
 .landing-service-card:hover {
   transform: translateY(-2px);
   border-color: rgba(34, 197, 94, 0.35);
+}
+
+.landing-section-eyebrow {
+  display: inline-flex;
+  border: 1px solid rgba(22, 163, 106, 0.35);
+  background: rgba(22, 163, 106, 0.12);
+  color: var(--pomich-badge-text, #0B7A4D);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-weight: 800;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+.landing-trust-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+@media (min-width: 720px) {
+  .landing-trust-grid {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+  }
+}
+.landing-trust-item {
+  border: 1px solid color-mix(in srgb, var(--pomich-border) 85%, transparent);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: color-mix(in srgb, var(--pomich-card-bg) 86%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  text-align: left;
+  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.landing-trust-item:hover {
+  transform: translateY(-1px);
+  border-color: rgba(22, 163, 106, 0.35);
+  box-shadow: 0 8px 18px -8px rgba(22, 163, 106, 0.2);
+}
+.landing-trust-item__title {
+  font-size: 0.86rem;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  color: var(--pomich-text);
+}
+.landing-trust-item__text {
+  margin-top: 3px;
+  font-size: 0.72rem;
+  font-weight: 650;
+  line-height: 1.35;
+  color: var(--pomich-muted);
+}
+.landing-faq {
+  display: grid;
+  gap: 8px;
+  max-width: 640px;
+  margin: 0 auto;
+}
+.landing-faq__item {
+  border: 1px solid color-mix(in srgb, var(--pomich-border) 85%, transparent);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: color-mix(in srgb, var(--pomich-card-bg) 88%, transparent);
+  text-align: left;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+.landing-faq__item[open] {
+  border-color: rgba(22, 163, 106, 0.35);
+  box-shadow: 0 8px 18px -10px rgba(22, 163, 106, 0.18);
+}
+.landing-faq__item summary {
+  cursor: pointer;
+  font-weight: 850;
+  font-size: 0.88rem;
+  color: var(--pomich-text);
+  list-style: none;
+}
+.landing-faq__item summary::-webkit-details-marker { display: none; }
+.landing-faq__item summary::after {
+  content: "+";
+  float: right;
+  color: var(--pomich-brand);
+  font-weight: 900;
+}
+.landing-faq__item[open] summary::after { content: "–"; }
+.landing-faq__item p {
+  margin: 8px 0 0;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  font-weight: 650;
+  color: var(--pomich-muted);
+}
+@keyframes landingRevealIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.landing-reveal {
+  animation: landingRevealIn 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .landing-reveal,
+  .landing-trust-item,
+  .landing-faq__item {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+.landing-service-row {
+  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+.landing-service-row:hover {
+  transform: translateY(-1px);
+  border-color: rgba(34, 197, 94, 0.45) !important;
+  box-shadow: 0 8px 18px -6px rgba(22, 163, 106, 0.18);
+}
+.landing-service-row:active {
+  transform: translateY(1px) scale(0.99);
+}
+.landing-step-row:last-child {
+  border-bottom: none !important;
 }
 .landing-service-card:active {
   transform: translateY(1px) scale(0.99);
@@ -6816,12 +7136,13 @@ html:not([data-pomich-theme]) .pomich-cabinet-footer {
   gap: 6px;
 }
 .pomich-duty-panel .pomich-primary-btn {
-  min-height: 44px;
-  border-radius: 13px;
-  font-size: 14px;
+  min-height: 38px;
+  border-radius: 11px;
+  font-size: 13px;
+  padding: 8px 12px;
 }
 .pomich-duty-panel--peek .pomich-primary-btn {
-  min-height: 42px;
+  min-height: 36px;
 }
 .pomich-duty-toggle {
   width: 48px;
@@ -7210,18 +7531,18 @@ html.tg-compact .pomich-ride-screen__map .leaflet-top.leaflet-left {
   visibility: visible !important;
   opacity: 1 !important;
   width: 100% !important;
-  min-height: 52px !important;
+  min-height: 44px !important;
   height: auto !important;
   pointer-events: auto !important;
   -webkit-appearance: none;
   appearance: none;
 }
 .pomich-offer-price-input--compact {
-  min-height: 44px !important;
-  font-size: 18px !important;
+  min-height: 38px !important;
+  font-size: 16px !important;
   font-weight: 900 !important;
-  padding: 0 12px !important;
-  border-radius: 12px !important;
+  padding: 0 10px !important;
+  border-radius: 10px !important;
 }
 .pomich-offer-inline-error {
   background: var(--pomich-error-bg);
