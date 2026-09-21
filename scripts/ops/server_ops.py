@@ -92,11 +92,23 @@ def write_env_production(
     web_app_url: str | None = None,
     telegram_mode: str = "polling",
     encryption_key: str | None = None,
+    force: bool = False,
 ) -> str:
+    """Create `.env.production` only when missing.
+
+    Never clobber a live file: rewriting secrets breaks the Postgres volume
+    password and wipes Telegram bot tokens. Pass force=True only for
+    intentional bootstrap on a fresh host.
+    """
+    existing_key = read_existing_encryption_key(ssh)
+    if existing_key and not force:
+        print("Keeping existing .env.production (use force=True to rewrite)")
+        return existing_key
+
     app_url = web_app_url or WEB_APP_URL
     cors_origin = app_url.rstrip("/")
     if not encryption_key:
-        encryption_key = read_existing_encryption_key(ssh)
+        encryption_key = existing_key
     if not encryption_key:
         try:
             from cryptography.fernet import Fernet
@@ -117,7 +129,13 @@ def write_env_production(
     admin_token = _secret("POMICH_ADMIN_TOKEN")
     provider_token = _secret("POMICH_PROVIDER_TOKEN")
     session_secret = _secret("POMICH_CUSTOMER_SESSION_SECRET")
-    db_password = _secret("POSTGRES_PASSWORD", 24)
+    # Always prefer an already-configured DB password so a Postgres volume
+    # initialized earlier keeps accepting connections.
+    db_password = (
+        (os.environ.get("POSTGRES_PASSWORD") or "").strip()
+        or read_existing_env_value(ssh, "POSTGRES_PASSWORD")
+        or _bootstrap_secret(24)
+    )
     admin_password = (os.environ.get("POMICH_BOOTSTRAP_ADMIN_PASSWORD") or "").strip() or _bootstrap_secret(18)
     provider_password = (os.environ.get("POMICH_BOOTSTRAP_PROVIDER_PASSWORD") or "").strip() or _bootstrap_secret(18)
 
@@ -203,19 +221,32 @@ def main() -> int:
             return 0
 
         if action == "deploy":
-            tunnel_url = latest_tunnel_url(ssh) or "https://monkey-stuck-fountain-lite.trycloudflare.com"
-            print(f"Using tunnel URL: {tunnel_url}")
+            # Prefer the stable public origin when nginx already fronts the app.
+            public_url = (
+                (os.environ.get("POMICH_WEB_APP_URL") or "").strip()
+                or read_existing_env_value(ssh, "WEB_APP_URL")
+                or latest_tunnel_url(ssh)
+                or "https://pomich.help/"
+            )
+            if not public_url.endswith("/"):
+                public_url += "/"
+            print(f"Using public URL: {public_url}")
             upload_project(ssh)
-            write_env_production(ssh, web_app_url=f"{tunnel_url}/", telegram_mode="webhook")
+            # Preserve live secrets / Telegram tokens / DB password.
+            write_env_production(ssh, web_app_url=public_url, telegram_mode="webhook", force=False)
             run(ssh, f"chmod +x {REMOTE_DIR}/start.sh")
-            run(ssh, f"cd {REMOTE_DIR} && docker compose -f docker-compose.production.yml --env-file .env.production down 2>/dev/null || true")
-            run(ssh, f"cd {REMOTE_DIR} && docker compose -f docker-compose.production.yml --env-file .env.production up --build -d", check=True)
+            # Rebuild app without wiping the Postgres volume or env.
+            run(
+                ssh,
+                f"cd {REMOTE_DIR} && docker compose -f docker-compose.production.yml --env-file .env.production up --build -d",
+                check=True,
+            )
             print("Waiting 45s for startup...")
             time.sleep(45)
-            set_telegram_webhook(ssh, tunnel_url)
+            set_telegram_webhook(ssh, public_url.rstrip("/"))
             run(ssh, "curl -sf http://127.0.0.1:8000/api/health || echo HEALTH_FAILED")
-            run(ssh, f"curl -sf {tunnel_url}/api/health || echo TUNNEL_HEALTH_FAILED")
-            print(f"\nDeploy complete. HTTPS URL: {tunnel_url}/")
+            run(ssh, f"curl -sk {public_url.rstrip('/')}/api/health || echo PUBLIC_HEALTH_FAILED")
+            print(f"\nDeploy complete. HTTPS URL: {public_url}")
             return 0
 
         if action == "tunnel":
