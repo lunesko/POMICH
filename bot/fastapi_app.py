@@ -226,6 +226,33 @@ _SEO_PUBLIC_PAGES: dict[str, dict[str, str]] = {
         "h1": "Безпека",
         "lead": "POMICH не замінює екстрені служби 112. При ДТП з постраждалими спочатку викличте 112.",
     },
+    "privacy": {
+        "title": "Політика конфіденційності POMICH",
+        "h1": "Політика конфіденційності",
+        "lead": "POMICH обробляє дані профілю, геолокацію заявки та технічні логи лише для надання допомоги на дорозі, безпеки сервісу та зв’язку з вами.",
+        "body_html": """
+    <h2>Хто ми</h2>
+    <p>POMICH — сервіс допомоги на дорозі (евакуатор, АКБ, колесо, пальне) через вебзастосунок і Telegram-ботів на домені <a href="https://pomich.help/">pomich.help</a>.</p>
+    <h2>Які дані збираємо</h2>
+    <ul>
+      <li>Ім’я, телефон і місто профілю клієнта або партнера</li>
+      <li>Геолокація місця поломки / подачі заявки (за вашою згодою в браузері або Telegram)</li>
+      <li>Дані заявки: тип послуги, статус, історія повідомлень у межах сервісу</li>
+      <li>Технічні логи (IP, пристрій, помилки) для безпеки та стабільності</li>
+      <li>Telegram ID / chat ID, якщо ви відкриваєте Mini App через бота</li>
+    </ul>
+    <h2>Навіщо</h2>
+    <p>Щоб знайти партнера поруч, виконати заявку, підтвердити особу (OTP), запобігти шахрайству та покращити сервіс.</p>
+    <h2>З ким ділимось</h2>
+    <p>Дані заявки передаємо лише залученому партнеру та інфраструктурі хостингу / Telegram API в обсязі, потрібному для доставки повідомлень. Не продаємо персональні дані.</p>
+    <h2>Зберігання</h2>
+    <p>Профіль і історія заявок зберігаються, поки існує обліковий запис або поки дані потрібні для законних цілей (безпека, спірні ситуації). Технічні логи — обмежений строк.</p>
+    <h2>Ваші права</h2>
+    <p>Можете запросити доступ, виправлення або видалення даних через підтримку в Telegram <a href="https://t.me/pomich_ua_bot">@pomich_ua_bot</a>.</p>
+    <h2>Контакт</h2>
+    <p class="meta">Оновлено: 21 вересня 2026 · POMICH · Україна</p>
+""",
+    },
     "cities/uzhhorod": {
         "title": "Допомога на дорозі в Ужгороді — POMICH",
         "h1": "Допомога в Ужгороді",
@@ -239,6 +266,7 @@ def _seo_landing_html(slug: str, page: dict[str, str]) -> str:
     h1 = page["h1"]
     lead = page["lead"]
     canonical = f"https://pomich.help/{slug}"
+    extra = page.get("body_html", "")
     return f"""<!doctype html>
 <html lang="uk">
 <head>
@@ -254,14 +282,21 @@ def _seo_landing_html(slug: str, page: dict[str, str]) -> str:
   <meta property="og:image" content="https://pomich.help/og-cover.jpg" />
   <meta property="og:locale" content="uk_UA" />
   <meta name="twitter:card" content="summary_large_image" />
+  <meta name="robots" content="index,follow" />
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="icon" href="/favicon.ico" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@700;800&family=Sora:wght@600;700&display=swap" rel="stylesheet" />
   <style>
-    body{{margin:0;font-family:system-ui,sans-serif;background:#0F172A;color:#F8FAFC;line-height:1.5}}
+    body{{margin:0;font-family:Sora,system-ui,sans-serif;background:#0B1220;color:#F1F5F9;line-height:1.55}}
     main{{max-width:40rem;margin:0 auto;padding:2rem 1.25rem 4rem}}
+    h1{{font-family:Outfit,Sora,sans-serif;font-size:clamp(1.75rem,4vw,2.25rem);letter-spacing:-.03em;margin:0 0 .75rem}}
+    h2{{font-size:1.05rem;margin:1.5rem 0 .5rem;letter-spacing:-.02em}}
     a{{color:#4ade80}}
-    .cta{{display:inline-block;margin-top:1.25rem;padding:.9rem 1.2rem;border-radius:999px;background:#22c55e;color:#052e16;font-weight:800;text-decoration:none}}
+    .cta{{display:inline-block;margin-top:1.25rem;padding:.75rem 1.1rem;border-radius:12px;background:linear-gradient(135deg,#16A36A,#0B7A4D);color:#fff;font-weight:800;text-decoration:none}}
     ul{{padding-left:1.1rem}}
+    .meta{{color:#94A3B8;font-size:.9rem}}
   </style>
 </head>
 <body>
@@ -269,8 +304,9 @@ def _seo_landing_html(slug: str, page: dict[str, str]) -> str:
     <p><a href="/">POMICH</a></p>
     <h1>{h1}</h1>
     <p>{lead}</p>
+    {extra}
     <p><a class="cta" href="/?utm_source=seo&amp;utm_campaign={slug}">Відкрити застосунок</a></p>
-    <p>Або Telegram: <a href="https://t.me/pomich_ua_bot">@pomich_ua_bot</a></p>
+    <p class="meta">Telegram: <a href="https://t.me/pomich_ua_bot">@pomich_ua_bot</a></p>
     <h2>Послуги</h2>
     <ul>
       <li><a href="/evakuator">Евакуатор</a></li>
@@ -279,6 +315,8 @@ def _seo_landing_html(slug: str, page: dict[str, str]) -> str:
       <li><a href="/dostavka-palnogo">Закінчилось пальне</a></li>
       <li><a href="/cities/uzhhorod">Ужгород</a></li>
       <li><a href="/partner">Партнерам</a></li>
+      <li><a href="/privacy">Конфіденційність</a></li>
+      <li><a href="/safety">Безпека</a></li>
     </ul>
   </main>
 </body>

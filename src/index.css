@@ -1,5 +1,5 @@
 @import 'tailwindcss';
-@import url("https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Outfit:wght@600;700;800&family=Sora:wght@600;700;800&display=swap");
 
 /* POMICH theme tokens — toggled via html[data-pomich-theme] */
 [data-pomich-theme="light"],
@@ -244,7 +244,8 @@ html:not([data-pomich-theme]) {
   }
 }
 @theme inline {
-  --font-sans: "Sora", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-sans: "Sora", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Outfit", "Sora", system-ui, sans-serif;
   --color-brand: var(--pomich-brand);
   --color-brand-dark: #0f7a4e;
   --color-brand-light: #d1f5e7;
