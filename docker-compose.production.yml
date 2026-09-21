@@ -24,7 +24,8 @@ services:
     env_file:
       - ${POMICH_ENV_FILE:-.env.production}
     ports:
-      - "8000:8000"
+      # Bind to loopback only — public traffic must go through nginx :443.
+      - "127.0.0.1:8000:8000"
     volumes:
       - ./data:/app/data
     healthcheck:

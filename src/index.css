@@ -1,5 +1,4 @@
 @import 'tailwindcss';
-@import url("https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&display=swap");
 
 /* POMICH theme tokens — toggled via html[data-pomich-theme] */
 [data-pomich-theme="light"],
@@ -455,8 +454,8 @@ html[data-pomich-theme="dark"] {
 }
 [data-pomich-theme="light"] .pomich-tg-header,
 html:not([data-pomich-theme]) .pomich-tg-header {
-  /* Soft sage frosted glass — no pure-white glare */
-  background: rgba(228, 235, 231, 0.88) !important;
+  /* Soft sage frosted glass — map peeks through, text stays crisp */
+  background: rgba(228, 235, 231, 0.72) !important;
   border-bottom-color: rgba(28, 42, 36, 0.12);
   box-shadow: 0 4px 18px rgba(28, 42, 36, 0.06);
   color: #1a2332 !important;
@@ -871,7 +870,7 @@ html:not([data-pomich-theme]) .pomich-map-chip--brand {
   align-items: center !important;
   width: auto !important;
   height: auto !important;
-  min-height: 32px !important;
+  min-height: 44px !important;
   overflow: visible !important;
 }
 .pomich-route-map .leaflet-container.leaflet-touch .leaflet-control-zoom,
@@ -882,10 +881,12 @@ html:not([data-pomich-theme]) .pomich-map-chip--brand {
 }
 .pomich-route-map .leaflet-touch .leaflet-control-zoom a,
 .pomich-route-map .leaflet-control-zoom a {
-  width: 30px !important;
-  height: 30px !important;
-  line-height: 28px !important;
-  font-size: 15px !important;
+  width: 44px !important;
+  height: 44px !important;
+  min-width: 44px !important;
+  min-height: 44px !important;
+  line-height: 44px !important;
+  font-size: 18px !important;
   font-weight: 800 !important;
   color: var(--pomich-text) !important;
   background: transparent !important;
@@ -906,7 +907,7 @@ html:not([data-pomich-theme]) .pomich-map-chip--brand {
 .pomich-map-chrome-row {
   position: absolute;
   z-index: 1200;
-  left: calc(var(--pomich-map-chrome-left, 12px) + 62px + 6px);
+  left: calc(var(--pomich-map-chrome-left, 12px) + 94px + 6px);
   right: var(--pomich-map-chrome-right, 12px);
   top: var(--pomich-map-chrome-top, 78px);
   display: flex;
@@ -970,8 +971,10 @@ html:not([data-pomich-theme]) .pomich-map-chip--brand {
 }
 .pomich-map-locate__btn {
   pointer-events: auto;
-  width: 32px;
-  height: 32px;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2646,16 +2649,18 @@ html.mobile-compact .pomich-map-shell--root > .pomich-map-shell__content > * {
   max-height: 100%;
   width: 100%;
 }
-/* Let the decorative map show through page shells */
+/* Let the decorative map show through page shells — except cabinet (must stay opaque). */
 .pomich-map-shell--root .pomich-themed-shell,
 .pomich-map-shell--root .pomich-tg-app,
-.pomich-map-shell--root .pomich-cabinet-shell,
 .pomich-map-shell--root .pomich-onboarding-page,
 .pomich-map-shell--root .pomich-boot-screen,
 .pomich-map-shell--root .pomich-role-select,
 .pomich-map-shell--root .pomich-app-fallback,
 .pomich-map-shell--root .pomich-screen-layout {
   background: transparent;
+}
+.pomich-map-shell--root .pomich-cabinet-shell {
+  background: var(--pomich-bg, #e2e9e6) !important;
 }
 /* Form / role plates: solid over map — readability first (cabinet keeps glass below) */
 .pomich-map-shell--root .pomich-form-card,
@@ -3151,7 +3156,7 @@ html:not([data-pomich-theme]) .landing-hero-eyebrow {
   55% { opacity: 0.35; }
   100% { transform: translateY(320%); opacity: 0; }
 }
-@media (max-width: 760px) {
+@media (max-width: 759px) {
   .landing-hero-content {
     text-align: center;
     max-width: min(100%, 420px);
@@ -3414,6 +3419,21 @@ html.mobile-compact .pomich-tg-main {
     height: 480px;
   }
 }
+/* Phone landscape / short height — keep bottom-sheet layout, shrink map chrome. */
+@media (max-height: 500px) and (orientation: landscape) {
+  html.mobile-landscape .pomich-ride-screen__map,
+  html.mobile-compact.mobile-landscape .pomich-tg-main .pomich-ride-screen__map {
+    min-height: 42vh;
+  }
+  html.mobile-landscape .pomich-map-tools-panel {
+    max-height: min(70vh, 220px);
+    width: min(260px, calc(100vw - 24px));
+  }
+  html.mobile-landscape .pomich-form-scroll,
+  html.mobile-landscape .pomich-screen-layout__content {
+    padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
+  }
+}
 html.tg-compact .pomich-tg-app,
 html.mobile-compact .pomich-tg-app {
   display: flex;
@@ -3637,13 +3657,14 @@ html.mobile-compact-xs .pomich-tg-main .pomich-ride-screen__map .leaflet-contain
   justify-content: center;
   gap: 6px;
   max-width: min(46vw, 168px);
+  min-height: 44px;
   border: 1px solid var(--pomich-border);
   border-radius: 999px;
   background: var(--pomich-glass-card);
   backdrop-filter: blur(14px) saturate(180%);
   -webkit-backdrop-filter: blur(14px) saturate(180%);
   color: var(--pomich-text);
-  padding: 8px 14px;
+  padding: 10px 14px;
   font-size: 11px;
   font-weight: 900;
   font-family: inherit;
@@ -3809,8 +3830,10 @@ html.mobile-compact-xs .pomich-tg-main .pomich-ride-screen__map .leaflet-contain
   z-index: 1200;
   right: var(--pomich-map-chrome-right, 12px);
   top: var(--pomich-map-chrome-top, 78px);
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
   border-radius: 999px;
   border: 1px solid color-mix(in srgb, var(--pomich-brand) 28%, var(--pomich-glass-border));
   background: var(--pomich-glass-card);
@@ -3908,8 +3931,10 @@ html.mobile-compact-xs .pomich-tg-main .pomich-ride-screen__map .leaflet-contain
   right: var(--pomich-map-chrome-right, 10px) !important;
   left: auto !important;
   z-index: 1250;
-  width: 34px;
-  height: 34px;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
 }
 /* After overlay !important tops — push legend/tools below the speed dial. */
 .pomich-ride-screen--overlay .pomich-route-map--live-speed .pomich-map-legend-box,
@@ -4025,17 +4050,22 @@ html.mobile-compact-xs .pomich-tg-main .pomich-ride-screen__map .leaflet-contain
 }
 .pomich-map-tools-panel__close {
   flex-shrink: 0;
-  width: 28px;
-  height: 28px;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
   border-radius: 999px;
   border: 1px solid #94A3B8;
   background: #F8FAFC;
   color: #0F172A;
-  font-size: 12px;
+  font-size: 16px;
   font-weight: 900;
   line-height: 1;
   cursor: pointer;
   touch-action: manipulation;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .pomich-map-tools-filter-btn,
 .pomich-map-tools-scope-btn {
@@ -4043,19 +4073,20 @@ html.mobile-compact-xs .pomich-tg-main .pomich-ride-screen__map .leaflet-contain
   border-radius: 8px;
   background: #FFFFFF;
   color: #0F172A;
-  padding: 5px 7px;
-  font-size: 10px;
+  padding: 10px 12px;
+  font-size: 12px;
   font-weight: 700;
   font-family: inherit;
   cursor: pointer;
   touch-action: manipulation;
+  min-height: 44px;
 }
 .pomich-map-tools-filter-btn {
   text-align: left;
 }
 .pomich-map-tools-scope-btn {
   text-align: center;
-  min-height: 40px;
+  min-height: 44px;
   padding: 8px 6px;
   font-weight: 800;
 }
@@ -4159,7 +4190,7 @@ html.mobile-compact-xs .pomich-tg-main .pomich-ride-screen__map .leaflet-contain
 .pomich-ride-screen__map .pomich-map-tools-panel {
   z-index: 500;
 }
-@media (max-width: 760px) {
+@media (max-width: 759px) {
   .pomich-landing .landing-section-title h2 {
     font-size: 22px !important;
     line-height: 1.1 !important;
@@ -4189,8 +4220,9 @@ html.mobile-compact-xs .pomich-tg-main .pomich-ride-screen__map .leaflet-contain
     bottom: 10px;
     right: auto;
     top: auto;
-    min-height: 34px;
-    padding: 7px 10px;
+    min-height: 44px;
+    min-width: 44px;
+    padding: 10px 12px;
   }
   .pomich-landing .landing-services-grid {
     grid-template-columns: 1fr !important;
@@ -4877,7 +4909,8 @@ html:not([data-pomich-theme]) select.pomich-form-input {
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
-  background: transparent;
+  /* Opaque — transparent over the map made cabinet look like the home button just vanished */
+  background: var(--pomich-bg, #e2e9e6);
   color: var(--pomich-text);
   overflow: hidden;
   /* Room for fixed full-bleed cabinet chrome (title + subtitle + actions) */
@@ -4909,12 +4942,12 @@ html:not([data-pomich-theme]) select.pomich-form-input {
 }
 [data-pomich-theme="light"] .pomich-cabinet-header,
 html:not([data-pomich-theme]) .pomich-cabinet-header {
-  background: rgba(228, 235, 231, 0.82) !important;
-  border-bottom-color: rgba(28, 42, 36, 0.10);
+  background: rgba(236, 241, 238, 0.97) !important;
+  border-bottom-color: rgba(28, 42, 36, 0.12);
 }
 [data-pomich-theme="dark"] .pomich-cabinet-header {
-  background: rgba(8, 12, 14, 0.22) !important;
-  border-bottom-color: rgba(255, 255, 255, 0.08);
+  background: rgba(15, 18, 22, 0.96) !important;
+  border-bottom-color: rgba(255, 255, 255, 0.12);
 }
 .pomich-cabinet-header .pomich-cabinet-chip-btn {
   backdrop-filter: blur(8px);
@@ -5497,6 +5530,38 @@ button.pomich-cabinet-order-item--button:active {
   color: var(--pomich-muted);
   font-size: 11px;
   font-weight: 700;
+}
+
+.pomich-cabinet-offer-item {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.pomich-cabinet-offer-item__main {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.pomich-cabinet-offer-item__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pomich-cabinet-chip-btn--brand {
+  background: var(--pomich-brand, #e11d48);
+  color: #fff;
+  border-color: transparent;
 }
 
 .pomich-history-detail {
@@ -7079,7 +7144,8 @@ html.tg-compact .pomich-ride-screen__map .leaflet-top.leaflet-left {
 .pomich-order-request-sheet {
   position: fixed;
   inset: 0;
-  z-index: 1400;
+  /* Above tg-header (3200) and cabinet shell (3200); just over history sheet (4500) */
+  z-index: 4600;
   display: flex;
   align-items: flex-end;
   justify-content: center;

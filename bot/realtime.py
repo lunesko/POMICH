@@ -168,3 +168,11 @@ def _sse(data: dict[str, Any]) -> str:
 def reset_realtime_for_tests() -> None:
     with _LOCK:
         _CHANNELS.clear()
+
+
+def realtime_stats() -> dict[str, int]:
+    """Lightweight in-process subscriber counts (single-worker bus)."""
+    with _LOCK:
+        channels = len(_CHANNELS)
+        subscribers = sum(len(queues) for queues in _CHANNELS.values())
+        return {"channels": channels, "subscribers": subscribers, "seq": _SEQ}

@@ -1,0 +1,15 @@
+# Optional Redis sidecar for multi-worker realtime (not wired yet).
+# Single-worker in-process bus remains default — see bot/realtime.py.
+#
+# When ready:
+#   1) set REDIS_URL=redis://pomich-redis:6379/0 in .env.production
+#   2) switch publish/subscribe in bot/realtime.py to Redis pub/sub
+#   3) run uvicorn with multiple workers behind nginx
+#
+# redis:
+#   image: redis:7-alpine
+#   container_name: pomich-redis
+#   restart: unless-stopped
+#   command: ["redis-server", "--save", "", "--appendonly", "no"]
+#   ports:
+#     - "127.0.0.1:6379:6379"

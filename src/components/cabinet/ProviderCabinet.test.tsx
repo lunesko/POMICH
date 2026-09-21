@@ -259,4 +259,44 @@ describe('ProviderCabinet', () => {
       expect(screen.queryByRole('dialog', { name: /Деталі заявки з історії/i })).not.toBeInTheDocument()
     })
   })
+
+  it('shows Прийняти and Відхилити for pending offers and opens the request sheet', async () => {
+    const user = userEvent.setup()
+    const pendingOffer = {
+      id: 'offer-wheel-1',
+      orderId: 'PM-OFFER-1',
+      service: 'wheel',
+      status: 'pending',
+      orderStatus: 'searching',
+      distanceKm: 2.3,
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      approximateLocation: 'Ужгород, центр',
+      customerCoordinates: { lat: 48.62, lng: 22.29 },
+    }
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/providers/provider-oleksandr/profile')) {
+        return Promise.resolve({ ok: true, json: async () => providerProfile })
+      }
+      if (url.includes('/providers/provider-oleksandr/offers')) {
+        return Promise.resolve({ ok: true, json: async () => [pendingOffer] })
+      }
+      if (url.includes('/providers/provider-oleksandr/orders')) {
+        return Promise.resolve({ ok: true, json: async () => [] })
+      }
+      return Promise.resolve({ ok: true, json: async () => ({}) })
+    }))
+
+    renderCabinet()
+
+    expect(await screen.findByRole('button', { name: /^Прийняти$/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Відхилити$/i })).toBeInTheDocument()
+    expect(screen.getByText(/2\.3 км/i)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /^Прийняти$/i }))
+    const dialog = await screen.findByRole('dialog', { name: /Деталі заявки/i })
+    expect(dialog).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /ПРИЙНЯТИ З ЦІНОЮ/i })).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: /^Відхилити$/i }).length).toBeGreaterThanOrEqual(1)
+  })
 })

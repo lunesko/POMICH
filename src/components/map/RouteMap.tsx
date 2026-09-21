@@ -1990,7 +1990,7 @@ export function RouteMap({
 
                       {onRequestPinSelect ? (
                         <button type="button" onClick={() => onRequestPinSelect(pin)} style={{ width: "100%", marginTop: 10, border: "none", borderRadius: 10, background: BRAND, color: "#fff", padding: "8px 10px", fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>
-                          Деталі заявки
+                          {pin.offerId ? "Прийняти / Відхилити" : "Деталі заявки"}
                         </button>
                       ) : null}
 

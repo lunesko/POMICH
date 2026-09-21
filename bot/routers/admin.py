@@ -110,6 +110,26 @@ def admin_list_orders(
     return orders
 
 
+@router.post("/admin/providers/seed-alpha")
+def admin_seed_alpha_providers(
+    payload: dict | None = None,
+    x_pomich_admin_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+) -> dict:
+    """Upsert closed [TEST] Uzhhorod partners. Passwords are not returned — use ops seed script."""
+    require_admin_auth(x_pomich_admin_token, authorization)
+    from bot.alpha_accounts import ALPHA_PROVIDERS, build_provider_row, upsert_alpha_providers
+
+    verified = True if payload is None else bool((payload or {}).get("verified", True))
+    providers = [build_provider_row(spec, verified=verified) for spec in ALPHA_PROVIDERS]
+    result = upsert_alpha_providers(providers)
+    return {
+        "ok": True,
+        "message": "Alpha providers upserted (offline, verified for pilot). Login accounts require env merge via seed script.",
+        **result,
+    }
+
+
 @router.get("/admin/settings")
 def admin_settings(
     x_pomich_admin_token: str | None = Header(default=None),

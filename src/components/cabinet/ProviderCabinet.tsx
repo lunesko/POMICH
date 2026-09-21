@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import {
+  acceptProviderOffer,
   createSelfProviderSession,
+  declineProviderOffer,
   getProviderOffers,
   getProviderOrders,
   getProviderProfile,
@@ -23,6 +25,7 @@ import {
   services,
   toServiceKeys,
 } from "../../lib/constants"
+import { isPresentableOffer, offerActionErrorMessage, offerSecondsLeft, parseOfferPrice, pinFromOffer } from "../../lib/dispatchOffer"
 import type { ServiceKey } from "../../lib/pomichDomain"
 import { readCachedProviderProfile, writeCachedProviderProfile } from "../../lib/providerProfileCache"
 import { roleLabel, readBootstrapProfile, resolveProviderIdForCustomer, storeLinkedProviderId, type UserRole } from "../../lib/userAccount"
@@ -38,6 +41,7 @@ import { getTelegramContext } from "../../telegram"
 import { Header } from "../layout/Header"
 import { formatCabinetOrderStatus, formatCabinetReviewStars } from "../customer/OrderTerminalStep"
 import OrderHistoryDetailSheet from "./OrderHistoryDetailSheet"
+import { OrderRequestSheet } from "../provider/OrderRequestSheet"
 import { CitySelect } from "../ui/CitySelect"
 import { OtpVerificationPanel } from "../ui/OtpVerificationPanel"
 import { PhoneInput } from "../ui/PhoneInput"
@@ -140,6 +144,11 @@ export default function ProviderCabinet({
   const [offers, setOffers] = useState<DispatchOffer[]>([])
   const [orderHistory, setOrderHistory] = useState<OrderResponse[]>([])
   const [selectedHistoryOrder, setSelectedHistoryOrder] = useState<OrderResponse | undefined>()
+  const [selectedOffer, setSelectedOffer] = useState<DispatchOffer | undefined>()
+  const [proposedPrice, setProposedPrice] = useState("")
+  const [offerSaving, setOfferSaving] = useState(false)
+  const [offerError, setOfferError] = useState<string>()
+  const [offerClock, setOfferClock] = useState(() => Date.now())
   const [offersLoading, setOffersLoading] = useState(true)
   const [ordersLoading, setOrdersLoading] = useState(false)
   const [ordersError, setOrdersError] = useState<string>()
@@ -340,6 +349,11 @@ export default function ProviderCabinet({
         const targetToken = session?.token || activeProviderToken
         if (!targetToken) return
         refreshProfile(targetId, targetToken).catch(() => undefined)
+        getProviderOffers(targetId, targetToken)
+          .then((nextOffers) => {
+            if (!cancelled) setOffers(Array.isArray(nextOffers) ? nextOffers : [])
+          })
+          .catch(() => undefined)
         getProviderOrders(targetId, targetToken)
           .then((nextOrders) => {
             if (!cancelled) {
@@ -364,10 +378,15 @@ export default function ProviderCabinet({
       })()
     }, 12000)
 
+    const clock = window.setInterval(() => {
+      if (!cancelled) setOfferClock(Date.now())
+    }, 1000)
+
     return () => {
       cancelled = true
       window.clearTimeout(defer)
       window.clearInterval(interval)
+      window.clearInterval(clock)
     }
   }, [activeProviderId, activeProviderToken, ensureProviderSession, refreshProfile])
 
@@ -398,9 +417,84 @@ export default function ProviderCabinet({
     return () => window.clearTimeout(timeout)
   }, [saveSuccess])
 
+  const presentableOffers = useMemo(
+    () => offers.filter((offer) => isPresentableOffer(offer, offerClock)),
+    [offers, offerClock],
+  )
+
+  useEffect(() => {
+    if (!selectedOffer) return
+    const stillOpen = presentableOffers.some((offer) => offer.id === selectedOffer.id)
+    if (stillOpen) return
+    setSelectedOffer(undefined)
+    setProposedPrice("")
+    setOfferError(undefined)
+  }, [presentableOffers, selectedOffer])
+
+  const openOfferSheet = (offer: DispatchOffer) => {
+    setSelectedOffer(offer)
+    setProposedPrice("")
+    setOfferError(undefined)
+  }
+
+  const closeOfferSheet = () => {
+    setSelectedOffer(undefined)
+    setProposedPrice("")
+    setOfferError(undefined)
+  }
+
+  const handleAcceptOffer = async (offer: DispatchOffer, priceOverride?: string) => {
+    const parsedPrice = parseOfferPrice(priceOverride ?? proposedPrice)
+    if (typeof parsedPrice !== "number") {
+      setOfferError("Вкажіть вартість послуги в гривнях.")
+      return
+    }
+    setOfferSaving(true)
+    setOfferError(undefined)
+    try {
+      const session = await ensureProviderSession()
+      await acceptProviderOffer(session.providerId, offer.id, session.token, { proposedPrice: parsedPrice })
+      setOffers((prev) => prev.filter((item) => item.id !== offer.id && item.orderId !== offer.orderId))
+      closeOfferSheet()
+      setSaveSuccess("Заявку прийнято")
+    } catch (err) {
+      setOfferError(offerActionErrorMessage(err, "Не вдалося прийняти заявку."))
+    } finally {
+      setOfferSaving(false)
+    }
+  }
+
+  const handleDeclineOffer = async (offer: DispatchOffer) => {
+    setOfferSaving(true)
+    setOfferError(undefined)
+    try {
+      const session = await ensureProviderSession()
+      await declineProviderOffer(session.providerId, offer.id, session.token)
+      setOffers((prev) => prev.filter((item) => item.id !== offer.id && item.orderId !== offer.orderId))
+      closeOfferSheet()
+    } catch (err) {
+      setOfferError(offerActionErrorMessage(err, "Не вдалося відхилити заявку."))
+    } finally {
+      setOfferSaving(false)
+    }
+  }
+
+  const handleOfferAcceptBlocked = (reason: "expired" | "price") => {
+    if (reason === "expired") {
+      setOfferError("Пропозиція вже завершилась. Очікуйте нову заявку.")
+      if (selectedOffer) {
+        setOffers((prev) => prev.filter((item) => item.id !== selectedOffer.id))
+      }
+      closeOfferSheet()
+      return
+    }
+    setOfferError("Вкажіть вартість послуги в гривнях.")
+  }
+
   const profileVerified = isProviderPhoneVerified(profile)
   const isOnline = isProviderOnline(profile)
   const name = profile?.name?.trim() || "Партнер POMICH"
+  const selectedOfferSecondsLeft = offerSecondsLeft(selectedOffer, offerClock)
 
   const openEdit = () => {
     if (profile) setForm(profileToForm(profile))
@@ -734,19 +828,54 @@ export default function ProviderCabinet({
                 <div className="pomich-cabinet-section-title">Вхідні заявки</div>
                 {offersLoading ? (
                   <div className="pomich-cabinet-empty">Завантажуємо заявки…</div>
-                ) : offers.length === 0 ? (
+                ) : presentableOffers.length === 0 ? (
                   <div className="pomich-cabinet-empty">
                     Ще немає вхідних заявок. Вийдіть на лінію, щоб бачити нові оффери поруч.
                   </div>
                 ) : (
-                  offers.map((offer) => (
-                    <div key={offer.id} className="pomich-cabinet-order-item">
-                      <div className="pomich-cabinet-order-title">
-                        {offer.service || "Послуга"} · {offer.distanceKm?.toFixed(1) ?? "—"} км
-                      </div>
-                      <div className="pomich-cabinet-order-status">{offer.status}</div>
-                    </div>
-                  ))
+                  <div className="pomich-cabinet-order-list">
+                    {presentableOffers.map((offer) => {
+                      const seconds = offerSecondsLeft(offer, offerClock)
+                      const serviceLabel = getServiceLabel(offer.service) || offer.service || "Послуга"
+                      const distance =
+                        typeof offer.distanceKm === "number" ? `${offer.distanceKm.toFixed(1)} км` : "—"
+                      return (
+                        <div key={offer.id} className="pomich-cabinet-order-item pomich-cabinet-offer-item">
+                          <button
+                            type="button"
+                            className="pomich-cabinet-offer-item__main"
+                            onClick={() => openOfferSheet(offer)}
+                            aria-label={`Відкрити заявку ${serviceLabel}`}
+                          >
+                            <div className="pomich-cabinet-order-title">
+                              {getServiceEmoji(offer.service)} {serviceLabel} · {distance}
+                            </div>
+                            <div className="pomich-cabinet-order-status">
+                              {seconds > 0 ? `Очікує відповіді · ${seconds} сек` : "Час вийшов"}
+                            </div>
+                          </button>
+                          <div className="pomich-cabinet-offer-item__actions">
+                            <button
+                              type="button"
+                              className="pomich-cabinet-chip-btn pomich-cabinet-chip-btn--brand"
+                              disabled={offerSaving || seconds <= 0}
+                              onClick={() => openOfferSheet(offer)}
+                            >
+                              Прийняти
+                            </button>
+                            <button
+                              type="button"
+                              className="pomich-cabinet-chip-btn pomich-cabinet-chip-btn--muted"
+                              disabled={offerSaving || seconds <= 0}
+                              onClick={() => void handleDeclineOffer(offer)}
+                            >
+                              Відхилити
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
                 )}
               </div>
 
@@ -812,6 +941,24 @@ export default function ProviderCabinet({
           order={selectedHistoryOrder}
           viewer="partner"
           onClose={() => setSelectedHistoryOrder(undefined)}
+        />
+      ) : null}
+
+      {selectedOffer ? (
+        <OrderRequestSheet
+          pin={pinFromOffer(selectedOffer)}
+          proposedPrice={proposedPrice}
+          saving={offerSaving}
+          error={offerError}
+          secondsLeft={selectedOfferSecondsLeft}
+          onProposedPriceChange={(value) => {
+            setProposedPrice(value)
+            if (offerError === "Вкажіть вартість послуги в гривнях.") setOfferError(undefined)
+          }}
+          onAccept={(price) => void handleAcceptOffer(selectedOffer, price)}
+          onDecline={() => void handleDeclineOffer(selectedOffer)}
+          onClose={closeOfferSheet}
+          onAcceptBlocked={handleOfferAcceptBlocked}
         />
       ) : null}
 

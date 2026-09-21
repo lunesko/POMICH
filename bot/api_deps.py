@@ -269,10 +269,36 @@ def load_account_configs(env_name: str) -> list[dict]:
     return []
 
 
+def hash_password(password: str) -> str:
+    """Hash a password with Argon2id (preferred) for storage in account configs."""
+    supplied = str(password or "")
+    try:
+        from argon2 import PasswordHasher
+
+        # PHC string already starts with $argon2id$
+        return PasswordHasher().hash(supplied)
+    except Exception:
+        digest = hashlib.sha256(supplied.encode("utf-8")).hexdigest()
+        return f"sha256:{digest}"
+
+
 def password_matches(account: dict, password: str) -> bool:
     supplied = str(password or "")
     expected_hash = str(account.get("passwordHash") or "").strip()
+    if expected_hash.startswith("$argon2id$") or expected_hash.startswith("argon2id:"):
+        encoded = expected_hash.removeprefix("argon2id:")
+        try:
+            from argon2 import PasswordHasher
+            from argon2.exceptions import VerifyMismatchError
+
+            try:
+                return bool(PasswordHasher().verify(encoded, supplied))
+            except VerifyMismatchError:
+                return False
+        except Exception:
+            return False
     if expected_hash.startswith("sha256:"):
+        # Legacy unsalted SHA-256 — still verified for existing configs; prefer argon2id going forward.
         digest = hashlib.sha256(supplied.encode("utf-8")).hexdigest()
         return hmac.compare_digest(expected_hash.removeprefix("sha256:"), digest)
     expected_password = str(account.get("password") or "").strip()
