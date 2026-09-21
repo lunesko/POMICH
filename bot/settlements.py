@@ -77,34 +77,35 @@ def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     return radius * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
+# City queries must not pull neighboring towns (e.g. Чоп via oversized bbox).
+# Exact city-name match always wins; geo fallback stays near the settlement center.
+CITY_GEO_MATCH_RADIUS_KM = 12.0
+
+
 def filter_providers_by_city(providers: list[dict[str, Any]], city: str) -> list[dict[str, Any]]:
     settlement = settlement_by_name(city)
     if settlement is None:
         needle = str(city or "").strip().casefold()
         return [item for item in providers if str(item.get("city") or "").strip().casefold() == needle]
     center = settlement_center(settlement)
-    bbox = settlement_bbox(settlement)
-    if center is None or bbox is None:
-        needle = str(settlement.get("name") or "").strip().casefold()
-        return [item for item in providers if str(item.get("city") or "").strip().casefold() == needle]
-    south, west, north, east = bbox
+    city_name = str(settlement.get("name") or "").strip().casefold()
+    if center is None:
+        return [item for item in providers if str(item.get("city") or "").strip().casefold() == city_name]
     filtered: list[dict[str, Any]] = []
     for provider in providers:
         provider_city = str(provider.get("city") or "").strip().casefold()
-        if provider_city == str(settlement.get("name") or "").strip().casefold():
+        if provider_city == city_name:
             filtered.append(provider)
+            continue
+        # Named other cities stay out — only blank/unknown city pins near the center.
+        if provider_city and provider_city != city_name:
             continue
         location = provider.get("location") if isinstance(provider.get("location"), dict) else {}
         lat = location.get("lat")
         lng = location.get("lng")
         if lat is None or lng is None:
             continue
-        lat_f = float(lat)
-        lng_f = float(lng)
-        if south <= lat_f <= north and west <= lng_f <= east:
-            filtered.append(provider)
-            continue
-        if _haversine_km(lat_f, lng_f, center["lat"], center["lng"]) <= 25:
+        if _haversine_km(float(lat), float(lng), center["lat"], center["lng"]) <= CITY_GEO_MATCH_RADIUS_KM:
             filtered.append(provider)
     return filtered
 

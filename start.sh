@@ -18,4 +18,6 @@ if [ "$(echo "${TELEGRAM_MODE:-polling}" | tr '[:upper:]' '[:lower:]')" = "polli
 fi
 
 # Keep a single worker: realtime SSE/WS is in-process (see bot/realtime.py).
-exec python3 -m uvicorn bot.fastapi_app:app --host 0.0.0.0 --port "$API_PORT" --proxy-headers --forwarded-allow-ips='*' --timeout-keep-alive 5
+# Trust only local nginx / docker proxy for X-Forwarded-* (not the open internet).
+FORWARDED_ALLOW_IPS="${POMICH_FORWARDED_ALLOW_IPS:-127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}"
+exec python3 -m uvicorn bot.fastapi_app:app --host 0.0.0.0 --port "$API_PORT" --proxy-headers --forwarded-allow-ips="$FORWARDED_ALLOW_IPS" --timeout-keep-alive 5

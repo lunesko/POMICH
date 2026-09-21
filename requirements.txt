@@ -1,10 +1,13 @@
-fastapi>=0.111.0
-uvicorn[standard]>=0.30.0
-flask>=3.0.0
-pydantic>=2.7.0
-pytest>=8.0.0
-httpx2>=2.0.0
-sqlalchemy>=2.0.0
-psycopg[binary]>=3.1.0
-geoalchemy2>=0.16.0
-cryptography>=42.0.0
+# Pinned for reproducible production builds (2026-09-21 audit).
+# Bump intentionally; avoid unpinned >= ranges on the deploy path.
+fastapi==0.115.12
+uvicorn[standard]==0.34.2
+flask==3.1.0
+pydantic==2.11.3
+pytest==8.3.5
+httpx==0.28.1
+sqlalchemy==2.0.40
+psycopg[binary]==3.2.6
+geoalchemy2==0.17.1
+cryptography==44.0.2
+argon2-cffi==23.1.0

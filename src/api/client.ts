@@ -702,6 +702,9 @@ export async function getMapProviders(options?: {
   lng?: number
   radiusKm?: number
   kind?: "dispatch" | "directory"
+  /** Comma-separated presence filter, e.g. "online" or "online,busy". */
+  status?: string
+  verificationStatus?: "verified" | "pending" | "unverified"
 }) {
   const params = new URLSearchParams()
   if (options?.scope === "all") params.set("scope", "all")
@@ -710,6 +713,8 @@ export async function getMapProviders(options?: {
   if (options?.lng != null) params.set("lng", String(options.lng))
   if (options?.radiusKm != null) params.set("radius_km", String(options.radiusKm))
   if (options?.kind) params.set("kind", options.kind)
+  if (options?.status) params.set("status", options.status)
+  if (options?.verificationStatus) params.set("verification_status", options.verificationStatus)
   const query = params.toString()
   const response = await fetch(`${getBaseUrl()}/map/providers${query ? `?${query}` : ""}`)
 
