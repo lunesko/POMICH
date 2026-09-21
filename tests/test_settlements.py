@@ -23,12 +23,29 @@ def test_filter_providers_by_city_matches_name_and_bbox() -> None:
         {"id": "1", "city": "Львів", "location": {"lat": 49.84, "lng": 24.03}},
         {"id": "2", "city": "Київ", "location": {"lat": 50.45, "lng": 30.52}},
         {"id": "3", "city": "", "location": {"lat": 49.83, "lng": 24.02}},
+        {"id": "4", "city": "Чоп", "location": {"lat": 48.43, "lng": 22.20}},
     ]
     filtered = filter_providers_by_city(providers, "Львів")
     ids = {item["id"] for item in filtered}
     assert "1" in ids
     assert "3" in ids
     assert "2" not in ids
+    assert "4" not in ids
+
+
+def test_filter_providers_by_city_excludes_named_neighbors() -> None:
+    """city=Ужгород must not pull Чоп/Мукачево/Київ via oversized bbox."""
+    providers = [
+        {"id": "uzh", "city": "Ужгород", "location": {"lat": 48.62, "lng": 22.29}},
+        {"id": "chop", "city": "Чоп", "location": {"lat": 48.4306, "lng": 22.20}},
+        {"id": "muk", "city": "Мукачево", "location": {"lat": 48.4414, "lng": 22.7139}},
+        {"id": "kyiv", "city": "Київ", "location": {"lat": 50.45, "lng": 30.52}},
+        {"id": "blank-near", "city": "", "location": {"lat": 48.625, "lng": 22.29}},
+        {"id": "blank-far", "city": "", "location": {"lat": 48.43, "lng": 22.20}},
+    ]
+    filtered = filter_providers_by_city(providers, "Ужгород")
+    ids = {item["id"] for item in filtered}
+    assert ids == {"uzh", "blank-near"}
 
 
 def test_filter_providers_near_radius() -> None:

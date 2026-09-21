@@ -120,7 +120,8 @@ export function RideScreen({
       isTelegram ||
       isMobile ||
       root.classList.contains("tg-compact") ||
-      root.classList.contains("mobile-compact")
+      root.classList.contains("mobile-compact") ||
+      root.classList.contains("mobile-landscape")
     )
   }, [isTelegram, isMobile])
   /* Telegram / compact chrome always use bottom-sheet overlay (never side split). */

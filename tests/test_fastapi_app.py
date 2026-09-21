@@ -1577,6 +1577,17 @@ def test_dispatch_list_excludes_directory_and_map_is_slim(monkeypatch, tmp_path)
     dispatch_only = client.get("/api/map/providers?kind=dispatch&scope=all").json()
     assert {item["id"] for item in dispatch_only} == {"p-dispatch"}
 
+    online_verified = client.get(
+        "/api/map/providers?kind=dispatch&status=online&verification_status=verified&scope=all"
+    ).json()
+    assert {item["id"] for item in online_verified} == {"p-dispatch"}
+
+    directory_map = client.get("/api/map/providers?kind=directory&scope=all").json()
+    assert {item["id"] for item in directory_map} == {"p-dir"}
+
+    offline_only = client.get("/api/map/providers?kind=dispatch&status=offline&scope=all").json()
+    assert offline_only == []
+
 
 def test_map_nearby_orders_excludes_completed_and_cancelled(monkeypatch, tmp_path) -> None:
     _use_temp_store(monkeypatch, tmp_path)
