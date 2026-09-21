@@ -635,6 +635,9 @@ describe('POMICH role-based flows', () => {
     expect(await screen.findByText('Що сталося?')).toBeInTheDocument()
     expect(telegramSessionCalls.length).toBeGreaterThan(0)
 
+    // Telegram chrome hides header «Вийти» — logout lives in cabinet.
+    await user.click(screen.getByRole('button', { name: /^Кабінет$/i }))
+    expect(await screen.findByText('Особистий кабінет')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /^Вийти$/i }))
 
     expect(await screen.findByText(/Допомога на дорозі — поруч/i)).toBeInTheDocument()
@@ -697,6 +700,9 @@ describe('POMICH role-based flows', () => {
     renderApp()
     expect(await screen.findByText('Що сталося?')).toBeInTheDocument()
 
+    // Telegram chrome hides header «Вийти» — logout lives in cabinet.
+    await user.click(screen.getByRole('button', { name: /^Кабінет$/i }))
+    expect(await screen.findByText('Особистий кабінет')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /^Вийти$/i }))
     expect(await screen.findByText(/Допомога на дорозі — поруч/i)).toBeInTheDocument()
     expect(window.localStorage.getItem(EXPLICIT_LOGOUT_STORAGE_KEY)).toBe('tg-829741830')
