@@ -1981,6 +1981,71 @@ html.mobile-compact .pomich-map-occupied-hint {
     box-shadow 0.28s ease;
   animation: pomichRoleCardIn 0.55s cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
+.pomich-role-card--compact {
+  border-radius: 14px;
+  padding: 10px 11px;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.3) inset,
+    0 6px 16px rgba(28, 42, 36, 0.06);
+  animation-duration: 0.4s;
+}
+.pomich-role-card--compact:hover {
+  --role-tilt-x: -3deg;
+  --role-tilt-y: 2deg;
+  transform: perspective(900px) rotateX(var(--role-tilt-x)) rotateY(var(--role-tilt-y)) translateY(-2px);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.4) inset,
+    0 12px 24px rgba(22, 163, 106, 0.12),
+    0 4px 10px rgba(28, 42, 36, 0.06);
+}
+.pomich-role-card--compact.pomich-role-card--partner:hover {
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.4) inset,
+    0 12px 24px rgba(29, 111, 212, 0.14),
+    0 4px 10px rgba(28, 42, 36, 0.06);
+}
+.pomich-role-header-link {
+  min-height: 32px !important;
+  padding: 0 10px !important;
+  border-radius: 9px !important;
+  font-size: 12px !important;
+  font-weight: 800 !important;
+}
+.pomich-role-hero-plate--compact {
+  padding: 12px 12px 10px !important;
+  border-radius: 14px !important;
+  margin-bottom: 0 !important;
+}
+.pomich-role-hero-title--compact {
+  margin-top: 8px !important;
+  font-size: clamp(1.15rem, 4.6vw, 1.45rem) !important;
+  letter-spacing: -0.03em;
+}
+.pomich-role-hero-lead {
+  margin: 6px auto 0;
+  max-width: 320px;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+.pomich-role-section-label {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 850;
+  margin: 0 2px 2px;
+  letter-spacing: 0.01em;
+}
+.pomich-role-tg-link {
+  min-height: 36px !important;
+  border-radius: 10px !important;
+  padding: 0 12px !important;
+  font-size: 12px !important;
+  font-weight: 800 !important;
+}
+.pomich-role-stats--compact {
+  padding: 8px 8px !important;
+  border-radius: 12px !important;
+}
 .pomich-role-card__shine {
   pointer-events: none;
   position: absolute;
@@ -2063,6 +2128,27 @@ html.mobile-compact .pomich-map-occupied-hint {
     0 14px 28px rgba(15, 23, 42, 0.22);
   animation: pomichRoleIconFloat 3.6s ease-in-out infinite;
 }
+.pomich-role-icon--compact {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  transform: translateZ(16px);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.4) inset,
+    0 8px 16px rgba(15, 23, 42, 0.18);
+  animation-duration: 4.2s;
+}
+.pomich-role-icon--compact .pomich-role-icon__glow {
+  inset: 4px;
+  border-radius: 9px;
+}
+.pomich-role-card--compact .pomich-role-card__chevron {
+  font-size: 1rem;
+}
+.pomich-role-card--compact:hover .pomich-role-icon,
+.pomich-role-card--compact:focus-visible .pomich-role-icon {
+  transform: translateZ(22px) scale(1.05) rotate(-2deg);
+}
 .pomich-role-icon--client {
   background: linear-gradient(160deg, #34d399 0%, #16a36a 48%, #0f766e 100%);
   color: #ecfdf5;
@@ -2130,6 +2216,22 @@ html.mobile-compact .pomich-map-occupied-hint {
     0 1px 0 rgba(255, 255, 255, 0.35) inset,
     0 10px 24px rgba(22, 163, 106, 0.28);
   transform: rotateX(8deg) rotateY(-8deg);
+}
+.pomich-role-select .pomich-role-brand-mark {
+  height: 30px;
+  width: 30px;
+  border-radius: 9px;
+  font-size: 0.9rem;
+  transform: none;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.3) inset,
+    0 6px 14px rgba(22, 163, 106, 0.22);
+}
+.pomich-role-select .pomich-role-badge {
+  gap: 6px;
+  padding: 4px 9px;
+  font-size: 10px;
+  font-weight: 750;
 }
 .pomich-role-brand-wordmark {
   letter-spacing: -0.03em;
@@ -6555,6 +6657,20 @@ html:not([data-pomich-theme]) .pomich-cabinet-footer {
 .landing-service-card:hover {
   transform: translateY(-2px);
   border-color: rgba(34, 197, 94, 0.35);
+}
+.landing-service-row {
+  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+.landing-service-row:hover {
+  transform: translateY(-1px);
+  border-color: rgba(34, 197, 94, 0.45) !important;
+  box-shadow: 0 8px 18px -6px rgba(22, 163, 106, 0.18);
+}
+.landing-service-row:active {
+  transform: translateY(1px) scale(0.99);
+}
+.landing-step-row:last-child {
+  border-bottom: none !important;
 }
 .landing-service-card:active {
   transform: translateY(1px) scale(0.99);
