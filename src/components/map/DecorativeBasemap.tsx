@@ -1,6 +1,6 @@
 import { useState } from "react"
 
-/** Seamless static Ukraine basemap — no Leaflet tiles, so no square seams on iOS Safari. */
+/** Seamless static Ukraine basemap — one raster, no Leaflet tile seams on iOS Safari. */
 export default function DecorativeBasemap({ className = "" }: { className?: string }) {
   const [mode, setMode] = useState<"webp" | "jpg" | "css">("webp")
 
@@ -20,7 +20,7 @@ export default function DecorativeBasemap({ className = "" }: { className?: stri
         src={mode === "webp" ? "/maps/ukraine-basemap.webp" : "/maps/ukraine-basemap.jpg"}
         alt=""
         decoding="async"
-        fetchPriority="low"
+        fetchPriority="high"
         onError={() => {
           setMode((current) => (current === "webp" ? "jpg" : "css"))
         }}

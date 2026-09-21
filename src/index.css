@@ -1480,9 +1480,9 @@ html:not([data-pomich-theme]) .pomich-map-tools-panel__close {
 }
 .pomich-decorative-basemap__img {
   position: absolute;
-  inset: -3%;
-  width: 106%;
-  height: 106%;
+  inset: -2%;
+  width: 104%;
+  height: 104%;
   max-width: none !important;
   max-height: none !important;
   object-fit: cover;
@@ -1490,10 +1490,11 @@ html:not([data-pomich-theme]) .pomich-map-tools-panel__close {
   pointer-events: none;
   user-select: none;
   -webkit-user-drag: none;
-  /* Kill any residual abutment aliasing from the source raster on retina */
-  filter: blur(0.35px);
-  -webkit-filter: blur(0.35px);
+  /* Keep roads/cities sharp — soft blur made the map look like a blank wash on iOS */
+  filter: none;
+  -webkit-filter: none;
   transform: translateZ(0);
+  opacity: 0.92;
 }
 /* Atmosphere / hero map: never animate transform — Ken Burns = square tile grid on PC */
 .pomich-map-shell__map--static {

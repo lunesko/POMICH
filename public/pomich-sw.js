@@ -1,5 +1,5 @@
-const TILE_CACHE = "pomich-map-tiles-v33"
-const SW_GEN = "33"
+const TILE_CACHE = "pomich-map-tiles-v34"
+const SW_GEN = "34"
 const TILE_CACHE_MAX = 350
 const TILE_HOST_PATTERN = /(^|\.)(tile\.openstreetmap\.org|basemaps\.cartocdn\.com)$/
 

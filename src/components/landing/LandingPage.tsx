@@ -281,14 +281,9 @@ export default function LandingPage({
   ] as const
 
   useEffect(() => {
-    if (typeof window === "undefined") return
-    const start = () => setHeroMapReady(true)
-    if ("requestIdleCallback" in (window as any)) {
-      const id = (window as any).requestIdleCallback(start, { timeout: 1800 })
-      return () => (window as any).cancelIdleCallback(id)
-    }
-    const id = window.setTimeout(start, 900)
-    return () => window.clearTimeout(id)
+    /* Paint the decorative map on the first frame — delayed idle load looked like a
+       blank hero on iOS Safari while the placeholder gradient sat alone. */
+    setHeroMapReady(true)
   }, [])
 
   useEffect(() => {

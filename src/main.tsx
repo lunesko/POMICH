@@ -29,7 +29,7 @@ if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker
       // Cache-bust the SW script URL so Safari does not keep a deleted-chunk SW.
-      .register('/pomich-sw.js?v=33')
+      .register('/pomich-sw.js?v=34')
       .then((registration) => {
         registration.update().catch(() => undefined)
         navigator.serviceWorker.addEventListener('controllerchange', () => {
