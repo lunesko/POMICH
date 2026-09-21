@@ -56,7 +56,17 @@ export function AppShell({
                   ←
                 </button>
               ) : null}
-              {showSessionName ? (
+              {onOpenCabinet ? (
+                <button
+                  type="button"
+                  onClick={onOpenCabinet}
+                  className="pomich-app-header-session"
+                  title={loggedInName ? `Особистий кабінет · ${loggedInName}` : "Особистий кабінет"}
+                  aria-label="Кабінет"
+                >
+                  <span className="pomich-app-header-session__name">Кабінет</span>
+                </button>
+              ) : showSessionName ? (
                 <div className="pomich-app-header-session" title={loggedInName}>
                   <span className="pomich-app-header-session__name">{loggedInName}</span>
                 </div>
