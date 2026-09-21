@@ -28,9 +28,9 @@ export function AppShell({
   const { isTelegram } = useTelegramUx()
   const showTelegramBack = Boolean(compact && role && isTelegram)
   const showSessionName = Boolean(loggedInName && !isTelegram)
-  // Name pill opens cabinet — drop the extra «Кабінет» chip so the name can breathe.
+  // Name opens cabinet — no separate «Кабінет» chip.
   const showCabinetChip = Boolean(onOpenCabinet && !showSessionName)
-  // Compact chrome: logout lives in cabinet (same as Telegram).
+  // Compact chrome: logout only inside cabinet.
   const showLogoutChip = Boolean(onLogout && !compact)
 
   useTelegramBackButton({
@@ -45,8 +45,14 @@ export function AppShell({
           <header className="pomich-tg-header w-full">
             <div className="pomich-app-header-bar">
               {!showTelegramBack ? (
-                <button type="button" onClick={() => onRoleChange(null)} className="pomich-app-header-menu-btn">
-                  ← Меню
+                <button
+                  type="button"
+                  onClick={() => onRoleChange(null)}
+                  className="pomich-app-header-menu-btn"
+                  aria-label="Меню"
+                  title="Меню"
+                >
+                  ←
                 </button>
               ) : null}
               {showSessionName ? (
@@ -55,7 +61,7 @@ export function AppShell({
                     type="button"
                     onClick={onOpenCabinet}
                     className="pomich-app-header-session"
-                    title={loggedInName}
+                    title={`Кабінет · ${loggedInName}`}
                     aria-label={`Кабінет · ${loggedInName}`}
                   >
                     <span className="pomich-app-header-session__name">{loggedInName}</span>
@@ -68,15 +74,27 @@ export function AppShell({
               ) : (
                 <div className="min-w-0 flex-1" aria-hidden="true" />
               )}
-              <div className="pomich-app-header-actions-cluster">
+              <div className="pomich-app-header-actions-cluster" role="toolbar" aria-label="Дії">
                 <ThemeToggle compact />
                 {showCabinetChip ? (
-                  <button type="button" onClick={onOpenCabinet} className="pomich-app-header-chip pomich-app-header-chip--compact">
+                  <button
+                    type="button"
+                    onClick={onOpenCabinet}
+                    className="pomich-app-header-chip pomich-app-header-chip--compact"
+                    title="Кабінет"
+                    aria-label="Кабінет"
+                  >
                     Кабінет
                   </button>
                 ) : null}
                 {onSwitchRole ? (
-                  <button type="button" onClick={onSwitchRole} className="pomich-app-header-chip pomich-app-header-chip--compact">
+                  <button
+                    type="button"
+                    onClick={onSwitchRole}
+                    className="pomich-app-header-chip pomich-app-header-chip--compact"
+                    title="Змінити роль"
+                    aria-label="Змінити роль"
+                  >
                     Роль
                   </button>
                 ) : null}
