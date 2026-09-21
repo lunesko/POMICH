@@ -501,15 +501,17 @@ html:not([data-pomich-theme]) .pomich-tg-header .pomich-app-header-chip {
   font-family: inherit;
   line-height: 1.15;
   white-space: nowrap;
-  max-width: none;
+  /* Hug the name — never stretch across the header */
+  width: max-content;
+  max-width: min(46vw, 12rem);
   min-width: 0;
-  flex: 1 1 0;
+  flex: 0 1 auto;
   height: 28px;
   opacity: 1;
   text-shadow: none;
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
-  transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+  transition: background 0.2s ease, border-color 0.2s ease;
   box-shadow: none;
   box-sizing: border-box;
   overflow: hidden;
@@ -644,9 +646,10 @@ button.pomich-app-header-session {
   display: none;
 }
 .pomich-tg-header .pomich-app-header-session {
-  flex: 1 1 0;
+  flex: 0 1 auto;
+  width: max-content;
   min-width: 0;
-  max-width: none;
+  max-width: min(46vw, 12rem);
   justify-content: flex-start;
   font-size: 12px;
   font-weight: 800;
@@ -7367,6 +7370,9 @@ html.tg-compact .pomich-ride-screen__map .leaflet-top.leaflet-left {
   height: 26px;
   padding: 0 8px 0 6px;
   font-size: 12px;
+  width: max-content;
+  max-width: min(48vw, 11.5rem);
+  flex: 0 1 auto;
 }
 .pomich-tg-header .pomich-app-header-menu-btn {
   min-height: 26px;
