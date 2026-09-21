@@ -454,8 +454,8 @@ html[data-pomich-theme="dark"] {
 }
 [data-pomich-theme="light"] .pomich-tg-header,
 html:not([data-pomich-theme]) .pomich-tg-header {
-  /* Soft sage frosted glass — no pure-white glare */
-  background: rgba(228, 235, 231, 0.88) !important;
+  /* Soft sage frosted glass — map peeks through, text stays crisp */
+  background: rgba(228, 235, 231, 0.72) !important;
   border-bottom-color: rgba(28, 42, 36, 0.12);
   box-shadow: 0 4px 18px rgba(28, 42, 36, 0.06);
   color: #1a2332 !important;
