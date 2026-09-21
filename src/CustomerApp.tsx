@@ -1,6 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
 
-import { getUserAccount, type UserAccountStatus } from "./api/client"
+import { getUserAccount, updateProviderPresence, type UserAccountStatus } from "./api/client"
 import AppShell from "./components/layout/AppShell"
 import LandingPage from "./components/landing/LandingPage"
 import CustomerAppFallback from "./components/CustomerAppFallback"
@@ -422,6 +422,18 @@ export default function CustomerApp() {
       account,
       account?.customerId || readPersistedCustomerId(telegramContext.chatId),
     )
+    // Drop partner off the line before wiping the session (presence TTL is ~60s otherwise).
+    try {
+      const providerId = getActiveProviderId()
+      const token =
+        readStoredAuthSession(authSessionStorageKey("provider", providerId), "provider", providerId) ??
+        (isAuthSessionToken(providerToken) ? providerToken : undefined)
+      if (providerId && token) {
+        void updateProviderPresence(providerId, { status: "offline" }, token).catch(() => undefined)
+      }
+    } catch {
+      // Best-effort; role switch must still proceed.
+    }
     clearProviderAuthStorage({ includeAdmin: true })
     setAccount(preserved)
     if (preserved.customerId) {

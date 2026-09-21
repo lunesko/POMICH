@@ -246,7 +246,9 @@ export function RideScreen({
           }}
         >
           <div className="pomich-sheet-panel__scroll" onWheel={isolatePanelWheel}>
-            <div className="p-3 pb-[calc(12px+env(safe-area-inset-bottom,0px))]">{children}</div>
+            <div className="p-3 pb-[calc(12px+env(safe-area-inset-bottom,0px))]">
+              {filterSheetChildren(children, false, "expanded")}
+            </div>
           </div>
         </div>
       </div>

@@ -90,13 +90,12 @@ import { OrderErrorStep, OrderFinalStep } from "./OrderTerminalStep"
 import { useTelegramMainButton, useTelegramBackButton, useTelegramUx } from "../../hooks/useTelegramUx"
 import { normalizeOrderStatus, screenForOrderStatus } from "../../lib/orderStatus"
 import { acceptedIdleSecondsLeft, formatCountdown } from "../../lib/dispatchOffer"
-import FormContainer, { FormFooterBar, FormHeader } from "../layout/FormContainer"
+import FormContainer, { FormFooterBar } from "../layout/FormContainer"
 import { PhoneInput } from "../ui/PhoneInput"
 import { FieldError } from "../ui/FieldError"
 import { OtpVerificationPanel } from "../ui/OtpVerificationPanel"
 import { formatLocalPhoneDisplay, nationalDigitsFromPhone, phoneInputValueFromStored, validateUkraineMobilePhone } from "../../lib/ukrainePhone"
 import { validatePersonName } from "../../lib/personName"
-import { ThemeToggle } from "../ui/ThemeToggle"
 import { CitySelect } from "../ui/CitySelect"
 import { DEFAULT_SERVICE_CITY, normalizeServiceCity, nearestServiceCity, resolveServiceCityFromGeo } from "../../lib/ukraineCities"
 import {
@@ -157,7 +156,19 @@ function resolveOrderDistanceKm(service: ServiceKey, pickup: Point, destinationP
   return serviceRequiresDestination(service) ? raw : Math.max(0.5, raw)
 }
 
-function PrimaryButton({ label, onClick, loading = false, disabled = false }: { label: string; onClick?: () => void; loading?: boolean; disabled?: boolean }) {
+function PrimaryButton({
+  label,
+  onClick,
+  loading = false,
+  loadingLabel,
+  disabled = false,
+}: {
+  label: string
+  onClick?: () => void
+  loading?: boolean
+  loadingLabel?: string
+  disabled?: boolean
+}) {
   return (
     <button
       type="button"
@@ -165,7 +176,7 @@ function PrimaryButton({ label, onClick, loading = false, disabled = false }: { 
       disabled={disabled || loading}
       className={`pomich-primary-btn${disabled || loading ? " is-disabled" : ""}`}
     >
-      {loading ? "Створюємо заявку…" : label}
+      {loading ? (loadingLabel ?? label) : label}
     </button>
   )
 }
@@ -265,8 +276,17 @@ function ProviderCard({
         {typeof rating === "number" ? <div style={{ textAlign: "right", fontWeight: 900, color: BRAND }}>★ {rating}</div> : null}
       </div>
       <div style={{ display: "grid", gridTemplateColumns: phone && telegram ? "1fr 1fr" : "1fr", gap: 10, marginTop: 12 }}>
-        {phone ? <a href={`tel:${phone}`} style={{ textDecoration: "none" }}><SecondaryButton label="📞 Подзвонити" /></a> : null}
-        {telegram ? <a href={`https://t.me/${telegram}${orderId ? `?start=order_${orderId}` : ""}`} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}><SecondaryButton label="💬 Чат" /></a> : null}
+        {phone ? (
+          <SecondaryButton label="📞 Подзвонити" onClick={() => { window.location.href = `tel:${phone}` }} />
+        ) : null}
+        {telegram ? (
+          <SecondaryButton
+            label="💬 Чат"
+            onClick={() => {
+              window.open(`https://t.me/${telegram}${orderId ? `?start=order_${orderId}` : ""}`, "_blank", "noopener,noreferrer")
+            }}
+          />
+        ) : null}
       </div>
       {eta ? <div style={{ marginTop: 10, color: MUTED, fontSize: 13, fontWeight: 700 }}>Прибуття приблизно за {eta} хв</div> : null}
       {distanceLabel ? <div style={{ marginTop: 6, color: MUTED, fontSize: 13, fontWeight: 700 }}>{distanceLabel}</div> : null}
@@ -280,26 +300,6 @@ function ScreenLayout({ children, footer }: { children: React.ReactNode; footer?
       <div className="pomich-screen-layout__content" style={{ flex: 1, minWidth: 0, overflow: "auto", overflowX: "hidden" }}>{children}</div>
       {footer ? <FormFooterBar>{footer}</FormFooterBar> : null}
     </div>
-  )
-}
-
-function Header({ title, subtitle, onBack, status }: { title: string; subtitle?: string; onBack?: () => void; status?: OrderStatus }) {
-  return (
-    <FormHeader>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-          {onBack ? <button type="button" aria-label="Назад" onClick={onBack} className="pomich-back-btn">←</button> : null}
-          <div style={{ minWidth: 0 }}>
-            <div className="pomich-header-title">{title}</div>
-            {subtitle ? <div className="pomich-header-subtitle">{subtitle}</div> : null}
-          </div>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-          <ThemeToggle compact />
-          {status ? <StatusPill status={status} /> : null}
-        </div>
-      </div>
-    </FormHeader>
   )
 }
 

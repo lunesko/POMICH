@@ -78,15 +78,25 @@ export function subscribeSse(
   let source: EventSource | null = null
   let reconnectTimer: number | undefined
   let sawOpen = false
+  let reconnectAttempt = 0
 
   const connect = () => {
     if (closed) return
+    if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+      reconnectTimer = window.setTimeout(connect, 5000)
+      return
+    }
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      reconnectTimer = window.setTimeout(connect, 8000)
+      return
+    }
     source?.close()
     source = new EventSource(buildEventsUrl(path, options.accessToken))
 
     source.onopen = () => {
       if (closed) return
       sawOpen = true
+      reconnectAttempt = 0
       options.onConnected?.()
     }
 
@@ -96,7 +106,10 @@ export function subscribeSse(
       source?.close()
       source = null
       if (reconnectTimer) window.clearTimeout(reconnectTimer)
-      reconnectTimer = window.setTimeout(connect, sawOpen ? 2000 : 4000)
+      const base = sawOpen ? 2000 : 4000
+      const delay = Math.min(30000, Math.round(base * Math.pow(1.6, reconnectAttempt)))
+      reconnectAttempt += 1
+      reconnectTimer = window.setTimeout(connect, delay)
     }
 
     const handleMessage = (event: MessageEvent) => {
@@ -118,11 +131,25 @@ export function subscribeSse(
     })
   }
 
+  const onVisibility = () => {
+    if (closed) return
+    if (document.visibilityState === "visible" && !source) {
+      if (reconnectTimer) window.clearTimeout(reconnectTimer)
+      connect()
+    }
+  }
+  if (typeof document !== "undefined") {
+    document.addEventListener("visibilitychange", onVisibility)
+  }
+
   connect()
 
   return () => {
     closed = true
     if (reconnectTimer) window.clearTimeout(reconnectTimer)
+    if (typeof document !== "undefined") {
+      document.removeEventListener("visibilitychange", onVisibility)
+    }
     source?.close()
     source = null
   }

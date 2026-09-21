@@ -99,7 +99,6 @@ import { ServiceRadiusField } from "../ui/ServiceRadiusField"
 import { PartnerVehicleFields } from "./PartnerVehicleFields"
 import { normalizeOrderStatus } from "../../lib/orderStatus"
 import type { ServiceKey } from "../../lib/pomichDomain"
-import { ThemeToggle } from "../ui/ThemeToggle"
 import type { MapTileTheme } from "../../lib/theme"
 
 function VerificationPill({ status }: { status?: VerificationStatus }) {
@@ -256,8 +255,17 @@ function ProviderCard({
         {typeof rating === "number" ? <div style={{ textAlign: "right", fontWeight: 900, color: BRAND }}>★ {rating}</div> : null}
       </div>
       <div style={{ display: "grid", gridTemplateColumns: phone && telegram ? "1fr 1fr" : "1fr", gap: 10, marginTop: 12 }}>
-        {phone ? <a href={`tel:${phone}`} style={{ textDecoration: "none" }}><SecondaryButton label="📞 Подзвонити" /></a> : null}
-        {telegram ? <a href={`https://t.me/${telegram}${orderId ? `?start=order_${orderId}` : ""}`} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}><SecondaryButton label="💬 Чат" /></a> : null}
+        {phone ? (
+          <SecondaryButton label="📞 Подзвонити" onClick={() => { window.location.href = `tel:${phone}` }} />
+        ) : null}
+        {telegram ? (
+          <SecondaryButton
+            label="💬 Чат"
+            onClick={() => {
+              window.open(`https://t.me/${telegram}${orderId ? `?start=order_${orderId}` : ""}`, "_blank", "noopener,noreferrer")
+            }}
+          />
+        ) : null}
       </div>
       {eta ? <div style={{ marginTop: 10, color: MUTED, fontSize: 13, fontWeight: 700 }}>Прибуття приблизно за {eta} хв</div> : null}
       {distanceLabel ? <div style={{ marginTop: 6, color: MUTED, fontSize: 13, fontWeight: 700 }}>{distanceLabel}</div> : null}
@@ -286,7 +294,6 @@ function Header({ title, subtitle, onBack, status }: { title: string; subtitle?:
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-          <ThemeToggle compact />
           {status ? <StatusPill status={status} /> : null}
         </div>
       </div>
@@ -1708,6 +1715,8 @@ export default function ProviderFlow({
       }, session.token)
       setOnDuty(nextDuty)
       setProviderProfile((profile) => ({ ...profile, ...updated, status: updated.status ?? (nextDuty ? "online" : "offline") }))
+      if (nextDuty) setDutySheetSnap("half")
+      else setDutySheetSnap("collapsed")
     } catch (error) {
       setOnDuty(false)
       const detail = (error as { detail?: string }).detail
@@ -2078,7 +2087,7 @@ export default function ProviderFlow({
         mapSubtitle={onDuty ? `На лінії · ${mapRequestPins.length} заявок поруч` : "Україна · партнер"}
         showAllProviders={false}
         showDirectoryProviders={false}
-        expandedSheet={onDuty || dutySheetSnap === "expanded"}
+        expandedSheet={dutySheetSnap === "expanded"}
         defaultSnap={dutySheetSnap}
         onAcceptRequest={acceptFromMapPin}
         onContactRequest={contactFromMapPin}
@@ -2103,16 +2112,15 @@ export default function ProviderFlow({
             </div>
           ) : null}
           {onDuty ? (
-            <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
-              <SecondaryButton label="Піти з лінії" onClick={() => setDuty(false)} disabled={!providerAuthToken} />
-              {activeOffer ? (
+            activeOffer ? (
+              <div style={{ marginTop: 10 }}>
                 <PrimaryButton
                   label={offerSaving ? "Приймаємо…" : "Відкрити заявку"}
                   onClick={() => openOfferDetail(activeOffer)}
                   disabled={offerSaving}
                 />
-              ) : null}
-            </div>
+              </div>
+            ) : null
           ) : (
             <div style={{ marginTop: 10 }}>
               <PrimaryButton
@@ -2141,33 +2149,30 @@ export default function ProviderFlow({
         <SheetHeading title="Партнер POMICH" subtitle={onDuty ? "Ви на лінії — заявки на карті" : "Вийдіть на лінію, щоб бачити заявки"} />
         <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
           {onDuty ? (
-            <>
-              <PrimaryButton
-                label={offerSaving ? "Приймаємо…" : activeOffer ? "Відкрити заявку" : "Оновити карту"}
-                onClick={() => {
-                  if (activeOffer) {
-                    openOfferDetail(activeOffer)
-                    return
-                  }
-                  const subjectId = readAuthSessionSubject(providerAuthToken || "") || providerId
-                  if (!providerAuthToken) return
-                  getProviderOffers(subjectId, providerAuthToken)
-                    .then((offers) => {
-                      setIncomingOffers(filterVisibleOffers(Array.isArray(offers) ? offers : [], {
-                        dismissedOfferIds: dismissedOfferIdsRef.current,
-                        dismissedOrderIds: dismissedOrderIdsRef.current,
-                      }))
-                    })
-                    .catch(() => undefined)
-                  const radiusKm = providerProfile.serviceRadiusKm ?? registrationForm.serviceRadiusKm ?? DEFAULT_SERVICE_RADIUS_KM
-                  getNearbyMapOrders(providerLocation.lat, providerLocation.lng, radiusKm, undefined, providerAuthToken)
-                    .then((orders) => setNearbyRequestPins(Array.isArray(orders) ? orders : []))
-                    .catch(() => undefined)
-                }}
-                disabled={offerSaving}
-              />
-              <SecondaryButton label="Піти з лінії" onClick={() => setDuty(false)} disabled={!providerAuthToken} />
-            </>
+            <PrimaryButton
+              label={offerSaving ? "Приймаємо…" : activeOffer ? "Відкрити заявку" : "Оновити карту"}
+              onClick={() => {
+                if (activeOffer) {
+                  openOfferDetail(activeOffer)
+                  return
+                }
+                const subjectId = readAuthSessionSubject(providerAuthToken || "") || providerId
+                if (!providerAuthToken) return
+                getProviderOffers(subjectId, providerAuthToken)
+                  .then((offers) => {
+                    setIncomingOffers(filterVisibleOffers(Array.isArray(offers) ? offers : [], {
+                      dismissedOfferIds: dismissedOfferIdsRef.current,
+                      dismissedOrderIds: dismissedOrderIdsRef.current,
+                    }))
+                  })
+                  .catch(() => undefined)
+                const radiusKm = providerProfile.serviceRadiusKm ?? registrationForm.serviceRadiusKm ?? DEFAULT_SERVICE_RADIUS_KM
+                getNearbyMapOrders(providerLocation.lat, providerLocation.lng, radiusKm, undefined, providerAuthToken)
+                  .then((orders) => setNearbyRequestPins(Array.isArray(orders) ? orders : []))
+                  .catch(() => undefined)
+              }}
+              disabled={offerSaving}
+            />
           ) : (
             <PrimaryButton
               label={
@@ -2179,7 +2184,13 @@ export default function ProviderFlow({
                       ? "Оновлюємо статус…"
                       : "Вийти на лінію"
               }
-              onClick={() => void setDuty(true)}
+              onClick={() => {
+                if (!isPartnerRegisteredAndCompleted || !providerCanGoOnline) {
+                  openPhoneOrProfileGate()
+                  return
+                }
+                void setDuty(true)
+              }}
               disabled={presenceSaving}
             />
           )}
@@ -2456,7 +2467,7 @@ export default function ProviderFlow({
         mapSubtitle={onDuty ? `На лінії · ${mapRequestPins.length} заявок поруч` : "Україна · партнер"}
         showAllProviders={false}
         showDirectoryProviders={false}
-        expandedSheet={onDuty || dutySheetSnap === "expanded"}
+        expandedSheet={dutySheetSnap === "expanded"}
         defaultSnap={dutySheetSnap}
         onAcceptRequest={acceptFromMapPin}
         onContactRequest={contactFromMapPin}
