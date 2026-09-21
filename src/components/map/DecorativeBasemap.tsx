@@ -10,9 +10,16 @@ export default function DecorativeBasemap({ className = "" }: { className?: stri
         fetchPriority="low"
         onError={(event) => {
           const img = event.currentTarget
+          if (img.dataset.fallbackTried === "1") {
+            img.style.display = "none"
+            return
+          }
+          img.dataset.fallbackTried = "1"
           if (img.src.endsWith(".webp")) {
             img.src = "/maps/ukraine-basemap.jpg"
+            return
           }
+          img.style.display = "none"
         }}
       />
     </div>
