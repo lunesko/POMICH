@@ -7,44 +7,42 @@ Scope: React Mini App (`src/`) — duplicate panels/CTAs, entry/exit paths, dead
 | Severity | Issue | Fix |
 |---|---|---|
 | Critical | Desktop split `RideScreen` rendered peek **and** full sheet children | `filterSheetChildren(..., false, "expanded")` in split view |
-| Critical | Duty toggle + «Піти з лінії» / «Вийти на лінію» duplicated | Removed leave-duty secondary; offline go-online stays on toggle + gate CTAs |
+| Critical | Duty toggle + «Піти з лінії» duplicated | Removed leave-duty secondary; toggle + gate CTAs remain |
 | High | Customer `PrimaryButton` always showed «Створюємо заявку…» when loading | Use `loadingLabel ?? label` |
-| High | Call/Chat: `<button>` inside `<a>` (clicks often no-op) | `SecondaryButton` + `tel:` / `window.open` |
-| High | Role switch left partner online (presence TTL ~60s) | `updateProviderPresence(offline)` before clearing tokens |
-| High | Double `ThemeToggle` on partner form steps under AppShell | Removed local header toggle; deleted unused customer `Header` |
-| High | Cabinet «На лінії» dropped offline without heartbeat | 12s presence heartbeat while online in cabinet |
-| High | Sheet forced expanded for entire duty session | `expandedSheet` only from snap; set half/collapsed on duty change |
-| Medium | SSE reconnect every 2–4s forever when API down | Exponential backoff (cap 30s) + pause when hidden/offline |
+| High | Call/Chat: `<button>` inside `<a>` | `SecondaryButton` + `tel:` / `window.open` |
+| High | Role switch left partner online | `updateProviderPresence(offline)` before clearing tokens |
+| High | Double `ThemeToggle` on partner form steps | Removed local header toggle |
+| High | Cabinet «На лінії» dropped offline without heartbeat | 12s presence heartbeat while online |
+| High | Sheet forced expanded for entire duty session | Snap-driven expand; half/collapsed on duty change |
+| High | Telegram MainButton + in-sheet Primary on destination/details/terminal | Hide sheet primary/back when `isTelegram`; BackButton includes `details` |
+| High | Terminal «Вийти з акаунту» duplicated AppShell logout | Stop passing `onLogout` into terminal sheet |
+| High | Dual offer UI (`IncomingOfferStep` + sheet) | Offer step = IncomingOfferStep only; sheet only on duty |
+| High | Dual price state | Single `proposedPrice` |
+| High | Client «Кабінет» no-op without profile | Gate + profile prompt / enter flow |
+| Medium | Partner password login dead-end | Prefer registration + phone restore when `onRestoreAccount` |
+| Medium | Landing admin logo hold unwired | Long-press brand (~3s) → `onHiddenAdmin` |
+| Medium | Silent map refresh failures | Surface `offerError` on offers/nearby refresh fail |
+| Medium | SSE reconnect storm | Exponential backoff + pause when hidden/offline |
+| Low | Unused `Screen` `"profile"` member | Removed from union |
+| Low | Stale UX docs on DetailsStep / admin hold | Updated `docs/UX_UI_CURRENT_SCENARIOS.md` |
+| Low | Unused design-spec paste | Deleted `src/imports/pasted_text/pomich-design-spec.md` |
 
-## Still open (next passes)
+## Still deferred (lower risk / larger refactors)
 
-### High / medium
-- Telegram `MainButton` + in-sheet `PrimaryButton` on destination/details/terminal (duplicate CTA)
-- Telegram `BackButton` + sheet «← Назад» + AppShell «← Меню»
-- Terminal «Вийти з акаунту» duplicates header logout
-- Dual offer UI: `IncomingOfferStep` + `OrderRequestSheet` can stack
-- Dual price state: `proposedPrice` / `sheetProposedPrice`
-- Client «Кабінет» no-op when `account.profile` missing
-- Partner password `AccountLoginStep` dead-end vs phone restore
-- Landing `onHiddenAdmin` / logo hold imported but unwired
-- Silent `.catch(() => undefined)` on map refresh / order poll
-- Local `PrimaryButton`/`SecondaryButton` clones in mega-flows (prefer shared UI)
-
-### Low / cleanup
-- Unused CSS clusters (`pomich-sea-*`, orphan duty panel styles if unused on branch, etc.)
-- Nested `PomichErrorBoundary` + `AppErrorBoundary`
-- `Screen` union member `"profile"` unused
-- `docs/UX_UI_CURRENT_SCENARIOS.md` out of date on DetailsStep
-- Design-spec paste under `src/imports/` not used by app
+- Full replace of local `PrimaryButton`/`SecondaryButton` clones in mega-flows with shared `components/ui/*`
+- Unused CSS cluster purge (`pomich-sea-*`, etc.) after dynamic-class audit
+- Collapse nested `PomichErrorBoundary` + `AppErrorBoundary` into one
+- Softer customer order-poll error banner (realtime is primary; silent catch remains for transient blips)
+- AppShell «← Меню» vs Telegram Close crowding (header safe-area handled in separate PR)
 
 ## Screen tree (summary)
 
 ```
 Landing → OnboardingGate → AppShell
-  ├─ CustomerFlow (home → … → terminal)
+  ├─ CustomerFlow (home → location → destination → details → review → … → terminal)
   ├─ ProviderFlow (duty / offer / active job)
   └─ ClientCabinet | ProviderCabinet (replaces shell)
-AdminFlow via ?role=admin / #admin
+AdminFlow via ?role=admin / #admin / logo long-press
 ```
 
 ## Entry / exit notes
@@ -53,16 +51,17 @@ AdminFlow via ?role=admin / #admin
 |---|---|
 | ← Меню | Landing; session kept |
 | Вийти | Full clear + hard reload — OK |
-| Роль | Role picker; **now** also goes offline |
-| Кабінет | Unmounts flow; partner remounts on back |
+| Роль | Role picker; also goes offline |
+| Кабінет | Needs profile (client); otherwise profile prompt |
 | Logout | Clears correctly |
 
 ## Test plan
 
-- [ ] Desktop (≥tablet): home/duty side panel shows one sheet (full), not peek+full stacked
-- [ ] Partner on duty: toggle only to leave line; no «Піти з лінії»
-- [ ] Price confirm while loading shows «Підтверджуємо…» not «Створюємо заявку…»
-- [ ] Call/Chat on assigned partner card works
-- [ ] Switch role while online → partner goes offline on server
-- [ ] Cabinet online stays online >60s (heartbeat)
-- [ ] Kill API briefly → SSE reconnect backoff, no tight loop
+- [x] Unit/integration suite (`pnpm test`)
+- [ ] Desktop: one side panel (full), not peek+full stacked
+- [ ] Partner online: no «Піти з лінії»; toggle leaves line
+- [ ] Telegram: no duplicate Далі / terminal CTA with MainButton; Back covers details
+- [ ] Offer step shows IncomingOfferStep only (no stacked sheet)
+- [ ] Client Кабінет without profile → prompt, not dead end
+- [ ] Landing brand long-press opens admin entry
+- [ ] Switch role while online → partner offline on server

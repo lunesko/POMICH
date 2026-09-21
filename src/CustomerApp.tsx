@@ -666,6 +666,30 @@ export default function CustomerApp() {
     )
   }
 
+  if (showCabinet && role === "customer" && !account?.profile) {
+    return (
+      <div className="pomich-boot-screen" style={{ display: "grid", gap: 12, placeItems: "center", padding: 24, textAlign: "center" }}>
+        <div style={{ fontWeight: 900, fontSize: 18 }}>Спочатку заповніть профіль</div>
+        <div style={{ color: "var(--pomich-muted)", fontWeight: 700, maxWidth: 320 }}>
+          Кабінет відкриється після збереження імені та телефону.
+        </div>
+        <button
+          type="button"
+          className="pomich-primary-btn"
+          onClick={() => {
+            setShowCabinet(false)
+            void enterCustomerFlow()
+          }}
+        >
+          Заповнити профіль
+        </button>
+        <button type="button" className="pomich-ghost-btn" onClick={() => setShowCabinet(false)}>
+          Назад
+        </button>
+      </div>
+    )
+  }
+
   if (showCabinet && account?.profile && role === "customer") {
     // History is keyed by session subject. Prefer Telegram tg-* / token subject over a stale guest account id.
     const persistedCustomerId = readPersistedCustomerId(telegramContext.chatId)
@@ -779,6 +803,11 @@ export default function CustomerApp() {
         loggedInName={loggedInCustomerName}
         onRoleChange={handleRoleChange}
         onOpenCabinet={() => {
+          if (role === "customer" && !account?.profile) {
+            setShowCabinet(false)
+            void enterCustomerFlow()
+            return
+          }
           setCabinetInitialEditing(false)
           setShowCabinet(true)
         }}

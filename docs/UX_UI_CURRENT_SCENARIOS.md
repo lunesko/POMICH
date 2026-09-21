@@ -148,10 +148,10 @@ What the customer sees:
 - Map stays visible during location/destination/review.
 - Back button between steps.
 - Price estimate/distance context where applicable.
-- Review shows a default vehicle-state label (`Авто заводиться`); the dedicated `DetailsStep` UI exists in code but is **unreachable** (nothing sets `screen === "details"`).
+- Review follows `DetailsStep` (vehicle state); flow is home → location → destination → **details** → review.
 - Submit button:
   - web: visible footer button.
-  - Telegram: can be delegated to Telegram MainButton in supported contexts.
+  - Telegram: MainButton; in-sheet primary hidden to avoid duplicate CTA.
 
 Current order payload includes:
 
@@ -703,8 +703,8 @@ What admin sees:
 - Price negotiation is one proposal plus customer confirmation, not a full chat/negotiation loop.
 - Payments are not part of current UX.
 - Bot notifications are already routed by bot kind in code (customer events → `@pomich_ua_bot`, partner offers → `@pomich_help_bot`; see [`docs/TELEGRAM_TWO_BOTS.md`](TELEGRAM_TWO_BOTS.md)). Remaining gap is production webhook setup (`scripts/ops/telegram_set_webhooks.py` + live HTTPS origin), not missing routing logic.
-- Hidden admin long-press on landing is not wired (`?role=admin` / `#admin` only).
-- Customer vehicle `DetailsStep` is dead code; order create skips it.
+- Hidden admin: long-press (~3s) on landing brand mark, or `?role=admin` / `#admin`.
+- Customer vehicle `DetailsStep` is on the order path (location → destination → details → review).
 - `POST /orders/{id}/dispatch/retry` is unauthenticated (client sends no bearer) — usable from UI but a security/ops risk.
 - Customer cancel is optimistic (local cancelled UI even if API fails silently).
 

@@ -348,7 +348,7 @@ export default function ProviderFlow({
   const [accountLogin, setAccountLogin] = useState(providerId)
   const [accountPassword, setAccountPassword] = useState("")
   const [authSaving, setAuthSaving] = useState(false)
-  const [loginView, setLoginView] = useState<"login" | "register">(() => (effectiveProviderRegistered ? "login" : "register"))
+  const [loginView, setLoginView] = useState<"login" | "register">("register")
   const persistedActiveOrder = typeof window !== "undefined" ? readActiveOrder() : undefined
   const [step, setStep] = useState<"register" | "verify" | "duty" | "offer" | "awaiting_price" | "navigation" | "arrived" | "completed">(() => {
     if (typeof window === "undefined") return "register"
@@ -375,7 +375,6 @@ export default function ProviderFlow({
   const [nearbyRequestPins, setNearbyRequestPins] = useState<MapRequestPin[]>([])
   const [mapRequestPins, setMapRequestPins] = useState<MapRequestPin[]>([])
   const [selectedRequestPin, setSelectedRequestPin] = useState<MapRequestPin | undefined>()
-  const [sheetProposedPrice, setSheetProposedPrice] = useState("")
   const [activeOrder, setActiveOrder] = useState<OrderResponse | undefined>(() => {
     if (!persistedActiveOrder?.orderId) return undefined
     return {
@@ -1112,7 +1111,7 @@ export default function ProviderFlow({
     )
     if (stillOpen) return
     setSelectedRequestPin(undefined)
-    setSheetProposedPrice("")
+    setProposedPrice("")
     if (step === "offer") setStep("duty")
   }, [mapRequestPins, selectedRequestPin, step])
 
@@ -1159,9 +1158,8 @@ export default function ProviderFlow({
   const openOfferDetail = (offer: DispatchOffer) => {
     const pin = mapRequestPins.find((item) => item.id === offer.orderId || item.offerId === offer.id) ?? pinFromOffer(offer)
     setSelectedRequestPin(pin)
-    setSheetProposedPrice(proposedPrice)
     setOfferError(undefined)
-    setStep("offer")
+    // Stay on duty map — OrderRequestSheet overlays (avoid stacking IncomingOfferStep).
   }
 
   const handleOfferAcceptBlocked = (reason: "expired" | "price") => {
@@ -1180,7 +1178,6 @@ export default function ProviderFlow({
   const syncProposedPrice = (value: string) => {
     const cleaned = value.replace(/[^\d.,]/g, "")
     setProposedPrice(cleaned)
-    setSheetProposedPrice(cleaned)
     if (offerError === "Вкажіть вартість послуги в гривнях.") setOfferError(undefined)
   }
 
@@ -1211,7 +1208,6 @@ export default function ProviderFlow({
     setActiveOrder(optimisticOrder)
     setIncomingOffers([])
     setSelectedRequestPin(undefined)
-    setSheetProposedPrice("")
     setOnDuty(true)
     setProposedPrice("")
     setPriceNote("")
@@ -1279,7 +1275,6 @@ export default function ProviderFlow({
       return
     }
     setSelectedRequestPin(pin)
-    setSheetProposedPrice(proposedPrice)
     setOfferError(undefined)
   }
 
@@ -1293,7 +1288,7 @@ export default function ProviderFlow({
     rememberDismissedOffer(undefined, selectedRequestPin.id)
     setNearbyRequestPins((pins) => pins.filter((item) => item.id !== selectedRequestPin.id))
     setSelectedRequestPin(undefined)
-    setSheetProposedPrice("")
+    setProposedPrice("")
     setOfferError(undefined)
   }
 
@@ -1303,10 +1298,9 @@ export default function ProviderFlow({
 
   const acceptFromSheet = async (priceOverride?: string) => {
     if (!selectedRequestPin) return
-    const priceSource = priceOverride ?? sheetProposedPrice
+    const priceSource = priceOverride ?? proposedPrice
     if (priceSource.trim()) {
       setProposedPrice(priceSource)
-      setSheetProposedPrice(priceSource)
     }
     let offer = incomingOffers.find((item) => item.id === selectedRequestPin.offerId || item.orderId === selectedRequestPin.id)
     if (!offer) {
@@ -1978,7 +1972,8 @@ export default function ProviderFlow({
     if (providerRegistered && customerIdForOtp && customerTokenForOtp) {
       return <div className="pomich-boot-screen">Завантажуємо кабінет партнера…</div>
     }
-    if (loginView === "register") {
+    // Phone OTP restore / registration first — password login is a Mini App dead-end.
+    if (loginView === "register" || onRestoreAccount) {
       return (
         <ProviderRegistrationStep
           form={registrationForm}
@@ -2164,12 +2159,13 @@ export default function ProviderFlow({
                       dismissedOfferIds: dismissedOfferIdsRef.current,
                       dismissedOrderIds: dismissedOrderIdsRef.current,
                     }))
+                    setOfferError(undefined)
                   })
-                  .catch(() => undefined)
+                  .catch(() => setOfferError("Не вдалося оновити пропозиції. Спробуйте ще раз."))
                 const radiusKm = providerProfile.serviceRadiusKm ?? registrationForm.serviceRadiusKm ?? DEFAULT_SERVICE_RADIUS_KM
                 getNearbyMapOrders(providerLocation.lat, providerLocation.lng, radiusKm, undefined, providerAuthToken)
                   .then((orders) => setNearbyRequestPins(Array.isArray(orders) ? orders : []))
-                  .catch(() => undefined)
+                  .catch(() => setOfferError("Не вдалося оновити карту заявок. Спробуйте ще раз."))
               }}
               disabled={offerSaving}
             />
@@ -2229,7 +2225,7 @@ export default function ProviderFlow({
       {selectedRequestPin ? (
         <OrderRequestSheet
           pin={selectedRequestPin}
-          proposedPrice={sheetProposedPrice}
+          proposedPrice={proposedPrice}
           saving={offerSaving}
           error={offerError}
           secondsLeft={secondsLeft}
@@ -2421,7 +2417,6 @@ export default function ProviderFlow({
 
   if (step === "offer" && activeOffer) {
     return (
-      <>
       <IncomingOfferStep
         offer={activeOffer}
         providerLocation={providerLocation}
@@ -2436,24 +2431,6 @@ export default function ProviderFlow({
         onDecline={() => void declineOffer(activeOffer)}
         onAcceptBlocked={handleOfferAcceptBlocked}
       />
-      {selectedRequestPin ? (
-        <OrderRequestSheet
-          pin={selectedRequestPin}
-          proposedPrice={sheetProposedPrice}
-          saving={offerSaving}
-          error={offerError}
-          secondsLeft={secondsLeft}
-          onProposedPriceChange={syncProposedPrice}
-          onAccept={(price) => void acceptFromSheet(price)}
-          onDecline={() => void declineFromSheet()}
-          onClose={() => {
-            setSelectedRequestPin(undefined)
-            setOfferError(undefined)
-          }}
-          onAcceptBlocked={handleOfferAcceptBlocked}
-        />
-      ) : null}
-      </>
     )
   }
 
