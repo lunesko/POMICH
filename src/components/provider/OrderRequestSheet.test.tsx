@@ -125,7 +125,7 @@ describe("OrderRequestSheet", () => {
       />,
     )
 
-    await user.click(screen.getByRole("button", { name: /Пропустити/i }))
+    await user.click(screen.getByRole("button", { name: /Відхилити/i }))
     expect(onDecline).toHaveBeenCalledTimes(1)
   })
 })

@@ -5532,6 +5532,38 @@ button.pomich-cabinet-order-item--button:active {
   font-weight: 700;
 }
 
+.pomich-cabinet-offer-item {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.pomich-cabinet-offer-item__main {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.pomich-cabinet-offer-item__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pomich-cabinet-chip-btn--brand {
+  background: var(--pomich-brand, #e11d48);
+  color: #fff;
+  border-color: transparent;
+}
+
 .pomich-history-detail {
   position: fixed;
   inset: 0;
@@ -7112,7 +7144,8 @@ html.tg-compact .pomich-ride-screen__map .leaflet-top.leaflet-left {
 .pomich-order-request-sheet {
   position: fixed;
   inset: 0;
-  z-index: 1400;
+  /* Above tg-header (3200) and cabinet shell (3200); just over history sheet (4500) */
+  z-index: 4600;
   display: flex;
   align-items: flex-end;
   justify-content: center;

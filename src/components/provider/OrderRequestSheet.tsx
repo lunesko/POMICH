@@ -140,7 +140,7 @@ export function OrderRequestSheet({
             disabled={saving || offerExpired}
           />
           {onDecline ? (
-            <SecondaryButton label="Пропустити" onClick={() => void onDecline()} disabled={saving || offerExpired} />
+            <SecondaryButton label="Відхилити" onClick={() => void onDecline()} disabled={saving || offerExpired} />
           ) : null}
           <SecondaryButton label="Закрити" onClick={onClose} disabled={saving} />
         </div>

@@ -424,6 +424,7 @@ export default function ProviderFlow({
   })
   const [registrationForm, setRegistrationForm] = useState<PartnerRegistrationForm>(() => emptyPartnerRegistrationForm())
   const dismissedOfferIdRef = useRef<string | undefined>(undefined)
+  const autoOpenedOfferIdRef = useRef<string | undefined>(undefined)
   const dismissedOfferIdsRef = useRef<Set<string>>(new Set())
   const dismissedOrderIdsRef = useRef<Set<string>>(new Set())
 
@@ -1055,7 +1056,20 @@ export default function ProviderFlow({
           dismissedOrderIds: dismissedOrderIdsRef.current,
         },
         offerClock,
-      )
+      ).map((pin) => {
+        // Ensure every active offer is visible on the duty map even if the backend
+        // omitted customerCoordinates (sheet still has the full offer details).
+        if (pin.customerCoordinates) return pin
+        if (!pin.offerId) return pin
+        return {
+          ...pin,
+          customerCoordinates: {
+            lat: providerLocationRef.current.lat,
+            lng: providerLocationRef.current.lng,
+          },
+          customerLocation: pin.customerLocation || "Поруч із вами",
+        }
+      })
       if (prev.length === next.length && prev.every((p, i) => p.id === next[i]?.id && p.offerId === next[i]?.offerId)) {
         return prev
       }
@@ -1174,6 +1188,16 @@ export default function ProviderFlow({
     setOfferError(undefined)
     // Stay on duty map — OrderRequestSheet overlays (avoid stacking IncomingOfferStep).
   }
+
+  // Auto-open the accept/decline sheet once per new offer so partners do not miss CTAs.
+  useEffect(() => {
+    if (step !== "duty" || !onDuty) return
+    if (!activeOffer) return
+    if (autoOpenedOfferIdRef.current === activeOffer.id) return
+    autoOpenedOfferIdRef.current = activeOffer.id
+    openOfferDetail(activeOffer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- open once when offer id arrives
+  }, [step, onDuty, activeOffer?.id])
 
   const handleOfferAcceptBlocked = (reason: "expired" | "price") => {
     if (reason === "expired") {
