@@ -26,7 +26,7 @@ export function CitySelect({
 }: CitySelectProps) {
   const selected = value || ""
   return (
-    <label style={{ display: "grid", gap: 6 }} htmlFor={id}>
+    <label className="pomich-form-field" htmlFor={id}>
       <span className="pomich-form-label">
         {label}
         {required ? " *" : ""}

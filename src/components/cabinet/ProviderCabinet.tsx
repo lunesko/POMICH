@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import {
   createSelfProviderSession,
@@ -135,6 +135,8 @@ export default function ProviderCabinet({
     if (initialEditing) return undefined
     return buildStubProviderProfile(providerId)
   })
+  const profileRef = useRef(profile)
+  profileRef.current = profile
   const [offers, setOffers] = useState<DispatchOffer[]>([])
   const [orderHistory, setOrderHistory] = useState<OrderResponse[]>([])
   const [selectedHistoryOrder, setSelectedHistoryOrder] = useState<OrderResponse | undefined>()
@@ -346,6 +348,19 @@ export default function ProviderCabinet({
             }
           })
           .catch(() => undefined)
+        // Keep presence alive while cabinet shows "На лінії" (server TTL ~60s).
+        const live = profileRef.current
+        if (isProviderOnline(live)) {
+          updateProviderPresence(
+            targetId,
+            {
+              status: "online",
+              ...(live?.location ? { location: live.location } : {}),
+              ...(live?.etaMinutes != null ? { etaMinutes: live.etaMinutes } : {}),
+            },
+            targetToken,
+          ).catch(() => undefined)
+        }
       })()
     }, 12000)
 

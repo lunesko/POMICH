@@ -90,6 +90,8 @@ export function IncomingOfferStep({
         title="Нове замовлення"
         subtitle={secondsLeft > 0 ? `${secondsLeft} сек · ${distanceLabel} · ~${eta} хв` : "Час вийшов"}
         status="searching"
+        showThemeToggle={false}
+        compactToggle
       />
       <div className="pomich-incoming-offer">
         <LazyRouteMap

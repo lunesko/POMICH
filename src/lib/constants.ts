@@ -13,7 +13,6 @@ export { PARTNER_VEHICLE_MAKE_OTHER, partnerVehicleMakes } from "./partnerVehicl
 export type Role = "customer" | "provider" | "admin"
 
 export type Screen =
-  | "profile"
   | "home"
   | "location"
   | "destination"

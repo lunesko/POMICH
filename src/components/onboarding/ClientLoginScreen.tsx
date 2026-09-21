@@ -206,7 +206,7 @@ export default function ClientLoginScreen({ saving, error: externalError, onSubm
         />
       }
     >
-      <label style={{ display: "grid", gap: 6 }}>
+      <label className="pomich-form-field">
         <span className="pomich-form-label">Телефон *</span>
         <PhoneInput
           value={phone}
@@ -228,7 +228,7 @@ export default function ClientLoginScreen({ saving, error: externalError, onSubm
       </label>
 
       {awaitingCode ? (
-        <label style={{ display: "grid", gap: 6 }}>
+        <label className="pomich-form-field">
           <span className="pomich-form-label">Код підтвердження</span>
           <input
             value={code}

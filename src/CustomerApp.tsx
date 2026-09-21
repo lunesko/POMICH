@@ -1,6 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
 
-import { getUserAccount, type UserAccountStatus } from "./api/client"
+import { getUserAccount, updateProviderPresence, type UserAccountStatus } from "./api/client"
 import AppShell from "./components/layout/AppShell"
 import LandingPage from "./components/landing/LandingPage"
 import CustomerAppFallback from "./components/CustomerAppFallback"
@@ -422,6 +422,18 @@ export default function CustomerApp() {
       account,
       account?.customerId || readPersistedCustomerId(telegramContext.chatId),
     )
+    // Drop partner off the line before wiping the session (presence TTL is ~60s otherwise).
+    try {
+      const providerId = getActiveProviderId()
+      const token =
+        readStoredAuthSession(authSessionStorageKey("provider", providerId), "provider", providerId) ??
+        (isAuthSessionToken(providerToken) ? providerToken : undefined)
+      if (providerId && token) {
+        void updateProviderPresence(providerId, { status: "offline" }, token).catch(() => undefined)
+      }
+    } catch {
+      // Best-effort; role switch must still proceed.
+    }
     clearProviderAuthStorage({ includeAdmin: true })
     setAccount(preserved)
     if (preserved.customerId) {
@@ -654,6 +666,30 @@ export default function CustomerApp() {
     )
   }
 
+  if (showCabinet && role === "customer" && !account?.profile) {
+    return (
+      <div className="pomich-boot-screen" style={{ display: "grid", gap: 12, placeItems: "center", padding: 24, textAlign: "center" }}>
+        <div style={{ fontWeight: 900, fontSize: 18 }}>Спочатку заповніть профіль</div>
+        <div style={{ color: "var(--pomich-muted)", fontWeight: 700, maxWidth: 320 }}>
+          Кабінет відкриється після збереження імені та телефону.
+        </div>
+        <button
+          type="button"
+          className="pomich-primary-btn"
+          onClick={() => {
+            setShowCabinet(false)
+            void enterCustomerFlow()
+          }}
+        >
+          Заповнити профіль
+        </button>
+        <button type="button" className="pomich-ghost-btn" onClick={() => setShowCabinet(false)}>
+          Назад
+        </button>
+      </div>
+    )
+  }
+
   if (showCabinet && account?.profile && role === "customer") {
     // History is keyed by session subject. Prefer Telegram tg-* / token subject over a stale guest account id.
     const persistedCustomerId = readPersistedCustomerId(telegramContext.chatId)
@@ -767,6 +803,11 @@ export default function CustomerApp() {
         loggedInName={loggedInCustomerName}
         onRoleChange={handleRoleChange}
         onOpenCabinet={() => {
+          if (role === "customer" && !account?.profile) {
+            setShowCabinet(false)
+            void enterCustomerFlow()
+            return
+          }
           setCabinetInitialEditing(false)
           setShowCabinet(true)
         }}

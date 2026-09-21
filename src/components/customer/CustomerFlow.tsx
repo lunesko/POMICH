@@ -92,13 +92,12 @@ import { OrderErrorStep, OrderFinalStep } from "./OrderTerminalStep"
 import { useTelegramMainButton, useTelegramBackButton, useTelegramUx } from "../../hooks/useTelegramUx"
 import { normalizeOrderStatus, screenForOrderStatus } from "../../lib/orderStatus"
 import { acceptedIdleSecondsLeft, formatCountdown } from "../../lib/dispatchOffer"
-import FormContainer, { FormFooterBar, FormHeader } from "../layout/FormContainer"
+import FormContainer, { FormFooterBar } from "../layout/FormContainer"
 import { PhoneInput } from "../ui/PhoneInput"
 import { FieldError } from "../ui/FieldError"
 import { OtpVerificationPanel } from "../ui/OtpVerificationPanel"
 import { formatLocalPhoneDisplay, nationalDigitsFromPhone, phoneInputValueFromStored, validateUkraineMobilePhone } from "../../lib/ukrainePhone"
 import { validatePersonName } from "../../lib/personName"
-import { ThemeToggle } from "../ui/ThemeToggle"
 import { CitySelect } from "../ui/CitySelect"
 import { DEFAULT_SERVICE_CITY, normalizeServiceCity, nearestServiceCity, resolveServiceCityFromGeo } from "../../lib/ukraineCities"
 import {
@@ -159,7 +158,19 @@ function resolveOrderDistanceKm(service: ServiceKey, pickup: Point, destinationP
   return serviceRequiresDestination(service) ? raw : Math.max(0.5, raw)
 }
 
-function PrimaryButton({ label, onClick, loading = false, disabled = false }: { label: string; onClick?: () => void; loading?: boolean; disabled?: boolean }) {
+function PrimaryButton({
+  label,
+  onClick,
+  loading = false,
+  loadingLabel,
+  disabled = false,
+}: {
+  label: string
+  onClick?: () => void
+  loading?: boolean
+  loadingLabel?: string
+  disabled?: boolean
+}) {
   return (
     <button
       type="button"
@@ -167,7 +178,7 @@ function PrimaryButton({ label, onClick, loading = false, disabled = false }: { 
       disabled={disabled || loading}
       className={`pomich-primary-btn${disabled || loading ? " is-disabled" : ""}`}
     >
-      {loading ? "Створюємо заявку…" : label}
+      {loading ? (loadingLabel ?? label) : label}
     </button>
   )
 }
@@ -267,8 +278,17 @@ function ProviderCard({
         {typeof rating === "number" ? <div style={{ textAlign: "right", fontWeight: 900, color: BRAND }}>★ {rating}</div> : null}
       </div>
       <div style={{ display: "grid", gridTemplateColumns: phone && telegram ? "1fr 1fr" : "1fr", gap: 10, marginTop: 12 }}>
-        {phone ? <a href={`tel:${phone}`} style={{ textDecoration: "none" }}><SecondaryButton label="📞 Подзвонити" /></a> : null}
-        {telegram ? <a href={`https://t.me/${telegram}${orderId ? `?start=order_${orderId}` : ""}`} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}><SecondaryButton label="💬 Чат" /></a> : null}
+        {phone ? (
+          <SecondaryButton label="📞 Подзвонити" onClick={() => { window.location.href = `tel:${phone}` }} />
+        ) : null}
+        {telegram ? (
+          <SecondaryButton
+            label="💬 Чат"
+            onClick={() => {
+              window.open(`https://t.me/${telegram}${orderId ? `?start=order_${orderId}` : ""}`, "_blank", "noopener,noreferrer")
+            }}
+          />
+        ) : null}
       </div>
       {eta ? <div style={{ marginTop: 10, color: MUTED, fontSize: 13, fontWeight: 700 }}>Прибуття приблизно за {eta} хв</div> : null}
       {distanceLabel ? <div style={{ marginTop: 6, color: MUTED, fontSize: 13, fontWeight: 700 }}>{distanceLabel}</div> : null}
@@ -285,26 +305,14 @@ function ScreenLayout({ children, footer }: { children: React.ReactNode; footer?
   )
 }
 
-function Header({ title, subtitle, onBack, status }: { title: string; subtitle?: string; onBack?: () => void; status?: OrderStatus }) {
+
+
+function StepBack({ onBack, hide = false }: { onBack: () => void; hide?: boolean }) {
+  if (hide) return null
   return (
-    <FormHeader>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-          {onBack ? <button type="button" aria-label="Назад" onClick={onBack} className="pomich-back-btn">←</button> : null}
-          <div style={{ minWidth: 0 }}>
-            <div className="pomich-header-title">{title}</div>
-            {subtitle ? <div className="pomich-header-subtitle">{subtitle}</div> : null}
-          </div>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-          <ThemeToggle compact />
-          {status ? <StatusPill status={status} /> : null}
-        </div>
-      </div>
-    </FormHeader>
+    <button type="button" onClick={onBack} className="pomich-step-back">← Назад</button>
   )
 }
-
 
 function SheetHeading({ title, subtitle }: { title: string; subtitle?: string }) {
   return (
@@ -550,15 +558,15 @@ function CustomerTrustPanel({
       </div>
 
       <div style={{ display: "grid", gap: 10 }}>
-        <label style={{ display: "grid", gap: 6 }}>
+        <label className="pomich-form-field">
           <span style={{ color: MUTED, fontSize: 12, fontWeight: 850 }}>Ім'я *</span>
           <input value={draft.name} onChange={(event) => patchDraft({ name: event.target.value })} placeholder="Ваше ім'я" className="pomich-form-input" style={{ color: DARK }} />
         </label>
-        <label style={{ display: "grid", gap: 6 }}>
+        <label className="pomich-form-field">
           <span style={{ color: MUTED, fontSize: 12, fontWeight: 850 }}>Телефон *</span>
           <PhoneInput value={draft.phone} onChange={(phone) => patchDraft({ phone })} />
         </label>
-        <label style={{ display: "grid", gap: 6 }}>
+        <label className="pomich-form-field">
           <span style={{ color: MUTED, fontSize: 12, fontWeight: 850 }}>Email</span>
           <input value={draft.email} onChange={(event) => patchDraft({ email: event.target.value })} inputMode="email" placeholder="email@example.com" className="pomich-form-input" style={{ color: DARK }} />
         </label>
@@ -575,7 +583,7 @@ function CustomerTrustPanel({
 
       <div style={{ border: `1px solid ${BORDER}`, borderRadius: 14, padding: 12, background: SURFACE_TONE }}>
         <div style={{ fontWeight: 950, fontSize: 13, color: DARK, marginBottom: 8 }}>{profileChecklistSummary({ ...profile, ...draft })}</div>
-        <div style={{ display: "grid", gap: 6 }}>
+        <div className="pomich-form-field">
           {checklist.map((item) => (
             <div key={item.key} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 13, fontWeight: 800 }}>
               <span style={{ color: "var(--pomich-label)" }}>{item.label}{item.required ? " *" : ""}</span>
@@ -863,7 +871,7 @@ function LocationStep({
       </div>
       <div data-sheet-full>
       <StepBadge step={2} />
-      <button onClick={onBack} style={{ border: "none", background: GHOST, color: DARK, borderRadius: 999, padding: "8px 11px", fontWeight: 900, cursor: "pointer", fontFamily: "inherit", marginBottom: 14 }}>← Назад</button>
+      <StepBack onBack={onBack} hide={isTelegram} />
       <SheetHeading title="Де ви зараз?" subtitle="Це місце, де вас знайде партнер. Перетягніть маркер на карті або натисніть, щоб уточнити." />
 
       <div style={{ marginTop: 14, border: `1px solid ${BORDER}`, borderRadius: 18, padding: "4px 14px 10px", background: SURFACE_TONE }}>
@@ -893,6 +901,7 @@ function DestinationStep({
   value,
   serviceKey,
   geoSpeedMps = null,
+  isTelegram,
   onPick,
   onChange,
   onNext,
@@ -904,6 +913,7 @@ function DestinationStep({
   value: string
   serviceKey: ServiceKey
   geoSpeedMps?: number | null
+  isTelegram?: boolean
   onPick: (point: Point) => void
   onChange: (value: string) => void
   onNext: () => void
@@ -930,7 +940,7 @@ function DestinationStep({
       </div>
       <div data-sheet-full>
       <StepBadge step={3} />
-      <button onClick={onBack} style={{ border: "none", background: GHOST, color: DARK, borderRadius: 999, padding: "8px 11px", fontWeight: 900, cursor: "pointer", fontFamily: "inherit", marginBottom: 14 }}>← Назад</button>
+      <StepBack onBack={onBack} hide={isTelegram} />
       <SheetHeading title={title} subtitle={subtitle} />
 
       <div style={{ marginTop: 16, border: `1px solid ${BORDER}`, borderRadius: 18, padding: "4px 14px", background: SURFACE_TONE }}>
@@ -960,16 +970,18 @@ function DestinationStep({
             />
           </label>
           <div style={{ color: MUTED, fontSize: 12, fontWeight: 750, marginTop: 8 }}>Точка: {destination.lat.toFixed(5)}, {destination.lng.toFixed(5)}</div>
-          <div style={{ marginTop: 16 }}>
-            <PrimaryButton label="Далі" onClick={onNext} disabled={!value.trim()} />
-          </div>
+          {isTelegram ? null : (
+            <div style={{ marginTop: 16 }}>
+              <PrimaryButton label="Далі" onClick={onNext} disabled={!value.trim()} />
+            </div>
+          )}
         </>
       ) : (
         <div style={{ marginTop: 16, display: "grid", gap: 10 }}>
           <div style={{ background: "var(--pomich-info-bg)", color: "var(--pomich-info-text)", borderRadius: 14, padding: 12, fontSize: 13, fontWeight: 800, lineHeight: 1.45 }}>
             Партнер приїде до вас. Окрему точку «куди везти» вказувати не потрібно.
           </div>
-          <PrimaryButton label="Далі" onClick={() => (onSkipOnSite ? onSkipOnSite() : onNext())} />
+          {isTelegram ? null : <PrimaryButton label="Далі" onClick={() => (onSkipOnSite ? onSkipOnSite() : onNext())} />}
         </div>
       )}
       </div>
@@ -977,16 +989,16 @@ function DestinationStep({
   )
 }
 
-function DetailsStep({ pickup, destination, value, onChange, onNext, onBack }: { pickup: Point; destination: Point; value: string; onChange: (value: string) => void; onNext: () => void; onBack: () => void }) {
+function DetailsStep({ pickup, destination, value, isTelegram, onChange, onNext, onBack }: { pickup: Point; destination: Point; value: string; isTelegram?: boolean; onChange: (value: string) => void; onNext: () => void; onBack: () => void }) {
   return (
     <RideScreen pickup={pickup} destination={destination} mapSubtitle="Підбір виконавця">
       <StepBadge step={4} />
-      <button onClick={onBack} style={{ border: "none", background: GHOST, color: DARK, borderRadius: 999, padding: "8px 11px", fontWeight: 900, cursor: "pointer", fontFamily: "inherit", marginBottom: 14 }}>← Назад</button>
+      <StepBack onBack={onBack} hide={isTelegram} />
       <SheetHeading title="Що з автомобілем?" subtitle="Це допоможе підібрати правильний транспорт, інструменти та ETA." />
 
       <div style={{ marginTop: 16, display: "grid", gap: 10 }}>
         {vehicleOptions.map((option) => (
-          <button key={option} onClick={() => onChange(option)} style={{ minHeight: 54, padding: "12px 14px", borderRadius: 16, border: value === option ? `1.5px solid ${BRAND}` : `1px solid ${BORDER}`, background: value === option ? SELECTED : CARD, textAlign: "left", cursor: "pointer", fontFamily: "inherit", fontWeight: 900, color: DARK }}>
+          <button key={option} type="button" onClick={() => onChange(option)} className={`pomich-choice-option${value === option ? " is-selected" : ""}`}>
             <span style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
               <span>{option}</span>
               <span style={{ color: value === option ? BRAND : SUBTLE }}>{value === option ? "✓" : "○"}</span>
@@ -994,9 +1006,11 @@ function DetailsStep({ pickup, destination, value, onChange, onNext, onBack }: {
           </button>
         ))}
       </div>
-      <div style={{ marginTop: 16 }}>
-        <PrimaryButton label="Далі" onClick={onNext} disabled={!value} />
-      </div>
+      {isTelegram ? null : (
+        <div style={{ marginTop: 16 }}>
+          <PrimaryButton label="Далі" onClick={onNext} disabled={!value} />
+        </div>
+      )}
     </RideScreen>
   )
 }
@@ -1040,7 +1054,7 @@ function ReviewStep({
       mapSubtitle="Перевірка заявки"
     >
       <StepBadge step={5} />
-      <button onClick={onBack} style={{ border: "none", background: GHOST, color: DARK, borderRadius: 999, padding: "8px 11px", fontWeight: 900, cursor: "pointer", fontFamily: "inherit", marginBottom: 14 }}>← Назад</button>
+      <StepBack onBack={onBack} hide={isTelegram} />
       <SheetHeading title="Перевірте заявку" subtitle="Ціну та час прибуття побачите після того, як партнер прийме заявку." />
 
       <div style={{ marginTop: 16, border: `1px solid ${BORDER}`, borderRadius: 18, padding: "4px 14px", background: SURFACE_TONE }}>
@@ -1062,7 +1076,7 @@ function ReviewStep({
         <LocationRow icon="🚗" title="Стан авто" subtitle={vehicleState} />
       </div>
 
-      <label style={{ display: "grid", gap: 6, marginTop: 14 }}>
+      <label className="pomich-form-field" style={{ marginTop: 14 }}>
         <span style={{ color: MUTED, fontSize: "var(--pomich-text-xs)", fontWeight: 850 }}>Коментар до заявки (необов&apos;язково)</span>
         <textarea
           value={customerComment}
@@ -1965,7 +1979,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
         if (full.destinationCoordinates) setDestinationPoint(full.destinationCoordinates)
         setScreen((current) => {
           if (current === "cancelled" || current === "completed") return current
-          if (current !== "home" && current !== "profile" && orderId) return current
+          if (current !== "home" && orderId) return current
           return screenForOrderStatus(nextStatus)
         })
       } catch {
@@ -2425,7 +2439,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
   })
 
   useTelegramBackButton({
-    visible: isTelegram && ["location", "destination", "review"].includes(screen),
+    visible: isTelegram && ["location", "destination", "details", "review"].includes(screen),
     onClick: goBackScreen,
   })
 
@@ -2456,6 +2470,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
           value={destination}
           serviceKey={selectedService}
           geoSpeedMps={geoSpeedMps}
+          isTelegram={isTelegram}
           onPick={setDestinationFromMap}
           onChange={setDestination}
           onBack={() => setScreen("location")}
@@ -2464,7 +2479,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
         />
       )
     case "details":
-      return <DetailsStep pickup={pickup} destination={destinationPoint} value={vehicleState} onChange={setVehicleState} onBack={() => setScreen(serviceRequiresDestination(selectedService) ? "destination" : "location")} onNext={() => setScreen("review")} />
+      return <DetailsStep pickup={pickup} destination={destinationPoint} value={vehicleState} isTelegram={isTelegram} onChange={setVehicleState} onBack={() => setScreen(serviceRequiresDestination(selectedService) ? "destination" : "location")} onNext={() => setScreen("review")} />
     case "review":
       return (
         <ReviewStep
@@ -2504,8 +2519,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
           pickup={pickup}
           destination={destinationPoint}
           onRestart={restart}
-          onLogout={onLogout}
-          showAction
+          showAction={!isTelegram}
           reviewMode="customer"
           reviewSaving={customerReviewSaving}
           reviewError={customerReviewError}
@@ -2514,7 +2528,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
         />
       )
     case "cancelled":
-      return <OrderFinalStep orderId={orderId} status="cancelled" pickup={pickup} destination={destinationPoint} onRestart={restart} onLogout={onLogout} showAction />
+      return <OrderFinalStep orderId={orderId} status="cancelled" pickup={pickup} destination={destinationPoint} onRestart={restart} showAction={!isTelegram} />
     case "error":
       return <OrderErrorStep pickup={pickup} destination={destinationPoint} onRetry={() => setScreen("review")} showAction={!isTelegram} />
     case "home":

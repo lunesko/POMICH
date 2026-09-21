@@ -100,7 +100,6 @@ import { ServiceRadiusField } from "../ui/ServiceRadiusField"
 import { PartnerVehicleFields } from "./PartnerVehicleFields"
 import { normalizeOrderStatus } from "../../lib/orderStatus"
 import type { ServiceKey } from "../../lib/pomichDomain"
-import { ThemeToggle } from "../ui/ThemeToggle"
 import type { MapTileTheme } from "../../lib/theme"
 
 function VerificationPill({ status }: { status?: VerificationStatus }) {
@@ -257,8 +256,17 @@ function ProviderCard({
         {typeof rating === "number" ? <div style={{ textAlign: "right", fontWeight: 900, color: BRAND }}>★ {rating}</div> : null}
       </div>
       <div style={{ display: "grid", gridTemplateColumns: phone && telegram ? "1fr 1fr" : "1fr", gap: 10, marginTop: 12 }}>
-        {phone ? <a href={`tel:${phone}`} style={{ textDecoration: "none" }}><SecondaryButton label="📞 Подзвонити" /></a> : null}
-        {telegram ? <a href={`https://t.me/${telegram}${orderId ? `?start=order_${orderId}` : ""}`} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}><SecondaryButton label="💬 Чат" /></a> : null}
+        {phone ? (
+          <SecondaryButton label="📞 Подзвонити" onClick={() => { window.location.href = `tel:${phone}` }} />
+        ) : null}
+        {telegram ? (
+          <SecondaryButton
+            label="💬 Чат"
+            onClick={() => {
+              window.open(`https://t.me/${telegram}${orderId ? `?start=order_${orderId}` : ""}`, "_blank", "noopener,noreferrer")
+            }}
+          />
+        ) : null}
       </div>
       {eta ? <div style={{ marginTop: 10, color: MUTED, fontSize: 13, fontWeight: 700 }}>Прибуття приблизно за {eta} хв</div> : null}
       {distanceLabel ? <div style={{ marginTop: 6, color: MUTED, fontSize: 13, fontWeight: 700 }}>{distanceLabel}</div> : null}
@@ -287,7 +295,6 @@ function Header({ title, subtitle, onBack, status }: { title: string; subtitle?:
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-          <ThemeToggle compact />
           {status ? <StatusPill status={status} /> : null}
         </div>
       </div>
@@ -342,7 +349,7 @@ export default function ProviderFlow({
   const [accountLogin, setAccountLogin] = useState(providerId)
   const [accountPassword, setAccountPassword] = useState("")
   const [authSaving, setAuthSaving] = useState(false)
-  const [loginView, setLoginView] = useState<"login" | "register">(() => (effectiveProviderRegistered ? "login" : "register"))
+  const [loginView, setLoginView] = useState<"login" | "register">("register")
   const persistedActiveOrder = typeof window !== "undefined" ? readActiveOrder() : undefined
   const [step, setStep] = useState<"register" | "verify" | "duty" | "offer" | "awaiting_price" | "navigation" | "arrived" | "completed">(() => {
     if (typeof window === "undefined") return "register"
@@ -369,7 +376,6 @@ export default function ProviderFlow({
   const [nearbyRequestPins, setNearbyRequestPins] = useState<MapRequestPin[]>([])
   const [mapRequestPins, setMapRequestPins] = useState<MapRequestPin[]>([])
   const [selectedRequestPin, setSelectedRequestPin] = useState<MapRequestPin | undefined>()
-  const [sheetProposedPrice, setSheetProposedPrice] = useState("")
   const [activeOrder, setActiveOrder] = useState<OrderResponse | undefined>(() => {
     if (!persistedActiveOrder?.orderId) return undefined
     return {
@@ -1106,7 +1112,7 @@ export default function ProviderFlow({
     )
     if (stillOpen) return
     setSelectedRequestPin(undefined)
-    setSheetProposedPrice("")
+    setProposedPrice("")
     if (step === "offer") setStep("duty")
   }, [mapRequestPins, selectedRequestPin, step])
 
@@ -1153,9 +1159,8 @@ export default function ProviderFlow({
   const openOfferDetail = (offer: DispatchOffer) => {
     const pin = mapRequestPins.find((item) => item.id === offer.orderId || item.offerId === offer.id) ?? pinFromOffer(offer)
     setSelectedRequestPin(pin)
-    setSheetProposedPrice(proposedPrice)
     setOfferError(undefined)
-    setStep("offer")
+    // Stay on duty map — OrderRequestSheet overlays (avoid stacking IncomingOfferStep).
   }
 
   const handleOfferAcceptBlocked = (reason: "expired" | "price") => {
@@ -1174,7 +1179,6 @@ export default function ProviderFlow({
   const syncProposedPrice = (value: string) => {
     const cleaned = value.replace(/[^\d.,]/g, "")
     setProposedPrice(cleaned)
-    setSheetProposedPrice(cleaned)
     if (offerError === "Вкажіть вартість послуги в гривнях.") setOfferError(undefined)
   }
 
@@ -1205,7 +1209,6 @@ export default function ProviderFlow({
     setActiveOrder(optimisticOrder)
     setIncomingOffers([])
     setSelectedRequestPin(undefined)
-    setSheetProposedPrice("")
     setOnDuty(true)
     setProposedPrice("")
     setPriceNote("")
@@ -1273,7 +1276,6 @@ export default function ProviderFlow({
       return
     }
     setSelectedRequestPin(pin)
-    setSheetProposedPrice(proposedPrice)
     setOfferError(undefined)
   }
 
@@ -1287,7 +1289,7 @@ export default function ProviderFlow({
     rememberDismissedOffer(undefined, selectedRequestPin.id)
     setNearbyRequestPins((pins) => pins.filter((item) => item.id !== selectedRequestPin.id))
     setSelectedRequestPin(undefined)
-    setSheetProposedPrice("")
+    setProposedPrice("")
     setOfferError(undefined)
   }
 
@@ -1297,10 +1299,9 @@ export default function ProviderFlow({
 
   const acceptFromSheet = async (priceOverride?: string) => {
     if (!selectedRequestPin) return
-    const priceSource = priceOverride ?? sheetProposedPrice
+    const priceSource = priceOverride ?? proposedPrice
     if (priceSource.trim()) {
       setProposedPrice(priceSource)
-      setSheetProposedPrice(priceSource)
     }
     let offer = incomingOffers.find((item) => item.id === selectedRequestPin.offerId || item.orderId === selectedRequestPin.id)
     if (!offer) {
@@ -1710,6 +1711,8 @@ export default function ProviderFlow({
       setOnDuty(nextDuty)
       setDutySheetSnap(nextDuty ? "half" : "collapsed")
       setProviderProfile((profile) => ({ ...profile, ...updated, status: updated.status ?? (nextDuty ? "online" : "offline") }))
+      if (nextDuty) setDutySheetSnap("half")
+      else setDutySheetSnap("collapsed")
     } catch (error) {
       setOnDuty(false)
       const detail = (error as { detail?: string }).detail
@@ -1971,7 +1974,8 @@ export default function ProviderFlow({
     if (providerRegistered && customerIdForOtp && customerTokenForOtp) {
       return <div className="pomich-boot-screen">Завантажуємо кабінет партнера…</div>
     }
-    if (loginView === "register") {
+    // Phone OTP restore / registration first — password login is a Mini App dead-end.
+    if (loginView === "register" || onRestoreAccount) {
       return (
         <ProviderRegistrationStep
           form={registrationForm}
@@ -1997,6 +2001,7 @@ export default function ProviderFlow({
         onLoginChange={setAccountLogin}
         onPasswordChange={setAccountPassword}
         onSubmit={submitProviderAccountLogin}
+        showThemeToggle={false}
         onRegister={() => {
           setAuthError(undefined)
           setLoginView("register")
@@ -2017,6 +2022,8 @@ export default function ProviderFlow({
         <Header
           title="Підтвердження телефону"
           subtitle="Спочатку телефон, потім код з Telegram"
+          showThemeToggle={false}
+          compactToggle
           onBack={() => {
             profileGateOpenRef.current = false
             setStep("duty")
@@ -2094,12 +2101,13 @@ export default function ProviderFlow({
             dismissedOfferIds: dismissedOfferIdsRef.current,
             dismissedOrderIds: dismissedOrderIdsRef.current,
           }))
+          setOfferError(undefined)
         })
-        .catch(() => undefined)
+        .catch(() => setOfferError("Не вдалося оновити пропозиції. Спробуйте ще раз."))
       const radiusKm = providerProfile.serviceRadiusKm ?? registrationForm.serviceRadiusKm ?? DEFAULT_SERVICE_RADIUS_KM
       getNearbyMapOrders(providerLocation.lat, providerLocation.lng, radiusKm, undefined, providerAuthToken)
         .then((orders) => setNearbyRequestPins(Array.isArray(orders) ? orders : []))
-        .catch(() => undefined)
+        .catch(() => setOfferError("Не вдалося оновити карту заявок. Спробуйте ще раз."))
     }
     const onDutyPrimary = () => {
       if (!isPartnerRegisteredAndCompleted || !providerCanGoOnline) {
@@ -2178,7 +2186,7 @@ export default function ProviderFlow({
       {selectedRequestPin ? (
         <OrderRequestSheet
           pin={selectedRequestPin}
-          proposedPrice={sheetProposedPrice}
+          proposedPrice={proposedPrice}
           saving={offerSaving}
           error={offerError}
           secondsLeft={secondsLeft}
@@ -2235,7 +2243,7 @@ export default function ProviderFlow({
           />
         }
       >
-        <Header title="Очікуємо клієнта" subtitle={activeOrder?.id ? `Замовлення #${activeOrder.id}` : undefined} status="accepted" />
+        <Header title="Очікуємо клієнта" subtitle={activeOrder?.id ? `Замовлення #${activeOrder.id}` : undefined} status="accepted" showThemeToggle={false} compactToggle />
         <div style={{ padding: "8px 16px 16px", display: "grid", gap: 12 }}>
           <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 18, padding: 16 }}>
             <div style={{ fontWeight: 950, fontSize: 20, color: DARK }}>Ціну надіслано клієнту</div>
@@ -2284,7 +2292,7 @@ export default function ProviderFlow({
           </>
         }
       >
-        <Header title={activeStatus === "in_progress" ? "Допомога триває" : "Ви на місці"} subtitle="Клієнт бачить ваш статус у POMICH" status={activeStatus === "in_progress" ? "in_progress" : "arrived"} />
+        <Header title={activeStatus === "in_progress" ? "Допомога триває" : "Ви на місці"} subtitle="Клієнт бачить ваш статус у POMICH" status={activeStatus === "in_progress" ? "in_progress" : "arrived"} showThemeToggle={false} compactToggle />
         <div style={{ padding: "8px 16px 16px", display: "grid", gap: 12 }}>
           <ProviderCard orderId={activeOrder?.id} assignedProvider={activeOrder?.assignedProvider ?? providerPresence} />
           <div style={{ background: CARD, borderRadius: 18, border: `1px solid ${BORDER}`, padding: 14 }}>
@@ -2336,7 +2344,7 @@ export default function ProviderFlow({
           </>
         }
       >
-        <Header title="Маршрут до клієнта" subtitle={activeOrder?.id ? `Активне замовлення #${activeOrder.id}` : "Активне замовлення"} status={activeStatus === "en_route" ? "en_route" : "price_confirmed"} />
+        <Header title="Маршрут до клієнта" subtitle={activeOrder?.id ? `Активне замовлення #${activeOrder.id}` : "Активне замовлення"} status={activeStatus === "en_route" ? "en_route" : "price_confirmed"} showThemeToggle={false} compactToggle />
         <div style={{ padding: "0 16px 16px", display: "grid", gap: 12 }}>
           {routePickup ? (
             <LazyRouteMap
@@ -2370,7 +2378,6 @@ export default function ProviderFlow({
 
   if (step === "offer" && activeOffer) {
     return (
-      <>
       <IncomingOfferStep
         offer={activeOffer}
         providerLocation={providerLocation}
@@ -2385,30 +2392,13 @@ export default function ProviderFlow({
         onDecline={() => void declineOffer(activeOffer)}
         onAcceptBlocked={handleOfferAcceptBlocked}
       />
-      {selectedRequestPin ? (
-        <OrderRequestSheet
-          pin={selectedRequestPin}
-          proposedPrice={sheetProposedPrice}
-          saving={offerSaving}
-          error={offerError}
-          secondsLeft={secondsLeft}
-          onProposedPriceChange={syncProposedPrice}
-          onAccept={(price) => void acceptFromSheet(price)}
-          onDecline={() => void declineFromSheet()}
-          onClose={() => {
-            setSelectedRequestPin(undefined)
-            setOfferError(undefined)
-          }}
-          onAcceptBlocked={handleOfferAcceptBlocked}
-        />
-      ) : null}
-      </>
     )
   }
 
   // Fallback: always restore duty controls (never a map-only shell without «Вийти на лінію»).
   {
     const fallbackOfferCount = incomingOffers.filter((offer) => isPresentableOffer(offer, offerClock)).length
+    const fallbackOffer = incomingOffers.find((offer) => isPresentableOffer(offer, offerClock))
     const fallbackCta = !isPartnerRegisteredAndCompleted
       ? "Завершити профіль"
       : !providerCanGoOnline
@@ -2416,16 +2406,38 @@ export default function ProviderFlow({
         : presenceSaving
           ? "Оновлюємо статус…"
           : onDuty
-            ? "Знятися з лінії"
+            ? fallbackOffer
+              ? "Відкрити заявку"
+              : "Оновити карту"
             : "Вийти на лінію"
     const fallbackPrimary = () => {
-      if (onDuty) {
-        void setDuty(false)
-      } else if (!isPartnerRegisteredAndCompleted || !providerCanGoOnline) {
+      if (!isPartnerRegisteredAndCompleted || !providerCanGoOnline) {
         openPhoneOrProfileGate()
-      } else {
-        void setDuty(true)
+        return
       }
+      if (onDuty) {
+        if (fallbackOffer) {
+          openOfferDetail(fallbackOffer)
+          return
+        }
+        const subjectId = readAuthSessionSubject(providerAuthToken || "") || providerId
+        if (providerAuthToken) {
+          getProviderOffers(subjectId, providerAuthToken)
+            .then((offers) => {
+              setIncomingOffers(filterVisibleOffers(Array.isArray(offers) ? offers : [], {
+                dismissedOfferIds: dismissedOfferIdsRef.current,
+                dismissedOrderIds: dismissedOrderIdsRef.current,
+              }))
+            })
+            .catch(() => undefined)
+          const radiusKm = providerProfile.serviceRadiusKm ?? registrationForm.serviceRadiusKm ?? DEFAULT_SERVICE_RADIUS_KM
+          getNearbyMapOrders(providerLocation.lat, providerLocation.lng, radiusKm, undefined, providerAuthToken)
+            .then((orders) => setNearbyRequestPins(Array.isArray(orders) ? orders : []))
+            .catch(() => undefined)
+        }
+        return
+      }
+      void setDuty(true)
     }
     return (
       <>

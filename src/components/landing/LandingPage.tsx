@@ -247,6 +247,7 @@ export default function LandingPage({
   const [mapUserLocation, setMapUserLocation] = useState<Point | undefined>(() => readLandingUserLocation())
   const [mapGeoStatus, setMapGeoStatus] = useState<"idle" | "requesting" | "success" | "error">(() => (readLandingUserLocation() ? "success" : "idle"))
   const landingRootRef = useRef<HTMLDivElement | null>(null)
+  const adminHoldTimerRef = useRef<number | null>(null)
   const [heroMapReady, setHeroMapReady] = useState(false)
   const { mode, colors, isDark } = usePomichTheme()
   const theme = buildLandingTheme(mode, colors)
@@ -269,6 +270,15 @@ export default function LandingPage({
     }
     const id = window.setTimeout(start, 900)
     return () => window.clearTimeout(id)
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (adminHoldTimerRef.current) {
+        window.clearTimeout(adminHoldTimerRef.current)
+        adminHoldTimerRef.current = null
+      }
+    }
   }, [])
 
   useEffect(() => {
@@ -373,7 +383,34 @@ export default function LandingPage({
         style={{ height: headerH, padding: layoutCompact ? "0 12px" : "0 28px" }}
       >
         <div className="pomich-landing-header__inner">
-          <a href="#home" className="pomich-landing-header__brand" style={{ gap: layoutCompact ? 8 : 12 }}>
+          <a
+            href="#home"
+            className="pomich-landing-header__brand"
+            style={{ gap: layoutCompact ? 8 : 12 }}
+            onPointerDown={() => {
+              if (!onHiddenAdmin) return
+              if (adminHoldTimerRef.current) window.clearTimeout(adminHoldTimerRef.current)
+              adminHoldTimerRef.current = window.setTimeout(() => {
+                adminHoldTimerRef.current = null
+                onHiddenAdmin()
+              }, ADMIN_LOGO_HOLD_MS)
+            }}
+            onPointerUp={() => {
+              if (adminHoldTimerRef.current) {
+                window.clearTimeout(adminHoldTimerRef.current)
+                adminHoldTimerRef.current = null
+              }
+            }}
+            onPointerLeave={() => {
+              if (adminHoldTimerRef.current) {
+                window.clearTimeout(adminHoldTimerRef.current)
+                adminHoldTimerRef.current = null
+              }
+            }}
+            onContextMenu={(event) => {
+              if (onHiddenAdmin) event.preventDefault()
+            }}
+          >
             <span className="pomich-landing-header__mark" style={{ width: layoutCompact ? 34 : 42, height: layoutCompact ? 34 : 42, fontSize: layoutCompact ? 16 : 20 }}>P</span>
             <span style={{ fontSize: layoutCompact ? 16 : 20 }}>POMICH</span>
           </a>

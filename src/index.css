@@ -157,6 +157,7 @@ html:not([data-pomich-theme]) {
   --pomich-map-chrome-top: calc(12px + var(--pomich-chrome-inset-top));
   --pomich-map-chrome-left: calc(10px + var(--pomich-chrome-inset-left));
   --pomich-map-chrome-right: calc(10px + var(--pomich-chrome-inset-right));
+  --pomich-touch-min: 44px;
   /* Fluid mobile scale — overridden tighter on phone breakpoints */
   --pomich-text-xs: 0.75rem;
   --pomich-text-sm: 0.8125rem;
@@ -176,6 +177,9 @@ html:not([data-pomich-theme]) {
   --pomich-cabinet-header-block: calc(4.75rem + 12px);
   --pomich-cabinet-chrome-top: calc(var(--pomich-chrome-inset-top) + var(--pomich-cabinet-header-block));
   --pomich-header-stack-height: calc(var(--pomich-app-header-height) + var(--pomich-chrome-inset-top));
+  --pomich-safe-pad-bottom: calc(
+    var(--pomich-space-3) + var(--pomich-chrome-inset-bottom)
+  );
   --pomich-card-radius: 1.125rem;
   --pomich-card-padding: 0.875rem;
   /* % of ride-screen — taller half so primary CTAs stay above Safari/Chrome toolbars */
@@ -311,6 +315,8 @@ html[data-pomich-theme="dark"] {
   box-sizing: border-box;
   width: var(--toggle-width);
   height: var(--toggle-height);
+  min-width: var(--pomich-touch-min);
+  min-height: var(--pomich-touch-min);
   padding: var(--toggle-pad);
   border: 1px solid var(--pomich-toggle-border);
   border-radius: 999px;
@@ -424,7 +430,7 @@ html[data-pomich-theme="dark"] {
   pointer-events: auto !important;
   height: auto !important;
   overflow: visible !important;
-  min-height: var(--pomich-header-stack-height);
+  min-height: var(--pomich-header-stack-height, calc(var(--pomich-app-header-height) + var(--pomich-chrome-inset-top)));
   padding-top: var(--pomich-chrome-inset-top);
   padding-bottom: 6px;
   padding-left: max(12px, var(--pomich-chrome-inset-left));
@@ -4189,7 +4195,7 @@ html.mobile-compact .pomich-landing .landing-map-frame {
 }
 .pomich-form-footer-bar {
   padding: var(--pomich-space-3) var(--pomich-space-4);
-  padding-bottom: calc(var(--pomich-space-3) + env(safe-area-inset-bottom, 0px));
+  padding-bottom: var(--pomich-safe-pad-bottom);
   background: var(--pomich-footer-bg);
   border-top: 1px solid var(--pomich-border);
   backdrop-filter: none;
@@ -4235,10 +4241,10 @@ html:not([data-pomich-theme]) .pomich-form-footer-bar {
   min-height: 100dvh;
   overflow: hidden;
   padding:
-    max(16px, env(safe-area-inset-top, 0px))
-    max(16px, env(safe-area-inset-right, 0px))
-    max(16px, env(safe-area-inset-bottom, 0px))
-    max(16px, env(safe-area-inset-left, 0px));
+    max(16px, var(--pomich-chrome-inset-top))
+    max(16px, var(--pomich-chrome-inset-right))
+    max(16px, var(--pomich-chrome-inset-bottom))
+    max(16px, var(--pomich-chrome-inset-left));
   box-sizing: border-box;
 }
 .pomich-onboarding-page__bg {
@@ -4294,7 +4300,8 @@ html:not([data-pomich-theme]) .pomich-onboarding-card {
   gap: var(--pomich-space-3);
 }
 .pomich-onboarding-card__footer {
-  padding: var(--pomich-space-3) var(--pomich-space-4) var(--pomich-space-4);
+  padding: var(--pomich-space-3) var(--pomich-space-4);
+  padding-bottom: var(--pomich-safe-pad-bottom);
   border-top: 1px solid var(--pomich-border);
   background: var(--pomich-footer-bg);
 }
@@ -4325,6 +4332,83 @@ html.mobile-compact .pomich-onboarding-page {
   color: var(--pomich-text);
   background: var(--pomich-input-bg);
   box-sizing: border-box;
+}
+.pomich-form-field {
+  display: grid;
+  gap: var(--pomich-space-2);
+  min-width: 0;
+}
+.pomich-form-field .pomich-form-label {
+  margin: 0;
+}
+.pomich-step-back {
+  border: none;
+  background: var(--pomich-ghost-bg);
+  color: var(--pomich-text);
+  border-radius: 999px;
+  min-height: var(--pomich-btn-height-sm);
+  min-width: var(--pomich-touch-min);
+  padding: 8px 12px;
+  font-weight: 900;
+  font-size: var(--pomich-text-sm);
+  cursor: pointer;
+  font-family: inherit;
+  margin-bottom: 14px;
+  touch-action: manipulation;
+}
+.pomich-choice-option {
+  min-height: var(--pomich-btn-height);
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid var(--pomich-border);
+  background: var(--pomich-card-bg);
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 900;
+  color: var(--pomich-text);
+  touch-action: manipulation;
+}
+.pomich-choice-option.is-selected {
+  border: 1.5px solid var(--pomich-brand);
+  background: var(--pomich-selected-bg);
+}
+.pomich-otp-send-btn {
+  min-height: var(--pomich-btn-height-sm) !important;
+  min-width: var(--pomich-touch-min);
+  padding: 8px 14px !important;
+  font-size: var(--pomich-text-sm) !important;
+}
+.pomich-otp-phone-gate {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.pomich-app-header-chip--compact {
+  min-height: var(--pomich-touch-min);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.pomich-app-header-menu-btn {
+  min-height: var(--pomich-touch-min);
+  min-width: var(--pomich-touch-min);
+  padding: 8px 4px;
+  display: inline-flex;
+  align-items: center;
+}
+.pomich-cabinet-field {
+  display: grid;
+  gap: var(--pomich-space-2);
+}
+.pomich-cabinet-shell .pomich-form-input,
+.pomich-cabinet-shell .pomich-phone-input .pomich-phone-field,
+.pomich-cabinet-shell .pomich-radius-wrap .pomich-form-input {
+  height: var(--pomich-input-height);
+  min-height: var(--pomich-input-height);
+  font-size: var(--pomich-text-base);
+  border-radius: 12px;
+  padding: 0 var(--pomich-space-3);
 }
 [data-pomich-theme="dark"] .pomich-form-input {
   background: #1a1f28;
@@ -4833,17 +4917,19 @@ html:not([data-pomich-theme]) .pomich-cabinet-header .pomich-cabinet-chip-btn {
   flex-shrink: 0;
 }
 .pomich-cabinet-chip-btn {
-  min-height: 32px;
-  padding: 5px 10px;
+  min-height: var(--pomich-btn-height-sm);
+  min-width: var(--pomich-touch-min);
+  padding: 8px 12px;
   border-radius: 999px;
   border: 1px solid var(--pomich-ghost-border);
   background: var(--pomich-ghost-bg);
   color: var(--pomich-text);
   font-family: inherit;
-  font-size: 11px;
+  font-size: var(--pomich-text-xs);
   font-weight: 850;
   cursor: pointer;
   white-space: nowrap;
+  touch-action: manipulation;
 }
 .pomich-cabinet-chip-btn--muted {
   color: var(--pomich-muted);
@@ -5002,7 +5088,7 @@ html:not([data-pomich-theme]) .pomich-cabinet-header .pomich-cabinet-chip-btn {
 }
 .pomich-cabinet-field {
   display: grid;
-  gap: 4px;
+  gap: var(--pomich-space-2);
 }
 .pomich-cabinet-edit-actions {
   display: flex;
@@ -5015,11 +5101,11 @@ html:not([data-pomich-theme]) .pomich-cabinet-header .pomich-cabinet-chip-btn {
 .pomich-cabinet-edit-actions .pomich-primary-btn {
   width: auto;
   min-width: 108px;
-  min-height: 34px;
-  height: 34px;
-  padding: 0 14px;
-  font-size: 12px;
-  border-radius: 10px;
+  min-height: var(--pomich-btn-height-sm);
+  height: auto;
+  padding: 8px 14px;
+  font-size: var(--pomich-text-sm);
+  border-radius: 12px;
   box-shadow: none;
 }
 .pomich-cabinet-service-grid {
@@ -5028,16 +5114,17 @@ html:not([data-pomich-theme]) .pomich-cabinet-header .pomich-cabinet-chip-btn {
   gap: 6px;
 }
 .pomich-cabinet-service-chip {
-  min-height: 30px;
-  padding: 4px 10px;
+  min-height: var(--pomich-btn-height-sm);
+  padding: 6px 12px;
   border-radius: 999px;
   border: 1px solid var(--pomich-border);
   background: var(--pomich-ghost-bg);
   color: var(--pomich-text);
   font-weight: 800;
-  font-size: 11px;
+  font-size: var(--pomich-text-xs);
   font-family: inherit;
   cursor: pointer;
+  touch-action: manipulation;
   line-height: 1.2;
 }
 .pomich-cabinet-service-chip.is-selected {
@@ -5048,23 +5135,23 @@ html:not([data-pomich-theme]) .pomich-cabinet-header .pomich-cabinet-chip-btn {
 .pomich-cabinet-shell .pomich-form-input,
 .pomich-cabinet-shell .pomich-phone-input .pomich-phone-field,
 .pomich-cabinet-shell .pomich-radius-wrap .pomich-form-input {
-  height: 2.25rem;
-  min-height: 2.25rem;
-  font-size: 13px;
-  border-radius: 10px;
-  padding: 0 10px;
+  height: var(--pomich-input-height);
+  min-height: var(--pomich-input-height);
+  font-size: var(--pomich-text-base);
+  border-radius: 12px;
+  padding: 0 var(--pomich-space-3);
 }
 .pomich-cabinet-shell .pomich-form-label {
-  font-size: 11px;
+  font-size: var(--pomich-text-sm);
   margin-bottom: 0;
 }
 .pomich-cabinet-shell .pomich-radius-wrap {
-  border-radius: 10px;
-  min-height: 2.25rem;
+  border-radius: 12px;
+  min-height: var(--pomich-input-height);
 }
 .pomich-cabinet-shell .pomich-radius-suffix {
-  font-size: 12px;
-  padding: 0 10px;
+  font-size: var(--pomich-text-sm);
+  padding: 0 var(--pomich-space-3);
 }
 .pomich-cabinet-verification-help {
   margin-bottom: 0;
@@ -5582,7 +5669,7 @@ button.pomich-cabinet-order-item--button:active {
   background: color-mix(in srgb, var(--pomich-service-tone-default) 45%, transparent);
 }
 .pomich-history-detail__footer {
-  padding: 10px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+  padding: 10px 16px var(--pomich-safe-pad-bottom);
   border-top: 1px solid color-mix(in srgb, var(--pomich-glass-border) 70%, transparent);
 }
 @keyframes pomichHistoryDetailIn {
@@ -5605,7 +5692,7 @@ button.pomich-cabinet-order-item--button:active {
 }
 .pomich-cabinet-footer {
   flex-shrink: 0;
-  padding: 6px 12px calc(6px + env(safe-area-inset-bottom, 0px));
+  padding: var(--pomich-space-3) 12px var(--pomich-safe-pad-bottom);
   border-top: 1px solid color-mix(in srgb, var(--pomich-border) 55%, transparent);
   background: rgba(8, 12, 14, 0.22);
   backdrop-filter: blur(16px) saturate(1.2);
@@ -5629,14 +5716,15 @@ html:not([data-pomich-theme]) .pomich-cabinet-footer {
   width: 100%;
   min-width: 0;
   max-width: 100%;
-  min-height: 38px;
-  height: 38px;
-  padding: 0 16px;
-  font-size: 13px;
+  min-height: var(--pomich-btn-height);
+  height: auto;
+  padding: var(--pomich-space-3) var(--pomich-space-4);
+  font-size: var(--pomich-text-base);
   font-weight: 850;
-  border-radius: 11px;
+  border-radius: var(--pomich-card-radius);
   box-shadow: none;
-  white-space: nowrap;
+  white-space: normal;
+  text-wrap: balance;
 }
 @media (min-width: 768px) {
   .pomich-cabinet-footer {
@@ -5741,7 +5829,13 @@ html:not([data-pomich-theme]) .pomich-cabinet-footer {
   line-height: 1;
   cursor: pointer;
   padding: 0;
+  min-width: var(--pomich-touch-min);
+  min-height: var(--pomich-touch-min);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   color: var(--pomich-text);
+  touch-action: manipulation;
 }
 .pomich-boot-screen {
   position: relative;
@@ -6525,15 +6619,15 @@ html:not([data-pomich-theme]) .pomich-cabinet-footer {
   padding: 10px 11px;
 }
 .pomich-sheet-panel .pomich-primary-btn {
-  min-height: 40px;
-  font-size: 13px;
-  border-radius: 12px;
+  min-height: var(--pomich-btn-height);
+  font-size: var(--pomich-text-base);
+  border-radius: var(--pomich-card-radius);
   box-shadow: none;
 }
 .pomich-sheet-panel .pomich-flow-secondary-btn {
-  min-height: 36px;
-  font-size: 12px;
-  border-radius: 11px;
+  min-height: var(--pomich-btn-height-sm);
+  font-size: var(--pomich-text-sm);
+  border-radius: calc(var(--pomich-card-radius) - 2px);
 }
 .pomich-duty-panel__head {
   display: flex;

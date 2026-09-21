@@ -26,4 +26,8 @@ describe("filterSheetChildren", () => {
   it("hides peek on non-mobile sheet (desktop uses full content)", () => {
     expect(labels(filterSheetChildren([peek, full, other], false, "collapsed"))).toEqual(["full", "other"])
   })
+
+  it("desktop split uses full content only (same as non-mobile)", () => {
+    expect(labels(filterSheetChildren([peek, full], false, "expanded"))).toEqual(["full"])
+  })
 })

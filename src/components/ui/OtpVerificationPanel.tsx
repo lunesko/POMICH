@@ -291,7 +291,7 @@ export function OtpVerificationPanel({
       <p className="pomich-cabinet-help-text">{helpText}</p>
 
       {showPhoneGate ? (
-        <div className="pomich-otp-phone-gate" style={{ display: "grid", gap: 10, marginBottom: 12 }}>
+        <div className="pomich-otp-phone-gate">
           <label className="pomich-cabinet-field">
             <span className="pomich-form-label">Телефон *</span>
             <PhoneInput

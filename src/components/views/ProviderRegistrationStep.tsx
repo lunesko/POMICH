@@ -105,10 +105,10 @@ export function ProviderRegistrationStep({
       className="pomich-screen-layout--form"
       footer={<PrimaryButton label={submitLabel} onClick={handleSubmit} disabled={!canSubmit || saving} />}
     >
-      <Header title={title} subtitle={subtitle} onBack={onBack} />
+      <Header title={title} subtitle={subtitle} onBack={onBack} showThemeToggle={false} compactToggle />
       <FormContainer>
         <div className="pomich-form-card">
-          <label style={{ display: "grid", gap: 6 }}>
+          <label className="pomich-form-field">
             <span className="pomich-form-label">Ім'я</span>
             <input
               value={form.name}
@@ -122,7 +122,7 @@ export function ProviderRegistrationStep({
             />
             <FieldError error={nameError} hint={nameHint} />
           </label>
-          <label style={{ display: "grid", gap: 6 }}>
+          <label className="pomich-form-field">
             <span className="pomich-form-label">Телефон</span>
             <PhoneInput
               value={form.phone}
@@ -149,7 +149,7 @@ export function ProviderRegistrationStep({
 
         <div className="pomich-form-card">
           <PartnerVehicleFields form={form} onChange={onChange} />
-          <label style={{ display: "grid", gap: 6 }}>
+          <label className="pomich-form-field">
             <span className="pomich-form-label">Номер</span>
             <UkrainePlateInput
               value={form.plate}

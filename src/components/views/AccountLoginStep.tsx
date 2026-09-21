@@ -14,6 +14,8 @@ interface AccountLoginStepProps {
   onPasswordChange: (value: string) => void
   onSubmit: () => void
   onRegister?: () => void
+  /** Hide theme toggle when AppShell already shows one */
+  showThemeToggle?: boolean
 }
 
 export function AccountLoginStep({
@@ -27,17 +29,18 @@ export function AccountLoginStep({
   onPasswordChange,
   onSubmit,
   onRegister,
+  showThemeToggle = true,
 }: AccountLoginStepProps) {
   return (
     <ScreenLayout footer={<PrimaryButton label={saving ? "Входимо…" : "Увійти"} onClick={onSubmit} disabled={!login.trim() || !password.trim() || saving} />}>
-      <Header title={title} subtitle={subtitle} />
+      <Header title={title} subtitle={subtitle} showThemeToggle={showThemeToggle} compactToggle />
       <FormContainer>
         <div className="pomich-form-card">
-          <label style={{ display: "grid", gap: 6 }}>
+          <label className="pomich-form-field">
             <span className="pomich-form-label">Логін</span>
             <input value={login} onChange={(event) => onLoginChange(event.target.value)} autoComplete="username" className="pomich-form-input" />
           </label>
-          <label style={{ display: "grid", gap: 6 }}>
+          <label className="pomich-form-field">
             <span className="pomich-form-label">Пароль</span>
             <input value={password} onChange={(event) => onPasswordChange(event.target.value)} type="password" autoComplete="current-password" className="pomich-form-input" />
           </label>

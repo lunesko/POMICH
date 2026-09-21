@@ -147,7 +147,7 @@ export default function ClientRegistrationScreen({
           ) : null}
         </div>
       ) : null}
-      <label style={{ display: "grid", gap: 6 }}>
+      <label className="pomich-form-field">
         <span className="pomich-form-label">Ім'я *</span>
         <input
           value={name}
@@ -171,7 +171,7 @@ export default function ClientRegistrationScreen({
         error={cityError}
         hint={cityHint}
       />
-      <label style={{ display: "grid", gap: 6 }}>
+      <label className="pomich-form-field">
         <span className="pomich-form-label">Телефон *</span>
         {canRequestContact ? (
           <button
