@@ -488,26 +488,42 @@ html:not([data-pomich-theme]) .pomich-tg-header .pomich-app-header-chip {
 .pomich-app-header-session {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 14px 6px 10px;
+  gap: 6px;
+  padding: 5px 10px 5px 8px;
   border-radius: 9999px;
   background: var(--pomich-selected-bg, rgba(34, 197, 94, 0.12));
   border: 1px solid var(--pomich-border, rgba(34, 197, 94, 0.25));
   color: var(--pomich-text) !important;
   font-size: 13px;
   font-weight: 850;
+  font-family: inherit;
+  line-height: 1.2;
   white-space: nowrap;
-  max-width: min(50vw, 340px);
+  max-width: min(36vw, 10.5rem);
+  min-width: 0;
+  flex: 1 1 auto;
   opacity: 1;
   text-shadow: none;
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
   box-sizing: border-box;
+  overflow: hidden;
+}
+button.pomich-app-header-session {
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  text-align: left;
+}
+.pomich-app-header-session__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .pomich-app-header-session:hover {
-  transform: translateY(-1px);
   background: rgba(34, 197, 94, 0.18);
   border-color: rgba(34, 197, 94, 0.45);
   box-shadow: 0 4px 16px rgba(34, 197, 94, 0.22);
@@ -614,16 +630,13 @@ html:not([data-pomich-theme]) .pomich-tg-header .pomich-app-header-chip {
   display: none;
 }
 .pomich-tg-header .pomich-app-header-session {
-  flex: 1;
+  flex: 1 1 auto;
   min-width: 0;
-  text-align: center;
-  justify-content: center;
-  font-size: 13px;
+  max-width: min(38vw, 9.75rem);
+  justify-content: flex-start;
+  font-size: 12.5px;
   font-weight: 850;
   color: inherit !important;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 [data-pomich-theme="dark"] .pomich-tg-header .pomich-app-header-session,
 [data-pomich-theme="dark"] .pomich-tg-header .pomich-app-header-role-label,
@@ -7303,11 +7316,9 @@ html.tg-compact .pomich-ride-screen__map .leaflet-top.leaflet-left {
   justify-content: flex-end;
   gap: 6px;
   min-width: 0;
-  flex-shrink: 1;
+  flex: 0 0 auto;
   margin-left: auto;
-  overflow-x: auto;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
+  overflow: visible;
 }
 .pomich-tg-header .pomich-app-header-actions-cluster::-webkit-scrollbar {
   display: none;

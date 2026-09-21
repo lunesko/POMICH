@@ -40,6 +40,10 @@ export default function PartnerDutyPanel({
   const isPeek = mode === "peek"
   const statusLabel = onDuty ? "На лінії" : "Поза лінією"
   const hint = onDuty ? "Заявки поруч на карті" : "Увімкніть лінію, щоб бачити заявки"
+  // Toggle already goes online / offline — don't duplicate with a primary CTA.
+  const showPrimaryCta =
+    onDuty ||
+    (ctaLabel !== "Вийти на лінію" && ctaLabel !== "Оновлюємо статус…")
 
   return (
     <div className={`pomich-duty-panel${isPeek ? " pomich-duty-panel--peek" : ""}`}>
@@ -70,12 +74,16 @@ export default function PartnerDutyPanel({
       {authError ? <div className="pomich-duty-panel__banner pomich-duty-panel__banner--error">{authError}</div> : null}
       {offerError ? <div className="pomich-duty-panel__banner pomich-duty-panel__banner--warn">{offerError}</div> : null}
 
-      <div className="pomich-duty-panel__actions">
-        <PrimaryButton label={ctaLabel} onClick={onPrimaryAction} disabled={primaryDisabled || presenceSaving} />
-        {showRefresh && onRefreshMap ? (
-          <SecondaryButton label="Оновити карту" onClick={onRefreshMap} disabled={presenceSaving} />
-        ) : null}
-      </div>
+      {showPrimaryCta || (showRefresh && onRefreshMap) ? (
+        <div className="pomich-duty-panel__actions">
+          {showPrimaryCta ? (
+            <PrimaryButton label={ctaLabel} onClick={onPrimaryAction} disabled={primaryDisabled || presenceSaving} />
+          ) : null}
+          {showRefresh && onRefreshMap ? (
+            <SecondaryButton label="Оновити карту" onClick={onRefreshMap} disabled={presenceSaving} />
+          ) : null}
+        </div>
+      ) : null}
     </div>
   )
 }

@@ -27,6 +27,11 @@ export function AppShell({
 }: AppShellProps) {
   const { isTelegram } = useTelegramUx()
   const showTelegramBack = Boolean(compact && role && isTelegram)
+  const showSessionName = Boolean(loggedInName && !isTelegram)
+  // Name pill opens cabinet — drop the extra «Кабінет» chip so the name can breathe.
+  const showCabinetChip = Boolean(onOpenCabinet && !showSessionName)
+  // Compact chrome: logout lives in cabinet (same as Telegram).
+  const showLogoutChip = Boolean(onLogout && !compact)
 
   useTelegramBackButton({
     visible: showTelegramBack,
@@ -44,14 +49,28 @@ export function AppShell({
                   ← Меню
                 </button>
               ) : null}
-              {loggedInName && !isTelegram ? (
-                <div className="pomich-app-header-session min-w-0 flex-1 text-center">{loggedInName}</div>
+              {showSessionName ? (
+                onOpenCabinet ? (
+                  <button
+                    type="button"
+                    onClick={onOpenCabinet}
+                    className="pomich-app-header-session"
+                    title={loggedInName}
+                    aria-label={`Кабінет · ${loggedInName}`}
+                  >
+                    <span className="pomich-app-header-session__name">{loggedInName}</span>
+                  </button>
+                ) : (
+                  <div className="pomich-app-header-session" title={loggedInName}>
+                    <span className="pomich-app-header-session__name">{loggedInName}</span>
+                  </div>
+                )
               ) : (
                 <div className="min-w-0 flex-1" aria-hidden="true" />
               )}
               <div className="pomich-app-header-actions-cluster">
                 <ThemeToggle compact />
-                {onOpenCabinet ? (
+                {showCabinetChip ? (
                   <button type="button" onClick={onOpenCabinet} className="pomich-app-header-chip pomich-app-header-chip--compact">
                     Кабінет
                   </button>
@@ -59,15 +78,6 @@ export function AppShell({
                 {onSwitchRole ? (
                   <button type="button" onClick={onSwitchRole} className="pomich-app-header-chip pomich-app-header-chip--compact">
                     Роль
-                  </button>
-                ) : null}
-                {onLogout && !isTelegram ? (
-                  <button
-                    type="button"
-                    onClick={onLogout}
-                    className="pomich-app-header-chip pomich-app-header-chip--compact pomich-app-header-chip--muted"
-                  >
-                    Вийти
                   </button>
                 ) : null}
               </div>
@@ -88,7 +98,9 @@ export function AppShell({
               POMICH
             </button>
             {loggedInName ? (
-              <span className="pomich-app-header-session hidden md:inline">Ви увійшли як: {loggedInName}</span>
+              <span className="pomich-app-header-session hidden md:inline">
+                <span className="pomich-app-header-session__name">Ви увійшли як: {loggedInName}</span>
+              </span>
             ) : null}
             <div className="pomich-app-header-actions-cluster">
               <ThemeToggle />
@@ -102,7 +114,7 @@ export function AppShell({
                   Змінити роль
                 </button>
               ) : null}
-              {onLogout ? (
+              {showLogoutChip ? (
                 <button
                   type="button"
                   onClick={onLogout}

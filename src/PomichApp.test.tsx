@@ -2453,7 +2453,8 @@ describe('POMICH role-based flows', () => {
     renderApp()
 
     expect(await screen.findByText('Партнер POMICH')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: /Вийти на лінію/i }))
+    // Offline go-online is the status toggle (no duplicate primary CTA).
+    await user.click(screen.getByRole('switch', { name: /вийти на лінію/i }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/Підтвердіть телефон/i)
   })
@@ -2517,7 +2518,7 @@ describe('POMICH role-based flows', () => {
     renderApp()
 
     expect(await screen.findByText('Партнер POMICH')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: /Вийти на лінію/i }))
+    await user.click(screen.getByRole('switch', { name: /вийти на лінію/i }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Акаунт партнера не збігається')
   })
