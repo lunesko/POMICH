@@ -1519,6 +1519,8 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
       lng: pickup.lng,
       radiusKm: 35,
       kind: "dispatch",
+      status: "online",
+      verificationStatus: "verified",
     })
       .then((items) => {
         if (cancelled) return

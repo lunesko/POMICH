@@ -62,12 +62,12 @@ export function useDirectoryScope(options?: { refreshMs?: number; enabled?: bool
     setLoading(true)
     try {
       if (mode === "all-ukraine") {
-        const items = await getMapProviders({ scope: "all" })
+        const items = await getMapProviders({ scope: "all", kind: "directory" })
         setProviders(Array.isArray(items) ? items : [])
         return
       }
       if (city) {
-        const items = await getMapProviders({ city })
+        const items = await getMapProviders({ city, kind: "directory" })
         setProviders(Array.isArray(items) ? items : [])
         return
       }
@@ -86,6 +86,7 @@ export function useDirectoryScope(options?: { refreshMs?: number; enabled?: bool
         lat: point.lat,
         lng: point.lng,
         radiusKm,
+        kind: "directory",
       })
       setProviders(Array.isArray(items) ? items : [])
     } catch {

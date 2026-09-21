@@ -106,13 +106,16 @@ def test_fastapi_serves_health_and_api_prefix(monkeypatch) -> None:
     client = TestClient(app)
     admin_headers = _admin_session_headers(client)
 
-    health = client.get("/health")
+    health = client.get("/api/health")
     orders = client.get("/api/orders", headers=admin_headers)
     providers = client.get("/api/providers", headers=admin_headers)
 
     assert health.status_code == 200
-    assert health.json()["status"] == "ok"
-    assert health.json()["runtime"] == "dev"
+    assert health.json() == {"status": "ok"}
+    assert "telegramQueue" not in health.json()
+    assert "protocol" not in health.json()
+    # Dual registration removed — bare /health must not exist.
+    assert client.get("/health").status_code == 404
     assert orders.status_code == 200
     assert isinstance(orders.json(), list)
     assert providers.status_code == 200
@@ -1451,6 +1454,68 @@ def test_robots_sitemap_and_seo_landings_are_indexable(monkeypatch, tmp_path):
     assert "text/html" in (landing.headers.get("content-type") or "")
 
 
+
+def test_unknown_paths_return_real_html_404(monkeypatch, tmp_path):
+    dist_dir = tmp_path / "dist"
+    dist_dir.mkdir(parents=True)
+    (dist_dir / "index.html").write_text("<!doctype html><html><body>POMICH</body></html>", encoding="utf-8")
+    from importlib import reload
+    reload(fastapi_app)
+    monkeypatch.setattr(fastapi_app, "DIST_DIR", dist_dir)
+    monkeypatch.setattr(fastapi_app, "ASSETS_DIR", dist_dir / "assets")
+    monkeypatch.setattr(fastapi_app, "GEO_DIR", dist_dir / "geo")
+    client = TestClient(fastapi_app.app)
+    response = client.get("/definitely-not-real-page")
+    assert response.status_code == 404
+    assert "Сторінку не знайдено" in response.text
+    assert "text/html" in (response.headers.get("content-type") or "")
+    # Security headers present on HTML responses
+    assert response.headers.get("x-content-type-options") == "nosniff"
+    assert "max-age=" in (response.headers.get("strict-transport-security") or "")
+    assert "Content-Security-Policy" in {k.title() for k in response.headers.keys()} or response.headers.get("content-security-policy")
+
+
+
+def test_internal_ready_and_metrics(monkeypatch):
+    monkeypatch.setenv("POMICH_INTERNAL_TOKEN", "internal-secret-token-xxxx")
+    client = TestClient(app)
+    ready = client.get("/internal/ready")
+    assert ready.status_code in (200, 503)
+    assert "postgres" in ready.json()
+    denied = client.get("/internal/metrics")
+    assert denied.status_code == 404
+    ok = client.get("/internal/metrics", headers={"X-POMICH-Internal-Token": "internal-secret-token-xxxx"})
+    assert ok.status_code == 200
+    assert ok.json()["status"] == "ok"
+
+
+def test_argon2id_password_hash_roundtrip():
+    from bot.api_deps import hash_password, password_matches
+
+    hashed = hash_password("correct-horse-battery")
+    assert hashed.startswith("$argon2id$") or hashed.startswith("sha256:")
+    assert password_matches({"passwordHash": hashed}, "correct-horse-battery")
+    assert not password_matches({"passwordHash": hashed}, "wrong-password")
+    # Legacy sha256 still works
+    import hashlib
+    legacy = "sha256:" + hashlib.sha256(b"legacy-pass").hexdigest()
+    assert password_matches({"passwordHash": legacy}, "legacy-pass")
+
+
+def test_public_health_hides_internals(monkeypatch):
+    monkeypatch.setenv("POMICH_HEALTH_DETAIL_TOKEN", "detail-secret-token-xxxx")
+    client = TestClient(app)
+    public = client.get("/api/health")
+    assert public.status_code == 200
+    assert public.json() == {"status": "ok"}
+    denied = client.get("/api/health/detail")
+    assert denied.status_code == 404
+    ok = client.get("/api/health/detail", headers={"X-POMICH-Health-Token": "detail-secret-token-xxxx"})
+    assert ok.status_code == 200
+    assert ok.json()["status"] == "ok"
+    assert ok.json()["protocol"] == "fastapi"
+
+
 def test_dist_root_static_files_served_before_spa_fallback(tmp_path, monkeypatch):
     dist_dir = tmp_path / "dist"
     dist_dir.mkdir(parents=True)
@@ -1511,6 +1576,17 @@ def test_dispatch_list_excludes_directory_and_map_is_slim(monkeypatch, tmp_path)
 
     dispatch_only = client.get("/api/map/providers?kind=dispatch&scope=all").json()
     assert {item["id"] for item in dispatch_only} == {"p-dispatch"}
+
+    online_verified = client.get(
+        "/api/map/providers?kind=dispatch&status=online&verification_status=verified&scope=all"
+    ).json()
+    assert {item["id"] for item in online_verified} == {"p-dispatch"}
+
+    directory_map = client.get("/api/map/providers?kind=directory&scope=all").json()
+    assert {item["id"] for item in directory_map} == {"p-dir"}
+
+    offline_only = client.get("/api/map/providers?kind=dispatch&status=offline&scope=all").json()
+    assert offline_only == []
 
 
 def test_map_nearby_orders_excludes_completed_and_cancelled(monkeypatch, tmp_path) -> None:

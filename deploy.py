@@ -154,12 +154,12 @@ DATABASE_URL=postgresql://pomich:{db_password}@postgres:5432/pomich
 
 
 def setup_nginx(ssh):
-    """Keep pomich.help vhost pointing at the app with a Mini App–friendly 502 retry page."""
+    """Apply checked-in nginx configs from deploy/nginx/ (reproducible from Git)."""
     retry_html = """<!doctype html>
 <html lang="uk">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta http-equiv="refresh" content="2" />
   <title>POMICH · оновлення</title>
   <style>
@@ -178,75 +178,26 @@ def setup_nginx(ssh):
 </body>
 </html>
 """
-    nginx_conf = """server {
-    listen 80;
-    listen [::]:80;
-    server_name pomich.help www.pomich.help;
-
-    location ^~ /.well-known/acme-challenge/ {
-        root /var/www/html;
-        default_type "text/plain";
-        allow all;
-    }
-
-    location / {
-        return 301 https://$host$request_uri;
-    }
-}
-
-server {
-    listen 443 ssl;
-    listen [::]:443 ssl;
-    server_name pomich.help www.pomich.help;
-
-    ssl_certificate /etc/letsencrypt/live/pomich.help/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/pomich.help/privkey.pem;
-    include /etc/letsencrypt/options-ssl-nginx.conf;
-    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
-
-    add_header X-Content-Type-Options nosniff always;
-    add_header X-Frame-Options SAMEORIGIN always;
-    add_header Referrer-Policy strict-origin-when-cross-origin always;
-
-    error_page 502 503 504 = @pomich_retry;
-
-    location @pomich_retry {
-        default_type text/html;
-        charset utf-8;
-        add_header Cache-Control "no-store" always;
-        add_header Retry-After 2 always;
-        root /var/www/pomich;
-        try_files /retry.html =502;
-    }
-
-    location / {
-        proxy_pass http://127.0.0.1:8000;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_connect_timeout 3s;
-        proxy_read_timeout 3600s;
-        proxy_send_timeout 3600s;
-        # WebSocket / SSE: avoid buffering that stalls heartbeats
-        proxy_buffering off;
-        client_max_body_size 25m;
-    }
-}
-"""
+    repo_root = Path(__file__).resolve().parent
+    upstream_conf = (repo_root / "deploy" / "nginx" / "pomich_upstream.conf").read_text(encoding="utf-8")
+    nginx_conf = (repo_root / "deploy" / "nginx" / "pomich.help.conf").read_text(encoding="utf-8")
     run(ssh, "mkdir -p /var/www/pomich", check=False)
     run(ssh, f"cat > /var/www/pomich/retry.html << 'HTMLEOF'\n{retry_html}\nHTMLEOF", check=False)
+    run(ssh, f"cat > /etc/nginx/conf.d/pomich_upstream.conf << 'NGINXEOF'\n{upstream_conf}\nNGINXEOF", check=False)
     run(ssh, f"cat > /etc/nginx/sites-available/pomich.help << 'NGINXEOF'\n{nginx_conf}\nNGINXEOF", check=False)
     run(ssh, "ln -sfn /etc/nginx/sites-available/pomich.help /etc/nginx/sites-enabled/pomich.help", check=False)
     out, err, rc = run(ssh, "nginx -t", check=False)
     if rc == 0:
         run(ssh, "systemctl reload nginx", check=False)
-        print("  Nginx pomich.help updated (502 auto-retry)")
+        print("  Nginx pomich.help updated from deploy/nginx/")
     else:
         print(f"  [WARN] nginx -t failed; left previous vhost in place ({err or out})")
+
+    # Close public :8000 — app is loopback-only behind nginx.
+    run(ssh, "ufw delete allow 8000/tcp 2>/dev/null || true", check=False)
+    run(ssh, "ufw allow 80/tcp >/dev/null 2>&1 || true", check=False)
+    run(ssh, "ufw allow 443/tcp >/dev/null 2>&1 || true", check=False)
+    print("  Firewall: public :8000 closed (nginx :80/:443 only)")
 
 
 def main():

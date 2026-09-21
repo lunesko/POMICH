@@ -20,7 +20,8 @@ from bot.api_deps import (
     runtime_config_errors,
     validate_runtime_config,
 )
-from bot.routers import admin, auth, customers, events, health, orders, providers, telegram, ws
+from bot.routers import admin, auth, customers, events, health, internal, orders, providers, telegram, ws
+from bot.security_headers import SecurityHeadersMiddleware
 from bot.telegram_bot import notify_dispatch_offers, notify_order_accepted, notify_order_cancelled, notify_order_created
 from bot.runtime_store import get_engine, sql_storage_enabled
 from bot.telegram_outbound import ensure_telegram_workers
@@ -66,14 +67,29 @@ def _warm_runtime_on_startup() -> None:
 
 
 app.add_middleware(GZipMiddleware, minimum_size=400)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=get_cors_origins(),
-    allow_origin_regex=r"https://.*\.trycloudflare\.com",
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+
+_cors_origins = get_cors_origins()
+_cors_kwargs: dict = {
+    "allow_origins": _cors_origins,
+    "allow_credentials": True,
+    "allow_methods": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    "allow_headers": [
+        "Authorization",
+        "Content-Type",
+        "X-Requested-With",
+        "X-POMICH-Admin-Token",
+        "X-POMICH-Provider-Token",
+        "X-POMICH-Health-Token",
+        "X-POMICH-Internal-Token",
+    ],
+}
+# Tunnel regex only outside production — production must list exact HTTPS origins.
+if not is_production_runtime():
+    _cors_kwargs["allow_origin_regex"] = r"https://.*\.trycloudflare\.com"
+
+app.add_middleware(CORSMiddleware, **_cors_kwargs)
+# Outer-most for response headers on every path (HTML + API).
+app.add_middleware(SecurityHeadersMiddleware)
 
 _API_ROUTERS = (
     health.router,
@@ -87,9 +103,12 @@ _API_ROUTERS = (
     ws.router,
 )
 
+# Single mount under /api — frontend always uses VITE_API_BASE_URL=/api.
 for router in _API_ROUTERS:
-    app.include_router(router)
     app.include_router(router, prefix="/api")
+
+# Internal ops (nginx allowlist + optional token on metrics).
+app.include_router(internal.router)
 
 if ASSETS_DIR.exists():
     app.mount("/assets", CachedStaticFiles(directory=ASSETS_DIR), name="assets")
@@ -226,6 +245,21 @@ _SEO_PUBLIC_PAGES: dict[str, dict[str, str]] = {
         "h1": "Безпека",
         "lead": "POMICH не замінює екстрені служби 112. При ДТП з постраждалими спочатку викличте 112.",
     },
+    "privacy": {
+        "title": "Політика конфіденційності POMICH",
+        "h1": "Політика конфіденційності",
+        "lead": "Як POMICH обробляє персональні дані клієнтів і партнерів: профіль, геолокація, Telegram і заявки.",
+        "body_html": """
+<p>Оператор сервісу POMICH (<a href="https://pomich.help">pomich.help</a>) обробляє дані для надання допомоги на дорозі в Україні.</p>
+<ul>
+  <li><strong>Що збираємо:</strong> ім’я, телефон, місто, геопозицію заявки, дані транспорту партнера, Telegram ID.</li>
+  <li><strong>Навіщо:</strong> створення заявки, пошук партнера поруч, зв’язок у чаті, безпека й підтримка.</li>
+  <li><strong>З ким ділимось:</strong> лише з партнером, який прийняв вашу заявку, і з процесорами інфраструктури (хостинг, Telegram).</li>
+  <li><strong>Зберігання:</strong> поки активний акаунт / потрібні юридичні строки. Можна попросити видалення через підтримку.</li>
+  <li><strong>Контакт:</strong> <a href="https://t.me/pomich_ua_bot">@pomich_ua_bot</a></li>
+</ul>
+""",
+    },
     "cities/uzhhorod": {
         "title": "Допомога на дорозі в Ужгороді — POMICH",
         "h1": "Допомога в Ужгороді",
@@ -238,12 +272,13 @@ def _seo_landing_html(slug: str, page: dict[str, str]) -> str:
     title = page["title"]
     h1 = page["h1"]
     lead = page["lead"]
+    extra = page.get("body_html", "")
     canonical = f"https://pomich.help/{slug}"
     return f"""<!doctype html>
 <html lang="uk">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>{title}</title>
   <meta name="description" content="{lead}" />
   <link rel="canonical" href="{canonical}" />
@@ -269,6 +304,7 @@ def _seo_landing_html(slug: str, page: dict[str, str]) -> str:
     <p><a href="/">POMICH</a></p>
     <h1>{h1}</h1>
     <p>{lead}</p>
+    {extra}
     <p><a class="cta" href="/?utm_source=seo&amp;utm_campaign={slug}">Відкрити застосунок</a></p>
     <p>Або Telegram: <a href="https://t.me/pomich_ua_bot">@pomich_ua_bot</a></p>
     <h2>Послуги</h2>
@@ -279,7 +315,41 @@ def _seo_landing_html(slug: str, page: dict[str, str]) -> str:
       <li><a href="/dostavka-palnogo">Закінчилось пальне</a></li>
       <li><a href="/cities/uzhhorod">Ужгород</a></li>
       <li><a href="/partner">Партнерам</a></li>
+      <li><a href="/privacy">Конфіденційність</a></li>
     </ul>
+  </main>
+</body>
+</html>
+"""
+
+
+def _not_found_html() -> str:
+    return """<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>Сторінку не знайдено — POMICH</title>
+  <meta name="description" content="Цієї сторінки немає. Поверніться на головну або викличте допомогу через POMICH." />
+  <link rel="canonical" href="https://pomich.help/" />
+  <style>
+    body{margin:0;font-family:system-ui,sans-serif;background:#0F172A;color:#F8FAFC;line-height:1.5}
+    main{max-width:28rem;margin:0 auto;padding:3rem 1.25rem;text-align:center}
+    a{color:#4ade80}
+    .cta{display:inline-block;margin:.5rem .35rem 0;padding:.85rem 1.15rem;border-radius:999px;background:#22c55e;color:#052e16;font-weight:800;text-decoration:none}
+    .ghost{background:transparent;color:#F8FAFC;border:1px solid rgba(248,250,252,.28)}
+  </style>
+</head>
+<body>
+  <main>
+    <p><a href="/">POMICH</a></p>
+    <h1>Сторінку не знайдено</h1>
+    <p>Можливо, посилання застаріле або адресу введено з помилкою.</p>
+    <p>
+      <a class="cta" href="/">На головну</a>
+      <a class="cta ghost" href="/?utm_source=404&amp;utm_campaign=call-help">Викликати допомогу</a>
+    </p>
   </main>
 </body>
 </html>
@@ -361,10 +431,14 @@ def serve_frontend(full_path: str = ""):
         media = _media_type_for_root_file(root_file)
         return FileResponse(root_file, media_type=media, headers=headers)
 
-    index_path = DIST_DIR / "index.html"
-    if index_path.exists():
-        return FileResponse(index_path, headers=_INDEX_NO_CACHE_HEADERS)
-    return {"detail": "Frontend build is missing. Run npm run build first."}
+    # App shell is only at "/". Unknown paths must be real 404s (no soft-404 SPA HTML).
+    if not normalized:
+        index_path = DIST_DIR / "index.html"
+        if index_path.exists():
+            return FileResponse(index_path, headers=_INDEX_NO_CACHE_HEADERS)
+        return {"detail": "Frontend build is missing. Run npm run build first."}
+
+    return HTMLResponse(_not_found_html(), status_code=404, headers={"Cache-Control": "no-store"})
 
 
 __all__ = [
