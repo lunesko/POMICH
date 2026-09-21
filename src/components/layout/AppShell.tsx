@@ -29,6 +29,7 @@ export function AppShell({
   const showTelegramBack = Boolean(compact && role && isTelegram)
   // Compact chrome: logout only inside cabinet.
   const showLogoutChip = Boolean(onLogout && !compact)
+  const sessionLabel = loggedInName?.trim() || ""
 
   useTelegramBackButton({
     visible: showTelegramBack,
@@ -52,25 +53,26 @@ export function AppShell({
                   ←
                 </button>
               ) : null}
-              {onOpenCabinet ? (
-                <button
-                  type="button"
-                  onClick={onOpenCabinet}
-                  className="pomich-app-header-session"
-                  title={loggedInName ? `Особистий кабінет · ${loggedInName}` : "Особистий кабінет"}
-                  aria-label="Кабінет"
-                >
-                  <span className="pomich-app-header-session__name">Кабінет</span>
-                </button>
-              ) : loggedInName && !isTelegram ? (
-                <div className="pomich-app-header-session" title={loggedInName}>
-                  <span className="pomich-app-header-session__name">{loggedInName}</span>
+              {sessionLabel ? (
+                <div className="pomich-app-header-session" title={sessionLabel}>
+                  <span className="pomich-app-header-session__name">{sessionLabel}</span>
                 </div>
               ) : (
                 <div className="min-w-0 flex-1" aria-hidden="true" />
               )}
               <div className="pomich-app-header-actions-cluster" role="toolbar" aria-label="Дії">
                 <ThemeToggle compact />
+                {onOpenCabinet ? (
+                  <button
+                    type="button"
+                    onClick={onOpenCabinet}
+                    className="pomich-app-header-chip pomich-app-header-chip--compact"
+                    title={sessionLabel ? `Особистий кабінет · ${sessionLabel}` : "Особистий кабінет"}
+                    aria-label="Кабінет"
+                  >
+                    Кабінет
+                  </button>
+                ) : null}
                 {onSwitchRole ? (
                   <button
                     type="button"
@@ -99,9 +101,9 @@ export function AppShell({
             <button type="button" onClick={() => onRoleChange(null)} className="pomich-app-header-brand text-xl">
               POMICH
             </button>
-            {loggedInName ? (
+            {sessionLabel ? (
               <span className="pomich-app-header-session hidden md:inline">
-                <span className="pomich-app-header-session__name">Ви увійшли як: {loggedInName}</span>
+                <span className="pomich-app-header-session__name">Ви увійшли як: {sessionLabel}</span>
               </span>
             ) : null}
             <div className="pomich-app-header-actions-cluster">
