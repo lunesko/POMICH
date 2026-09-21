@@ -50,26 +50,70 @@
           "sameAs": [
             "https://t.me/pomich_ua_bot",
             "https://t.me/pomich_help_bot"
-          ]
+          ],
+          "areaServed": { "@type": "Country", "name": "Ukraine" }
         },
         {
           "@type": "WebSite",
           "@id": "https://pomich.help/#website",
           "url": "https://pomich.help/",
           "name": "POMICH — допомога на дорозі",
+          "description": "Евакуатор, АКБ, колесо, пальне — партнери поруч по всій Україні.",
           "inLanguage": "uk-UA",
           "publisher": { "@id": "https://pomich.help/#organization" }
+        },
+        {
+          "@type": "WebApplication",
+          "name": "POMICH",
+          "url": "https://pomich.help/",
+          "applicationCategory": "LifestyleApplication",
+          "operatingSystem": "Web, iOS, Android",
+          "offers": { "@type": "Offer", "price": "0", "priceCurrency": "UAH" },
+          "provider": { "@id": "https://pomich.help/#organization" }
         },
         {
           "@type": "Service",
           "name": "Допомога на дорозі POMICH",
           "serviceType": "Roadside assistance",
           "provider": { "@id": "https://pomich.help/#organization" },
-          "areaServed": {
-            "@type": "City",
-            "name": "Uzhhorod",
-            "containedInPlace": { "@type": "Country", "name": "Ukraine" }
+          "areaServed": [
+            { "@type": "Country", "name": "Ukraine" },
+            { "@type": "City", "name": "Uzhhorod" }
+          ],
+          "availableChannel": {
+            "@type": "ServiceChannel",
+            "serviceUrl": "https://pomich.help/",
+            "serviceSmsNumber": null
           }
+        },
+        {
+          "@type": "FAQPage",
+          "mainEntity": [
+            {
+              "@type": "Question",
+              "name": "Що таке POMICH?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "POMICH — сервіс допомоги на дорозі в Україні: евакуатор, запуск АКБ, колесо, пальне."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "Скільки це коштує?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "На сайті показана орієнтовна база. Точну ціну бачите після прийняття заявки партнером."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "Як стати партнером?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Зареєструйте профіль партнера на pomich.help або через @pomich_help_bot і виходьте на лінію."
+              }
+            }
+          ]
         }
       ]
     }

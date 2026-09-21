@@ -28,8 +28,8 @@ export function AppShell({
   const { isTelegram } = useTelegramUx()
   const showTelegramBack = Boolean(compact && role && isTelegram)
   const showSessionName = Boolean(loggedInName && !isTelegram)
-  // Name opens cabinet — no separate «Кабінет» chip.
-  const showCabinetChip = Boolean(onOpenCabinet && !showSessionName)
+  // Always keep an explicit «Кабінет» chip — name alone was too easy to miss.
+  const showCabinetChip = Boolean(onOpenCabinet)
   // Compact chrome: logout only inside cabinet.
   const showLogoutChip = Boolean(onLogout && !compact)
 
@@ -56,21 +56,9 @@ export function AppShell({
                 </button>
               ) : null}
               {showSessionName ? (
-                onOpenCabinet ? (
-                  <button
-                    type="button"
-                    onClick={onOpenCabinet}
-                    className="pomich-app-header-session"
-                    title={`Кабінет · ${loggedInName}`}
-                    aria-label={`Кабінет · ${loggedInName}`}
-                  >
-                    <span className="pomich-app-header-session__name">{loggedInName}</span>
-                  </button>
-                ) : (
-                  <div className="pomich-app-header-session" title={loggedInName}>
-                    <span className="pomich-app-header-session__name">{loggedInName}</span>
-                  </div>
-                )
+                <div className="pomich-app-header-session" title={loggedInName}>
+                  <span className="pomich-app-header-session__name">{loggedInName}</span>
+                </div>
               ) : (
                 <div className="min-w-0 flex-1" aria-hidden="true" />
               )}

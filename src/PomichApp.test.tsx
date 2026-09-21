@@ -240,7 +240,7 @@ describe('POMICH role-based flows', () => {
     expect(screen.getByText(/Ви увійшли як:.*Roman/i)).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /^Вийти$/i }))
 
-    expect(await screen.findByText(/Допомога на дорозі — коли вона потрібна/i)).toBeInTheDocument()
+    expect(await screen.findByText(/Допомога на дорозі за хвилини/i)).toBeInTheDocument()
     expect(window.localStorage.getItem('pomichCustomerId')).toBeNull()
   })
 
@@ -249,7 +249,7 @@ describe('POMICH role-based flows', () => {
     renderApp()
 
     expect(await screen.findByText('Реєстрація клієнта')).toBeInTheDocument()
-    expect(screen.queryByText(/Допомога на дорозі — коли вона потрібна/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Допомога на дорозі за хвилини/i)).not.toBeInTheDocument()
     await waitFor(() => {
       expect(window.location.search).not.toContain('role=')
     })
@@ -260,7 +260,7 @@ describe('POMICH role-based flows', () => {
     renderApp()
 
     expect(await screen.findByText('Реєстрація партнера')).toBeInTheDocument()
-    expect(screen.queryByText(/Допомога на дорозі — коли вона потрібна/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Допомога на дорозі за хвилини/i)).not.toBeInTheDocument()
     await waitFor(() => {
       expect(window.location.search).not.toContain('role=')
     })
@@ -269,7 +269,7 @@ describe('POMICH role-based flows', () => {
   it('starts with public landing browse mode', async () => {
     renderApp()
 
-    expect(await screen.findByText(/Допомога на дорозі — коли вона потрібна/i)).toBeInTheDocument()
+    expect(await screen.findByText(/Допомога на дорозі за хвилини/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Зареєструватися/i })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Послуги' })).toBeInTheDocument()
   })
@@ -346,7 +346,7 @@ describe('POMICH role-based flows', () => {
     expect(screen.getByText(/Ви увійшли як:.*Roman/i)).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: /^POMICH$/i }))
-    expect(await screen.findByText(/Допомога на дорозі — коли вона потрібна/i)).toBeInTheDocument()
+    expect(await screen.findByText(/Допомога на дорозі за хвилини/i)).toBeInTheDocument()
     expect(window.localStorage.getItem('pomichCustomerId')).toBe('guest-roman')
     expect(window.sessionStorage.getItem(authSessionStorageKey('customer', 'guest-roman'))).not.toBeNull()
 
@@ -640,7 +640,7 @@ describe('POMICH role-based flows', () => {
     expect(await screen.findByText('Особистий кабінет')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /^Вийти$/i }))
 
-    expect(await screen.findByText(/Допомога на дорозі — коли вона потрібна/i)).toBeInTheDocument()
+    expect(await screen.findByText(/Допомога на дорозі за хвилини/i)).toBeInTheDocument()
     expect(window.localStorage.getItem(EXPLICIT_LOGOUT_STORAGE_KEY)).toBe('tg-42')
     expect(screen.queryByText('Що сталося?')).not.toBeInTheDocument()
 
@@ -648,7 +648,7 @@ describe('POMICH role-based flows', () => {
     telegramSessionCalls.length = 0
     renderApp()
 
-    expect(await screen.findByText(/Допомога на дорозі — коли вона потрібна/i)).toBeInTheDocument()
+    expect(await screen.findByText(/Допомога на дорозі за хвилини/i)).toBeInTheDocument()
     expect(screen.queryByText('Що сталося?')).not.toBeInTheDocument()
     await waitFor(() => {
       expect(telegramSessionCalls).toHaveLength(0)
@@ -704,7 +704,7 @@ describe('POMICH role-based flows', () => {
     await user.click(screen.getByRole('button', { name: /^Кабінет$/i }))
     expect(await screen.findByText('Особистий кабінет')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /^Вийти$/i }))
-    expect(await screen.findByText(/Допомога на дорозі — коли вона потрібна/i)).toBeInTheDocument()
+    expect(await screen.findByText(/Допомога на дорозі за хвилини/i)).toBeInTheDocument()
     expect(window.localStorage.getItem(EXPLICIT_LOGOUT_STORAGE_KEY)).toBe('tg-829741830')
 
     await user.click(screen.getByRole('button', { name: /^Меню$/i }))
@@ -1572,7 +1572,7 @@ describe('POMICH role-based flows', () => {
     }))
 
     renderApp()
-    expect(await screen.findByText(/Допомога на дорозі — коли вона потрібна/i)).toBeInTheDocument()
+    expect(await screen.findByText(/Допомога на дорозі за хвилини/i)).toBeInTheDocument()
 
     // Landing «Партнер» must open phone login (not blank registration).
     await user.click(screen.getAllByRole('button', { name: /Надаю послуги/i })[0])
@@ -1709,7 +1709,7 @@ describe('POMICH role-based flows', () => {
 
     await user.click(screen.getByRole('button', { name: /^Вийти$/i }))
 
-    expect(await screen.findByText(/Допомога на дорозі — коли вона потрібна/i)).toBeInTheDocument()
+    expect(await screen.findByText(/Допомога на дорозі за хвилини/i)).toBeInTheDocument()
     expect(window.localStorage.getItem('pomichCustomerId')).toBeNull()
     expect(window.sessionStorage.getItem(authSessionStorageKey('customer', 'guest-test'))).toBeNull()
   })
@@ -1768,7 +1768,7 @@ describe('POMICH role-based flows', () => {
     expect(await screen.findByText('Що сталося?')).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: /^Вийти$/i }))
-    expect(await screen.findByText(/Допомога на дорозі — коли вона потрібна/i)).toBeInTheDocument()
+    expect(await screen.findByText(/Допомога на дорозі за хвилини/i)).toBeInTheDocument()
 
     await user.click(await screen.findByRole('button', { name: /^Увійти$/i }))
 
@@ -2700,14 +2700,14 @@ describe('POMICH role-based flows', () => {
     renderApp()
 
     expect(await screen.findByText('Захищена адмін-панель')).toBeInTheDocument()
-    expect(screen.queryByText(/Допомога на дорозі — коли вона потрібна/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Допомога на дорозі за хвилини/i)).not.toBeInTheDocument()
     expect(window.location.search).toBe('?role=admin')
     expect(window.location.hash).toBe('')
   })
 
   it('opens admin login when hash changes to #admin', async () => {
     renderApp()
-    expect(await screen.findByText(/Допомога на дорозі — коли вона потрібна/i)).toBeInTheDocument()
+    expect(await screen.findByText(/Допомога на дорозі за хвилини/i)).toBeInTheDocument()
 
     window.location.hash = '#admin'
     window.dispatchEvent(new HashChangeEvent('hashchange'))

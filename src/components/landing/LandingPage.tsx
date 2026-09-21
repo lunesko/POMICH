@@ -59,10 +59,35 @@ function readLandingUserLocation(): Point | undefined {
 }
 
 const landingSteps = [
-  ["1", "Оберіть проблему", "Евакуатор, АКБ, колесо, пальне чи інша несправність."],
+  ["1", "Оберіть проблему", "Евакуатор, АКБ, колесо, пальне чи інше."],
   ["2", "Підтвердіть місце", "Маркер на карті — партнер їде саме туди."],
   ["3", "Надішліть заявку", "Без торгу по телефону — деталі в чаті."],
   ["4", "Стежте за статусом", "Прийнято → в дорозі → на місці → готово."],
+] as const
+
+const landingFaq = [
+  [
+    "Що таке POMICH?",
+    "POMICH — сервіс допомоги на дорозі в Україні: евакуатор, запуск АКБ, колесо, пальне. Ви підтверджуєте місце — ми шукаємо партнера поруч.",
+  ],
+  [
+    "Скільки це коштує?",
+    "На сайті показана орієнтовна база. Точну ціну бачите після того, як партнер прийме заявку — без прихованих дзвінків і торгу.",
+  ],
+  [
+    "Чи потрібен Telegram?",
+    "Можна почати з браузера на pomich.help. Telegram-боти зручні для сповіщень: @pomich_ua_bot (клієнт) і @pomich_help_bot (партнер).",
+  ],
+  [
+    "Як стати партнером?",
+    "Натисніть «Надаю послуги», зареєструйте профіль і виходьте на лінію — заявки поруч з’являться у кабінеті.",
+  ],
+] as const
+
+const landingTrust = [
+  ["Без черг номерів", "Одна заявка замість десятків дзвінків"],
+  ["Місце на карті", "Партнер бачить, куди їхати"],
+  ["Статус у реальному часі", "Прийнято → в дорозі → готово"],
 ] as const
 
 type LandingTheme = {
@@ -151,25 +176,26 @@ function LandingButton({
       onClick={onClick}
       className={["landing-cta-btn", onHeader && isGhost ? "landing-header-ghost-btn" : null, className].filter(Boolean).join(" ")}
       style={{
-        minHeight: compact ? 48 : 54,
+        minHeight: compact ? 42 : 48,
         border: isGhost ? `1px solid ${onHeader ? "rgba(255,255,255,0.22)" : theme.ghostBorder}` : "none",
-        borderRadius: compact ? 12 : 14,
-        padding: compact ? "0 16px" : "0 22px",
-        fontSize: compact ? 14 : 15,
+        borderRadius: compact ? 11 : 12,
+        padding: compact ? "0 14px" : "0 18px",
+        fontSize: compact ? 13 : 14,
         background: isPrimary
-          ? "linear-gradient(135deg, #16A36A 0%, #1A8F6A 55%, #15803D 100%)"
+          ? "linear-gradient(135deg, #16A36A 0%, #0B7A4D 100%)"
           : isGhost
             ? onHeader
               ? "rgba(255,255,255,0.08)"
               : theme.ghostBg
-            : "linear-gradient(135deg, #1D6FD4 0%, #2F80ED 55%, #3B9AE8 100%)",
-        color: isGhost ? (onHeader ? theme.navText : theme.text) : "#fff",
-        boxShadow: isGhost ? "none" : isPrimary ? "0 14px 32px rgba(22,163,106,0.28)" : "0 14px 32px rgba(47,128,237,0.22)",
+            : "color-mix(in srgb, var(--pomich-card-bg) 88%, transparent)",
+        color: isGhost ? (onHeader ? theme.navText : theme.text) : isPrimary ? "#fff" : theme.text,
+        boxShadow: isGhost || !isPrimary ? "none" : "0 10px 24px rgba(22,163,106,0.22)",
         fontFamily: "inherit",
-        fontWeight: 900,
+        fontWeight: 850,
         cursor: "pointer",
         width: onHeader ? "auto" : "100%",
         letterSpacing: "0.01em",
+        ...( !isPrimary && !isGhost ? { border: `1px solid ${theme.cardBorder}` } : {}),
       }}
     >
       {children}
@@ -179,10 +205,10 @@ function LandingButton({
 
 function LandingSectionTitle({ eyebrow, title, subtitle, theme, compact = false }: { eyebrow: string; title: string; subtitle: string; theme: LandingTheme; compact?: boolean }) {
   return (
-    <div className="landing-section-title pomich-landing-inner" style={{ textAlign: "center", margin: compact ? "0 auto 14px" : "0 auto 34px" }}>
-      <div style={{ display: "inline-flex", border: "1px solid rgba(47,128,237,0.42)", background: "rgba(47,128,237,0.14)", color: "#69A7FF", borderRadius: 999, padding: compact ? "5px 10px" : "7px 12px", fontWeight: 900, fontSize: compact ? 11 : 13 }}>{eyebrow}</div>
-      <h2 style={{ margin: compact ? "10px 0 0" : "18px 0 0", color: theme.text, fontSize: compact ? 22 : "clamp(28px, 4vw, 42px)", lineHeight: 1.03, letterSpacing: 0, fontWeight: 950 }}>{title}</h2>
-      <p style={{ margin: compact ? "8px auto 0" : "14px auto 0", color: theme.muted, fontSize: compact ? 13 : 17, lineHeight: compact ? 1.45 : 1.55, fontWeight: 700 }}>{subtitle}</p>
+    <div className="landing-section-title landing-reveal pomich-landing-inner" style={{ textAlign: "center", margin: compact ? "0 auto 12px" : "0 auto 28px" }}>
+      <div className="landing-section-eyebrow">{eyebrow}</div>
+      <h2 style={{ margin: compact ? "8px 0 0" : "12px 0 0", color: theme.text, fontSize: compact ? 20 : "clamp(24px, 3.2vw, 36px)", lineHeight: 1.08, letterSpacing: "-0.03em", fontWeight: 900 }}>{title}</h2>
+      <p style={{ margin: compact ? "6px auto 0" : "10px auto 0", color: theme.muted, fontSize: compact ? 12 : 15, lineHeight: 1.45, fontWeight: 650, maxWidth: 440 }}>{subtitle}</p>
     </div>
   )
 }
@@ -250,6 +276,7 @@ export default function LandingPage({
     ["#services", "Послуги"],
     ["#steps", "Як це працює"],
     ["#map", "Карта"],
+    ["#faq", "FAQ"],
     ["#contacts", "Контакти"],
   ] as const
 
@@ -529,7 +556,7 @@ export default function LandingPage({
                 maxWidth: layoutCompact ? "100%" : 440,
               }}
             >
-              Допомога на дорозі — коли вона потрібна
+              Допомога на дорозі за хвилини
             </p>
             <p
               className="landing-hero-support"
@@ -541,7 +568,7 @@ export default function LandingPage({
                 fontWeight: 600,
               }}
             >
-              Евакуатор, АКБ, колесо чи пальне — партнери поруч по всій Україні.
+              Підтвердіть місце на карті — і ми знайдемо евакуатор, АКБ, колесо чи пальне поруч.
             </p>
             <div
               className="landing-hero-ctas"
@@ -559,7 +586,18 @@ export default function LandingPage({
           </div>
         </section>
 
-        <section id="services" className="pomich-landing-section" style={{ padding: layoutCompact ? "20px 12px" : "56px 24px 72px" }}>
+        <section className="pomich-landing-section landing-trust" style={{ padding: layoutCompact ? "12px 12px 4px" : "20px 24px 8px" }} aria-label="Переваги">
+          <div className="landing-trust-grid pomich-landing-inner landing-reveal">
+            {landingTrust.map(([title, text]) => (
+              <div key={title} className="landing-trust-item">
+                <div className="landing-trust-item__title">{title}</div>
+                <div className="landing-trust-item__text">{text}</div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section id="services" className="pomich-landing-section" style={{ padding: layoutCompact ? "20px 12px" : "48px 24px 64px" }}>
           <LandingSectionTitle theme={theme} eyebrow="Послуги" title="Що викликаємо" subtitle="Орієнтовна база без реєстрації. Точна ціна — після прийняття заявки." compact={layoutCompact} />
           <div className="landing-services-list pomich-landing-inner" style={{ display: "grid", gap: layoutCompact ? 6 : 8 }}>
             {services.map((service) => {
@@ -708,7 +746,7 @@ export default function LandingPage({
                 cursor: mapGeoStatus === "requesting" ? "wait" : "pointer",
               }}
             >
-              {mapGeoStatus === "requesting" ? "Визначаємо…" : mapGeoStatus === "success" ? "Моє місце ✓" : "📍 Моє місце"}
+              {mapGeoStatus === "requesting" ? "Визначаємо…" : mapGeoStatus === "success" ? "Моє місце ✓" : "Моє місце"}
             </button>
           </div>
           <p className="pomich-landing-inner" style={{ margin: layoutCompact ? "12px auto 0" : "18px auto 0", textAlign: "center", color: theme.subtle, fontSize: layoutCompact ? 12 : 13, fontWeight: 700 }}>
@@ -717,7 +755,25 @@ export default function LandingPage({
           </p>
         </section>
 
-        <section id="contacts" className="pomich-landing-section-alt" style={{ padding: layoutCompact ? "20px 12px 28px" : "48px 24px 64px", textAlign: "center" }}>
+        <section id="faq" className="pomich-landing-section-alt" style={{ padding: layoutCompact ? "20px 12px" : "48px 24px 64px" }}>
+          <LandingSectionTitle
+            theme={theme}
+            eyebrow="FAQ"
+            title="Часті питання"
+            subtitle="Коротко про сервіс, ціну та Telegram."
+            compact={layoutCompact}
+          />
+          <div className="landing-faq pomich-landing-inner landing-reveal">
+            {landingFaq.map(([q, a]) => (
+              <details key={q} className="landing-faq__item">
+                <summary>{q}</summary>
+                <p>{a}</p>
+              </details>
+            ))}
+          </div>
+        </section>
+
+        <section id="contacts" className="pomich-landing-section" style={{ padding: layoutCompact ? "20px 12px 28px" : "48px 24px 64px", textAlign: "center" }}>
           <LandingSectionTitle theme={theme} eyebrow="Контакти" title="Зв'язок з POMICH" subtitle="Telegram або реєстрація в застосунку." compact={layoutCompact} />
           <div className="pomich-landing-inner" style={{ display: "grid", gap: 8, maxWidth: 420, margin: "0 auto" }}>
             <a
@@ -758,6 +814,7 @@ export default function LandingPage({
               <a href="/safety" style={{ color: "inherit", textDecoration: "none", opacity: 0.88 }}>Безпека</a>
               <a href="/about" style={{ color: "inherit", textDecoration: "none", opacity: 0.88 }}>Про нас</a>
               <a href="/partner" style={{ color: "inherit", textDecoration: "none", opacity: 0.88 }}>Партнерам</a>
+              <a href="#faq" style={{ color: "inherit", textDecoration: "none", opacity: 0.88 }}>FAQ</a>
             </div>
           </div>
           <div style={{ opacity: 0.72, fontWeight: 650 }}>© 2026 POMICH · <a href="https://t.me/pomich_ua_bot" style={{ color: "inherit" }}>@pomich_ua_bot</a></div>
