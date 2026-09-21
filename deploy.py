@@ -207,6 +207,9 @@ server {
     add_header X-Content-Type-Options nosniff always;
     add_header X-Frame-Options SAMEORIGIN always;
     add_header Referrer-Policy strict-origin-when-cross-origin always;
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header Permissions-Policy "camera=(), microphone=(), payment=(), usb=(), geolocation=(self)" always;
+    add_header Cross-Origin-Opener-Policy same-origin-allow-popups always;
 
     error_page 502 503 504 = @pomich_retry;
 
@@ -219,15 +222,28 @@ server {
         try_files /retry.html =502;
     }
 
+    location = /api/health {
+        proxy_pass http://pomich_app;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_connect_timeout 2s;
+        proxy_read_timeout 5s;
+        access_log off;
+    }
+
     location / {
-        proxy_pass http://127.0.0.1:8000;
+        proxy_pass http://pomich_app;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
+        proxy_set_header Connection $connection_upgrade;
         proxy_connect_timeout 3s;
         proxy_read_timeout 3600s;
         proxy_send_timeout 3600s;
@@ -237,14 +253,25 @@ server {
     }
 }
 """
+    upstream_conf = """upstream pomich_app {
+    server 127.0.0.1:8000;
+    keepalive 16;
+}
+
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    '' "";
+}
+"""
     run(ssh, "mkdir -p /var/www/pomich", check=False)
     run(ssh, f"cat > /var/www/pomich/retry.html << 'HTMLEOF'\n{retry_html}\nHTMLEOF", check=False)
+    run(ssh, f"cat > /etc/nginx/conf.d/pomich_upstream.conf << 'NGINXEOF'\n{upstream_conf}\nNGINXEOF", check=False)
     run(ssh, f"cat > /etc/nginx/sites-available/pomich.help << 'NGINXEOF'\n{nginx_conf}\nNGINXEOF", check=False)
     run(ssh, "ln -sfn /etc/nginx/sites-available/pomich.help /etc/nginx/sites-enabled/pomich.help", check=False)
     out, err, rc = run(ssh, "nginx -t", check=False)
     if rc == 0:
         run(ssh, "systemctl reload nginx", check=False)
-        print("  Nginx pomich.help updated (502 auto-retry)")
+        print("  Nginx pomich.help updated (keepalive + security headers)")
     else:
         print(f"  [WARN] nginx -t failed; left previous vhost in place ({err or out})")
 

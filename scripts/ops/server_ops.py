@@ -246,6 +246,13 @@ def main() -> int:
             set_telegram_webhook(ssh, public_url.rstrip("/"))
             run(ssh, "curl -sf http://127.0.0.1:8000/api/health || echo HEALTH_FAILED")
             run(ssh, f"curl -sk {public_url.rstrip('/')}/api/health || echo PUBLIC_HEALTH_FAILED")
+            # Keep nginx security headers / upstream keepalive in sync with deploy.py.
+            try:
+                import deploy as deploy_mod
+
+                deploy_mod.setup_nginx(ssh)
+            except Exception as exc:  # noqa: BLE001 — deploy helpers are best-effort on ops path
+                print(f"[WARN] nginx refresh skipped: {exc}")
             print(f"\nDeploy complete. HTTPS URL: {public_url}")
             return 0
 

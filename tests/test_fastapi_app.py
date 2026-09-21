@@ -111,8 +111,9 @@ def test_fastapi_serves_health_and_api_prefix(monkeypatch) -> None:
     providers = client.get("/api/providers", headers=admin_headers)
 
     assert health.status_code == 200
-    assert health.json()["status"] == "ok"
-    assert health.json()["runtime"] == "dev"
+    assert health.json() == {"status": "ok"}
+    assert "telegramQueue" not in health.json()
+    assert "protocol" not in health.json()
     assert orders.status_code == 200
     assert isinstance(orders.json(), list)
     assert providers.status_code == 200
@@ -1449,6 +1450,41 @@ def test_robots_sitemap_and_seo_landings_are_indexable(monkeypatch, tmp_path):
     assert "Евакуатор" in landing.text
     assert 'rel="canonical"' in landing.text
     assert "text/html" in (landing.headers.get("content-type") or "")
+
+
+
+def test_unknown_paths_return_real_html_404(monkeypatch, tmp_path):
+    dist_dir = tmp_path / "dist"
+    dist_dir.mkdir(parents=True)
+    (dist_dir / "index.html").write_text("<!doctype html><html><body>POMICH</body></html>", encoding="utf-8")
+    from importlib import reload
+    reload(fastapi_app)
+    monkeypatch.setattr(fastapi_app, "DIST_DIR", dist_dir)
+    monkeypatch.setattr(fastapi_app, "ASSETS_DIR", dist_dir / "assets")
+    monkeypatch.setattr(fastapi_app, "GEO_DIR", dist_dir / "geo")
+    client = TestClient(fastapi_app.app)
+    response = client.get("/definitely-not-real-page")
+    assert response.status_code == 404
+    assert "Сторінку не знайдено" in response.text
+    assert "text/html" in (response.headers.get("content-type") or "")
+    # Security headers present on HTML responses
+    assert response.headers.get("x-content-type-options") == "nosniff"
+    assert "max-age=" in (response.headers.get("strict-transport-security") or "")
+    assert "Content-Security-Policy" in {k.title() for k in response.headers.keys()} or response.headers.get("content-security-policy")
+
+
+def test_public_health_hides_internals(monkeypatch):
+    monkeypatch.setenv("POMICH_HEALTH_DETAIL_TOKEN", "detail-secret-token-xxxx")
+    client = TestClient(app)
+    public = client.get("/api/health")
+    assert public.status_code == 200
+    assert public.json() == {"status": "ok"}
+    denied = client.get("/api/health/detail")
+    assert denied.status_code == 404
+    ok = client.get("/api/health/detail", headers={"X-POMICH-Health-Token": "detail-secret-token-xxxx"})
+    assert ok.status_code == 200
+    assert ok.json()["status"] == "ok"
+    assert ok.json()["protocol"] == "fastapi"
 
 
 def test_dist_root_static_files_served_before_spa_fallback(tmp_path, monkeypatch):
