@@ -8,7 +8,12 @@ import { formatCabinetOrderStatus, formatCabinetReviewStars } from "../customer/
 import ServiceIcon from "../ui/ServiceIcon"
 import { SecondaryButton } from "../ui/SecondaryButton"
 
-const LazyRouteMap = lazy(() => import("../map/RouteMap"))
+const LazyRouteMap = lazy(() =>
+  import("../map/RouteMap").catch((error) => {
+    console.error("[POMICH] RouteMap chunk failed", error)
+    throw error
+  }),
+)
 
 export type OrderHistoryViewer = "customer" | "partner"
 

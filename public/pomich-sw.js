@@ -1,5 +1,5 @@
-const TILE_CACHE = "pomich-map-tiles-v32"
-const ASSET_CACHE = "pomich-assets-v32"
+const TILE_CACHE = "pomich-map-tiles-v33"
+const SW_GEN = "33"
 const TILE_CACHE_MAX = 350
 const TILE_HOST_PATTERN = /(^|\.)(tile\.openstreetmap\.org|basemaps\.cartocdn\.com)$/
 
@@ -13,10 +13,9 @@ self.addEventListener("activate", (event) => {
       .keys()
       .then((keys) =>
         Promise.all(
-          keys
-            // Drop previous SW generations so hashed Vite chunks cannot stick after deploy.
-            .filter((key) => key !== TILE_CACHE && key !== ASSET_CACHE)
-            .map((key) => caches.delete(key)),
+          // Drop every previous generation (including old asset caches) so hashed
+          // Vite chunks and opaque tile responses cannot stick after deploy.
+          keys.filter((key) => key !== TILE_CACHE).map((key) => caches.delete(key)),
         ),
       )
       .then(() => self.clients.claim()),
@@ -24,11 +23,13 @@ self.addEventListener("activate", (event) => {
 })
 
 async function putWithTileCap(cache, request, response) {
+  // Opaque responses break canvas basemap (CORS) — never cache them.
+  if (!response.ok || response.type === "opaque") return
   await cache.put(request, response.clone())
   const keys = await cache.keys()
   if (keys.length <= TILE_CACHE_MAX) return
   const overflow = keys.length - TILE_CACHE_MAX
-  await Promise.all(keys.slice(0, overflow).map((key) => cache.delete(key)))
+  await Promise.all(keys.slice(0, overflow).map((key) => caches.delete(key)))
 }
 
 self.addEventListener("fetch", (event) => {
@@ -47,27 +48,14 @@ self.addEventListener("fetch", (event) => {
       url.pathname === "/pomich-sw.js" ||
       url.pathname.endsWith(".html"))
   ) {
-    event.respondWith(fetch(event.request))
+    event.respondWith(fetch(event.request, { cache: "no-store" }))
     return
   }
 
+  // Hashed Vite bundles: network-only. Caching them caused Safari to keep deleted
+  // chunk URLs after deploy and crash Кабінет / Роль into the error boundary.
   if (url.origin === self.location.origin && url.pathname.startsWith("/assets/")) {
-    // Network-first for hashed assets: avoids serving a 404 shell from an old cache key
-    // when a new deploy renamed the chunk.
-    event.respondWith(
-      (async () => {
-        const cache = await caches.open(ASSET_CACHE)
-        try {
-          const response = await fetch(event.request)
-          if (response.ok) cache.put(event.request, response.clone())
-          return response
-        } catch (networkError) {
-          const cached = await cache.match(event.request)
-          if (cached) return cached
-          throw networkError
-        }
-      })(),
-    )
+    event.respondWith(fetch(event.request))
     return
   }
 
@@ -76,15 +64,18 @@ self.addEventListener("fetch", (event) => {
   event.respondWith(
     caches.open(TILE_CACHE).then(async (cache) => {
       const cached = await cache.match(event.request)
-      if (cached) {
+      if (cached && cached.ok && cached.type !== "opaque") {
         event.waitUntil(putWithTileCap(cache, event.request, cached))
         return cached
       }
       const response = await fetch(event.request)
-      if (response.ok || response.type === "opaque") {
+      if (response.ok && response.type !== "opaque") {
         await putWithTileCap(cache, event.request, response)
       }
       return response
     }),
   )
 })
+
+// Expose generation for debugging / kill-switch coordination.
+self.POMICH_SW_GEN = SW_GEN

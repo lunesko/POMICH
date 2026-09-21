@@ -75,6 +75,39 @@
     }
     </script>
     <script src="https://telegram.org/js/telegram-web-app.js" defer></script>
+    <script>
+      /* Bust stale service workers after deploy so Кабінет/Роль keep working. */
+      (function () {
+        var GEN = "33";
+        var KEY = "pomich-sw-gen";
+        try {
+          if (localStorage.getItem(KEY) === GEN) return;
+          localStorage.setItem(KEY, GEN);
+          var hadController = !!(navigator.serviceWorker && navigator.serviceWorker.controller);
+          var tasks = [];
+          if (navigator.serviceWorker) {
+            tasks.push(
+              navigator.serviceWorker.getRegistrations().then(function (regs) {
+                return Promise.all(regs.map(function (r) { return r.unregister(); }));
+              }),
+            );
+          }
+          if (window.caches) {
+            tasks.push(
+              caches.keys().then(function (keys) {
+                return Promise.all(keys.map(function (k) { return caches.delete(k); }));
+              }),
+            );
+          }
+          Promise.all(tasks).then(function () {
+            if (!hadController) return;
+            if (sessionStorage.getItem("pomich-sw-gen-reloaded") === GEN) return;
+            sessionStorage.setItem("pomich-sw-gen-reloaded", GEN);
+            location.reload();
+          }).catch(function () {});
+        } catch (e) {}
+      })();
+    </script>
     <!-- figma:head-end -->
   </head>
   <body>
