@@ -27,7 +27,18 @@ Scope: React Mini App (`src/`) — duplicate panels/CTAs, entry/exit paths, dead
 | Low | Stale UX docs on DetailsStep / admin hold | Updated `docs/UX_UI_CURRENT_SCENARIOS.md` |
 | Low | Unused design-spec paste | Deleted `src/imports/pasted_text/pomich-design-spec.md` |
 
-## Still deferred (lower risk / larger refactors)
+## Component adaptation (follow-up)
+
+Unified Telegram/mobile adaptation across controls:
+- Chrome insets (`--pomich-chrome-inset-*`) for header, onboarding, footers, map chrome
+- Shared `SecondaryButton` → `.pomich-flow-secondary-btn` (theme-aware)
+- Touch targets ≥44px: chips, back, header chips, theme toggle hit box
+- Sheet/cabinet buttons use `--pomich-btn-height*` (no more 36–38px shrink)
+- Form fields → `.pomich-form-field` + `.pomich-form-input` across login/register/OTP/cabinet helpers
+- Footers: `--pomich-safe-pad-bottom` (system + TG content inset)
+- Nested Headers under AppShell: `showThemeToggle={false}`
+
+
 
 - Full replace of local `PrimaryButton`/`SecondaryButton` clones in mega-flows with shared `components/ui/*`
 - Unused CSS cluster purge (`pomich-sea-*`, etc.) after dynamic-class audit

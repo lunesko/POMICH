@@ -1999,6 +1999,7 @@ export default function ProviderFlow({
         onLoginChange={setAccountLogin}
         onPasswordChange={setAccountPassword}
         onSubmit={submitProviderAccountLogin}
+        showThemeToggle={false}
         onRegister={() => {
           setAuthError(undefined)
           setLoginView("register")
@@ -2019,6 +2020,8 @@ export default function ProviderFlow({
         <Header
           title="Підтвердження телефону"
           subtitle="Спочатку телефон, потім код з Telegram"
+          showThemeToggle={false}
+          compactToggle
           onBack={() => {
             profileGateOpenRef.current = false
             setStep("duty")
@@ -2282,7 +2285,7 @@ export default function ProviderFlow({
           />
         }
       >
-        <Header title="Очікуємо клієнта" subtitle={activeOrder?.id ? `Замовлення #${activeOrder.id}` : undefined} status="accepted" />
+        <Header title="Очікуємо клієнта" subtitle={activeOrder?.id ? `Замовлення #${activeOrder.id}` : undefined} status="accepted" showThemeToggle={false} compactToggle />
         <div style={{ padding: "8px 16px 16px", display: "grid", gap: 12 }}>
           <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 18, padding: 16 }}>
             <div style={{ fontWeight: 950, fontSize: 20, color: DARK }}>Ціну надіслано клієнту</div>
@@ -2331,7 +2334,7 @@ export default function ProviderFlow({
           </>
         }
       >
-        <Header title={activeStatus === "in_progress" ? "Допомога триває" : "Ви на місці"} subtitle="Клієнт бачить ваш статус у POMICH" status={activeStatus === "in_progress" ? "in_progress" : "arrived"} />
+        <Header title={activeStatus === "in_progress" ? "Допомога триває" : "Ви на місці"} subtitle="Клієнт бачить ваш статус у POMICH" status={activeStatus === "in_progress" ? "in_progress" : "arrived"} showThemeToggle={false} compactToggle />
         <div style={{ padding: "8px 16px 16px", display: "grid", gap: 12 }}>
           <ProviderCard orderId={activeOrder?.id} assignedProvider={activeOrder?.assignedProvider ?? providerPresence} />
           <div style={{ background: CARD, borderRadius: 18, border: `1px solid ${BORDER}`, padding: 14 }}>
@@ -2383,7 +2386,7 @@ export default function ProviderFlow({
           </>
         }
       >
-        <Header title="Маршрут до клієнта" subtitle={activeOrder?.id ? `Активне замовлення #${activeOrder.id}` : "Активне замовлення"} status={activeStatus === "en_route" ? "en_route" : "price_confirmed"} />
+        <Header title="Маршрут до клієнта" subtitle={activeOrder?.id ? `Активне замовлення #${activeOrder.id}` : "Активне замовлення"} status={activeStatus === "en_route" ? "en_route" : "price_confirmed"} showThemeToggle={false} compactToggle />
         <div style={{ padding: "0 16px 16px", display: "grid", gap: 12 }}>
           {routePickup ? (
             <LazyRouteMap

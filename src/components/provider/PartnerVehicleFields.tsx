@@ -61,7 +61,7 @@ export function PartnerVehicleFields({
 
   return (
     <>
-      <label style={{ display: "grid", gap: 6 }}>
+      <label className="pomich-form-field">
         <span className={labelClassName}>Марка авто</span>
         <select
           value={form.vehicleMake}
@@ -90,7 +90,7 @@ export function PartnerVehicleFields({
 
       {isOtherMake ? (
         <>
-          <label style={{ display: "grid", gap: 6 }}>
+          <label className="pomich-form-field">
             <span className={labelClassName}>Вкажіть марку</span>
             <input
               value={form.vehicleMakeOther}
@@ -103,7 +103,7 @@ export function PartnerVehicleFields({
               className={inputClassName}
             />
           </label>
-          <label style={{ display: "grid", gap: 6 }}>
+          <label className="pomich-form-field">
             <span className={labelClassName}>Модель</span>
             <input
               value={form.vehicleModel}
@@ -118,7 +118,7 @@ export function PartnerVehicleFields({
         </>
       ) : form.vehicleMake ? (
         <>
-          <label style={{ display: "grid", gap: 6 }}>
+          <label className="pomich-form-field">
             <span className={labelClassName}>Модель</span>
             <select
               value={modelSelection}
@@ -143,7 +143,7 @@ export function PartnerVehicleFields({
             </select>
           </label>
           {showCustomModelInput ? (
-            <label style={{ display: "grid", gap: 6 }}>
+            <label className="pomich-form-field">
               <span className={labelClassName}>Вкажіть модель</span>
               <input
                 value={form.vehicleModel}

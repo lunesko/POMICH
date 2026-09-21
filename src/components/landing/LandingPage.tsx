@@ -273,6 +273,15 @@ export default function LandingPage({
   }, [])
 
   useEffect(() => {
+    return () => {
+      if (adminHoldTimerRef.current) {
+        window.clearTimeout(adminHoldTimerRef.current)
+        adminHoldTimerRef.current = null
+      }
+    }
+  }, [])
+
+  useEffect(() => {
     const root = landingRootRef.current
     const readScrollTop = () => {
       const fromRoot = root?.scrollTop ?? 0

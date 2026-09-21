@@ -308,7 +308,7 @@ function ScreenLayout({ children, footer }: { children: React.ReactNode; footer?
 function StepBack({ onBack, hide = false }: { onBack: () => void; hide?: boolean }) {
   if (hide) return null
   return (
-    <button type="button" onClick={onBack} style={{ border: "none", background: GHOST, color: DARK, borderRadius: 999, padding: "8px 11px", fontWeight: 900, cursor: "pointer", fontFamily: "inherit", marginBottom: 14 }}>← Назад</button>
+    <button type="button" onClick={onBack} className="pomich-step-back">← Назад</button>
   )
 }
 
@@ -556,15 +556,15 @@ function CustomerTrustPanel({
       </div>
 
       <div style={{ display: "grid", gap: 10 }}>
-        <label style={{ display: "grid", gap: 6 }}>
+        <label className="pomich-form-field">
           <span style={{ color: MUTED, fontSize: 12, fontWeight: 850 }}>Ім'я *</span>
           <input value={draft.name} onChange={(event) => patchDraft({ name: event.target.value })} placeholder="Ваше ім'я" className="pomich-form-input" style={{ color: DARK }} />
         </label>
-        <label style={{ display: "grid", gap: 6 }}>
+        <label className="pomich-form-field">
           <span style={{ color: MUTED, fontSize: 12, fontWeight: 850 }}>Телефон *</span>
           <PhoneInput value={draft.phone} onChange={(phone) => patchDraft({ phone })} />
         </label>
-        <label style={{ display: "grid", gap: 6 }}>
+        <label className="pomich-form-field">
           <span style={{ color: MUTED, fontSize: 12, fontWeight: 850 }}>Email</span>
           <input value={draft.email} onChange={(event) => patchDraft({ email: event.target.value })} inputMode="email" placeholder="email@example.com" className="pomich-form-input" style={{ color: DARK }} />
         </label>
@@ -581,7 +581,7 @@ function CustomerTrustPanel({
 
       <div style={{ border: `1px solid ${BORDER}`, borderRadius: 14, padding: 12, background: SURFACE_TONE }}>
         <div style={{ fontWeight: 950, fontSize: 13, color: DARK, marginBottom: 8 }}>{profileChecklistSummary({ ...profile, ...draft })}</div>
-        <div style={{ display: "grid", gap: 6 }}>
+        <div className="pomich-form-field">
           {checklist.map((item) => (
             <div key={item.key} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 13, fontWeight: 800 }}>
               <span style={{ color: "var(--pomich-label)" }}>{item.label}{item.required ? " *" : ""}</span>
@@ -965,7 +965,7 @@ function DetailsStep({ pickup, destination, value, isTelegram, onChange, onNext,
 
       <div style={{ marginTop: 16, display: "grid", gap: 10 }}>
         {vehicleOptions.map((option) => (
-          <button key={option} onClick={() => onChange(option)} style={{ minHeight: 54, padding: "12px 14px", borderRadius: 16, border: value === option ? `1.5px solid ${BRAND}` : `1px solid ${BORDER}`, background: value === option ? SELECTED : CARD, textAlign: "left", cursor: "pointer", fontFamily: "inherit", fontWeight: 900, color: DARK }}>
+          <button key={option} type="button" onClick={() => onChange(option)} className={`pomich-choice-option${value === option ? " is-selected" : ""}`}>
             <span style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
               <span>{option}</span>
               <span style={{ color: value === option ? BRAND : SUBTLE }}>{value === option ? "✓" : "○"}</span>
@@ -1043,7 +1043,7 @@ function ReviewStep({
         <LocationRow icon="🚗" title="Стан авто" subtitle={vehicleState} />
       </div>
 
-      <label style={{ display: "grid", gap: 6, marginTop: 14 }}>
+      <label className="pomich-form-field" style={{ marginTop: 14 }}>
         <span style={{ color: MUTED, fontSize: "var(--pomich-text-xs)", fontWeight: 850 }}>Коментар до заявки (необов&apos;язково)</span>
         <textarea
           value={customerComment}
