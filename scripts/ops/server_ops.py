@@ -248,6 +248,12 @@ def main() -> int:
             run(ssh, f"curl -sk {public_url.rstrip('/')}/api/health || echo PUBLIC_HEALTH_FAILED")
             # Keep nginx security headers / upstream keepalive in sync with deploy.py.
             try:
+                import sys
+                from pathlib import Path as _Path
+
+                repo_root = _Path(__file__).resolve().parents[2]
+                if str(repo_root) not in sys.path:
+                    sys.path.insert(0, str(repo_root))
                 import deploy as deploy_mod
 
                 deploy_mod.setup_nginx(ssh)
