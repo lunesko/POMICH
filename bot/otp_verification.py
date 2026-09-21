@@ -312,11 +312,31 @@ def _deliver_telegram_otp_and_record(
     preferred_kind: str | None = None,
     store_path: Optional[Path] = None,
 ) -> None:
+    def _invalidate_undelivered_code(reason: str) -> None:
+        """Drop orphan hashes so confirm cannot succeed when Telegram never delivered."""
+        with OTP_LOCK:
+            otp_path = store_path or _default_otp_store_path()
+            store = _load_otp_store(otp_path)
+            record = store.get(customer_id)
+            if not isinstance(record, dict) or not record.get("codeHash"):
+                return
+            # Keep rate-limit history; only remove the live code.
+            record.pop("codeHash", None)
+            record["deliveryFailedAt"] = datetime.now(timezone.utc).replace(tzinfo=None).isoformat(timespec="seconds") + "Z"
+            record["deliveryFailureReason"] = reason
+            store[customer_id] = record
+            _save_otp_store(store, otp_path)
+        print(
+            f"[POMICH OTP] invalidated undelivered code customer_id={customer_id} chat_id={chat_id} reason={reason}",
+            flush=True,
+        )
+
     if _telegram_otp_guard_at_limit(chat_id):
         print(
             f"[POMICH OTP] telegram send skipped (chat guard) customer_id={customer_id} chat_id={chat_id}",
             flush=True,
         )
+        _invalidate_undelivered_code("chat_guard")
         return
     try:
         message_id, bot_kind = _deliver_telegram_otp(chat_id, code, preferred_kind=preferred_kind)
@@ -325,6 +345,7 @@ def _deliver_telegram_otp_and_record(
             f"[POMICH OTP] telegram send failed customer_id={customer_id} chat_id={chat_id} error={exc}",
             flush=True,
         )
+        _invalidate_undelivered_code("telegram_send_failed")
         return
     _telegram_otp_guard_stamp(chat_id)
     with OTP_LOCK:
