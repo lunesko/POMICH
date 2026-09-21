@@ -2645,16 +2645,18 @@ html.mobile-compact .pomich-map-shell--root > .pomich-map-shell__content > * {
   max-height: 100%;
   width: 100%;
 }
-/* Let the decorative map show through page shells */
+/* Let the decorative map show through page shells — except cabinet (must stay opaque). */
 .pomich-map-shell--root .pomich-themed-shell,
 .pomich-map-shell--root .pomich-tg-app,
-.pomich-map-shell--root .pomich-cabinet-shell,
 .pomich-map-shell--root .pomich-onboarding-page,
 .pomich-map-shell--root .pomich-boot-screen,
 .pomich-map-shell--root .pomich-role-select,
 .pomich-map-shell--root .pomich-app-fallback,
 .pomich-map-shell--root .pomich-screen-layout {
   background: transparent;
+}
+.pomich-map-shell--root .pomich-cabinet-shell {
+  background: var(--pomich-bg, #e2e9e6) !important;
 }
 /* Form / role plates: solid over map — readability first (cabinet keeps glass below) */
 .pomich-map-shell--root .pomich-form-card,
@@ -4876,7 +4878,8 @@ html:not([data-pomich-theme]) select.pomich-form-input {
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
-  background: transparent;
+  /* Opaque — transparent over the map made cabinet look like the home button just vanished */
+  background: var(--pomich-bg, #e2e9e6);
   color: var(--pomich-text);
   overflow: hidden;
   /* Room for fixed full-bleed cabinet chrome (title + subtitle + actions) */
@@ -4908,12 +4911,12 @@ html:not([data-pomich-theme]) select.pomich-form-input {
 }
 [data-pomich-theme="light"] .pomich-cabinet-header,
 html:not([data-pomich-theme]) .pomich-cabinet-header {
-  background: rgba(228, 235, 231, 0.82) !important;
-  border-bottom-color: rgba(28, 42, 36, 0.10);
+  background: rgba(236, 241, 238, 0.97) !important;
+  border-bottom-color: rgba(28, 42, 36, 0.12);
 }
 [data-pomich-theme="dark"] .pomich-cabinet-header {
-  background: rgba(8, 12, 14, 0.22) !important;
-  border-bottom-color: rgba(255, 255, 255, 0.08);
+  background: rgba(15, 18, 22, 0.96) !important;
+  border-bottom-color: rgba(255, 255, 255, 0.12);
 }
 .pomich-cabinet-header .pomich-cabinet-chip-btn {
   backdrop-filter: blur(8px);

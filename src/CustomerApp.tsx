@@ -103,6 +103,36 @@ function FlowSuspense({ children }: { children: ReactNode }) {
   )
 }
 
+function CabinetSuspense({ children, onBack }: { children: ReactNode; onBack: () => void }) {
+  return (
+    <Suspense
+      fallback={
+        <div
+          className="pomich-cabinet-shell"
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "stretch",
+            justifyContent: "flex-start",
+            gap: 16,
+            padding: "16px",
+            boxSizing: "border-box",
+          }}
+        >
+          <button type="button" className="pomich-ghost-btn" onClick={onBack} style={{ alignSelf: "flex-start" }}>
+            ← Назад
+          </button>
+          <div style={{ margin: "auto 0", textAlign: "center", color: "var(--pomich-muted)", fontWeight: 700 }}>
+            Відкриваємо кабінет…
+          </div>
+        </div>
+      }
+    >
+      {children}
+    </Suspense>
+  )
+}
+
 export default function CustomerApp() {
   const telegramContext = useMemo(() => getTelegramContext(), [])
   const telegramLoggedOut = telegramContext.isTelegram && isExplicitLogout(telegramContext.chatId)
@@ -494,6 +524,15 @@ export default function CustomerApp() {
     return name
   }, [role, showLanding, showOnboarding, customerToken, account?.profile?.name, telegramContext.chatId])
 
+  /* Prefetch cabinet chunks so tapping Кабінет does not blank the shell. */
+  useEffect(() => {
+    if (role === "customer") {
+      void import("./components/cabinet/ClientCabinet")
+    } else if (role === "provider") {
+      void import("./components/cabinet/ProviderCabinet")
+    }
+  }, [role])
+
   useEffect(() => {
     if (typeof window === "undefined") return
     const enterAdminFromLocation = () => {
@@ -693,7 +732,7 @@ export default function CustomerApp() {
 
   if (showCabinet && role === "customer" && !account?.profile) {
     return (
-      <div className="pomich-boot-screen" style={{ display: "grid", gap: 12, placeItems: "center", padding: 24, textAlign: "center" }}>
+      <div className="pomich-boot-screen pomich-cabinet-shell" style={{ display: "grid", gap: 12, placeItems: "center", padding: 24, textAlign: "center" }}>
         <div style={{ fontWeight: 900, fontSize: 18 }}>Спочатку заповніть профіль</div>
         <div style={{ color: "var(--pomich-muted)", fontWeight: 700, maxWidth: 320 }}>
           Кабінет відкриється після збереження імені та телефону.
@@ -738,7 +777,7 @@ export default function CustomerApp() {
     const cabinetProfile = enrichProfileWithTelegram(account.profile, telegramContext, cabinetCustomerId)
     const sessionMismatchWarning = resolveSessionMismatchWarning(cabinetCustomerId, telegramContext.chatId)
     return (
-      <FlowSuspense>
+      <CabinetSuspense onBack={() => setShowCabinet(false)}>
         <ClientCabinet
         profile={cabinetProfile}
         customerId={cabinetCustomerId}
@@ -761,7 +800,7 @@ export default function CustomerApp() {
           }
         }}
         />
-      </FlowSuspense>
+      </CabinetSuspense>
     )
   }
 
@@ -774,7 +813,12 @@ export default function CustomerApp() {
       (isAuthSessionToken(providerToken) ? providerToken : undefined)
     const cachedProviderProfile = readCachedProviderProfile(cabinetProviderId)
     return (
-      <FlowSuspense>
+      <CabinetSuspense
+        onBack={() => {
+          setShowCabinet(false)
+          setCabinetInitialEditing(false)
+        }}
+      >
         <ProviderCabinet
         providerId={cabinetProviderId}
         providerToken={cabinetProviderToken}
@@ -788,7 +832,7 @@ export default function CustomerApp() {
         onSwitchRole={handleSwitchRole}
         onLogout={handleLogout}
         />
-      </FlowSuspense>
+      </CabinetSuspense>
     )
   }
 
