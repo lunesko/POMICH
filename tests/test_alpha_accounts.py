@@ -70,3 +70,12 @@ def test_merge_account_env_lists_keeps_existing_and_adds_alpha() -> None:
     ids = {item.get("providerId") or item.get("username") for item in merged}
     assert "provider-oleksandr" in ids
     assert "alpha-tow-01" in ids
+
+
+def test_docker_compose_escapes_argon2_dollars() -> None:
+    from bot.alpha_accounts import docker_compose_escape_env_value
+
+    raw = '{"passwordHash":"$argon2id$v=19$m=65536"}'
+    escaped = docker_compose_escape_env_value(raw)
+    assert "$$argon2id$$v=19$$m=65536" in escaped
+    assert escaped.replace("$$", "$") == raw

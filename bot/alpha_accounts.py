@@ -281,3 +281,8 @@ def merge_account_env_lists(existing_raw: str, new_accounts: list[dict[str, Any]
         if key:
             merged[key] = account
     return json.dumps(list(merged.values()), ensure_ascii=False, separators=(",", ":"))
+
+
+def docker_compose_escape_env_value(value: str) -> str:
+    """Docker Compose interpolates $VAR in env files — escape argon2 $ as $$."""
+    return str(value).replace("$", "$$")

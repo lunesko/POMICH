@@ -103,6 +103,9 @@ print(json.dumps(upsert_alpha_providers(providers), ensure_ascii=False))
             f"grep '^POMICH_ADMIN_ACCOUNTS=' {REMOTE_DIR}/.env.production | head -1 | cut -d= -f2-",
             timeout=30,
         )
+        # File may contain $$ escapes from a prior write — restore real $ before JSON merge.
+        existing_provider = (existing_provider or "").replace("$$", "$")
+        existing_admin = (existing_admin or "").replace("$$", "$")
         merged_providers = merge_account_env_lists(
             existing_provider if rc == 0 else "",
             bundle["providerAccounts"],
@@ -113,6 +116,10 @@ print(json.dumps(upsert_alpha_providers(providers), ensure_ascii=False))
             bundle["adminAccounts"],
             id_keys=("username", "id", "email"),
         )
+        from bot.alpha_accounts import docker_compose_escape_env_value
+
+        merged_providers_env = docker_compose_escape_env_value(merged_providers)
+        merged_admins_env = docker_compose_escape_env_value(merged_admins)
 
         # Escape for shell sed-safe rewrite via python on the server.
         rewrite = f"""
@@ -126,8 +133,8 @@ def set_key(raw, key, value):
     if pattern.search(raw):
         return pattern.sub(lambda _m: line, raw, count=1)
     return raw.rstrip() + "\\n" + line + "\\n"
-text = set_key(text, "POMICH_PROVIDER_ACCOUNTS", {merged_providers!r})
-text = set_key(text, "POMICH_ADMIN_ACCOUNTS", {merged_admins!r})
+text = set_key(text, "POMICH_PROVIDER_ACCOUNTS", {merged_providers_env!r})
+text = set_key(text, "POMICH_ADMIN_ACCOUNTS", {merged_admins_env!r})
 path.write_text(text, encoding="utf-8")
 print("env_updated")
 """
