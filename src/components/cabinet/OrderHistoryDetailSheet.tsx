@@ -17,6 +17,12 @@ const LazyRouteMap = lazy(() =>
 
 export type OrderHistoryViewer = "customer" | "partner"
 
+function shortOrderId(id?: string): string {
+  if (!id) return "—"
+  if (id.length <= 14) return id
+  return `${id.slice(0, 8)}…${id.slice(-4)}`
+}
+
 function parseTime(value?: string): number | undefined {
   if (!value) return undefined
   const ms = Date.parse(value)
@@ -170,7 +176,9 @@ export default function OrderHistoryDetailSheet({
             </span>
             {getServiceLabel(order.service)}
           </div>
-          <h2 className="pomich-history-detail__title">Заявка #{order.id || "—"}</h2>
+          <h2 className="pomich-history-detail__title" title={order.id || undefined}>
+            Заявка #{shortOrderId(order.id)}
+          </h2>
           <div className="pomich-history-detail__status">{formatCabinetOrderStatus(order.status)}</div>
 
           <div className="pomich-history-detail__grid">

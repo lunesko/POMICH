@@ -557,12 +557,12 @@ export default function ProviderCabinet({
           compactToggle
           actions={
             <>
-              <button type="button" onClick={onSwitchRole} className="pomich-cabinet-chip-btn">
-                Змінити роль
+              <button type="button" onClick={onSwitchRole} className="pomich-cabinet-chip-btn" aria-label="Змінити роль" title="Змінити роль">
+                Роль
               </button>
               {onLogout ? (
-                <button type="button" onClick={onLogout} className="pomich-cabinet-chip-btn pomich-cabinet-chip-btn--muted">
-                  Вийти
+                <button type="button" onClick={onLogout} className="pomich-cabinet-chip-btn pomich-cabinet-chip-btn--muted" aria-label="Вийти" title="Вийти">
+                  Вихід
                 </button>
               ) : null}
             </>
@@ -684,33 +684,25 @@ export default function ProviderCabinet({
                       {profile?.vehicle ? <div className="pomich-cabinet-profile-extra">{profile.vehicle}</div> : null}
                       {profile?.plate ? <div className="pomich-cabinet-profile-extra">{profile.plate}</div> : null}
                       {profile?.specialties?.length ? (
-                        <div className="pomich-cabinet-profile-extra">
-                          {toServiceKeys(profile.specialties).map((key) => `${getServiceEmoji(key)} ${services.find((item) => item.key === key)?.label ?? key}`).join(" · ")}
+                        <div className="pomich-cabinet-profile-services">
+                          {toServiceKeys(profile.specialties).map((key) => (
+                            <span key={key} className="pomich-cabinet-profile-service">
+                              <span aria-hidden="true">{getServiceEmoji(key)}</span>
+                              {services.find((item) => item.key === key)?.label ?? key}
+                            </span>
+                          ))}
                         </div>
                       ) : null}
                       <div className="pomich-cabinet-profile-badges">
                         {!profileVerified ? <VerificationPill status={profile?.verificationStatus} /> : null}
-                        <span
-                          style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: 5,
-                            borderRadius: 999,
-                            padding: "6px 10px",
-                            background: isOnline ? "var(--pomich-selected-bg)" : "var(--pomich-service-tone-default)",
-                            color: isOnline ? BRAND : "var(--pomich-muted)",
-                            fontSize: 12,
-                            fontWeight: 900,
-                            border: "1px solid var(--pomich-border)",
-                          }}
-                        >
-                          <span style={{ width: 7, height: 7, borderRadius: 999, background: isOnline ? BRAND : "var(--pomich-subtle)" }} />
+                        <span className="pomich-cabinet-line-pill" data-online={isOnline ? "1" : "0"}>
+                          <span className="pomich-cabinet-line-pill__dot" aria-hidden="true" />
                           {isOnline ? "На лінії" : "Поза лінією"}
                         </span>
                       </div>
                     </div>
-                    <button type="button" onClick={openEdit} className="pomich-cabinet-chip-btn">
-                      Редагувати
+                    <button type="button" onClick={openEdit} className="pomich-cabinet-chip-btn" aria-label="Редагувати" title="Редагувати">
+                      Змінити
                     </button>
                   </div>
                 )}
@@ -736,7 +728,7 @@ export default function ProviderCabinet({
                   <div className="pomich-cabinet-empty">Завантажуємо заявки…</div>
                 ) : offers.length === 0 ? (
                   <div className="pomich-cabinet-empty">
-                    Ще немає вхідних заявок. Вийдіть на лінію, щоб бачити нові оффери поруч.
+                    Немає вхідних заявок. Вийдіть на лінію — з’являться оффери поруч.
                   </div>
                 ) : (
                   offers.map((offer) => (
@@ -777,7 +769,7 @@ export default function ProviderCabinet({
                       >
                         <div className="pomich-cabinet-order-item__body">
                           <div className="pomich-cabinet-order-title">
-                            {getServiceLabel(order.service)} · #{order.id || "—"}
+                            {getServiceLabel(order.service)} · #{order.id && order.id.length > 14 ? `${order.id.slice(0, 8)}…` : order.id || "—"}
                           </div>
                           <div className="pomich-cabinet-order-status">{formatCabinetOrderStatus(order.status)}</div>
                           {typeof order.partnerProposedPrice === "number" ? (

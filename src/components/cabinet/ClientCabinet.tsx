@@ -269,12 +269,12 @@ export default function ClientCabinet({
           compactToggle
           actions={
             <>
-              <button type="button" onClick={onSwitchRole} className="pomich-cabinet-chip-btn">
-                Змінити роль
+              <button type="button" onClick={onSwitchRole} className="pomich-cabinet-chip-btn" aria-label="Змінити роль" title="Змінити роль">
+                Роль
               </button>
               {onLogout ? (
-                <button type="button" onClick={onLogout} className="pomich-cabinet-chip-btn pomich-cabinet-chip-btn--muted">
-                  Вийти
+                <button type="button" onClick={onLogout} className="pomich-cabinet-chip-btn pomich-cabinet-chip-btn--muted" aria-label="Вийти" title="Вийти">
+                  Вихід
                 </button>
               ) : null}
             </>
