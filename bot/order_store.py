@@ -28,14 +28,26 @@ from bot.runtime_store import (
     sql_upsert_provider,
 )
 from bot.ukraine_plate import is_valid_ukraine_plate, normalize_ukraine_plate
+from bot.dispatch_config import (
+    DISPATCH_MAX_CONCURRENT_OFFERS,
+    DISPATCH_WAVE_WAIT_SECONDS,
+    DISPATCH_WAVE1_SIZE,
+    DISPATCH_WAVE2_SIZE,
+    initial_radius_km_for_service,
+    search_radius_steps_for_service,
+    wave_batch_size,
+)
 
 PROVIDER_PRESENCE_TTL_SECONDS = 60
 PROVIDER_ACTIVE_STATUSES = {"online", "busy"}
 PROVIDER_STATUSES = {"online", "busy", "offline"}
 PROVIDER_SPECIALTIES = {"tow", "battery", "wheel", "fuel", "lockout", "mechanic"}
 VERIFICATION_STATUSES = {"unverified", "pending", "verified", "rejected"}
-DISPATCH_SEARCH_RADIUS_STEPS_KM = [int(value) for value in os.getenv("SEARCH_RADIUS_STEPS_KM", "5,10,20,40").split(",") if value.strip().isdigit()]
-MAX_PROVIDER_OFFERS = int(os.getenv("MAX_PROVIDER_OFFERS", "5"))
+# Legacy alias — prefer search_radius_steps_for_service(service) for new dispatch.
+DISPATCH_SEARCH_RADIUS_STEPS_KM = [
+    int(value) for value in os.getenv("SEARCH_RADIUS_STEPS_KM", "5,10,20,40").split(",") if value.strip().isdigit()
+] or [5, 10, 20, 40]
+MAX_PROVIDER_OFFERS = int(os.getenv("MAX_PROVIDER_OFFERS", str(DISPATCH_MAX_CONCURRENT_OFFERS)) or str(DISPATCH_MAX_CONCURRENT_OFFERS))
 # Partners need time to read details, enter a price, and accept. 20s was too short in production.
 OFFER_TIMEOUT_SECONDS = int(os.getenv("OFFER_TIMEOUT_SECONDS", "90"))
 # After a partner accepts, customer must confirm price (and processing must continue).
@@ -2923,6 +2935,7 @@ def expire_stale_dispatch(
 ) -> List[Dict[str, Any]]:
     """Expire pending offers and cancel idle accepted orders. Returns cancelled (enriched) orders."""
     retry_order_ids: List[str] = []
+    wave_order_ids: List[str] = []
     with STORE_LOCK:
         order_path = order_store_path or _default_store_path()
         offer_path = offer_store_path or _default_offer_store_path()
@@ -2932,6 +2945,7 @@ def expire_stale_dispatch(
         cancelled = _cancel_idle_accepted_orders_in_memory(orders, offers)
         exhaustion_changed = False
         now_iso = _now_iso()
+        checked_at = datetime.now(timezone.utc).replace(tzinfo=None)
         for order in orders:
             if peek_order_status(order.get("status")) != "searching":
                 continue
@@ -2939,11 +2953,28 @@ def expire_stale_dispatch(
             if not order_id:
                 continue
             related = [offer for offer in offers if str(offer.get("orderId")) == order_id]
+            info = order.get("dispatchInfo") if isinstance(order.get("dispatchInfo"), dict) else {}
+
+            # Priority-2 wave 2: after waveWaitSeconds, offer the next cohort even if wave 1 is still pending.
+            next_wave_at = _parse_iso(info.get("nextWaveAt"))
+            current_wave = int(info.get("wave") or 0)
+            if (
+                current_wave == 1
+                and next_wave_at
+                and checked_at >= next_wave_at
+                and order_id not in wave_order_ids
+            ):
+                order["dispatchInfo"] = {**info, "nextWaveAt": None, "waveAdvanceQueuedAt": now_iso}
+                order["updatedAt"] = now_iso
+                _append_order_event(order, "DISPATCH_WAVE_DUE", now_iso, {"fromWave": 1, "toWave": 2})
+                exhaustion_changed = True
+                wave_order_ids.append(order_id)
+                continue
+
             if not related:
                 continue
             if any(offer.get("status") == "pending" for offer in related):
                 continue
-            info = order.get("dispatchInfo") if isinstance(order.get("dispatchInfo"), dict) else {}
             auto_retries = int(info.get("autoRetryCount") or 0)
             if auto_retries >= MAX_DISPATCH_AUTO_RETRIES:
                 if order.get("dispatchState") != "NO_PROVIDERS_AVAILABLE":
@@ -2953,6 +2984,8 @@ def expire_stale_dispatch(
                         **info,
                         "autoRetryCount": auto_retries,
                         "exhaustedAt": now_iso,
+                        "awaitingDispatcher": True,
+                        "clientStatusHint": "Партнера поруч поки немає. Диспетчер розширює пошук.",
                     }
                     _append_order_event(
                         order,
@@ -2963,10 +2996,12 @@ def expire_stale_dispatch(
                     exhaustion_changed = True
                 continue
             last_auto = _parse_iso(info.get("lastAutoRetryAt"))
-            checked_at = datetime.now(timezone.utc).replace(tzinfo=None)
             if last_auto and (checked_at - last_auto).total_seconds() < 8:
                 continue
             order["dispatchInfo"] = {**info, "autoRetryCount": auto_retries + 1, "lastAutoRetryAt": now_iso}
+            order["dispatchInfo"].pop("nextWaveAt", None)
+            # Full auto-retry starts a fresh wave cycle from wave 1.
+            order["dispatchInfo"]["wave"] = 0
             order["updatedAt"] = now_iso
             _append_order_event(
                 order,
@@ -2982,6 +3017,17 @@ def expire_stale_dispatch(
         if cancelled:
             _free_providers_after_idle_cancel(cancelled, provider_store_path)
 
+    for order_id in wave_order_ids:
+        try:
+            dispatch_order(
+                order_id,
+                order_store_path=order_store_path,
+                provider_store_path=provider_store_path,
+                offer_store_path=offer_store_path,
+            )
+        except Exception:
+            continue
+
     for order_id in retry_order_ids:
         try:
             dispatch_order(
@@ -2989,6 +3035,7 @@ def expire_stale_dispatch(
                 order_store_path=order_store_path,
                 provider_store_path=provider_store_path,
                 offer_store_path=offer_store_path,
+                reset_auto_retry=False,
             )
         except Exception:
             continue
@@ -3176,6 +3223,7 @@ def dispatch_order(
     offer_store_path: Optional[Path] = None,
     *,
     reset_auto_retry: bool = False,
+    force_wave: Optional[int] = None,
 ) -> Optional[Dict[str, Any]]:
     with STORE_LOCK:
         order_path = order_store_path or _default_store_path()
@@ -3192,24 +3240,42 @@ def dispatch_order(
         if normalize_order_status(order.get("status")) != "searching":
             return attach_dispatch_to_order(order, offers)
 
+        prev_info = order.get("dispatchInfo") if isinstance(order.get("dispatchInfo"), dict) else {}
         if reset_auto_retry:
-            prev_info = order.get("dispatchInfo") if isinstance(order.get("dispatchInfo"), dict) else {}
             order["dispatchInfo"] = {
                 **prev_info,
                 "autoRetryCount": 0,
             }
             order["dispatchInfo"].pop("exhaustedAt", None)
             order["dispatchInfo"].pop("lastAutoRetryAt", None)
+            order["dispatchInfo"].pop("nextWaveAt", None)
+            order["dispatchInfo"]["wave"] = 0
+            prev_info = order["dispatchInfo"]
+
+        service = normalize_service(order.get("service"))
+        radius_steps = search_radius_steps_for_service(service)
+        current_wave = int(force_wave if force_wave is not None else (prev_info.get("wave") or 0)) + 1
+        batch_size = wave_batch_size(current_wave)
+        pending_existing = _pending_offer_count_for_order(offers, order_id)
+        slots_left = max(0, MAX_PROVIDER_OFFERS - pending_existing)
+        if slots_left <= 0:
+            order["dispatchState"] = "OFFERS_SENT"
+            order["updatedAt"] = _now_iso()
+            _write_json_atomic(order_path, orders)
+            save_offers(offers, offer_path)
+            return attach_dispatch_to_order(order, offers)
+        batch_size = min(batch_size, slots_left)
 
         now = datetime.now(timezone.utc).replace(tzinfo=None)
         now_iso = f"{now.isoformat(timespec='seconds')}Z"
         offered_ids = _providers_blocked_for_order(offers, order_id)
+        max_radius = max(radius_steps)
         if _should_use_sql_runtime(order_store_path, provider_store_path, offer_store_path):
             candidates = sql_candidate_providers_for_order(
                 order_id=str(order_id),
-                service=normalize_service(order.get("service")),
+                service=service,
                 already_offered_provider_ids=offered_ids,
-                max_radius_km=max(DISPATCH_SEARCH_RADIUS_STEPS_KM),
+                max_radius_km=max_radius,
                 ttl_seconds=PROVIDER_PRESENCE_TTL_SECONDS,
                 now=now,
             )
@@ -3219,17 +3285,22 @@ def dispatch_order(
         used_ids: set[str] = set()
         selected_radius: Optional[int] = None
 
-        _append_order_event(order, "DISPATCH_STARTED", now_iso)
-        for radius in DISPATCH_SEARCH_RADIUS_STEPS_KM:
+        _append_order_event(
+            order,
+            "DISPATCH_STARTED" if current_wave == 1 else "DISPATCH_WAVE",
+            now_iso,
+            {"wave": current_wave, "batchSize": batch_size, "serviceInitialRadiusKm": initial_radius_km_for_service(service)},
+        )
+        for radius in radius_steps:
             for candidate in candidates:
                 if candidate["id"] in used_ids or candidate["distanceKm"] > radius:
                     continue
                 selected.append(candidate)
                 used_ids.add(candidate["id"])
                 selected_radius = radius
-                if len(selected) >= MAX_PROVIDER_OFFERS:
+                if len(selected) >= batch_size:
                     break
-            if len(selected) >= MAX_PROVIDER_OFFERS:
+            if len(selected) >= batch_size:
                 break
 
         if not selected:
@@ -3243,6 +3314,9 @@ def dispatch_order(
                     "eligibleProviders": len(candidates),
                     "offersSent": max(int(prev_info.get("offersSent") or 0), pending_existing),
                     "lastDispatchAt": now_iso,
+                    "wave": max(int(prev_info.get("wave") or 0), current_wave - 1),
+                    "searchRadiusStepsKm": radius_steps,
+                    "serviceInitialRadiusKm": initial_radius_km_for_service(service),
                 }
                 order["updatedAt"] = now_iso
                 _write_json_atomic(order_path, orders)
@@ -3252,7 +3326,9 @@ def dispatch_order(
             order["dispatchInfo"] = {
                 "eligibleProviders": len(candidates),
                 "offersSent": 0,
-                "searchRadiusStepsKm": DISPATCH_SEARCH_RADIUS_STEPS_KM,
+                "searchRadiusStepsKm": radius_steps,
+                "serviceInitialRadiusKm": initial_radius_km_for_service(service),
+                "wave": current_wave,
                 "lastDispatchAt": now_iso,
                 **{
                     key: prev_info[key]
@@ -3276,26 +3352,51 @@ def dispatch_order(
                 "distanceKm": candidate["distanceKm"],
                 "createdAt": now_iso,
                 "expiresAt": expires_at,
+                "wave": current_wave,
             }
             offers.append(offer)
-            _append_order_event(order, "OFFER_CREATED", now_iso, {"offerId": offer["id"], "providerId": candidate["id"], "distanceKm": candidate["distanceKm"]})
+            _append_order_event(
+                order,
+                "OFFER_CREATED",
+                now_iso,
+                {
+                    "offerId": offer["id"],
+                    "providerId": candidate["id"],
+                    "distanceKm": candidate["distanceKm"],
+                    "wave": current_wave,
+                },
+            )
+
+        next_wave_at = None
+        if current_wave == 1:
+            next_wave_at = f"{(now + timedelta(seconds=DISPATCH_WAVE_WAIT_SECONDS)).isoformat(timespec='seconds')}Z"
 
         order["dispatchState"] = "OFFERS_SENT"
         prev_info = order.get("dispatchInfo") if isinstance(order.get("dispatchInfo"), dict) else {}
+        total_sent = int(prev_info.get("offersSent") or 0) + len(selected)
         order["dispatchInfo"] = {
             "eligibleProviders": len(candidates),
-            "offersSent": len(selected),
+            "offersSent": total_sent,
+            "offersSentThisWave": len(selected),
             "searchRadiusKm": selected_radius,
-            "searchRadiusStepsKm": DISPATCH_SEARCH_RADIUS_STEPS_KM,
+            "searchRadiusStepsKm": radius_steps,
+            "serviceInitialRadiusKm": initial_radius_km_for_service(service),
             "maxProviderOffers": MAX_PROVIDER_OFFERS,
             "offerTimeoutSeconds": OFFER_TIMEOUT_SECONDS,
+            "wave": current_wave,
+            "wave1Size": DISPATCH_WAVE1_SIZE,
+            "wave2Size": DISPATCH_WAVE2_SIZE,
+            "waveWaitSeconds": DISPATCH_WAVE_WAIT_SECONDS,
             "lastDispatchAt": now_iso,
+            **({"nextWaveAt": next_wave_at} if next_wave_at else {}),
             **{
                 key: prev_info[key]
                 for key in ("autoRetryCount", "lastAutoRetryAt", "exhaustedAt")
                 if key in prev_info
             },
         }
+        if current_wave > 1:
+            order["dispatchInfo"].pop("nextWaveAt", None)
         order["updatedAt"] = now_iso
         _write_json_atomic(order_path, orders)
         save_offers(offers, offer_path)
