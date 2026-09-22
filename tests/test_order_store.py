@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from bot.dispatch_config import DISPATCH_WAVE1_SIZE, DISPATCH_WAVE2_SIZE, DISPATCH_WAVE_WAIT_SECONDS
 from bot.order_store import (
     DispatchConflict,
     InvalidStatusTransition,
@@ -322,7 +323,7 @@ def _provider(provider_id, lat, lng, specialties=None, status="online", radius=5
     return payload
 
 
-def test_dispatch_creates_max_five_sorted_eligible_offers(tmp_path):
+def test_dispatch_wave1_sends_three_nearest_eligible_offers(tmp_path):
     order_path = tmp_path / "orders.json"
     provider_path = tmp_path / "providers.json"
     offer_path = tmp_path / "offers.json"
@@ -351,9 +352,56 @@ def test_dispatch_creates_max_five_sorted_eligible_offers(tmp_path):
 
     assert dispatched is not None
     assert dispatched["dispatchState"] == "OFFERS_SENT"
-    assert dispatched["dispatchInfo"]["offersSent"] == MAX_PROVIDER_OFFERS
-    assert [offer["providerId"] for offer in offers] == ["p1", "p2", "p3", "p4", "p5"]
+    assert dispatched["dispatchInfo"]["offersSent"] == DISPATCH_WAVE1_SIZE
+    assert dispatched["dispatchInfo"]["wave"] == 1
+    assert dispatched["dispatchInfo"]["serviceInitialRadiusKm"] == 30  # tow
+    assert [offer["providerId"] for offer in offers] == ["p1", "p2", "p3"]
     assert all(offer["status"] == "pending" for offer in offers)
+
+
+def test_dispatch_wave2_adds_next_providers_after_wait(tmp_path):
+    order_path = tmp_path / "orders.json"
+    provider_path = tmp_path / "providers.json"
+    offer_path = tmp_path / "offers.json"
+    pickup = {"lat": 48.6208, "lng": 22.2879}
+
+    save_providers(
+        [
+            _provider("p1", 48.6218, 22.2879, specialties=["wheel"]),
+            _provider("p2", 48.6228, 22.2879, specialties=["wheel"]),
+            _provider("p3", 48.6238, 22.2879, specialties=["wheel"]),
+            _provider("p4", 48.6248, 22.2879, specialties=["wheel"]),
+            _provider("p5", 48.6258, 22.2879, specialties=["wheel"]),
+            _provider("p6", 48.6268, 22.2879, specialties=["wheel"]),
+            _provider("p7", 48.6278, 22.2879, specialties=["wheel"]),
+            _provider("p8", 48.6288, 22.2879, specialties=["wheel"]),
+        ],
+        provider_path,
+    )
+    order = save_order({"service": "wheel", "customerCoordinates": pickup}, store_path=order_path)
+    first = dispatch_order(order["id"], order_path, provider_path, offer_path)
+    assert first["dispatchInfo"]["offersSent"] == DISPATCH_WAVE1_SIZE
+    assert first["dispatchInfo"]["wave"] == 1
+    assert first["dispatchInfo"]["serviceInitialRadiusKm"] == 10
+    assert first["dispatchInfo"]["nextWaveAt"]
+
+    # Force wave due immediately.
+    orders = load_orders(order_path)
+    target = next(item for item in orders if item["id"] == order["id"])
+    past = (datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=1)).isoformat(timespec="seconds") + "Z"
+    target["dispatchInfo"]["nextWaveAt"] = past
+    from bot.order_store import _write_json_atomic
+
+    _write_json_atomic(order_path, orders)
+
+    expire_stale_dispatch(order_path, offer_path, provider_path)
+    offers = load_offers(offer_path)
+    second = get_order(order["id"], order_path)
+
+    assert second["dispatchInfo"]["wave"] == 2
+    assert second["dispatchInfo"]["offersSent"] == DISPATCH_WAVE1_SIZE + DISPATCH_WAVE2_SIZE
+    assert len(offers) == DISPATCH_WAVE1_SIZE + DISPATCH_WAVE2_SIZE
+    assert {offer["providerId"] for offer in offers} == {"p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8"}
 
 
 def test_provider_offer_payload_includes_customer_coordinates(tmp_path):

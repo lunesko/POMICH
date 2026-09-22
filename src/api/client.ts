@@ -229,12 +229,19 @@ export interface OrderResponse {
   dispatchInfo?: {
     eligibleProviders?: number
     offersSent?: number
+    offersSentThisWave?: number
     searchRadiusKm?: number
+    searchRadiusStepsKm?: number[]
+    serviceInitialRadiusKm?: number
     offerTimeoutSeconds?: number
     lastDispatchAt?: string
     autoRetryCount?: number
     lastAutoRetryAt?: string
     exhaustedAt?: string
+    wave?: number
+    nextWaveAt?: string
+    awaitingDispatcher?: boolean
+    clientStatusHint?: string
   }
   offers?: DispatchOffer[]
   statusHistory?: Array<{ status: string; at: string }>

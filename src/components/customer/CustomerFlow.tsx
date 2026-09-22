@@ -1106,9 +1106,11 @@ function ReviewStep({
 
 function SearchingStep({ orderId, status, order, pickup, destination, cancelError, cancelling, onCancel, onRetryDispatch }: { orderId?: string; status: OrderStatus; order?: OrderResponse; pickup: Point; destination: Point; cancelError?: string; cancelling?: boolean; onCancel: () => void; onRetryDispatch: () => void }) {
   const noProviders = order?.dispatchState === "NO_PROVIDERS_AVAILABLE"
+  const awaitingDispatcher = Boolean(order?.dispatchInfo?.awaitingDispatcher) || noProviders
   const offers = order?.offers ?? []
   const pendingOffers = offers.filter((offer) => offer.status === "pending").length
   const offersSent = order?.dispatchInfo?.offersSent ?? offers.length
+  const wave = order?.dispatchInfo?.wave
   const offersExhausted =
     !noProviders &&
     status === "searching" &&
@@ -1116,17 +1118,22 @@ function SearchingStep({ orderId, status, order, pickup, destination, cancelErro
     pendingOffers === 0 &&
     offers.some((offer) => offer.status === "expired" || offer.status === "declined" || offer.status === "lost")
   const showRetry = noProviders || offersExhausted
+  const statusHint =
+    (typeof order?.dispatchInfo?.clientStatusHint === "string" && order.dispatchInfo.clientStatusHint.trim()) ||
+    (awaitingDispatcher || showRetry
+      ? "Партнера поруч поки немає. Диспетчер розширює пошук."
+      : undefined)
 
   return (
     <RideScreen pickup={pickup} destination={destination} providers={order?.assignedProvider ? [order.assignedProvider] : undefined} mapSubtitle={orderId ? `#${orderId}` : "Очікуємо партнера"}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
         <SheetHeading
-          title={showRetry ? "Пошук не дав результату" : "Очікуємо партнера"}
+          title={showRetry ? "Розширюємо пошук" : "Очікуємо партнера"}
           subtitle={
-            noProviders
-              ? "Немає вільних партнерів поруч"
-              : offersExhausted
-                ? "Партнери не відповіли вчасно"
+            statusHint
+              ? statusHint
+              : typeof wave === "number" && wave > 1
+                ? `Шукаємо далі · хвиля ${wave}`
                 : orderId
                   ? `Замовлення #${orderId}`
                   : "Шукаємо найближчого перевіреного партнера…"
