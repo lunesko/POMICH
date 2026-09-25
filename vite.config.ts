@@ -7,6 +7,17 @@ import siteConfiguration from './.figma/make/site.json' with { type: 'json' }
 
 const sourceRoot = path.resolve(process.cwd(), 'src')
 
+/** Keep leaflet CSS off the critical HTML path — load it with the lazy RouteMap chunk. */
+function stripLeafletCssFromHtml(): Plugin {
+  return {
+    name: 'pomich-strip-leaflet-css-html',
+    enforce: 'post',
+    transformIndexHtml(html) {
+      return html.replace(/<link[^>]+href="[^"]*leaflet[^"]*\.css"[^>]*>\s*/gi, '')
+    },
+  }
+}
+
 // Vite config — https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
   // .figma/make/deploy-preview passes `--mode development` for cached-preview builds.
@@ -17,6 +28,12 @@ export default defineConfig(({ mode }) => {
     build: {
       sourcemap: emitSourcemaps ? 'inline' : false,
       minify: !emitSourcemaps,
+      // Do not modulepreload the map stack on every first paint (~160KB+CSS).
+      modulePreload: {
+        resolveDependencies(_filename, deps) {
+          return deps.filter((dep) => !/leaflet/i.test(dep))
+        },
+      },
       rollupOptions: {
         output: {
           manualChunks(id) {
@@ -37,6 +54,7 @@ export default defineConfig(({ mode }) => {
     plugins: [
       react(),
       tailwindcss(),
+      stripLeafletCssFromHtml(),
       figmaSiteConfiguration(siteConfiguration),
       figmaErrorOverlayReplay(),
       figmaReactRefreshBoundaryFallback(),

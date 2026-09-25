@@ -312,6 +312,7 @@ def main() -> int:
                     sys.path.insert(0, str(repo_root))
                 import deploy as deploy_mod
 
+                deploy_mod.publish_web_dist(ssh)
                 deploy_mod.setup_nginx(ssh)
             except Exception as exc:  # noqa: BLE001 — deploy helpers are best-effort on ops path
                 print(f"[WARN] nginx refresh skipped: {exc}")
