@@ -906,37 +906,48 @@ html:not([data-pomich-theme]) .pomich-map-chip--brand {
   margin: 0 !important;
   padding: 0 !important;
 }
+/* Compact vertical +/− — must match --pomich-map-zoom-cluster used by .pomich-map-chrome-row */
+.pomich-route-map {
+  --pomich-map-zoom-btn: 34px;
+  --pomich-map-zoom-cluster: var(--pomich-map-zoom-btn);
+}
 .pomich-route-map .leaflet-control-zoom {
   margin: 0 !important;
   border: 1px solid var(--pomich-glass-border) !important;
-  border-radius: 999px !important;
+  border-radius: 12px !important;
   background: var(--pomich-glass-card) !important;
   backdrop-filter: blur(14px) saturate(180%) !important;
   -webkit-backdrop-filter: blur(14px) saturate(180%) !important;
   box-shadow: var(--pomich-card-shadow) !important;
-  display: inline-flex !important;
-  flex-direction: row !important;
+  display: flex !important;
+  flex-direction: column !important;
   flex-wrap: nowrap !important;
-  align-items: center !important;
-  width: auto !important;
+  align-items: stretch !important;
+  width: var(--pomich-map-zoom-cluster) !important;
+  min-width: var(--pomich-map-zoom-cluster) !important;
+  max-width: var(--pomich-map-zoom-cluster) !important;
   height: auto !important;
-  min-height: 44px !important;
-  overflow: visible !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
 }
 .pomich-route-map .leaflet-container.leaflet-touch .leaflet-control-zoom,
 .pomich-route-map .leaflet-touch .leaflet-control-zoom {
-  flex-direction: row !important;
-  width: auto !important;
+  flex-direction: column !important;
+  width: var(--pomich-map-zoom-cluster) !important;
+  min-width: var(--pomich-map-zoom-cluster) !important;
+  max-width: var(--pomich-map-zoom-cluster) !important;
   height: auto !important;
 }
 .pomich-route-map .leaflet-touch .leaflet-control-zoom a,
 .pomich-route-map .leaflet-control-zoom a {
-  width: 44px !important;
-  height: 44px !important;
-  min-width: 44px !important;
-  min-height: 44px !important;
-  line-height: 44px !important;
-  font-size: 18px !important;
+  width: var(--pomich-map-zoom-btn) !important;
+  height: var(--pomich-map-zoom-btn) !important;
+  min-width: var(--pomich-map-zoom-btn) !important;
+  min-height: var(--pomich-map-zoom-btn) !important;
+  max-width: var(--pomich-map-zoom-btn) !important;
+  max-height: var(--pomich-map-zoom-btn) !important;
+  line-height: var(--pomich-map-zoom-btn) !important;
+  font-size: 16px !important;
   font-weight: 800 !important;
   color: var(--pomich-text) !important;
   background: transparent !important;
@@ -945,19 +956,22 @@ html:not([data-pomich-theme]) .pomich-map-chip--brand {
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
+  padding: 0 !important;
+  box-sizing: border-box !important;
 }
 .pomich-route-map .leaflet-control-zoom a.leaflet-control-zoom-in {
-  border-right: 1px solid var(--pomich-border) !important;
+  border-right: none !important;
+  border-bottom: 1px solid var(--pomich-border) !important;
 }
 .pomich-route-map .leaflet-control-zoom a:hover {
   background: var(--pomich-ghost-bg) !important;
   color: var(--pomich-brand) !important;
 }
-/* Map chrome row: geo + brand + hint — flex beside Leaflet +/− (no absolute overlap) */
+/* Map chrome row: geo sits clear of the vertical zoom cluster */
 .pomich-map-chrome-row {
   position: absolute;
   z-index: 1200;
-  left: calc(var(--pomich-map-chrome-left, 12px) + 94px + 6px);
+  left: calc(var(--pomich-map-chrome-left, 12px) + var(--pomich-map-zoom-cluster, 34px) + 8px);
   right: var(--pomich-map-chrome-right, 12px);
   top: var(--pomich-map-chrome-top, 78px);
   display: flex;
@@ -1021,10 +1035,10 @@ html:not([data-pomich-theme]) .pomich-map-chip--brand {
 }
 .pomich-map-locate__btn {
   pointer-events: auto;
-  width: 44px;
-  height: 44px;
-  min-width: 44px;
-  min-height: 44px;
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  min-height: 34px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -7086,7 +7100,7 @@ html.tg-compact[data-pomich-theme="dark"] .pomich-map-tools-scope-btn.is-active 
 }
 html.mobile-compact .pomich-map-chrome-row,
 html.tg-compact .pomich-map-chrome-row {
-  left: calc(var(--pomich-map-chrome-left) + 68px + 8px);
+  left: calc(var(--pomich-map-chrome-left) + var(--pomich-map-zoom-cluster, 34px) + 8px);
   top: var(--pomich-map-chrome-top);
   gap: 6px;
 }
