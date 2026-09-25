@@ -28,7 +28,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker
-      .register('/pomich-sw.js?v=36')
+      .register('/pomich-sw.js?v=37')
       .then((registration) => {
         // Pick up new SW quickly after deploy so hashed chunks stay in sync.
         registration.update().catch(() => undefined)
