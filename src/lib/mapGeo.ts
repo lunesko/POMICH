@@ -394,7 +394,8 @@ function finishGeoSuccess(
 /**
  * Request device location.
  * - `auto`: single low-accuracy call with long maximumAge; reuses localStorage cache so
- *   Telegram WebApp reopen does not re-prompt when a recent fix exists.
+ *   Telegram WebApp reopen does not re-prompt. Never calls browser getCurrentPosition
+ *   unless Permissions API / sticky memory says granted — Mini App alone is not enough.
  * - `explicit`: user gesture — may try high accuracy then fall back once (not after deny).
  */
 export function requestCurrentPosition(
@@ -468,12 +469,13 @@ export function requestCurrentPosition(
       return
     }
 
-    // No cache: only auto-call getCurrentPosition when permission is already granted,
-    // or inside Telegram Mini App (WebView prompts work without a website gesture).
-    // Public Safari/Chrome often suppress the OS prompt without a tap — leave UI idle for «Оновити».
+    // No cache: never call browser getCurrentPosition unless permission is already
+    // granted — even inside Telegram Mini App. Auto getCurrentPosition / watchPosition
+    // on every WebApp open was spamming the OS "Allow geolocation?" dialog.
+    // Prefer Telegram LocationManager only when access is already granted there;
+    // otherwise leave UI idle for an explicit «Оновити» tap.
     void resolveGeoPermission().then((state) => {
-      const inTelegramMiniApp = isTelegramMiniApp()
-      if (state === "granted" || inTelegramMiniApp) {
+      if (state === "granted") {
         navigator.geolocation.getCurrentPosition(
           (position) => {
             finishGeoSuccess({ lat: position.coords.latitude, lng: position.coords.longitude }, onSuccess)
@@ -495,6 +497,28 @@ export function requestCurrentPosition(
         )
         return
       }
+
+      if (isTelegramMiniApp()) {
+        const manager = window.Telegram?.WebApp?.LocationManager
+        const telegramAlreadyGranted = Boolean(manager?.isAccessGranted)
+        if (telegramAlreadyGranted) {
+          const started = requestTelegramLocation(
+            (point) => finishGeoSuccess(point, onSuccess, { rememberGrant: false }),
+            () =>
+              onError(
+                "Натисніть «Оновити», щоб дозволити геолокацію в Telegram.",
+                "unavailable",
+              ),
+            () =>
+              onError(
+                "Натисніть «Оновити», щоб дозволити геолокацію в Telegram.",
+                "unavailable",
+              ),
+          )
+          if (started) return
+        }
+      }
+
       onError(
         "Натисніть «Оновити», щоб дозволити геолокацію в браузері.",
         "unavailable",

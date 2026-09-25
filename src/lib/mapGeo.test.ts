@@ -385,4 +385,55 @@ describe("mapGeo", () => {
     expect(getCurrentPosition).not.toHaveBeenCalled()
     expect(onError).toHaveBeenCalledWith(expect.stringMatching(/Оновити/i), "unavailable")
   })
+
+  it("auto mode does not call getCurrentPosition inside Telegram Mini App when permission is unknown", async () => {
+    const getCurrentPosition = vi.fn()
+    vi.stubGlobal("navigator", {
+      geolocation: { getCurrentPosition },
+      permissions: undefined,
+    })
+    vi.stubGlobal("Telegram", {
+      WebApp: {
+        initData: "query_id=1&user=%7B%7D",
+        LocationManager: {
+          isInited: true,
+          isAccessGranted: false,
+          getLocation: vi.fn(),
+        },
+      },
+    })
+    const onError = vi.fn()
+    requestCurrentPosition(vi.fn(), onError, { mode: "auto" })
+    await vi.waitFor(() => expect(onError).toHaveBeenCalled())
+    expect(getCurrentPosition).not.toHaveBeenCalled()
+    expect(onError).toHaveBeenCalledWith(expect.stringMatching(/Оновити/i), "unavailable")
+  })
+
+  it("auto mode uses Telegram LocationManager when access is already granted there", async () => {
+    const getCurrentPosition = vi.fn()
+    const getLocation = vi.fn((callback: (location: { latitude: number; longitude: number } | null) => void) => {
+      callback({ latitude: 48.61, longitude: 22.27 })
+    })
+    vi.stubGlobal("navigator", {
+      geolocation: { getCurrentPosition },
+      permissions: undefined,
+    })
+    vi.stubGlobal("Telegram", {
+      WebApp: {
+        initData: "query_id=1&user=%7B%7D",
+        LocationManager: {
+          isInited: true,
+          isAccessGranted: true,
+          getLocation,
+        },
+      },
+    })
+    const onSuccess = vi.fn()
+    requestCurrentPosition(onSuccess, vi.fn(), { mode: "auto" })
+    await vi.waitFor(() => expect(onSuccess).toHaveBeenCalledWith({ lat: 48.61, lng: 22.27 }))
+    expect(getCurrentPosition).not.toHaveBeenCalled()
+    expect(getLocation).toHaveBeenCalled()
+    // LM-only success must not sticky-grant browser permission (that would start watchPosition).
+    expect(readRememberedGeoPermission()).toBeNull()
+  })
 })

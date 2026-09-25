@@ -853,9 +853,11 @@ export default function ProviderFlow({
     }
 
     const maybeStartWatch = () => {
+      // Never start watchPosition without a silent browser grant — Telegram Mini App
+      // alone used to re-prompt the OS geolocation dialog on every duty-map open.
       void canRequestGeoSilently().then((ok) => {
-        if (cancelled) return
-        if (ok || isTelegramMiniApp()) startWatch()
+        if (cancelled || !ok) return
+        startWatch()
       })
     }
 

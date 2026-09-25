@@ -1448,7 +1448,9 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
     if (typeof window === "undefined") return "requesting"
     if (readCachedGeoPosition()) return "success"
     if (readRememberedGeoPermission() === "denied") return "permission-denied"
-    return "requesting"
+    // No sticky grant and no cache — wait for «Оновити»; do not auto-prompt the OS.
+    if (readRememberedGeoPermission() === "granted") return "requesting"
+    return "unavailable"
   })
   const [geoMessage, setGeoMessage] = useState(() => {
     if (typeof window === "undefined") return "Визначаємо ваше місцезнаходження…"
@@ -1456,7 +1458,10 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
     if (readRememberedGeoPermission() === "denied") {
       return "Доступ до геолокації заборонено. Натисніть «Оновити», щоб дозволити знову."
     }
-    return "Визначаємо ваше місцезнаходження…"
+    if (readRememberedGeoPermission() === "granted") {
+      return "Визначаємо ваше місцезнаходження…"
+    }
+    return "Натисніть «Оновити», щоб дозволити геолокацію."
   })
   const [addressLabel, setAddressLabel] = useState("Визначаємо адресу…")
   const [geoRecenterTrigger, setGeoRecenterTrigger] = useState(0)
@@ -1849,9 +1854,11 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
       )
     }
 
+    // watchPosition also triggers the OS geolocation prompt — never start it
+    // just because we are inside Telegram Mini App without a silent browser grant.
     void canRequestGeoSilently().then((ok) => {
-      if (cancelled) return
-      if (ok || isTelegramMiniApp()) startWatch()
+      if (cancelled || !ok) return
+      startWatch()
     })
 
     return () => {
