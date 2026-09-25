@@ -15,16 +15,21 @@ from bot.runtime_store import (
     sql_accept_offer,
     sql_candidate_providers_for_order,
     sql_customers_by_phone_lookup,
+    sql_decline_offer,
+    sql_expire_pending_offers,
     sql_get_customer,
     sql_upsert_customer,
     sql_get_order,
     sql_upsert_order,
     sql_get_provider,
+    sql_insert_offers,
+    sql_map_providers,
     sql_offers_for_order,
     sql_orders_for_provider,
     sql_pending_offers_for_provider,
     sql_providers_by_phone_lookup,
     sql_storage_enabled,
+    sql_upsert_offer,
     sql_upsert_provider,
 )
 from bot.ukraine_plate import is_valid_ukraine_plate, normalize_ukraine_plate
@@ -668,7 +673,6 @@ def _normalize_customer_comment(order: Dict[str, Any]) -> Optional[str]:
 def save_order(order: Dict[str, Any], store_path: Optional[Path] = None) -> Dict[str, Any]:
     with STORE_LOCK:
         path = store_path or _default_store_path()
-        orders = load_orders(path)
         payload = dict(order)
         comment = _normalize_customer_comment(payload)
         if comment:
@@ -686,6 +690,9 @@ def save_order(order: Dict[str, Any], store_path: Optional[Path] = None) -> Dict
         payload["dispatchEvents"] = payload.get("dispatchEvents") or [
             {"type": "ORDER_CREATED", "at": payload["createdAt"]}
         ]
+        if _should_use_sql_store(path, _default_store_path):
+            return sql_upsert_order(payload)
+        orders = load_orders(path)
         orders.append(payload)
         _write_json_atomic(path, orders)
         return payload
@@ -2581,9 +2588,16 @@ def update_provider_presence(provider_id: str, data: Dict[str, Any], store_path:
             except Exception:
                 pass
         sync_linked_provider_phone_verification_from_customer(str(provider_id), store_path)
-    providers = load_providers(store_path)
+
+    use_sql = _should_use_sql_store(store_path, _default_provider_store_path)
     now = _now_iso()
     updated: Optional[Dict[str, Any]] = None
+
+    if use_sql:
+        provider = get_provider_profile(str(provider_id), store_path)
+        providers = [dict(provider)] if provider else []
+    else:
+        providers = load_providers(store_path)
 
     for index, provider in enumerate(providers):
         if str(provider.get("id")) != str(provider_id):
@@ -2644,7 +2658,7 @@ def update_provider_presence(provider_id: str, data: Dict[str, Any], store_path:
         updated = candidate
         providers.append(updated)
 
-    if _should_use_sql_store(store_path, _default_provider_store_path):
+    if use_sql:
         persisted = sql_upsert_provider(dict(updated))
         persisted.pop("stale", None)
         if persisted.get("status") == "online":
@@ -3225,6 +3239,14 @@ def dispatch_order(
     reset_auto_retry: bool = False,
     force_wave: Optional[int] = None,
 ) -> Optional[Dict[str, Any]]:
+    if _should_use_sql_runtime(order_store_path, provider_store_path, offer_store_path):
+        with STORE_LOCK:
+            return _dispatch_order_sql(
+                order_id,
+                reset_auto_retry=reset_auto_retry,
+                force_wave=force_wave,
+            )
+
     with STORE_LOCK:
         order_path = order_store_path or _default_store_path()
         offer_path = offer_store_path or _default_offer_store_path()
@@ -3270,17 +3292,7 @@ def dispatch_order(
         now_iso = f"{now.isoformat(timespec='seconds')}Z"
         offered_ids = _providers_blocked_for_order(offers, order_id)
         max_radius = max(radius_steps)
-        if _should_use_sql_runtime(order_store_path, provider_store_path, offer_store_path):
-            candidates = sql_candidate_providers_for_order(
-                order_id=str(order_id),
-                service=service,
-                already_offered_provider_ids=offered_ids,
-                max_radius_km=max_radius,
-                ttl_seconds=PROVIDER_PRESENCE_TTL_SECONDS,
-                now=now,
-            )
-        else:
-            candidates = eligible_providers_for_order(order, providers, offered_ids, now)
+        candidates = eligible_providers_for_order(order, providers, offered_ids, now)
         selected: List[Dict[str, Any]] = []
         used_ids: set[str] = set()
         selected_radius: Optional[int] = None
@@ -3401,6 +3413,178 @@ def dispatch_order(
         _write_json_atomic(order_path, orders)
         save_offers(offers, offer_path)
         return attach_dispatch_to_order(order, offers)
+
+
+def _dispatch_order_sql(
+    order_id: str,
+    *,
+    reset_auto_retry: bool = False,
+    force_wave: Optional[int] = None,
+) -> Optional[Dict[str, Any]]:
+    """Row-level SQL dispatch: no full-table rewrite of orders/offers/providers."""
+    sql_expire_pending_offers(order_id=str(order_id))
+    order = sql_get_order(str(order_id))
+    if order is None:
+        return None
+    offers = sql_offers_for_order(str(order_id))
+    if normalize_order_status(order.get("status")) != "searching":
+        return attach_dispatch_to_order(order, offers)
+
+    prev_info = order.get("dispatchInfo") if isinstance(order.get("dispatchInfo"), dict) else {}
+    if reset_auto_retry:
+        order["dispatchInfo"] = {
+            **prev_info,
+            "autoRetryCount": 0,
+            "wave": 0,
+        }
+        order["dispatchInfo"].pop("exhaustedAt", None)
+        order["dispatchInfo"].pop("lastAutoRetryAt", None)
+        order["dispatchInfo"].pop("nextWaveAt", None)
+        prev_info = order["dispatchInfo"]
+
+    service = normalize_service(order.get("service"))
+    radius_steps = search_radius_steps_for_service(service)
+    current_wave = int(force_wave if force_wave is not None else (prev_info.get("wave") or 0)) + 1
+    batch_size = wave_batch_size(current_wave)
+    pending_existing = _pending_offer_count_for_order(offers, order_id)
+    slots_left = max(0, MAX_PROVIDER_OFFERS - pending_existing)
+    if slots_left <= 0:
+        order["dispatchState"] = "OFFERS_SENT"
+        order["updatedAt"] = _now_iso()
+        sql_upsert_order(order)
+        return attach_dispatch_to_order(order, offers)
+    batch_size = min(batch_size, slots_left)
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now_iso = f"{now.isoformat(timespec='seconds')}Z"
+    offered_ids = _providers_blocked_for_order(offers, order_id)
+    max_radius = max(radius_steps)
+    candidates = sql_candidate_providers_for_order(
+        order_id=str(order_id),
+        service=service,
+        already_offered_provider_ids=offered_ids,
+        max_radius_km=max_radius,
+        ttl_seconds=PROVIDER_PRESENCE_TTL_SECONDS,
+        now=now,
+    )
+    selected: List[Dict[str, Any]] = []
+    used_ids: set[str] = set()
+    selected_radius: Optional[int] = None
+
+    _append_order_event(
+        order,
+        "DISPATCH_STARTED" if current_wave == 1 else "DISPATCH_WAVE",
+        now_iso,
+        {"wave": current_wave, "batchSize": batch_size, "serviceInitialRadiusKm": initial_radius_km_for_service(service)},
+    )
+    for radius in radius_steps:
+        for candidate in candidates:
+            if candidate["id"] in used_ids or candidate["distanceKm"] > radius:
+                continue
+            selected.append(candidate)
+            used_ids.add(candidate["id"])
+            selected_radius = radius
+            if len(selected) >= batch_size:
+                break
+        if len(selected) >= batch_size:
+            break
+
+    if not selected:
+        pending_existing = _pending_offer_count_for_order(offers, order_id)
+        prev_info = order.get("dispatchInfo") if isinstance(order.get("dispatchInfo"), dict) else {}
+        if pending_existing > 0:
+            order["dispatchState"] = "OFFERS_SENT"
+            order["dispatchInfo"] = {
+                **prev_info,
+                "eligibleProviders": len(candidates),
+                "offersSent": max(int(prev_info.get("offersSent") or 0), pending_existing),
+                "lastDispatchAt": now_iso,
+                "wave": max(int(prev_info.get("wave") or 0), current_wave - 1),
+                "searchRadiusStepsKm": radius_steps,
+                "serviceInitialRadiusKm": initial_radius_km_for_service(service),
+            }
+            order["updatedAt"] = now_iso
+            sql_upsert_order(order)
+            return attach_dispatch_to_order(order, offers)
+        order["dispatchState"] = "NO_PROVIDERS_AVAILABLE"
+        order["dispatchInfo"] = {
+            "eligibleProviders": len(candidates),
+            "offersSent": 0,
+            "searchRadiusStepsKm": radius_steps,
+            "serviceInitialRadiusKm": initial_radius_km_for_service(service),
+            "wave": current_wave,
+            "lastDispatchAt": now_iso,
+            **{
+                key: prev_info[key]
+                for key in ("autoRetryCount", "lastAutoRetryAt", "exhaustedAt")
+                if key in prev_info
+            },
+        }
+        order["updatedAt"] = now_iso
+        _append_order_event(order, "NO_PROVIDERS_AVAILABLE", now_iso)
+        sql_upsert_order(order)
+        return attach_dispatch_to_order(order, offers)
+
+    expires_at = f"{(now + timedelta(seconds=OFFER_TIMEOUT_SECONDS)).isoformat(timespec='seconds')}Z"
+    new_offers: List[Dict[str, Any]] = []
+    for candidate in selected:
+        offer = {
+            "id": f"OF-{uuid.uuid4().hex[:12].upper()}",
+            "orderId": order_id,
+            "providerId": candidate["id"],
+            "status": "pending",
+            "distanceKm": candidate["distanceKm"],
+            "createdAt": now_iso,
+            "expiresAt": expires_at,
+            "wave": current_wave,
+        }
+        new_offers.append(offer)
+        _append_order_event(
+            order,
+            "OFFER_CREATED",
+            now_iso,
+            {
+                "offerId": offer["id"],
+                "providerId": candidate["id"],
+                "distanceKm": candidate["distanceKm"],
+                "wave": current_wave,
+            },
+        )
+
+    next_wave_at = None
+    if current_wave == 1:
+        next_wave_at = f"{(now + timedelta(seconds=DISPATCH_WAVE_WAIT_SECONDS)).isoformat(timespec='seconds')}Z"
+
+    order["dispatchState"] = "OFFERS_SENT"
+    prev_info = order.get("dispatchInfo") if isinstance(order.get("dispatchInfo"), dict) else {}
+    total_sent = int(prev_info.get("offersSent") or 0) + len(selected)
+    order["dispatchInfo"] = {
+        "eligibleProviders": len(candidates),
+        "offersSent": total_sent,
+        "offersSentThisWave": len(selected),
+        "searchRadiusKm": selected_radius,
+        "searchRadiusStepsKm": radius_steps,
+        "serviceInitialRadiusKm": initial_radius_km_for_service(service),
+        "maxProviderOffers": MAX_PROVIDER_OFFERS,
+        "offerTimeoutSeconds": OFFER_TIMEOUT_SECONDS,
+        "wave": current_wave,
+        "wave1Size": DISPATCH_WAVE1_SIZE,
+        "wave2Size": DISPATCH_WAVE2_SIZE,
+        "waveWaitSeconds": DISPATCH_WAVE_WAIT_SECONDS,
+        "lastDispatchAt": now_iso,
+        **({"nextWaveAt": next_wave_at} if next_wave_at else {}),
+        **{
+            key: prev_info[key]
+            for key in ("autoRetryCount", "lastAutoRetryAt", "exhaustedAt")
+            if key in prev_info
+        },
+    }
+    if current_wave > 1:
+        order["dispatchInfo"].pop("nextWaveAt", None)
+    order["updatedAt"] = now_iso
+    sql_insert_offers(new_offers)
+    sql_upsert_order(order)
+    return attach_dispatch_to_order(order, offers + new_offers)
 
 
 def attach_dispatch_to_order(order: Dict[str, Any], offers: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
@@ -3574,6 +3758,17 @@ def decline_offer(
     order_store_path: Optional[Path] = None,
     offer_store_path: Optional[Path] = None,
 ) -> Dict[str, Any]:
+    if _should_use_sql_store(order_store_path, _default_store_path) and _should_use_sql_store(
+        offer_store_path, _default_offer_store_path
+    ):
+        try:
+            sql_expire_pending_offers()
+            return sql_decline_offer(str(offer_id), str(provider_id))
+        except SqlDispatchConflict as exc:
+            if exc.code == "OFFER_NOT_FOUND":
+                raise DispatchConflict(exc.code, exc.message) from exc
+            raise _offer_error_for_status(exc.code) from exc
+
     with STORE_LOCK:
         order_path = order_store_path or _default_store_path()
         offer_path = offer_store_path or _default_offer_store_path()

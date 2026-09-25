@@ -610,6 +610,251 @@ def sql_offers_for_order(order_id: str) -> list[dict[str, Any]]:
     return [_json_safe_copy(row[0]) for row in rows]
 
 
+def _offer_row_values(offer: dict[str, Any]) -> dict[str, Any]:
+    payload = _json_safe_copy(offer)
+    return {
+        "id": str(payload.get("id") or "").strip(),
+        "order_id": str(payload.get("orderId") or "").strip(),
+        "provider_id": str(payload.get("providerId") or "").strip(),
+        "status": str(payload.get("status") or "pending"),
+        "distance_km": float(payload.get("distanceKm")) if payload.get("distanceKm") is not None else None,
+        "created_at": str(payload.get("createdAt") or ""),
+        "expires_at": str(payload.get("expiresAt") or ""),
+        "responded_at": str(payload.get("respondedAt") or ""),
+        "payload": payload,
+    }
+
+
+def sql_upsert_offer(offer: dict[str, Any]) -> dict[str, Any]:
+    """Insert or update a single dispatch offer without rewriting the offers table."""
+    values = _offer_row_values(offer)
+    offer_id = values["id"]
+    if not offer_id or not values["order_id"] or not values["provider_id"]:
+        raise ValueError("offer id, orderId and providerId are required")
+    with get_engine().begin() as connection:
+        existing = connection.execute(select(dispatch_offers.c.id).where(dispatch_offers.c.id == offer_id)).first()
+        if existing:
+            connection.execute(
+                update(dispatch_offers)
+                .where(dispatch_offers.c.id == offer_id)
+                .values(**{key: value for key, value in values.items() if key != "id"})
+            )
+        else:
+            connection.execute(insert(dispatch_offers).values(**values))
+    return values["payload"]
+
+
+def sql_insert_offers(offers: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Insert new offer rows only (used by wave dispatch)."""
+    if not offers:
+        return []
+    persisted: list[dict[str, Any]] = []
+    with get_engine().begin() as connection:
+        for offer in offers:
+            values = _offer_row_values(offer)
+            if not values["id"] or not values["order_id"] or not values["provider_id"]:
+                raise ValueError("offer id, orderId and providerId are required")
+            connection.execute(insert(dispatch_offers).values(**values))
+            persisted.append(values["payload"])
+    return persisted
+
+
+def sql_expire_pending_offers(
+    *,
+    order_id: str | None = None,
+    now: datetime | None = None,
+) -> list[dict[str, Any]]:
+    """Expire timed-out pending offers (optionally scoped to one order). Returns updated offers."""
+    now_dt = now or datetime.now(timezone.utc).replace(tzinfo=None)
+    now_iso = f"{now_dt.isoformat(timespec='seconds')}Z"
+    changed: list[dict[str, Any]] = []
+    with get_engine().begin() as connection:
+        query = select(
+            dispatch_offers.c.id,
+            dispatch_offers.c.order_id,
+            dispatch_offers.c.provider_id,
+            dispatch_offers.c.expires_at,
+            dispatch_offers.c.payload,
+            orders.c.status.label("order_status"),
+            orders.c.payload.label("order_payload"),
+        ).select_from(
+            dispatch_offers.outerjoin(orders, dispatch_offers.c.order_id == orders.c.id)
+        ).where(dispatch_offers.c.status == "pending")
+        if order_id:
+            query = query.where(dispatch_offers.c.order_id == str(order_id))
+        rows = connection.execute(query).mappings().all()
+        for row in rows:
+            expires_at = None
+            raw_expires = row["expires_at"]
+            if raw_expires:
+                try:
+                    expires_at = datetime.fromisoformat(str(raw_expires).replace("Z", "+00:00")).replace(tzinfo=None)
+                except ValueError:
+                    expires_at = None
+            order_status = str(row["order_status"] or "").strip().lower()
+            new_status = None
+            if order_status in {"", "cancelled"} or order_status in {"completed", "cancelled"}:
+                new_status = "cancelled" if order_status != "completed" else "lost"
+            elif order_status and order_status != "searching":
+                new_status = "lost"
+            elif expires_at and now_dt >= expires_at:
+                new_status = "expired"
+            if not new_status:
+                continue
+            offer_payload = _json_safe_copy(row["payload"] if isinstance(row["payload"], dict) else {})
+            offer_payload["status"] = new_status
+            offer_payload["respondedAt"] = now_iso
+            connection.execute(
+                update(dispatch_offers)
+                .where(dispatch_offers.c.id == str(row["id"]))
+                .values(status=new_status, responded_at=now_iso, payload=offer_payload)
+            )
+            if new_status == "expired" and isinstance(row["order_payload"], dict):
+                order_payload = _json_safe_copy(row["order_payload"])
+                _append_event(
+                    order_payload,
+                    "OFFER_EXPIRED",
+                    now_iso,
+                    {"offerId": row["id"], "providerId": row["provider_id"]},
+                )
+                connection.execute(
+                    update(orders)
+                    .where(orders.c.id == str(row["order_id"]))
+                    .values(payload=order_payload, updated_at=now_iso)
+                )
+                _insert_order_events(connection, order_payload)
+            changed.append(offer_payload)
+    return changed
+
+
+def sql_decline_offer(offer_id: str, provider_id: str, now: datetime | None = None) -> dict[str, Any]:
+    """Mark one pending offer declined and append an order event — no full-table rewrite."""
+    now_dt = now or datetime.now(timezone.utc).replace(tzinfo=None)
+    now_iso = f"{now_dt.isoformat(timespec='seconds')}Z"
+    with get_engine().begin() as connection:
+        offer_row = connection.execute(
+            _for_update(
+                select(
+                    dispatch_offers.c.id,
+                    dispatch_offers.c.order_id,
+                    dispatch_offers.c.provider_id,
+                    dispatch_offers.c.status,
+                    dispatch_offers.c.payload,
+                ).where(dispatch_offers.c.id == str(offer_id)),
+                get_engine(),
+            )
+        ).mappings().first()
+        if offer_row is None or str(offer_row["provider_id"]) != str(provider_id):
+            raise SqlDispatchConflict("OFFER_NOT_FOUND", "Offer was not found.")
+        if str(offer_row["status"]) != "pending":
+            raise SqlDispatchConflict(str(offer_row["status"]), f"Offer status is {offer_row['status']}.")
+
+        offer_payload = _json_safe_copy(offer_row["payload"] if isinstance(offer_row["payload"], dict) else {})
+        offer_payload["status"] = "declined"
+        offer_payload["respondedAt"] = now_iso
+        connection.execute(
+            update(dispatch_offers)
+            .where(dispatch_offers.c.id == str(offer_id))
+            .values(status="declined", responded_at=now_iso, payload=offer_payload)
+        )
+
+        order_id = str(offer_row["order_id"])
+        order_row = connection.execute(
+            select(orders.c.payload).where(orders.c.id == order_id)
+        ).first()
+        if order_row is not None and isinstance(order_row[0], dict):
+            order_payload = _json_safe_copy(order_row[0])
+            _append_event(
+                order_payload,
+                "OFFER_DECLINED",
+                now_iso,
+                {"offerId": offer_id, "providerId": provider_id},
+            )
+            connection.execute(
+                update(orders)
+                .where(orders.c.id == order_id)
+                .values(payload=order_payload, updated_at=now_iso)
+            )
+            _insert_order_events(connection, order_payload)
+
+    return offer_payload
+
+
+def sql_map_providers(
+    *,
+    bbox: tuple[float, float, float, float] | None = None,
+    kind: str | None = None,
+    status_keys: set[str] | None = None,
+    verification_status: str | None = None,
+    limit: int = 500,
+) -> list[dict[str, Any]]:
+    """Filtered provider rows for the public map — SQL/PostGIS where possible."""
+    capped = max(1, min(int(limit or 500), 2000))
+    engine = get_engine()
+    with engine.begin() as connection:
+        query = (
+            select(
+                providers.c.id,
+                providers.c.name,
+                providers.c.rating,
+                providers.c.capabilities,
+                providers.c.verification_status,
+                providers.c.service_radius_km,
+                providers.c.payload.label("provider_payload"),
+                provider_presence.c.status,
+                provider_presence.c.lat,
+                provider_presence.c.lng,
+                provider_presence.c.eta_minutes,
+                provider_presence.c.payload.label("presence_payload"),
+            )
+            .select_from(providers.outerjoin(provider_presence, providers.c.id == provider_presence.c.provider_id))
+        )
+        if kind:
+            # providerKind lives in JSON payload — filter after merge for SQLite portability.
+            pass
+        if status_keys:
+            query = query.where(provider_presence.c.status.in_(sorted(status_keys)))
+        if verification_status:
+            query = query.where(providers.c.verification_status == verification_status)
+        if bbox is not None:
+            min_lng, min_lat, max_lng, max_lat = bbox
+            query = query.where(
+                provider_presence.c.lat.is_not(None),
+                provider_presence.c.lng.is_not(None),
+                provider_presence.c.lat >= min_lat,
+                provider_presence.c.lat <= max_lat,
+                provider_presence.c.lng >= min_lng,
+                provider_presence.c.lng <= max_lng,
+            )
+        query = query.order_by(providers.c.id).limit(capped * 3 if kind else capped)
+        rows = connection.execute(query).mappings().all()
+
+    results: list[dict[str, Any]] = []
+    kind_key = str(kind or "").strip().lower()
+    for row in rows:
+        merged = _merge_provider_payload(row["provider_payload"], row["presence_payload"])
+        if kind_key:
+            provider_kind = str(merged.get("providerKind") or "dispatch").strip().lower() or "dispatch"
+            if provider_kind != kind_key:
+                continue
+        if row["lat"] is not None and row["lng"] is not None:
+            merged["location"] = {"lat": float(row["lat"]), "lng": float(row["lng"])}
+        if row["status"]:
+            merged["status"] = row["status"]
+        if row["eta_minutes"] is not None:
+            merged["etaMinutes"] = row["eta_minutes"]
+        if row["rating"] is not None:
+            merged["rating"] = row["rating"]
+        if row["verification_status"]:
+            merged["verificationStatus"] = row["verification_status"]
+        if row["service_radius_km"] is not None:
+            merged["serviceRadiusKm"] = row["service_radius_km"]
+        results.append(merged)
+        if len(results) >= capped:
+            break
+    return results
+
+
 def sql_customers_by_phone_lookup(lookup: str) -> list[dict[str, Any]]:
     key = str(lookup or "").strip()
     if not key:

@@ -1571,8 +1571,12 @@ def test_dispatch_list_excludes_directory_and_map_is_slim(monkeypatch, tmp_path)
     assert ids == {"p-dispatch", "p-dir"}
     for item in mapped:
         assert "verification" not in item
+        assert "phone" not in item
+        assert "telegram" not in item
+        assert "vehicle" not in item
         assert item["name"]
         assert item["location"]["lat"]
+        assert item["approximateLocation"]["lat"] == item["location"]["lat"]
 
     dispatch_only = client.get("/api/map/providers?kind=dispatch&scope=all").json()
     assert {item["id"] for item in dispatch_only} == {"p-dispatch"}

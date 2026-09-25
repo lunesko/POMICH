@@ -258,6 +258,53 @@ def test_sql_storage_enabled_respects_backend_and_database_url(monkeypatch):
     assert runtime_store.sql_storage_enabled() is True
 
 
+def test_sql_save_order_is_row_level_not_full_rewrite(sql_runtime):
+    first = save_order({"service": "tow", "customerLocation": "A"})
+    second = save_order({"service": "wheel", "customerLocation": "B"})
+    assert _table_count(runtime_store.orders) == 2
+
+    # Touching one order must not wipe the other.
+    runtime_store.sql_upsert_order({**first, "customerLocation": "A2", "updatedAt": "2026-01-01T00:00:00Z"})
+    assert _table_count(runtime_store.orders) == 2
+    assert runtime_store.sql_get_order(second["id"])["service"] == "wheel"
+    assert runtime_store.sql_get_order(first["id"])["customerLocation"] == "A2"
+
+
+def test_sql_decline_offer_is_row_level(sql_runtime):
+    from bot.order_store import decline_offer, load_offers
+
+    save_providers(
+        [
+            _provider("p1", 50.4501, 30.5234),
+            _provider("p2", 50.4503, 30.5236),
+        ]
+    )
+    order = save_order({"service": "tow", "customerCoordinates": {"lat": 50.4502, "lng": 30.5235}})
+    dispatch_order(order["id"])
+    pending = [offer for offer in load_offers() if offer["status"] == "pending"]
+    assert pending
+    target = pending[0]
+    other_count_before = _table_count(runtime_store.dispatch_offers)
+
+    declined = decline_offer(target["id"], target["providerId"])
+    assert declined["status"] == "declined"
+    assert _table_count(runtime_store.dispatch_offers) == other_count_before
+    assert runtime_store.sql_get_order(order["id"])["dispatchEvents"]
+
+
+def test_sql_map_providers_bbox_filter(sql_runtime):
+    save_providers(
+        [
+            _provider("near", 48.62, 22.28),
+            _provider("far", 50.45, 30.52),
+        ]
+    )
+    inside = runtime_store.sql_map_providers(bbox=(22.20, 48.55, 22.40, 48.72), kind="dispatch")
+    ids = {item["id"] for item in inside}
+    assert "near" in ids
+    assert "far" not in ids
+
+
 def _table_names():
     return set(inspect(runtime_store.get_engine()).get_table_names())
 
