@@ -5,7 +5,8 @@ from __future__ import annotations
 from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-# Pragmatic CSP for SPA + Telegram WebApp + OSM/Carto tiles + Google Fonts.
+# Pragmatic CSP for SPA + Telegram WebApp + OSM/Carto tiles.
+# Fonts are self-hosted under /fonts (Google kept as legacy allow for old HTML caches).
 # 'unsafe-inline' is required for Vite-injected styles and Telegram theme hooks.
 _CSP = (
     "default-src 'self'; "
@@ -15,7 +16,7 @@ _CSP = (
     "form-action 'self' https://t.me https://telegram.me; "
     "script-src 'self' 'unsafe-inline' https://telegram.org https://*.telegram.org; "
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-    "font-src 'self' https://fonts.gstatic.com data:; "
+    "font-src 'self' data: https://fonts.gstatic.com; "
     "img-src 'self' data: blob: https:; "
     "connect-src 'self' https: wss: blob:; "
     "worker-src 'self' blob:; "

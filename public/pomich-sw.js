@@ -1,7 +1,8 @@
-const TILE_CACHE = "pomich-map-tiles-v35"
-const ASSET_CACHE = "pomich-assets-v35"
+const TILE_CACHE = "pomich-map-tiles-v36"
+const ASSET_CACHE = "pomich-assets-v36"
 const TILE_CACHE_MAX = 350
 const TILE_HOST_PATTERN = /(^|\.)(tile\.openstreetmap\.org|basemaps\.cartocdn\.com)$/
+const HASHED_ASSET = /\/assets\/[^/]+\.[a-zA-Z0-9_-]{6,}\.(js|css|woff2?|png|jpg|webp|svg)$/
 
 self.addEventListener("install", () => {
   self.skipWaiting()
@@ -51,9 +52,26 @@ self.addEventListener("fetch", (event) => {
     return
   }
 
+  // Self-hosted fonts + hashed Vite assets: cache-first (immutable names).
+  if (
+    url.origin === self.location.origin &&
+    (url.pathname.startsWith("/fonts/") || HASHED_ASSET.test(url.pathname))
+  ) {
+    event.respondWith(
+      (async () => {
+        const cache = await caches.open(ASSET_CACHE)
+        const cached = await cache.match(event.request)
+        if (cached) return cached
+        const response = await fetch(event.request)
+        if (response.ok) cache.put(event.request, response.clone())
+        return response
+      })(),
+    )
+    return
+  }
+
   if (url.origin === self.location.origin && url.pathname.startsWith("/assets/")) {
-    // Network-first for hashed assets: avoids serving a 404 shell from an old cache key
-    // when a new deploy renamed the chunk.
+    // Non-hashed /assets leftovers: network-first with cache fallback.
     event.respondWith(
       (async () => {
         const cache = await caches.open(ASSET_CACHE)

@@ -113,6 +113,16 @@ app.include_router(internal.router)
 if ASSETS_DIR.exists():
     app.mount("/assets", CachedStaticFiles(directory=ASSETS_DIR), name="assets")
 
+_FONTS_DIR = DIST_DIR / "fonts"
+_PUBLIC_FONTS_DIR = PROJECT_ROOT / "public" / "fonts"
+FONTS_DIR = _FONTS_DIR if _FONTS_DIR.is_dir() else _PUBLIC_FONTS_DIR
+if FONTS_DIR.is_dir():
+    app.mount(
+        "/fonts",
+        CachedStaticFiles(directory=FONTS_DIR, cache_control="public, max-age=31536000, immutable"),
+        name="fonts",
+    )
+
 def _resolve_geo_file(filename: str) -> Path | None:
     for base in (GEO_DIR, DATA_GEO_DIR):
         candidate = base / filename
