@@ -153,6 +153,46 @@ DATABASE_URL=postgresql://pomich:{db_password}@postgres:5432/pomich
     print("  Created .env.production with generated secrets (not logged)")
 
 
+def publish_web_dist(ssh):
+    """Copy built frontend from the app container to nginx document root."""
+    print("  Publishing /var/www/pomich/dist from container...")
+    run(ssh, "mkdir -p /var/www/pomich", check=False)
+    # Atomic-ish swap: extract to dist.next then rename.
+    run(ssh, "rm -rf /var/www/pomich/dist.next && mkdir -p /var/www/pomich/dist.next", check=False)
+    out, err, rc = run(
+        ssh,
+        "docker cp pomich-app:/app/dist/. /var/www/pomich/dist.next/",
+        check=False,
+        timeout=120,
+    )
+    if rc != 0:
+        print(f"  [WARN] docker cp dist failed ({err or out}); nginx will 404 /assets until fixed")
+        return
+    # Prefer container maps/geo; fall back to uploaded public/ if build omitted them.
+    run(
+        ssh,
+        "test -d /var/www/pomich/dist.next/maps || "
+        f"cp -a {REMOTE_DIR}/public/maps /var/www/pomich/dist.next/maps 2>/dev/null || true",
+        check=False,
+    )
+    run(
+        ssh,
+        "test -d /var/www/pomich/dist.next/geo || "
+        f"cp -a {REMOTE_DIR}/public/geo /var/www/pomich/dist.next/geo 2>/dev/null || true",
+        check=False,
+    )
+    run(
+        ssh,
+        "rm -rf /var/www/pomich/dist.prev; "
+        "if [ -d /var/www/pomich/dist ]; then mv /var/www/pomich/dist /var/www/pomich/dist.prev; fi; "
+        "mv /var/www/pomich/dist.next /var/www/pomich/dist; "
+        "rm -rf /var/www/pomich/dist.prev",
+        check=False,
+    )
+    run(ssh, "du -sh /var/www/pomich/dist /var/www/pomich/dist/assets 2>/dev/null || true", check=False)
+    print("  Static dist published for nginx /assets /maps /geo")
+
+
 def setup_nginx(ssh):
     """Apply checked-in nginx configs from deploy/nginx/ (reproducible from Git)."""
     retry_html = """<!doctype html>
@@ -293,11 +333,21 @@ def main():
         check=False,
     )
 
-    print("\n12) Ensuring nginx 502 auto-retry for Telegram Mini App...")
+    print("\n12) Publishing static dist + nginx edge cache...")
+    publish_web_dist(ssh)
     setup_nginx(ssh)
     run(
         ssh,
         "curl -sf https://pomich.help/api/health || echo 'PUBLIC_HEALTH_FAILED'",
+        check=False,
+    )
+    run(
+        ssh,
+        "ASSET=$(ls /var/www/pomich/dist/assets/index-*.js 2>/dev/null | head -1); "
+        "if [ -n \"$ASSET\" ]; then "
+        "curl -sI -H 'Accept-Encoding: gzip' \"https://pomich.help/assets/$(basename \"$ASSET\")\" "
+        "| tr -d '\\r' | grep -Ei 'HTTP/|content-encoding|content-length|cache-control' | head -6; "
+        "else echo 'NO_ASSET_YET'; fi",
         check=False,
     )
 
