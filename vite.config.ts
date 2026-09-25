@@ -1,6 +1,8 @@
 import { defineConfig, type HtmlTagDescriptor, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+import { gzipSync } from 'node:zlib'
+import fs from 'node:fs'
 import path from 'node:path'
 
 import siteConfiguration from './.figma/make/site.json' with { type: 'json' }
@@ -18,6 +20,27 @@ function stripLeafletCssFromHtml(): Plugin {
   }
 }
 
+/** Emit .gz siblings for nginx gzip_static (sendfile, no runtime compress). */
+function gzipStaticAssets(): Plugin {
+  const compressible = /\.(js|css|svg|mjs|json|html|xml|txt|webmanifest)$/i
+  return {
+    name: 'pomich-gzip-static-assets',
+    apply: 'build',
+    closeBundle() {
+      const roots = [path.resolve(process.cwd(), 'dist'), path.resolve(process.cwd(), 'dist/assets')]
+      for (const root of roots) {
+        if (!fs.existsSync(root)) continue
+        for (const name of fs.readdirSync(root)) {
+          const file = path.join(root, name)
+          if (!fs.statSync(file).isFile() || !compressible.test(name) || name.endsWith('.gz')) continue
+          if (fs.statSync(file).size < 256) continue
+          fs.writeFileSync(`${file}.gz`, gzipSync(fs.readFileSync(file), { level: 6 }))
+        }
+      }
+    },
+  }
+}
+
 // Vite config — https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
   // .figma/make/deploy-preview passes `--mode development` for cached-preview builds.
@@ -28,12 +51,20 @@ export default defineConfig(({ mode }) => {
     build: {
       sourcemap: emitSourcemaps ? 'inline' : false,
       minify: !emitSourcemaps,
-      // Do not modulepreload the map stack on every first paint (~160KB+CSS).
+      // Keep first paint lean: no leaflet (lazy map) and no cabinet/auth side chunks.
       modulePreload: {
         resolveDependencies(_filename, deps) {
-          return deps.filter((dep) => !/leaflet/i.test(dep))
+          return deps.filter(
+            (dep) =>
+              !/leaflet/i.test(dep) &&
+              !/CustomerFlow|ProviderFlow|ClientCabinet|ProviderCabinet|AdminFlow|OrderTerminal|OrderHistory|ServiceRadius/i.test(
+                dep,
+              ),
+          )
         },
       },
+      target: ['es2022', 'chrome109', 'safari15'],
+      cssMinify: true,
       rollupOptions: {
         output: {
           manualChunks(id) {
@@ -55,6 +86,7 @@ export default defineConfig(({ mode }) => {
       react(),
       tailwindcss(),
       stripLeafletCssFromHtml(),
+      gzipStaticAssets(),
       figmaSiteConfiguration(siteConfiguration),
       figmaErrorOverlayReplay(),
       figmaReactRefreshBoundaryFallback(),
