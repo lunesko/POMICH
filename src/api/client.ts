@@ -820,7 +820,15 @@ export async function getNearestMapSettlement(lat: number, lng: number, maxKm = 
     throw new Error(`Nearest settlement request failed with ${response.status}`)
   }
 
-  return response.json() as Promise<MapSettlement & { distanceKm?: number }>
+  return response.json() as Promise<
+    Partial<MapSettlement> & {
+      distanceKm?: number
+      fallback?: "radius"
+      radiusKm?: number
+      code?: string
+      message?: string
+    }
+  >
 }
 
 export async function getNearbyMapOrders(

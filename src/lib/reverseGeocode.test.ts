@@ -1,8 +1,13 @@
-import { describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 
-import { extractCityFromNominatim, formatNominatimAddress, reverseGeocodeCity } from "./reverseGeocode"
+import { clearReverseGeocodeCacheForTests, extractCityFromNominatim, formatNominatimAddress, reverseGeocodeAddress, reverseGeocodeCity } from "./reverseGeocode"
 
 describe("reverseGeocode", () => {
+  beforeEach(() => {
+    clearReverseGeocodeCacheForTests()
+    vi.restoreAllMocks()
+  })
+
   it("extracts city from nominatim address fields", () => {
     expect(extractCityFromNominatim({ address: { city: "Ужгород" } })).toBe("Ужгород")
     expect(extractCityFromNominatim({ address: { town: "Мукачево" } })).toBe("Мукачево")
@@ -50,5 +55,25 @@ describe("reverseGeocode", () => {
       expect.stringContaining("nominatim.openstreetmap.org/reverse"),
       expect.any(Object),
     )
+  })
+
+  it("shares one Nominatim request between city and address for the same GPS cell", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        address: { city: "Ужгород", road: "вулиця Корзо", house_number: "12" },
+      }),
+    }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    const point = { lat: 48.62081, lng: 22.28791 }
+    const [city, address] = await Promise.all([
+      reverseGeocodeCity(point),
+      reverseGeocodeAddress({ lat: 48.62082, lng: 22.28792 }),
+    ])
+
+    expect(city).toBe("Ужгород")
+    expect(address).toBe("вулиця Корзо, 12, Ужгород")
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 })

@@ -1,5 +1,5 @@
-const TILE_CACHE = "pomich-map-tiles-v38"
-const ASSET_CACHE = "pomich-assets-v38"
+const TILE_CACHE = "pomich-map-tiles-v39"
+const ASSET_CACHE = "pomich-assets-v39"
 const TILE_CACHE_MAX = 350
 const TILE_HOST_PATTERN = /(^|\.)(tile\.openstreetmap\.org|basemaps\.cartocdn\.com)$/
 // Vite emits name-HASH.ext (the hash may itself end with "-" or "_").
@@ -41,7 +41,9 @@ self.addEventListener("fetch", (event) => {
   // Never intercept API — always network.
   if (url.pathname.startsWith("/api/")) return
 
-  // HTML / SW entry — always network so clients pick up new Vite hashes after deploy.
+  // HTML / SW entry — leave the request to the browser network stack. Calling
+  // respondWith(fetch()) here turned an ordinary navigation interruption/reload into
+  // a noisy unhandled FetchEvent rejection in DevTools.
   if (
     url.origin === self.location.origin &&
     (url.pathname === "/" ||
@@ -49,7 +51,6 @@ self.addEventListener("fetch", (event) => {
       url.pathname === "/pomich-sw.js" ||
       url.pathname.endsWith(".html"))
   ) {
-    event.respondWith(fetch(event.request))
     return
   }
 
@@ -95,10 +96,7 @@ self.addEventListener("fetch", (event) => {
   event.respondWith(
     caches.open(TILE_CACHE).then(async (cache) => {
       const cached = await cache.match(event.request)
-      if (cached) {
-        event.waitUntil(putWithTileCap(cache, event.request, cached))
-        return cached
-      }
+      if (cached) return cached
       const response = await fetch(event.request)
       if (response.ok || response.type === "opaque") {
         await putWithTileCap(cache, event.request, response)

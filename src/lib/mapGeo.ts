@@ -91,6 +91,24 @@ export function shouldRecenterMap(from: GeoPoint, to: GeoPoint, thresholdM = MAP
 }
 
 /**
+ * Ignore watchPosition jitter inside the reported accuracy circle. A real move is
+ * accepted quickly, while a stationary phone no longer reloads map/API data every
+ * time the OS nudges the coordinates by a few metres.
+ */
+export function shouldAcceptGeoUpdate(
+  from: GeoPoint,
+  to: GeoPoint,
+  accuracyM?: number | null,
+): boolean {
+  const accuracy =
+    typeof accuracyM === "number" && Number.isFinite(accuracyM) && accuracyM > 0
+      ? accuracyM
+      : 0
+  const thresholdM = Math.max(MAP_LIVE_FOLLOW_THRESHOLD_M, Math.min(accuracy * 0.35, 50))
+  return distanceMeters(from, to) >= thresholdM
+}
+
+/**
  * Map zoom for navigation follow:
  * - standing → close-in
  * - slow (lights / before a turn) → detail
@@ -583,7 +601,17 @@ export function requestCurrentPosition(
   }
 
   const requestBrowserExplicit = () => {
-    // Prefer low-accuracy first — more reliable permission prompt in Telegram/iOS WebViews.
+    // Public browsers should ask for an accurate fix first. Telegram WebViews are
+    // more reliable when the permission prompt starts with a low-power request;
+    // Telegram LocationManager races it and can still return the precise fix.
+    const telegramWebView = isTelegramMiniApp()
+    const firstOptions: PositionOptions = telegramWebView
+      ? { enableHighAccuracy: false, timeout: 8000, maximumAge: 15_000 }
+      : { enableHighAccuracy: true, timeout: 10000, maximumAge: 15_000 }
+    const fallbackOptions: PositionOptions = telegramWebView
+      ? { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
+      : { enableHighAccuracy: false, timeout: 8000, maximumAge: 60_000 }
+
     navigator.geolocation.getCurrentPosition(
       (position) => {
         settleSuccess(
@@ -625,10 +653,10 @@ export function requestCurrentPosition(
               kind: classified.kind,
             })
           },
-          { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
+          fallbackOptions,
         )
       },
-      { enableHighAccuracy: false, timeout: 12000, maximumAge: 0 },
+      firstOptions,
     )
   }
 

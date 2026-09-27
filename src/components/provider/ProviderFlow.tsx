@@ -57,7 +57,7 @@ import { readBootstrapProfile, resolveProviderIdForCustomer, storeLinkedProvider
 import { readCachedProviderProfile, writeCachedProviderProfile } from "../../lib/providerProfileCache"
 import { clearActiveOrder, isActiveOrderStatus, persistActiveOrder, pickLatestActiveOrder, readActiveOrder } from "../../lib/customerSession"
 import { clearPendingPartnerReview, persistPendingPartnerReview, readPendingPartnerReview } from "../../lib/appRole"
-import { canRequestGeoSilently, isTelegramMiniApp, readCachedGeoPosition, requestCurrentPosition, resolveGroundSpeedMps, smoothSpeedMps, writeCachedGeoPosition } from "../../lib/mapGeo"
+import { canRequestGeoSilently, isTelegramMiniApp, readCachedGeoPosition, requestCurrentPosition, resolveGroundSpeedMps, shouldAcceptGeoUpdate, smoothSpeedMps, writeCachedGeoPosition } from "../../lib/mapGeo"
 import { validateUkraineMobilePhone } from "../../lib/ukrainePhone"
 import { validateUkrainePlate } from "../../lib/ukrainePlate"
 import { isPartnerProfileComplete } from "../../lib/partnerProfileComplete"
@@ -832,6 +832,7 @@ export default function ProviderFlow({
             point,
             at: typeof position.timestamp === "number" ? position.timestamp : Date.now(),
           }
+          if (!shouldAcceptGeoUpdate(providerLocationRef.current, point, position.coords.accuracy)) return
           writeCachedGeoPosition(point)
           setProviderLocation(point)
         },

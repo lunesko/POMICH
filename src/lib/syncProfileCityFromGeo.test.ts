@@ -1,11 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { syncProfileCityFromGeo } from "./syncProfileCityFromGeo"
+import { clearReverseGeocodeCacheForTests } from "./reverseGeocode"
 
 describe("syncProfileCityFromGeo", () => {
   beforeEach(() => {
     vi.restoreAllMocks()
     window.localStorage.clear()
+    clearReverseGeocodeCacheForTests()
   })
 
   it("persists detected city when token is available", async () => {

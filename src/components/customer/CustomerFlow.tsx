@@ -86,7 +86,7 @@ import {
   resolveCustomerAuthSession,
 } from "../../lib/customerSession"
 import { reverseGeocodeAddress } from "../../lib/reverseGeocode"
-import { MAP_GEO_DEBOUNCE_MS, MAP_GEO_WATCH_DEBOUNCE_MS, MAP_RECENTER_THRESHOLD_M, canRequestGeoSilently, isTelegramMiniApp, readCachedGeoPosition, readRememberedGeoPermission, requestCurrentPosition, resolveGroundSpeedMps, shouldRecenterMap, smoothSpeedMps, writeCachedGeoPosition, writeRememberedGeoPermission } from "../../lib/mapGeo"
+import { MAP_GEO_DEBOUNCE_MS, MAP_GEO_WATCH_DEBOUNCE_MS, MAP_RECENTER_THRESHOLD_M, canRequestGeoSilently, isTelegramMiniApp, readCachedGeoPosition, readRememberedGeoPermission, requestCurrentPosition, resolveGroundSpeedMps, shouldAcceptGeoUpdate, shouldRecenterMap, smoothSpeedMps, writeCachedGeoPosition, writeRememberedGeoPermission } from "../../lib/mapGeo"
 import { syncProfileCityFromGeo } from "../../lib/syncProfileCityFromGeo"
 import { OrderErrorStep, OrderFinalStep } from "./OrderTerminalStep"
 import { useTelegramMainButton, useTelegramBackButton, useTelegramUx } from "../../hooks/useTelegramUx"
@@ -1506,6 +1506,12 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
     [customerProfile.city, pickup.lat, pickup.lng],
   )
 
+  // A 0.001° cell is roughly 75–111 m in Ukraine/central Europe. Nearby providers
+  // use a 35 km radius, so re-querying for every 2–10 m GPS wobble adds traffic but
+  // cannot materially change the result.
+  const nearbyQueryLat = Math.round(pickup.lat * 1000) / 1000
+  const nearbyQueryLng = Math.round(pickup.lng * 1000) / 1000
+
   const applyServiceCity = useCallback(
     (nextCity: string) => {
       const normalized = normalizeServiceCity(nextCity)
@@ -1527,8 +1533,8 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
     let cancelled = false
     setLiveNearbyLoading(true)
     getMapProviders({
-      lat: pickup.lat,
-      lng: pickup.lng,
+      lat: nearbyQueryLat,
+      lng: nearbyQueryLng,
       radiusKm: 35,
       kind: "dispatch",
       status: "online",
@@ -1547,7 +1553,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
     return () => {
       cancelled = true
     }
-  }, [screen, pickup.lat, pickup.lng])
+  }, [screen, nearbyQueryLat, nearbyQueryLng])
 
   const orderInput: CustomerOrderInput = {
     service: selectedService,
@@ -1809,8 +1815,9 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
         point: nextPoint,
         at: typeof position.timestamp === "number" ? position.timestamp : Date.now(),
       }
+      if (!shouldAcceptGeoUpdate(pickupRef.current, nextPoint, position.coords.accuracy)) return
       writeCachedGeoPosition(nextPoint)
-      // Navigator-style: always move the live point; do not wait for a 40m jump.
+      // Navigator-style updates, with only sub-accuracy stationary jitter filtered above.
       pickupRef.current = nextPoint
       setPickup(nextPoint)
       if (isTelegramMiniApp()) writeRememberedGeoPermission("granted")

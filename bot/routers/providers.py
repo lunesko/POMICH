@@ -277,7 +277,10 @@ def map_nearest_settlement(lat: float, lng: float, max_km: float = 80.0) -> dict
         }
         if raw_km is not None:
             detail["distanceKm"] = round(raw_km, 2)
-        raise HTTPException(status_code=404, detail=detail)
+        # This is an expected geographic outcome, not a missing API resource.
+        # Returning 200 keeps DevTools clean and lets the client immediately use
+        # radius search without retrying/downloading the full settlement registry.
+        return detail
     center = settlement_center(item)
     return {
         "id": item.get("id"),
