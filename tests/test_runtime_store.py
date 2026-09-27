@@ -103,6 +103,8 @@ def test_sql_runtime_store_persists_orders_without_json_file(sql_runtime):
         "2026081104",
         "2026081201",
         "2026082001",
+        "2026092701",
+        "2026092702",
     ]
 
 
@@ -303,6 +305,46 @@ def test_sql_map_providers_bbox_filter(sql_runtime):
     ids = {item["id"] for item in inside}
     assert "near" in ids
     assert "far" not in ids
+
+
+def test_sql_map_filters_kind_and_service_before_limit(sql_runtime):
+    directory = {**_provider("a-directory", 48.62, 22.28, specialties=["tow"]), "providerKind": "directory"}
+    wrong_service = _provider("b-fuel", 48.62, 22.28, specialties=["fuel"])
+    matching = _provider("z-tow", 48.62, 22.28, specialties=["tow"])
+    save_providers([directory, wrong_service, matching])
+
+    visible = runtime_store.sql_map_providers(kind="dispatch", service="tow", limit=1)
+
+    assert [item["id"] for item in visible] == ["z-tow"]
+
+
+def test_sql_dispatch_wave_commit_blocks_duplicate_active_offer(sql_runtime):
+    order = save_order({"service": "tow", "customerCoordinates": {"lat": 48.62, "lng": 22.28}})
+    proposed_order = {
+        **order,
+        "dispatchState": "OFFERS_SENT",
+        "dispatchInfo": {"offersSent": 1, "offersSentThisWave": 1},
+        "dispatchEvents": [{"type": "OFFER_CREATED", "offerId": "OF-ONE", "providerId": "p1"}],
+    }
+    first = {
+        "id": "OF-ONE",
+        "orderId": order["id"],
+        "providerId": "p1",
+        "status": "pending",
+        "createdAt": "2026-09-27T10:00:00Z",
+        "expiresAt": "2026-09-27T10:02:00Z",
+    }
+    duplicate = {**first, "id": "OF-TWO"}
+
+    runtime_store.sql_commit_dispatch_wave(proposed_order, [first])
+    persisted_order, persisted_offers = runtime_store.sql_commit_dispatch_wave(
+        {**proposed_order, "dispatchEvents": [{"type": "OFFER_CREATED", "offerId": "OF-TWO", "providerId": "p1"}]},
+        [duplicate],
+    )
+
+    assert persisted_order["id"] == order["id"]
+    assert [offer["id"] for offer in persisted_offers] == ["OF-ONE"]
+    assert _table_count(runtime_store.dispatch_offers) == 1
 
 
 def _table_names():

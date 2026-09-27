@@ -153,6 +153,7 @@ export interface TelegramContext {
 
 declare global {
   interface Window {
+    __pomichTelegramReady?: Promise<void>
     Telegram?: {
       WebApp?: TelegramWebApp
     }

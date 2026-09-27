@@ -1546,7 +1546,7 @@ def test_dist_root_static_files_served_before_spa_fallback(tmp_path, monkeypatch
 def test_dispatch_list_excludes_directory_and_map_is_slim(monkeypatch, tmp_path) -> None:
     _use_temp_store(monkeypatch, tmp_path)
     monkeypatch.setenv("POMICH_ADMIN_TOKEN", ADMIN_TOKEN)
-    dispatch = _api_provider("p-dispatch", 48.62, 22.28)
+    dispatch = {**_api_provider("p-dispatch", 48.62, 22.28), "address": "Приватна база 7"}
     directory = {
         **_api_provider("p-dir", 48.63, 22.29),
         "providerKind": "directory",
@@ -1580,6 +1580,7 @@ def test_dispatch_list_excludes_directory_and_map_is_slim(monkeypatch, tmp_path)
 
     dispatch_only = client.get("/api/map/providers?kind=dispatch&scope=all").json()
     assert {item["id"] for item in dispatch_only} == {"p-dispatch"}
+    assert "address" not in dispatch_only[0]
 
     online_verified = client.get(
         "/api/map/providers?kind=dispatch&status=online&verification_status=verified&scope=all"
@@ -1588,6 +1589,7 @@ def test_dispatch_list_excludes_directory_and_map_is_slim(monkeypatch, tmp_path)
 
     directory_map = client.get("/api/map/providers?kind=directory&scope=all").json()
     assert {item["id"] for item in directory_map} == {"p-dir"}
+    assert directory_map[0]["address"] == "вул. Тестова 1"
 
     offline_only = client.get("/api/map/providers?kind=dispatch&status=offline&scope=all").json()
     assert offline_only == []

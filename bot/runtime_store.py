@@ -46,6 +46,7 @@ providers = Table(
     Column("telegram", String(180)),
     Column("vehicle", String(180)),
     Column("plate", String(80)),
+    Column("provider_kind", String(40)),
     Column("capabilities", String(320)),
     Column("rating", Float),
     Column("verification_status", String(40)),
@@ -148,6 +149,7 @@ Index("idx_orders_customer_location", orders.c.customer_lat, orders.c.customer_l
 Index("idx_provider_presence_status", provider_presence.c.status)
 Index("idx_provider_presence_location", provider_presence.c.lat, provider_presence.c.lng)
 Index("idx_providers_capabilities", providers.c.capabilities)
+Index("idx_providers_kind", providers.c.provider_kind)
 Index("idx_providers_phone_lookup", providers.c.phone_lookup)
 Index("idx_customers_phone_lookup", customers.c.phone_lookup)
 Index("idx_dispatch_offers_order", dispatch_offers.c.order_id)
@@ -224,6 +226,8 @@ def _run_schema_migrations(engine: Engine) -> None:
         ("2026081104", "postgis dispatch geo indexes", _migration_postgis_dispatch_geo_indexes),
         ("2026081201", "widen customer encrypted columns", _migration_customer_encrypted_columns),
         ("2026082001", "phone lookup indexes for OTP/login", _migration_phone_lookup_indexes),
+        ("2026092701", "provider kind and public map indexes", _migration_provider_map_indexes),
+        ("2026092702", "active dispatch offer uniqueness", _migration_active_offer_uniqueness),
     )
 
     with engine.begin() as connection:
@@ -355,6 +359,69 @@ def _migration_phone_lookup_indexes(connection, engine: Engine) -> None:
         connection.execute(
             update(providers).where(providers.c.id == str(row["id"])).values(phone_lookup=lookup)
         )
+
+
+def _migration_provider_map_indexes(connection, engine: Engine) -> None:
+    existing_columns = {column["name"] for column in inspect(connection).get_columns("providers")}
+    if "provider_kind" not in existing_columns:
+        connection.execute(text("ALTER TABLE providers ADD COLUMN provider_kind VARCHAR(40)"))
+
+    for row in connection.execute(select(providers.c.id, providers.c.payload)).mappings().all():
+        payload = _json_object(row["payload"])
+        provider_kind = str(payload.get("providerKind") or "dispatch").strip().lower() or "dispatch"
+        connection.execute(
+            update(providers).where(providers.c.id == str(row["id"])).values(provider_kind=provider_kind)
+        )
+
+    connection.execute(text("CREATE INDEX IF NOT EXISTS idx_providers_kind ON providers (provider_kind)"))
+    if "verification_status" in existing_columns:
+        connection.execute(
+            text("CREATE INDEX IF NOT EXISTS idx_providers_kind_verification ON providers (provider_kind, verification_status)")
+        )
+    if engine.dialect.name == "postgresql":
+        connection.execute(text("""
+            CREATE INDEX IF NOT EXISTS idx_provider_presence_location_geometry_gist
+            ON provider_presence
+            USING GIST (ST_SetSRID(ST_MakePoint(lng, lat), 4326))
+            WHERE lat IS NOT NULL AND lng IS NOT NULL
+        """))
+
+
+def _migration_active_offer_uniqueness(connection, engine: Engine) -> None:
+    # Preserve the newest non-expired offer if legacy/concurrent workers created duplicates.
+    rows = connection.execute(
+        select(
+            dispatch_offers.c.id,
+            dispatch_offers.c.order_id,
+            dispatch_offers.c.provider_id,
+            dispatch_offers.c.status,
+            dispatch_offers.c.created_at,
+            dispatch_offers.c.payload,
+        )
+        .where(dispatch_offers.c.status != "expired")
+        .order_by(dispatch_offers.c.created_at.desc(), dispatch_offers.c.id.desc())
+    ).mappings().all()
+    seen: set[tuple[str, str]] = set()
+    now_iso = datetime.now(timezone.utc).replace(tzinfo=None).isoformat(timespec="seconds") + "Z"
+    for row in rows:
+        key = (str(row["order_id"]), str(row["provider_id"]))
+        if key not in seen:
+            seen.add(key)
+            continue
+        payload = _json_object(row["payload"])
+        payload["status"] = "expired"
+        payload["respondedAt"] = payload.get("respondedAt") or now_iso
+        connection.execute(
+            update(dispatch_offers)
+            .where(dispatch_offers.c.id == str(row["id"]))
+            .values(status="expired", responded_at=payload["respondedAt"], payload=payload)
+        )
+
+    connection.execute(text("""
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_dispatch_offers_order_provider_active
+        ON dispatch_offers (order_id, provider_id)
+        WHERE status <> 'expired'
+    """))
 
 
 def applied_schema_migrations() -> list[dict[str, Any]]:
@@ -610,6 +677,223 @@ def sql_offers_for_order(order_id: str) -> list[dict[str, Any]]:
     return [_json_safe_copy(row[0]) for row in rows]
 
 
+def sql_orders_by_status(statuses: set[str], *, limit: int = 1000) -> list[dict[str, Any]]:
+    wanted = {str(status).strip().lower() for status in statuses if str(status).strip()}
+    if not wanted:
+        return []
+    capped = max(1, min(int(limit or 1000), 5000))
+    with get_engine().begin() as connection:
+        rows = connection.execute(
+            select(orders.c.payload)
+            .where(orders.c.status.in_(sorted(wanted)))
+            .order_by(orders.c.updated_at)
+            .limit(capped)
+        ).all()
+    return [_json_safe_copy(row[0]) for row in rows]
+
+
+def sql_searching_orders_near_provider(
+    *,
+    lat: float,
+    lng: float,
+    services: set[str],
+    radius_km: float,
+    limit: int = 200,
+) -> list[dict[str, Any]]:
+    """Candidate searching orders for one provider, filtered before leaving SQL."""
+    normalized_services = {str(service).strip().lower() for service in services if str(service).strip()}
+    if not normalized_services:
+        return []
+    capped = max(1, min(int(limit or 200), 500))
+    radius = max(1.0, min(float(radius_km or 15.0), 100.0))
+    lat_delta = radius / 110.574
+    lng_divisor = max(0.2, math.cos(math.radians(float(lat))))
+    lng_delta = radius / (111.320 * lng_divisor)
+    engine = get_engine()
+    with engine.begin() as connection:
+        query = (
+            select(orders.c.payload)
+            .where(orders.c.status == "searching")
+            .where((orders.c.assigned_provider_id.is_(None)) | (orders.c.assigned_provider_id == ""))
+            .where(orders.c.service.in_(sorted(normalized_services)))
+            .where(orders.c.customer_lat.is_not(None), orders.c.customer_lng.is_not(None))
+        )
+        if engine.dialect.name == "postgresql":
+            query = query.where(text("""
+                ST_DWithin(
+                    ST_SetSRID(ST_MakePoint(orders.customer_lng, orders.customer_lat), 4326)::geography,
+                    ST_SetSRID(ST_MakePoint(:provider_lng, :provider_lat), 4326)::geography,
+                    :provider_radius_m
+                )
+            """)).params(
+                provider_lng=float(lng),
+                provider_lat=float(lat),
+                provider_radius_m=radius * 1000,
+            )
+        else:
+            query = query.where(
+                orders.c.customer_lat.between(float(lat) - lat_delta, float(lat) + lat_delta),
+                orders.c.customer_lng.between(float(lng) - lng_delta, float(lng) + lng_delta),
+            )
+        rows = connection.execute(query.order_by(orders.c.updated_at).limit(capped)).all()
+    return [_json_safe_copy(row[0]) for row in rows]
+
+
+def sql_offers_for_orders(order_ids: set[str]) -> list[dict[str, Any]]:
+    wanted = {str(order_id).strip() for order_id in order_ids if str(order_id).strip()}
+    if not wanted:
+        return []
+    with get_engine().begin() as connection:
+        rows = connection.execute(
+            select(dispatch_offers.c.payload)
+            .where(dispatch_offers.c.order_id.in_(sorted(wanted)))
+            .order_by(dispatch_offers.c.created_at)
+        ).all()
+    return [_json_safe_copy(row[0]) for row in rows]
+
+
+def sql_invalidate_order_offers(order_id: str, status: str, *, now: datetime | None = None) -> list[dict[str, Any]]:
+    wanted = str(order_id or "").strip()
+    if not wanted:
+        return []
+    target_status = "cancelled" if status == "cancelled" else "lost"
+    checked_at = now or datetime.now(timezone.utc).replace(tzinfo=None)
+    now_iso = f"{checked_at.isoformat(timespec='seconds')}Z"
+    with get_engine().begin() as connection:
+        rows = connection.execute(
+            select(dispatch_offers.c.id, dispatch_offers.c.payload)
+            .where(dispatch_offers.c.order_id == wanted)
+            .where(dispatch_offers.c.status == "pending")
+        ).mappings().all()
+        for row in rows:
+            payload = _json_object(row["payload"])
+            payload["status"] = target_status
+            payload["respondedAt"] = now_iso
+            connection.execute(
+                update(dispatch_offers)
+                .where(dispatch_offers.c.id == str(row["id"]))
+                .values(status=target_status, responded_at=now_iso, payload=payload)
+            )
+        all_rows = connection.execute(
+            select(dispatch_offers.c.payload)
+            .where(dispatch_offers.c.order_id == wanted)
+            .order_by(dispatch_offers.c.created_at)
+        ).all()
+    return [_json_safe_copy(row[0]) for row in all_rows]
+
+
+def sql_commit_dispatch_wave(
+    proposed_order: dict[str, Any],
+    proposed_offers: list[dict[str, Any]],
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Atomically lock an order, add non-duplicate offers, and persist dispatch state."""
+    order_id = str(proposed_order.get("id") or "").strip()
+    if not order_id:
+        raise ValueError("order id is required")
+    with get_engine().begin() as connection:
+        locked = connection.execute(
+            select(orders.c.payload).where(orders.c.id == order_id).with_for_update()
+        ).first()
+        if locked is None:
+            raise ValueError("order was not found")
+        current_order = _json_object(locked[0])
+        if str(current_order.get("status") or "").strip().lower() != "searching":
+            all_rows = connection.execute(
+                select(dispatch_offers.c.payload)
+                .where(dispatch_offers.c.order_id == order_id)
+                .order_by(dispatch_offers.c.created_at)
+            ).all()
+            return current_order, [_json_safe_copy(row[0]) for row in all_rows]
+        existing_rows = connection.execute(
+            select(dispatch_offers.c.provider_id, dispatch_offers.c.payload)
+            .where(dispatch_offers.c.order_id == order_id)
+            .where(dispatch_offers.c.status != "expired")
+        ).mappings().all()
+        blocked_provider_ids = {str(row["provider_id"]) for row in existing_rows}
+        inserted = [
+            _json_safe_copy(offer)
+            for offer in proposed_offers
+            if str(offer.get("providerId") or "") not in blocked_provider_ids
+        ]
+        if not inserted:
+            all_rows = connection.execute(
+                select(dispatch_offers.c.payload)
+                .where(dispatch_offers.c.order_id == order_id)
+                .order_by(dispatch_offers.c.created_at)
+            ).all()
+            return current_order, [_json_safe_copy(row[0]) for row in all_rows]
+
+        inserted_ids = {str(offer.get("id")) for offer in inserted}
+        existing_offer_ids = {
+            str(row["payload"].get("id") or "")
+            for row in existing_rows
+            if isinstance(row["payload"], dict)
+        }
+        persisted_order = {**current_order, **_json_safe_copy(proposed_order)}
+        current_events = current_order.get("dispatchEvents") if isinstance(current_order.get("dispatchEvents"), list) else []
+        proposed_events = proposed_order.get("dispatchEvents") if isinstance(proposed_order.get("dispatchEvents"), list) else []
+        merged_events: list[dict[str, Any]] = []
+        seen_events: set[tuple[str, str, str, str]] = set()
+        for event in [*current_events, *proposed_events]:
+            if not isinstance(event, dict):
+                continue
+            if event.get("type") == "OFFER_CREATED" and str(event.get("offerId") or "") not in inserted_ids:
+                # Keep events already committed by another worker; drop only this
+                # worker's offer events that did not win the uniqueness check.
+                if str(event.get("offerId") or "") not in existing_offer_ids:
+                    continue
+            key = (
+                str(event.get("type") or ""),
+                str(event.get("at") or ""),
+                str(event.get("offerId") or ""),
+                str(event.get("providerId") or ""),
+            )
+            if key in seen_events:
+                continue
+            seen_events.add(key)
+            merged_events.append(_json_safe_copy(event))
+        persisted_order["dispatchEvents"] = merged_events
+        current_info = current_order.get("dispatchInfo") if isinstance(current_order.get("dispatchInfo"), dict) else {}
+        proposed_info = proposed_order.get("dispatchInfo") if isinstance(proposed_order.get("dispatchInfo"), dict) else {}
+        if current_info or proposed_info:
+            dispatch_info = {**current_info, **_json_safe_copy(proposed_info)}
+            dispatch_info["offersSentThisWave"] = len(inserted)
+            dispatch_info["offersSent"] = len(existing_rows) + len(inserted)
+            dispatch_info["wave"] = max(int(current_info.get("wave") or 0), int(dispatch_info.get("wave") or 0))
+            persisted_order["dispatchInfo"] = dispatch_info
+
+        for offer in inserted:
+            connection.execute(insert(dispatch_offers).values(**_offer_row_values(offer)))
+
+        customer_lat, customer_lng = _point(persisted_order.get("customerCoordinates"))
+        destination_lat, destination_lng = _point(persisted_order.get("destinationCoordinates"))
+        connection.execute(
+            update(orders)
+            .where(orders.c.id == order_id)
+            .values(
+                status=str(persisted_order.get("status") or "searching"),
+                service=str(persisted_order.get("service") or "") or None,
+                source=str(persisted_order.get("source") or "") or None,
+                customer_id=str(persisted_order.get("customerId") or persisted_order.get("customer_id") or "") or None,
+                chat_id=str(persisted_order.get("chatId") or "") or None,
+                assigned_provider_id=str(persisted_order.get("assignedProviderId") or persisted_order.get("partnerId") or "") or None,
+                customer_lat=customer_lat,
+                customer_lng=customer_lng,
+                destination_lat=destination_lat,
+                destination_lng=destination_lng,
+                updated_at=str(persisted_order.get("updatedAt") or ""),
+                payload=persisted_order,
+            )
+        )
+        _insert_order_events(connection, persisted_order)
+        all_rows = connection.execute(
+            select(dispatch_offers.c.payload)
+            .where(dispatch_offers.c.order_id == order_id)
+            .order_by(dispatch_offers.c.created_at)
+        ).all()
+    return persisted_order, [_json_safe_copy(row[0]) for row in all_rows]
+
+
 def _offer_row_values(offer: dict[str, Any]) -> dict[str, Any]:
     payload = _json_safe_copy(offer)
     return {
@@ -786,6 +1070,7 @@ def sql_map_providers(
     kind: str | None = None,
     status_keys: set[str] | None = None,
     verification_status: str | None = None,
+    service: str | None = None,
     limit: int = 500,
 ) -> list[dict[str, Any]]:
     """Filtered provider rows for the public map — SQL/PostGIS where possible."""
@@ -810,33 +1095,42 @@ def sql_map_providers(
             .select_from(providers.outerjoin(provider_presence, providers.c.id == provider_presence.c.provider_id))
         )
         if kind:
-            # providerKind lives in JSON payload — filter after merge for SQLite portability.
-            pass
+            query = query.where(providers.c.provider_kind == str(kind).strip().lower())
+        if service:
+            query = query.where(providers.c.capabilities.like(f"%|{str(service).strip().lower()}|%"))
         if status_keys:
             query = query.where(provider_presence.c.status.in_(sorted(status_keys)))
         if verification_status:
             query = query.where(providers.c.verification_status == verification_status)
         if bbox is not None:
             min_lng, min_lat, max_lng, max_lat = bbox
-            query = query.where(
-                provider_presence.c.lat.is_not(None),
-                provider_presence.c.lng.is_not(None),
-                provider_presence.c.lat >= min_lat,
-                provider_presence.c.lat <= max_lat,
-                provider_presence.c.lng >= min_lng,
-                provider_presence.c.lng <= max_lng,
-            )
-        query = query.order_by(providers.c.id).limit(capped * 3 if kind else capped)
+            if engine.dialect.name == "postgresql":
+                query = query.where(text("""
+                    ST_Intersects(
+                        ST_SetSRID(ST_MakePoint(provider_presence.lng, provider_presence.lat), 4326),
+                        ST_MakeEnvelope(:map_min_lng, :map_min_lat, :map_max_lng, :map_max_lat, 4326)
+                    )
+                """)).params(
+                    map_min_lng=min_lng,
+                    map_min_lat=min_lat,
+                    map_max_lng=max_lng,
+                    map_max_lat=max_lat,
+                )
+            else:
+                query = query.where(
+                    provider_presence.c.lat.is_not(None),
+                    provider_presence.c.lng.is_not(None),
+                    provider_presence.c.lat >= min_lat,
+                    provider_presence.c.lat <= max_lat,
+                    provider_presence.c.lng >= min_lng,
+                    provider_presence.c.lng <= max_lng,
+                )
+        query = query.order_by(providers.c.id).limit(capped)
         rows = connection.execute(query).mappings().all()
 
     results: list[dict[str, Any]] = []
-    kind_key = str(kind or "").strip().lower()
     for row in rows:
         merged = _merge_provider_payload(row["provider_payload"], row["presence_payload"])
-        if kind_key:
-            provider_kind = str(merged.get("providerKind") or "dispatch").strip().lower() or "dispatch"
-            if provider_kind != kind_key:
-                continue
         if row["lat"] is not None and row["lng"] is not None:
             merged["location"] = {"lat": float(row["lat"]), "lng": float(row["lng"])}
         if row["status"]:
@@ -1504,6 +1798,7 @@ def sql_upsert_provider(provider: dict[str, Any]) -> dict[str, Any]:
             "telegram": str(payload.get("telegram") or "") or None,
             "vehicle": str(payload.get("vehicle") or "") or None,
             "plate": str(payload.get("plate") or "") or None,
+            "provider_kind": str(payload.get("providerKind") or "dispatch").strip().lower() or "dispatch",
             "capabilities": _capability_index(payload.get("specialties")),
             "rating": float(payload.get("rating")) if payload.get("rating") is not None else None,
             "verification_status": str(payload.get("verificationStatus") or "unverified"),
@@ -1568,6 +1863,7 @@ def _save_providers(connection, provider_payloads: list[dict[str, Any]]) -> None
                 telegram=str(provider.get("telegram") or "") or None,
                 vehicle=str(provider.get("vehicle") or "") or None,
                 plate=str(provider.get("plate") or "") or None,
+                provider_kind=str(provider.get("providerKind") or "dispatch").strip().lower() or "dispatch",
                 capabilities=_capability_index(provider.get("specialties")),
                 rating=float(provider.get("rating")) if provider.get("rating") is not None else None,
                 verification_status=str(provider.get("verificationStatus") or "unverified"),

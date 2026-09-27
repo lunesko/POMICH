@@ -712,6 +712,9 @@ export async function getMapProviders(options?: {
   /** Comma-separated presence filter, e.g. "online" or "online,busy". */
   status?: string
   verificationStatus?: "verified" | "pending" | "unverified"
+  bbox?: [number, number, number, number]
+  zoom?: number
+  service?: string
 }) {
   const params = new URLSearchParams()
   if (options?.scope === "all") params.set("scope", "all")
@@ -722,6 +725,9 @@ export async function getMapProviders(options?: {
   if (options?.kind) params.set("kind", options.kind)
   if (options?.status) params.set("status", options.status)
   if (options?.verificationStatus) params.set("verification_status", options.verificationStatus)
+  if (options?.bbox) params.set("bbox", options.bbox.join(","))
+  if (options?.zoom != null) params.set("zoom", String(Math.round(options.zoom)))
+  if (options?.service) params.set("service", options.service)
   const query = params.toString()
   const response = await fetch(`${getBaseUrl()}/map/providers${query ? `?${query}` : ""}`)
 

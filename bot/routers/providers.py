@@ -52,7 +52,6 @@ _MAP_MARKER_KEYS = (
     "specialties",
     "providerKind",
     "contactStatus",
-    "address",
     "openingHours",
     "serviceRadiusKm",
     "etaMinutes",
@@ -60,7 +59,8 @@ _MAP_MARKER_KEYS = (
     "source",
 )
 
-_MAP_CACHE: dict[str, Any] = {"ts": 0.0, "key": "", "items": None}
+_MAP_CACHE: dict[str, tuple[float, list[dict]]] = {}
+_MAP_CACHE_MAX_ENTRIES = 128
 _MAP_CACHE_TTL_SECONDS = 15.0
 _MAP_COORD_DECIMALS = 3  # ~110 m grid — approximateLocation for privacy
 
@@ -84,6 +84,9 @@ def public_map_marker(provider: dict) -> dict:
         value = provider.get(key)
         if value is not None:
             marker[key] = value
+    # A directory business address is public; a live dispatch partner's home/base is not.
+    if _provider_kind(provider) == "directory" and provider.get("address") is not None:
+        marker["address"] = provider["address"]
     approx = _approximate_location(provider)
     if approx is not None:
         marker["approximateLocation"] = approx
@@ -118,18 +121,18 @@ def _parse_bbox(raw: str | None) -> tuple[float, float, float, float] | None:
 
 def _cached_map_markers(cache_key: str, builder) -> list[dict]:
     now = time.monotonic()
-    if (
-        is_production_runtime()
-        and _MAP_CACHE["items"] is not None
-        and _MAP_CACHE["key"] == cache_key
-        and now - float(_MAP_CACHE["ts"]) < _MAP_CACHE_TTL_SECONDS
-    ):
-        return _MAP_CACHE["items"]
+    cached = _MAP_CACHE.get(cache_key)
+    if is_production_runtime() and cached and now - cached[0] < _MAP_CACHE_TTL_SECONDS:
+        return cached[1]
     items = builder()
     if is_production_runtime():
-        _MAP_CACHE["ts"] = now
-        _MAP_CACHE["key"] = cache_key
-        _MAP_CACHE["items"] = items
+        _MAP_CACHE[cache_key] = (now, items)
+        expired = [key for key, (saved_at, _) in _MAP_CACHE.items() if now - saved_at >= _MAP_CACHE_TTL_SECONDS]
+        for key in expired:
+            _MAP_CACHE.pop(key, None)
+        while len(_MAP_CACHE) > _MAP_CACHE_MAX_ENTRIES:
+            oldest = min(_MAP_CACHE, key=lambda key: _MAP_CACHE[key][0])
+            _MAP_CACHE.pop(oldest, None)
     return items
 
 
@@ -182,7 +185,10 @@ def map_providers(
     verification_key = str(verification_status or "").strip().lower()
     service_key = str(service or "").strip().lower()
     parsed_bbox = _parse_bbox(bbox)
-    zoom_key = int(zoom) if zoom is not None else ""
+    zoom_key = max(1, min(int(zoom), 20)) if zoom is not None else ""
+    # Wide, low-zoom viewports must not return thousands of markers. Higher zooms
+    # progressively reveal more pins while bbox keeps the result geographically local.
+    map_limit = 200 if zoom_key != "" and zoom_key <= 6 else 400 if zoom_key != "" and zoom_key <= 9 else 800
     cache_key = (
         f"{normalized_scope}|{city_key}|{lat}|{lng}|{radius}|{kind_key}|{','.join(sorted(status_keys))}|"
         f"{verification_key}|{parsed_bbox}|{zoom_key}|{service_key}"
@@ -190,14 +196,15 @@ def map_providers(
 
     def build() -> list[dict]:
         if sql_storage_enabled() and (
-            parsed_bbox is not None or status_keys or verification_key or kind_key in {"dispatch", "directory"}
+            parsed_bbox is not None or status_keys or verification_key or service_key or kind_key in {"dispatch", "directory"}
         ):
             providers = sql_map_providers(
                 bbox=parsed_bbox,
                 kind=kind_key if kind_key in {"dispatch", "directory"} else None,
                 status_keys=status_keys or None,
                 verification_status=verification_key or None,
-                limit=800,
+                service=service_key or None,
+                limit=map_limit,
             )
             providers = filter_non_occupied_providers(providers)
         else:
@@ -217,7 +224,7 @@ def map_providers(
                     if str(provider.get("verificationStatus") or "").strip().lower() == verification_key
                 ]
 
-        if service_key:
+        if service_key and not sql_storage_enabled():
             providers = [
                 provider
                 for provider in providers

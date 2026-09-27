@@ -22,9 +22,13 @@ from bot.runtime_store import (
     sql_get_order,
     sql_upsert_order,
     sql_get_provider,
-    sql_insert_offers,
+    sql_commit_dispatch_wave,
+    sql_invalidate_order_offers,
     sql_map_providers,
     sql_offers_for_order,
+    sql_offers_for_orders,
+    sql_orders_by_status,
+    sql_searching_orders_near_provider,
     sql_orders_for_provider,
     sql_pending_offers_for_provider,
     sql_providers_by_phone_lookup,
@@ -278,8 +282,11 @@ def confirm_order_price(
     expire_stale_and_notify(order_store_path=order_store_path, offer_store_path=offer_store_path)
     with STORE_LOCK:
         path = order_store_path or _default_store_path()
-        orders = load_orders(path)
-        order = next((item for item in orders if str(item.get("id")) == str(order_id)), None)
+        use_sql = _should_use_sql_store(path, _default_store_path)
+        orders = [] if use_sql else load_orders(path)
+        order = sql_get_order(str(order_id)) if use_sql else next(
+            (item for item in orders if str(item.get("id")) == str(order_id)), None
+        )
         if order is None:
             raise DispatchConflict("ORDER_NOT_FOUND", "Order was not found.")
 
@@ -297,6 +304,9 @@ def confirm_order_price(
         history.append({"status": "price_confirmed", "at": now})
         order["statusHistory"] = history
         _append_order_event(order, "PRICE_CONFIRMED", now, {"price": order.get("partnerProposedPrice")})
+        if use_sql:
+            sql_upsert_order(order)
+            return attach_dispatch_to_order(order, sql_offers_for_order(str(order_id)))
         _write_json_atomic(path, orders)
         return attach_dispatch_to_order(order, load_offers(offer_store_path))
 
@@ -2782,6 +2792,32 @@ def redispatch_searching_orders_for_provider(
     with STORE_LOCK:
         order_path = order_store_path or _default_store_path()
         offer_path = offer_store_path or _default_offer_store_path()
+        if _should_use_sql_store(order_path, _default_store_path) and _should_use_sql_store(
+            offer_path, _default_offer_store_path
+        ):
+            created_order_ids: List[str] = []
+            location = _valid_point(provider.get("location"))
+            if location is None:
+                return []
+            candidate_orders = sql_searching_orders_near_provider(
+                lat=location["lat"],
+                lng=location["lng"],
+                services=set(_clean_provider_specialties(provider.get("specialties"))),
+                radius_km=float(provider.get("serviceRadiusKm") or 15),
+            )
+            for order in candidate_orders:
+                order_id = str(order.get("id") or "")
+                offers = sql_offers_for_order(order_id)
+                before_ids = {str(offer.get("id")) for offer in offers}
+                if not _try_offer_order_to_provider(order, provider, offers, now):
+                    continue
+                proposed = [offer for offer in offers if str(offer.get("id")) not in before_ids]
+                persisted_order, persisted_offers = sql_commit_dispatch_wave(order, proposed)
+                persisted_ids = {str(offer.get("id")) for offer in persisted_offers}
+                if any(str(offer.get("id")) in persisted_ids for offer in proposed):
+                    created_order_ids.append(str(persisted_order.get("id") or order_id))
+            return created_order_ids
+
         orders = load_orders(order_path)
         offers = load_offers(offer_path)
         _expire_offers_in_memory(offers, orders, now)
@@ -2917,7 +2953,6 @@ def _free_providers_after_idle_cancel(
 ) -> bool:
     if not cancelled_orders:
         return False
-    providers = load_providers(provider_store_path)
     now = _now_iso()
     changed = False
     provider_ids = {
@@ -2925,6 +2960,11 @@ def _free_providers_after_idle_cancel(
         for order in cancelled_orders
     }
     provider_ids.discard("")
+    if _should_use_sql_store(provider_store_path, _default_provider_store_path):
+        for provider_id in provider_ids:
+            _set_provider_status(provider_id, "online", provider_store_path=provider_store_path)
+        return bool(provider_ids)
+    providers = load_providers(provider_store_path)
     for provider in providers:
         if str(provider.get("id") or "") not in provider_ids:
             continue
@@ -2953,9 +2993,18 @@ def expire_stale_dispatch(
     with STORE_LOCK:
         order_path = order_store_path or _default_store_path()
         offer_path = offer_store_path or _default_offer_store_path()
-        orders = load_orders(order_path)
-        offers = load_offers(offer_path)
-        offer_changed = _expire_offers_in_memory(offers, orders)
+        use_sql = _should_use_sql_store(order_path, _default_store_path) and _should_use_sql_store(
+            offer_path, _default_offer_store_path
+        )
+        if use_sql:
+            sql_expire_pending_offers(now=datetime.now(timezone.utc).replace(tzinfo=None))
+            orders = sql_orders_by_status({"searching", "accepted"})
+            offers = sql_offers_for_orders({str(order.get("id") or "") for order in orders})
+            offer_changed = False
+        else:
+            orders = load_orders(order_path)
+            offers = load_offers(offer_path)
+            offer_changed = _expire_offers_in_memory(offers, orders)
         cancelled = _cancel_idle_accepted_orders_in_memory(orders, offers)
         exhaustion_changed = False
         now_iso = _now_iso()
@@ -3026,8 +3075,14 @@ def expire_stale_dispatch(
             exhaustion_changed = True
             retry_order_ids.append(order_id)
         if offer_changed or cancelled or exhaustion_changed:
-            save_offers(offers, offer_path)
-            _write_json_atomic(order_path, orders)
+            if use_sql:
+                for offer in offers:
+                    sql_upsert_offer(offer)
+                for order in orders:
+                    sql_upsert_order(order)
+            else:
+                save_offers(offers, offer_path)
+                _write_json_atomic(order_path, orders)
         if cancelled:
             _free_providers_after_idle_cancel(cancelled, provider_store_path)
 
@@ -3104,6 +3159,8 @@ def expire_offers(order_store_path: Optional[Path] = None, offer_store_path: Opt
 
 def invalidate_order_offers(order_id: str, status: str = "cancelled", offer_store_path: Optional[Path] = None) -> List[Dict[str, Any]]:
     with STORE_LOCK:
+        if _should_use_sql_store(offer_store_path, _default_offer_store_path):
+            return sql_invalidate_order_offers(order_id, status)
         offers = load_offers(offer_store_path)
         now = _now_iso()
         changed = False
@@ -3582,9 +3639,8 @@ def _dispatch_order_sql(
     if current_wave > 1:
         order["dispatchInfo"].pop("nextWaveAt", None)
     order["updatedAt"] = now_iso
-    sql_insert_offers(new_offers)
-    sql_upsert_order(order)
-    return attach_dispatch_to_order(order, offers + new_offers)
+    persisted_order, persisted_offers = sql_commit_dispatch_wave(order, new_offers)
+    return attach_dispatch_to_order(persisted_order, persisted_offers)
 
 
 def attach_dispatch_to_order(order: Dict[str, Any], offers: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:

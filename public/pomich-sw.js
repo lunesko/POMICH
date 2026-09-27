@@ -1,8 +1,9 @@
-const TILE_CACHE = "pomich-map-tiles-v37"
-const ASSET_CACHE = "pomich-assets-v37"
+const TILE_CACHE = "pomich-map-tiles-v38"
+const ASSET_CACHE = "pomich-assets-v38"
 const TILE_CACHE_MAX = 350
 const TILE_HOST_PATTERN = /(^|\.)(tile\.openstreetmap\.org|basemaps\.cartocdn\.com)$/
-const HASHED_ASSET = /\/assets\/[^/]+\.[a-zA-Z0-9_-]{6,}\.(js|css|woff2?|png|jpg|webp|svg)$/
+// Vite emits name-HASH.ext (the hash may itself end with "-" or "_").
+const HASHED_ASSET = /\/assets\/[^/]+-[a-zA-Z0-9_-]{6,}\.(js|css|woff2?|png|jpg|webp|svg)$/
 
 self.addEventListener("install", () => {
   self.skipWaiting()
