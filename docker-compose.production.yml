@@ -16,6 +16,7 @@ services:
     restart: unless-stopped
 
   pomich-app:
+    image: ${POMICH_IMAGE:-pomich-app:latest}
     build: .
     container_name: pomich-app
     depends_on:

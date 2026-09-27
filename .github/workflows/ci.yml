@@ -1,5 +1,8 @@
 name: POMICH CI
 
+permissions:
+  contents: read
+
 on:
   push:
     branches: ["main"]
@@ -79,3 +82,41 @@ jobs:
           POMICH_STORAGE_BACKEND: sql
           DATABASE_URL: postgresql+psycopg://pomich:pomich@127.0.0.1:5432/pomich
         run: python scripts/postgis_smoke.py
+
+  deploy-production:
+    name: Deploy production
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [test, postgis-runtime]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    concurrency:
+      group: pomich-production
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout tested commit
+        uses: actions/checkout@v4
+
+      - name: Install password SSH fallback
+        env:
+          POMICH_SSH_PRIVATE_KEY: ${{ secrets.POMICH_SSH_PRIVATE_KEY }}
+          POMICH_SSH_PASSWORD: ${{ secrets.POMICH_SSH_PASSWORD }}
+        run: |
+          if [[ -z "$POMICH_SSH_PRIVATE_KEY" && -n "$POMICH_SSH_PASSWORD" ]]; then
+            sudo apt-get update
+            sudo apt-get install -y sshpass
+          fi
+
+      - name: Deploy tested commit
+        env:
+          POMICH_SSH_HOST: ${{ secrets.POMICH_SSH_HOST }}
+          POMICH_SSH_USER: ${{ secrets.POMICH_SSH_USER }}
+          POMICH_SSH_PORT: ${{ secrets.POMICH_SSH_PORT }}
+          POMICH_SSH_PRIVATE_KEY: ${{ secrets.POMICH_SSH_PRIVATE_KEY }}
+          POMICH_SSH_PASSWORD: ${{ secrets.POMICH_SSH_PASSWORD }}
+          POMICH_SSH_KNOWN_HOSTS: ${{ secrets.POMICH_SSH_KNOWN_HOSTS }}
+          POMICH_REMOTE_DIR: ${{ vars.POMICH_REMOTE_DIR }}
+          POMICH_PUBLIC_URL: ${{ vars.POMICH_PUBLIC_URL }}
+          POMICH_DEPLOY_SHA: ${{ github.sha }}
+        run: bash scripts/deploy_github_actions.sh
