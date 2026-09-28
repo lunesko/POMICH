@@ -4,7 +4,7 @@ import { expect, test } from "@playwright/test"
 async function expectNoSeriousAccessibilityViolations(page: import("@playwright/test").Page) {
   const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze()
   const blocking = results.violations.filter((violation) => violation.impact === "critical" || violation.impact === "serious")
-  expect(blocking, blocking.map((item) => `${item.id}: ${item.help}`).join("\n")).toEqual([])
+  expect(blocking, blocking.map((item) => `${item.id}: ${item.help}\n${item.nodes.map((node) => `${node.target.join(", ")}: ${node.failureSummary ?? ""}`).join("\n")}`).join("\n")).toEqual([])
 }
 
 test.beforeEach(async ({ page }) => {
