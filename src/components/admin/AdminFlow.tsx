@@ -44,6 +44,7 @@ import { isServiceDetails, serviceDetailRows } from "../../lib/serviceDetails"
 import { VerificationPill } from "../ui/VerificationPill"
 import { StatusPill } from "../ui/StatusPill"
 import { Timeline } from "../ui/Timeline"
+import { useConfirmDialog } from "../ui/ConfirmDialog"
 
 type AdminSection = "dashboard" | "clients" | "providers" | "orders" | "logs" | "map" | "verification" | "settings"
 
@@ -141,6 +142,7 @@ function LoadingState({ text = "Завантажуємо…" }: { text?: string 
 }
 
 export default function AdminFlow({ adminToken }: { adminToken?: string }) {
+  const confirm = useConfirmDialog()
   const adminSessionStorageKey = useMemo(() => authSessionStorageKey("admin", "admin"), [])
   const [adminAccessToken, setAdminAccessToken] = useState<string | undefined>(() => {
     if (isAuthSessionToken(adminToken)) return adminToken
@@ -347,7 +349,13 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
   const removeProvider = async (providerId: string) => {
     if (!adminAuthToken) return
     const providerName = providers.find((item) => item.id === providerId)?.name || providerId
-    if (!window.confirm(`Видалити партнера «${providerName}»? Цю дію не можна скасувати.`)) return
+    if (!await confirm({
+      title: "Видалити партнера?",
+      description: `Профіль «${providerName}» буде видалено без можливості відновлення.`,
+      confirmLabel: "Видалити",
+      cancelLabel: "Залишити",
+      danger: true,
+    })) return
     setSaving(true)
     try {
       await adminDeleteProvider(providerId, adminAuthToken)
@@ -363,7 +371,13 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
 
   const runGuestPurge = async () => {
     if (!adminAuthToken) return
-    if (!window.confirm("Видалити guest-сесії старші за 7 днів без телефону та без заявок?")) return
+    if (!await confirm({
+      title: "Очистити старі guest-сесії?",
+      description: "Будуть видалені лише сесії старші за 7 днів без телефону та без заявок.",
+      confirmLabel: "Очистити",
+      cancelLabel: "Скасувати",
+      danger: true,
+    })) return
     setPurgeStatus(undefined)
     setSaving(true)
     try {
@@ -907,11 +921,18 @@ function OrderEditor({
   onRetryDispatch: () => Promise<void>
   onOpenLogs?: (orderId: string) => void
 }) {
+  const confirm = useConfirmDialog()
   const status = normalizeOrderStatus(order.status)
   const offers = order.offers ?? []
   const detailRows = serviceDetailRows(isServiceDetails(order.serviceDetails) ? order.serviceDetails : undefined)
-  const changeStatus = (nextStatus: OrderStatus) => {
-    if (nextStatus === "cancelled" && !window.confirm(`Скасувати заявку ${order.id ?? ""}? Клієнт і партнер побачать новий статус.`)) return
+  const changeStatus = async (nextStatus: OrderStatus) => {
+    if (nextStatus === "cancelled" && !await confirm({
+      title: `Скасувати заявку ${order.id ?? ""}?`,
+      description: "Клієнт і партнер одразу побачать новий статус.",
+      confirmLabel: "Скасувати заявку",
+      cancelLabel: "Залишити активною",
+      danger: true,
+    })) return
     void onStatusChange(order, nextStatus)
   }
   const timeline = useMemo(() => {

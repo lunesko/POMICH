@@ -10,6 +10,7 @@ import {
   type ServiceDetails,
 } from "./serviceDetails"
 import type { ServiceKey } from "./pomichDomain"
+import { partnerRegistrationServices, providerCapabilityLabels } from "./constants"
 
 const completeAnswers: Record<ServiceKey, Record<string, string>> = {
   tow: { incident: "breakdown", mobility: "rolls" },
@@ -38,5 +39,12 @@ describe("serviceDetails", () => {
   it("raises safety guidance for injuries and a locked-in child or animal", () => {
     expect(serviceDetailsEmergency({ version: 1, service: "tow", answers: { incident: "accident", injuries: "yes" } })).toContain("112")
     expect(serviceDetailsEmergency({ version: 1, service: "lockout", answers: { occupants: "childPet" } })).toContain("112")
+  })
+
+  it("offers every customer service during partner registration", () => {
+    expect(partnerRegistrationServices.map((service) => service.key)).toEqual([
+      "tow", "battery", "wheel", "fuel", "lockout", "mechanic",
+    ])
+    expect(providerCapabilityLabels.mechanic).toBe("Механік на дорозі")
   })
 })

@@ -5,6 +5,7 @@ HTTP routes live in bot.routers.*; shared auth/config helpers live in bot.api_de
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -56,14 +57,15 @@ class CachedStaticFiles(StaticFiles):
         return response
 
 
-app = FastAPI(title="POMICH MVP", version="0.1.0")
-
-
-@app.on_event("startup")
-def _warm_runtime_on_startup() -> None:
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
     ensure_telegram_workers()
     if sql_storage_enabled():
         get_engine()
+    yield
+
+
+app = FastAPI(title="POMICH MVP", version="0.1.0", lifespan=_lifespan)
 
 
 app.add_middleware(GZipMiddleware, minimum_size=400)

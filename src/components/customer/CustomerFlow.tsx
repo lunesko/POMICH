@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import "./CustomerFlowUx.css"
 
 import {
   cancelOrder as cancelOrderRequest,
@@ -109,6 +110,7 @@ import { OtpVerificationPanel } from "../ui/OtpVerificationPanel"
 import { formatLocalPhoneDisplay, nationalDigitsFromPhone, phoneInputValueFromStored, validateUkraineMobilePhone } from "../../lib/ukrainePhone"
 import { validatePersonName } from "../../lib/personName"
 import { CitySelect } from "../ui/CitySelect"
+import { useConfirmDialog } from "../ui/ConfirmDialog"
 import { DEFAULT_SERVICE_CITY, normalizeServiceCity, nearestServiceCity, resolveServiceCityFromGeo } from "../../lib/ukraineCities"
 import {
   resolveDisplayedServiceCity,
@@ -938,6 +940,7 @@ function DestinationStep({
   const needsDestination = serviceRequiresDestination(serviceKey)
   const [addressResolving, setAddressResolving] = useState(false)
   const [addressError, setAddressError] = useState<string | undefined>()
+  const [resolvedAddressLabel, setResolvedAddressLabel] = useState<string | undefined>()
   const title = needsDestination ? "Куди доставити авто?" : "Допомога на місці"
   const subtitle = needsDestination
     ? "Натисніть на карті або введіть адресу СТО / точки доставки."
@@ -950,9 +953,11 @@ function DestinationStep({
     const resolved = await forwardGeocodeAddress(value)
     setAddressResolving(false)
     if (!resolved) {
-      setAddressError("Адресу не знайдено. Уточніть місто й вулицю або поставте точку на карті.")
+      setResolvedAddressLabel(undefined)
+      setAddressError("Адресу не знайдено.")
       return
     }
+    setResolvedAddressLabel(resolved.label)
     onResolvedAddress(resolved.point, resolved.label)
   }
 
@@ -994,18 +999,32 @@ function DestinationStep({
             <span style={{ fontWeight: 900, color: DARK }}>Адреса доставки</span>
             <input
               value={value}
-              onChange={(event) => { setAddressError(undefined); onChange(event.target.value) }}
+              onChange={(event) => { setAddressError(undefined); setResolvedAddressLabel(undefined); onChange(event.target.value) }}
               placeholder="Наприклад: Київ, вул. Велика Васильківська, 10"
               style={{ width: "100%", minHeight: 50, padding: "0 14px", borderRadius: 16, border: `1px solid ${BORDER}`, fontSize: 15, fontWeight: 750, fontFamily: "inherit", background: "var(--pomich-input-bg)", color: "var(--pomich-text)" }}
             />
           </label>
           <SecondaryButton label={addressResolving ? "Шукаємо адресу…" : "Знайти адресу"} onClick={() => void resolveTypedAddress()} disabled={addressResolving || value.trim().length < 3} />
-          {addressError ? <div role="alert" style={{ background: "var(--pomich-error-bg)", color: "var(--pomich-error-text)", borderRadius: 14, padding: 12, fontWeight: 800 }}>{addressError}</div> : null}
-          {destinationResolved ? <div style={{ color: BRAND, fontSize: 12, fontWeight: 850 }}>✓ Точку доставки підтверджено на карті</div> : null}
+          {addressError ? (
+            <div role="alert" style={{ background: "var(--pomich-error-bg)", color: "var(--pomich-error-text)", borderRadius: 14, padding: 12, fontWeight: 800 }}>
+              <div>{addressError}</div>
+              <ul style={{ margin: "8px 0 0", paddingLeft: 20, lineHeight: 1.5 }}>
+                <li>додайте місто, вулицю та номер будинку;</li>
+                <li>або виберіть точку безпосередньо на карті.</li>
+              </ul>
+            </div>
+          ) : null}
+          {destinationResolved ? (
+            <div className="pomich-address-resolved" role="status">
+              <strong>✓ Точку доставки підтверджено на карті</strong>
+              {resolvedAddressLabel ? <span>{resolvedAddressLabel}</span> : null}
+            </div>
+          ) : null}
           <div style={{ color: MUTED, fontSize: 12, fontWeight: 750, marginTop: 8 }}>Точка: {destination.lat.toFixed(5)}, {destination.lng.toFixed(5)}</div>
           {isTelegram ? null : (
             <div style={{ marginTop: 16 }}>
               <PrimaryButton label="Далі" onClick={onNext} disabled={!destinationResolved} />
+              {!destinationResolved ? <div className="pomich-disabled-reason">Спочатку знайдіть адресу й підтвердьте точку або виберіть її на карті.</div> : null}
             </div>
           )}
         </>
@@ -1074,6 +1093,7 @@ function DetailsStep({ pickup, destination, details, isTelegram, onChange, onNex
       {isTelegram ? null : (
         <div style={{ marginTop: 16 }}>
           <PrimaryButton label="Далі" onClick={onNext} disabled={!serviceDetailsComplete(details)} />
+          {!serviceDetailsComplete(details) ? <div className="pomich-disabled-reason">Дайте відповідь на всі обов’язкові питання.</div> : null}
         </div>
       )}
     </RideScreen>
@@ -1485,6 +1505,7 @@ function InProgressStep({ orderId, status, order, pickup, destination, cancelErr
 }
 
 export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {}) {
+  const confirm = useConfirmDialog()
   const telegramContext = useMemo(() => getTelegramContext(), [])
   const initialCustomerId = useMemo(() => readPersistedCustomerId(telegramContext.chatId), [telegramContext.chatId])
   const [customerId, setCustomerId] = useState(initialCustomerId)
@@ -2224,6 +2245,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
   }
 
   const submitOrder = async () => {
+    if (loading) return
     if (!serviceDetailsComplete(serviceDetails)) {
       setScreen("details")
       return
@@ -2283,7 +2305,14 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
 
   const cancelOrder = async () => {
     if (!orderId || cancelling) return
-    if (typeof window !== "undefined" && !window.confirm("Скасувати заявку? Партнер отримає сповіщення.")) return
+    const confirmed = await confirm({
+      title: "Скасувати заявку?",
+      description: "Партнер отримає сповіщення про скасування.",
+      confirmLabel: "Скасувати заявку",
+      cancelLabel: "Залишити заявку",
+      danger: true,
+    })
+    if (!confirmed) return
     setCancelling(true)
     setCancelError(undefined)
     try {
@@ -2357,7 +2386,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
   }
 
   const confirmProposedPrice = async () => {
-    if (!orderId) return
+    if (!orderId || priceConfirming) return
     setPriceConfirming(true)
     setPriceConfirmError(undefined)
     try {

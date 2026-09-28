@@ -221,7 +221,7 @@ export const providerCapabilityLabels: Record<ServiceKey, string> = {
   wheel: "Шиномонтаж",
   fuel: "Пальне",
   lockout: "Відкрити авто",
-  mechanic: "СТО",
+  mechanic: "Механік на дорозі",
 }
 
 /** Short customer-facing hint: what help they get for each service type. */
@@ -235,7 +235,7 @@ export const serviceDescriptions: Record<ServiceKey, string> = {
 }
 
 export const partnerRegistrationServices = services.filter((service) =>
-  (["tow", "wheel", "battery", "fuel", "mechanic"] as ServiceKey[]).includes(service.key),
+  (["tow", "wheel", "battery", "fuel", "lockout", "mechanic"] as ServiceKey[]).includes(service.key),
 )
 
 export const vehicleOptions = [
@@ -260,13 +260,13 @@ export const orderStatusLabels: Record<OrderStatus, string> = {
 }
 
 export const provider: Provider = {
-  id: "provider-oleksandr",
-  name: "Олександр",
+  id: "provider-demo",
+  name: "Партнер POMICH",
   rating: 4.9,
-  vehicle: "Volkswagen Transporter",
-  plate: "AO 1248 CH",
-  phone: "+380671112233",
-  telegram: "pomich_help_bot",
+  vehicle: "Сервісний автомобіль",
+  plate: "",
+  phone: "",
+  telegram: "",
   etaMinutes: 12,
   earnings: 980,
 }
@@ -296,7 +296,7 @@ export function getActiveProviderId(): string {
     window.localStorage.getItem("pomichCustomerId")
   const derived = customerId ? resolveProviderIdForCustomer(customerId) : ""
   const linked = window.sessionStorage.getItem("pomichLinkedProviderId") || ""
-  // Drop stale seed link (provider-oleksandr) when the signed-in customer maps elsewhere.
+  // Drop a stale demo-provider link when the signed-in customer maps elsewhere.
   if (derived && linked && linked !== derived && linked === provider.id) {
     storeLinkedProviderId(derived)
     return derived

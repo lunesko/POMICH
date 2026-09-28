@@ -1,9 +1,10 @@
-const TILE_CACHE = "pomich-map-tiles-v39"
-const ASSET_CACHE = "pomich-assets-v39"
+const TILE_CACHE = "pomich-map-tiles-v40"
+const ASSET_CACHE = "pomich-assets-v40"
 const TILE_CACHE_MAX = 350
 const TILE_HOST_PATTERN = /(^|\.)(tile\.openstreetmap\.org|basemaps\.cartocdn\.com)$/
 // Vite emits name-HASH.ext (the hash may itself end with "-" or "_").
 const HASHED_ASSET = /\/assets\/[^/]+-[a-zA-Z0-9_-]{6,}\.(js|css|woff2?|png|jpg|webp|svg)$/
+const tileInflight = new Map()
 
 self.addEventListener("install", () => {
   self.skipWaiting()
@@ -97,11 +98,22 @@ self.addEventListener("fetch", (event) => {
     caches.open(TILE_CACHE).then(async (cache) => {
       const cached = await cache.match(event.request)
       if (cached) return cached
-      const response = await fetch(event.request)
-      if (response.ok || response.type === "opaque") {
-        await putWithTileCap(cache, event.request, response)
+      const key = event.request.url
+      const existing = tileInflight.get(key)
+      if (existing) return (await existing).clone()
+      const requestPromise = (async () => {
+        const response = await fetch(event.request)
+        if (response.ok || response.type === "opaque") {
+          await putWithTileCap(cache, event.request, response)
+        }
+        return response
+      })()
+      tileInflight.set(key, requestPromise)
+      try {
+        return (await requestPromise).clone()
+      } finally {
+        tileInflight.delete(key)
       }
-      return response
     }),
   )
 })

@@ -101,6 +101,7 @@ import { PartnerVehicleFields } from "./PartnerVehicleFields"
 import { normalizeOrderStatus } from "../../lib/orderStatus"
 import type { ServiceKey } from "../../lib/pomichDomain"
 import type { MapTileTheme } from "../../lib/theme"
+import { useConfirmDialog } from "../ui/ConfirmDialog"
 
 function VerificationPill({ status }: { status?: VerificationStatus }) {
   const tone = verificationTone(status)
@@ -329,6 +330,7 @@ export default function ProviderFlow({
   onLogout?: () => void
   onRestoreAccount?: () => void
 }) {
+  const confirm = useConfirmDialog()
   const mapTileTheme: MapTileTheme = "light"
   const [providerId, setProviderId] = useState(() => getActiveProviderId())
   const partnerRegisteredFromStorage =
@@ -1222,6 +1224,7 @@ export default function ProviderFlow({
   }
 
   const acceptOffer = async (offer: DispatchOffer, priceOverride?: string) => {
+    if (offerSaving) return
     const priceSource = priceOverride ?? proposedPrice
     const parsedPrice = parseOfferPrice(priceSource)
     if (typeof parsedPrice !== "number") {
@@ -1286,6 +1289,7 @@ export default function ProviderFlow({
   }
 
   const declineOffer = async (offer: DispatchOffer) => {
+    if (offerSaving) return
     setOfferSaving(true)
     setOfferError(undefined)
     dismissedOfferIdRef.current = offer.id
@@ -1320,7 +1324,7 @@ export default function ProviderFlow({
   }
 
   const declineFromSheet = async () => {
-    if (!selectedRequestPin) return
+    if (!selectedRequestPin || offerSaving) return
     const offer = incomingOffers.find((item) => item.id === selectedRequestPin.offerId || item.orderId === selectedRequestPin.id)
     if (offer) {
       await declineOffer(offer)
@@ -1338,7 +1342,7 @@ export default function ProviderFlow({
   }
 
   const acceptFromSheet = async (priceOverride?: string) => {
-    if (!selectedRequestPin) return
+    if (!selectedRequestPin || offerSaving) return
     const priceSource = priceOverride ?? proposedPrice
     if (priceSource.trim()) {
       setProposedPrice(priceSource)
@@ -1419,7 +1423,13 @@ export default function ProviderFlow({
 
   const cancelActiveOrder = async () => {
     if (!activeOrder?.id || orderAdvancing) return
-    const confirmed = typeof window === "undefined" ? true : window.confirm("Скасувати цю заявку? Клієнт отримає сповіщення.")
+    const confirmed = await confirm({
+      title: "Скасувати заявку?",
+      description: "Клієнт одразу побачить скасування та отримає сповіщення.",
+      confirmLabel: "Скасувати заявку",
+      cancelLabel: "Продовжити роботу",
+      danger: true,
+    })
     if (!confirmed) return
     await advanceProviderOrder("cancelled")
   }
@@ -1561,6 +1571,7 @@ export default function ProviderFlow({
   }, [providerAuthToken, providerId])
 
   const saveRegistration = async () => {
+    if (registrationSaving) return
     const nameValidation = validatePersonName(registrationForm.name)
     const phoneValidation = validateUkraineMobilePhone(registrationForm.phone)
     const plateValidation = validateUkrainePlate(registrationForm.plate)
