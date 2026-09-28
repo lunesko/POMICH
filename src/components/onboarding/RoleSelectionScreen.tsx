@@ -160,7 +160,7 @@ export default function RoleSelectionScreen({
             </p>
           </div>
 
-          <div className="pomich-role-card-stack mt-2.5 grid gap-2" role="list">
+          <div className="pomich-role-card-stack mt-2.5 grid gap-2" role="group" aria-label="Оберіть вашу роль">
             <div className="pomich-role-section-label" style={{ color: colors.badgeText }}>
               Оберіть вашу роль
             </div>
