@@ -28,6 +28,7 @@ test("public landing fits the viewport and has no serious axe violations", async
   await expectNoSeriousAccessibilityViolations(page)
   await expect(page.locator("body")).toBeInViewport({ ratio: 0.1 })
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(page.viewportSize()!.width)
+  await expect(page).toHaveScreenshot("01-public-landing.png", { fullPage: true })
 })
 
 test("role selection is clear and accessible", async ({ page }) => {
@@ -40,6 +41,7 @@ test("role selection is clear and accessible", async ({ page }) => {
   await expect(page.getByText("Оберіть вашу роль", { exact: true })).toBeVisible()
   await expectNoSeriousAccessibilityViolations(page)
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(page.viewportSize()!.width)
+  await expect(page).toHaveScreenshot("02-role-selection.png", { fullPage: true })
 })
 
 test("admin login fits the viewport and is accessible", async ({ page }) => {
@@ -47,4 +49,5 @@ test("admin login fits the viewport and is accessible", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Захищена адмін-панель" })).toBeVisible()
   await expectNoSeriousAccessibilityViolations(page)
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(page.viewportSize()!.width)
+  await expect(page).toHaveScreenshot("03-admin-login.png", { fullPage: true })
 })
