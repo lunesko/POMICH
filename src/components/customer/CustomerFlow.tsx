@@ -1059,8 +1059,25 @@ function DetailsStep({ pickup, destination, details, isTelegram, onChange, onNex
           <fieldset key={question.id} style={{ margin: 0, padding: 0, border: 0 }}>
             <legend style={{ color: DARK, fontSize: 15, fontWeight: 950, marginBottom: 4 }}>{question.label}</legend>
             {question.hint ? <div style={{ color: MUTED, fontSize: 12, fontWeight: 750, marginBottom: 8 }}>{question.hint}</div> : null}
-            <div role="radiogroup" aria-label={question.label} style={{ display: "grid", gap: 8 }}>
-              {question.options.map((option) => {
+            <div
+              role="radiogroup"
+              aria-label={question.label}
+              style={{ display: "grid", gap: 8 }}
+              onKeyDown={(event) => {
+                const keys = ["ArrowDown", "ArrowRight", "ArrowUp", "ArrowLeft", "Home", "End"]
+                if (!keys.includes(event.key)) return
+                const options = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="radio"]'))
+                const current = options.indexOf(document.activeElement as HTMLButtonElement)
+                if (current < 0) return
+                event.preventDefault()
+                const next = event.key === "Home" ? 0 : event.key === "End" ? options.length - 1
+                  : (current + (event.key === "ArrowDown" || event.key === "ArrowRight" ? 1 : -1) + options.length) % options.length
+                const answer = question.options[next]
+                onChange({ ...details, answers: { ...details.answers, [question.id]: answer.value } })
+                options[next].focus()
+              }}
+            >
+              {question.options.map((option, index) => {
                 const selected = details.answers[question.id] === option.value
                 return (
                   <button
@@ -1068,6 +1085,7 @@ function DetailsStep({ pickup, destination, details, isTelegram, onChange, onNex
                     type="button"
                     role="radio"
                     aria-checked={selected}
+                    tabIndex={selected || (!details.answers[question.id] && index === 0) ? 0 : -1}
                     onClick={() => onChange({ ...details, answers: { ...details.answers, [question.id]: option.value } })}
                     className={`pomich-choice-option${selected ? " is-selected" : ""}`}
                   >
