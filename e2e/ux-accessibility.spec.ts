@@ -13,7 +13,13 @@ test.beforeEach(async ({ page }) => {
     window.localStorage.clear()
     window.sessionStorage.clear()
   })
-  await page.route("**/api/**", (route) => route.abort("connectionrefused"))
+  await page.route("**/*", (route) => {
+    const url = new URL(route.request().url())
+    if (url.origin === "http://127.0.0.1:4173" && url.pathname.startsWith("/api/")) {
+      return route.abort("connectionrefused")
+    }
+    return route.continue()
+  })
 })
 
 test("public landing is visually stable and has no serious axe violations", async ({ page }) => {
