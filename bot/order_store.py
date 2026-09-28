@@ -3,6 +3,7 @@ import math
 import os
 import threading
 import uuid
+from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -23,6 +24,7 @@ from bot.runtime_store import (
     sql_upsert_order,
     sql_get_provider,
     sql_commit_dispatch_wave,
+    sql_commit_order_snapshot,
     sql_invalidate_order_offers,
     sql_map_providers,
     sql_offers_for_order,
@@ -296,6 +298,7 @@ def confirm_order_price(
         if current_status not in {"accepted", "assigned"}:
             raise DispatchConflict("PRICE_NOT_PENDING", "Order is not waiting for price confirmation.")
 
+        original = deepcopy(order)
         now = _now_iso()
         order["status"] = "price_confirmed"
         order["priceConfirmedAt"] = now
@@ -305,7 +308,8 @@ def confirm_order_price(
         order["statusHistory"] = history
         _append_order_event(order, "PRICE_CONFIRMED", now, {"price": order.get("partnerProposedPrice")})
         if use_sql:
-            sql_upsert_order(order)
+            if not sql_commit_order_snapshot(original, order):
+                raise DispatchConflict("PRICE_NOT_PENDING", "Order changed during price confirmation. Refresh and retry.")
             return attach_dispatch_to_order(order, sql_offers_for_order(str(order_id)))
         _write_json_atomic(path, orders)
         return attach_dispatch_to_order(order, load_offers(offer_store_path))
@@ -2999,8 +3003,10 @@ def expire_stale_dispatch(
         )
         if use_sql:
             sql_expire_pending_offers(now=datetime.now(timezone.utc).replace(tzinfo=None))
-            orders = sql_orders_by_status({"searching", "accepted"})
+            orders = sql_orders_by_status({"searching", "accepted"}, limit=None)
             offers = sql_offers_for_orders({str(order.get("id") or "") for order in orders})
+            original_orders = {str(order["id"]): deepcopy(order) for order in orders}
+            original_offers = deepcopy(offers)
             offer_changed = False
         else:
             orders = load_orders(order_path)
@@ -3077,10 +3083,19 @@ def expire_stale_dispatch(
             retry_order_ids.append(order_id)
         if offer_changed or cancelled or exhaustion_changed:
             if use_sql:
-                for offer in offers:
-                    sql_upsert_offer(offer)
+                committed_ids = set()
                 for order in orders:
-                    sql_upsert_order(order)
+                    order_id = str(order["id"])
+                    before = original_orders[order_id]
+                    before_offers = [item for item in original_offers if str(item.get("orderId")) == order_id]
+                    after_offers = [item for item in offers if str(item.get("orderId")) == order_id]
+                    if order == before and before_offers == after_offers:
+                        continue
+                    if sql_commit_order_snapshot(before, order, before_offers, after_offers):
+                        committed_ids.add(order_id)
+                cancelled = [order for order in cancelled if str(order["id"]) in committed_ids]
+                retry_order_ids = [key for key in retry_order_ids if key in committed_ids]
+                wave_order_ids = [key for key in wave_order_ids if key in committed_ids]
             else:
                 save_offers(offers, offer_path)
                 _write_json_atomic(order_path, orders)

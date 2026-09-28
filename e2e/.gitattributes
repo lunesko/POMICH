@@ -1,0 +1,2 @@
+# Keep small visual regression baselines available to CI without Git LFS.
+**/*-snapshots/*.png -filter -diff -merge -text

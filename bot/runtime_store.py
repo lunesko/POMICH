@@ -677,18 +677,61 @@ def sql_offers_for_order(order_id: str) -> list[dict[str, Any]]:
     return [_json_safe_copy(row[0]) for row in rows]
 
 
-def sql_orders_by_status(statuses: set[str], *, limit: int = 1000) -> list[dict[str, Any]]:
+def sql_commit_order_snapshot(original: dict[str, Any], proposed: dict[str, Any],
+                              original_offers: list[dict[str, Any]] | None = None,
+                              proposed_offers: list[dict[str, Any]] | None = None) -> bool:
+    """Commit changed dispatch rows only if their locked snapshots are still current."""
+    engine = get_engine()
+    order_id = str(original["id"])
+    with engine.begin() as connection:
+        row = connection.execute(_for_update(
+            select(orders.c.payload).where(orders.c.id == order_id), engine,
+        )).first()
+        if row is None or _json_object(row[0]) != original:
+            return False
+        if original_offers is not None:
+            rows = connection.execute(_for_update(
+                select(dispatch_offers.c.payload)
+                .where(dispatch_offers.c.order_id == order_id)
+                .order_by(dispatch_offers.c.id), engine,
+            )).all()
+            current = {str(item[0]["id"]): _json_object(item[0]) for item in rows}
+            expected = {str(item["id"]): item for item in original_offers}
+            if current != expected:
+                return False
+            for offer in proposed_offers or []:
+                if offer != expected.get(str(offer["id"])):
+                    connection.execute(update(dispatch_offers)
+                        .where(dispatch_offers.c.id == str(offer["id"]))
+                        .values(status=offer["status"], responded_at=offer.get("respondedAt"), payload=offer))
+        if proposed != original:
+            connection.execute(update(orders).where(orders.c.id == order_id).values(
+                status=proposed["status"], updated_at=proposed.get("updatedAt"), payload=proposed,
+            ))
+            _insert_order_events(connection, proposed)
+    return True
+
+
+def sql_orders_by_status(statuses: set[str], *, limit: int | None = 1000) -> list[dict[str, Any]]:
     wanted = {str(status).strip().lower() for status in statuses if str(status).strip()}
     if not wanted:
         return []
-    capped = max(1, min(int(limit or 1000), 5000))
+    capped = max(1, min(int(limit or 1000), 5000)) if limit is not None else None
     with get_engine().begin() as connection:
-        rows = connection.execute(
-            select(orders.c.payload)
-            .where(orders.c.status.in_(sorted(wanted)))
-            .order_by(orders.c.updated_at)
-            .limit(capped)
-        ).all()
+        query = select(orders.c.payload).where(orders.c.status.in_(sorted(wanted)))
+        if capped is not None:
+            rows = connection.execute(query.order_by(orders.c.updated_at).limit(capped)).all()
+        else:
+            rows = []
+            last_id = ""
+            while True:
+                page = connection.execute(select(orders.c.id, orders.c.payload)
+                    .where(orders.c.status.in_(sorted(wanted)), orders.c.id > last_id)
+                    .order_by(orders.c.id).limit(1000)).all()
+                if not page:
+                    break
+                rows.extend((row.payload,) for row in page)
+                last_id = page[-1].id
     return [_json_safe_copy(row[0]) for row in rows]
 
 
