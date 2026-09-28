@@ -74,6 +74,7 @@ type LandingTheme = {
   text: string
   muted: string
   subtle: string
+  eyebrowText: string
   navText: string
   badgeBg: string
   badgeBorder: string
@@ -102,7 +103,8 @@ function buildLandingTheme(mode: PomichThemeMode, colors: PomichThemeColors): La
     navBorder: colors.navBorder,
     text: colors.text,
     muted: colors.muted,
-    subtle: colors.subtle,
+    subtle: isDark ? colors.subtle : "#405568",
+    eyebrowText: isDark ? "#69A7FF" : "#174E91",
     /* Header is always dark glass over the map — light slate vanishes on it. */
     navText: "#F8FAFC",
     badgeBg: isDark ? "rgba(22,163,106,0.12)" : "#EAFBF2",
@@ -188,7 +190,7 @@ function LandingButton({
 function LandingSectionTitle({ eyebrow, title, subtitle, theme, compact = false }: { eyebrow: string; title: string; subtitle: string; theme: LandingTheme; compact?: boolean }) {
   return (
     <div className="landing-section-title pomich-landing-inner" style={{ textAlign: "center", margin: compact ? "0 auto 14px" : "0 auto 34px" }}>
-      <div style={{ display: "inline-flex", border: "1px solid rgba(47,128,237,0.42)", background: "rgba(47,128,237,0.14)", color: "#69A7FF", borderRadius: 999, padding: compact ? "5px 10px" : "7px 12px", fontWeight: 900, fontSize: compact ? 11 : 13 }}>{eyebrow}</div>
+      <div style={{ display: "inline-flex", border: "1px solid rgba(47,128,237,0.42)", background: "rgba(47,128,237,0.14)", color: theme.eyebrowText, borderRadius: 999, padding: compact ? "5px 10px" : "7px 12px", fontWeight: 900, fontSize: compact ? 11 : 13 }}>{eyebrow}</div>
       <h2 style={{ margin: compact ? "10px 0 0" : "18px 0 0", color: theme.text, fontSize: compact ? 22 : "clamp(28px, 4vw, 42px)", lineHeight: 1.03, letterSpacing: 0, fontWeight: 950 }}>{title}</h2>
       <p style={{ margin: compact ? "8px auto 0" : "14px auto 0", color: theme.muted, fontSize: compact ? 13 : 17, lineHeight: compact ? 1.45 : 1.55, fontWeight: 700 }}>{subtitle}</p>
     </div>
@@ -674,7 +676,7 @@ export default function LandingPage({
               onClick={requestMapGeo}
               disabled={mapGeoStatus === "requesting"}
               style={{
-                color: theme.text,
+                color: "#F8FAFC",
                 fontSize: layoutCompact ? 11 : 12,
                 cursor: mapGeoStatus === "requesting" ? "wait" : "pointer",
               }}

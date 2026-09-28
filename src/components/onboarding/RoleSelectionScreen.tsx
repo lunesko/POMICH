@@ -227,7 +227,7 @@ export default function RoleSelectionScreen({
               <div key={value} className="pomich-role-stat" style={{ animationDelay: `${320 + index * 70}ms` }}>
                 <div
                   className={`font-extrabold ${isCompact ? "text-[22px]" : "text-[28px]"}`}
-                  style={{ color: isDark ? "#FACC15" : colors.brand }}
+                  style={{ color: isDark ? "#FACC15" : "#086B45" }}
                 >
                   {value}
                 </div>

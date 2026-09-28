@@ -2212,6 +2212,10 @@ html.mobile-compact .pomich-map-occupied-hint {
   color: var(--pomich-badge-text);
   animation: pomichRoleFadeUp 0.5s ease both;
 }
+[data-pomich-theme="light"] .pomich-role-badge,
+html:not([data-pomich-theme]) .pomich-role-badge {
+  color: #08633e;
+}
 .pomich-role-badge__dot {
   width: 8px;
   height: 8px;
