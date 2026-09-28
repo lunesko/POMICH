@@ -1242,6 +1242,7 @@ export default function ProviderFlow({
       customerCoordinates: offer.customerCoordinates,
       customerLocation: offer.approximateLocation,
       customerComment: offer.customerComment,
+      serviceDetails: offer.serviceDetails,
     } as OrderResponse
     persistActiveOrder(offer.orderId, "accepted")
     rememberDismissedOffer(offer.id, offer.orderId)

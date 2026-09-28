@@ -3,6 +3,7 @@ import { useEffect, useRef } from "react"
 import type { MapRequestPin } from "../../api/client"
 import { getProviderCapabilityLabel, getServiceEmoji } from "../../lib/constants"
 import { parseOfferPrice } from "../../lib/dispatchOffer"
+import { isServiceDetails, serviceDetailRows } from "../../lib/serviceDetails"
 import { PrimaryButton } from "../ui/PrimaryButton"
 import { SecondaryButton } from "../ui/SecondaryButton"
 
@@ -36,6 +37,7 @@ export function OrderRequestSheet({
   const offerExpired = typeof secondsLeft === "number" && secondsLeft <= 0
   const eta = typeof pin.etaMinutes === "number" ? pin.etaMinutes : undefined
   const distanceLabel = typeof pin.distanceKm === "number" ? `${pin.distanceKm.toFixed(1)} км` : "—"
+  const detailRows = serviceDetailRows(isServiceDetails(pin.serviceDetails) ? pin.serviceDetails : undefined)
 
   useEffect(() => {
     const coarse = typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches
@@ -97,7 +99,9 @@ export function OrderRequestSheet({
 
           <div className="pomich-order-request-sheet__details">
             <div><strong>Адреса:</strong> {pin.customerLocation ?? "Поруч із вами"}</div>
-            {pin.vehicleState ? <div><strong>Авто:</strong> {pin.vehicleState}</div> : null}
+            {detailRows.length > 0
+              ? detailRows.map((row) => <div key={row.label}><strong>{row.label}</strong> {row.value}</div>)
+              : pin.vehicleState ? <div><strong>Деталі:</strong> {pin.vehicleState}</div> : null}
             {pin.customerComment ? (
               <div className="pomich-order-request-sheet__comment">
                 <strong>Коментар клієнта:</strong>

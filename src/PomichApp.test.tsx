@@ -99,6 +99,17 @@ function mockRegisteredCustomerFetch(extra?: (url: string, init?: RequestInit) =
     const url = String(input)
     const fromExtra = extra?.(url, init)
     if (fromExtra) return fromExtra
+    if (url.includes('nominatim.openstreetmap.org/search')) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => [{
+          lat: '48.6175',
+          lon: '22.3056',
+          display_name: 'СТО Авторемонт, Ужгород, Україна',
+          address: { road: 'вул. Автомобільна', house_number: '10', city: 'Ужгород' },
+        }],
+      })
+    }
     if (url.includes('/auth/customer/guest/session')) {
       return Promise.resolve({
         ok: true,
@@ -2546,10 +2557,13 @@ describe('POMICH role-based flows', () => {
     await user.click(screen.getByRole('button', { name: /Підтвердити місце/i }))
     expect(screen.getByText('Куди доставити авто?')).toBeInTheDocument()
 
-    await user.type(screen.getByPlaceholderText(/СТО/i), 'СТО «Авторемонт»')
+    await user.type(screen.getByPlaceholderText(/Київ/i), 'Ужгород, СТО «Авторемонт»')
+    await user.click(screen.getByRole('button', { name: /Знайти адресу/i }))
+    expect(await screen.findByText(/Точку доставки підтверджено/i)).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /^Далі$/i }))
-    expect(screen.getByText('Що з автомобілем?')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: /Авто не заводиться/i }))
+    expect(screen.getByText('Підготуємо евакуатор')).toBeInTheDocument()
+    await user.click(screen.getByRole('radio', { name: /Поломка/i }))
+    await user.click(screen.getByRole('radio', { name: /колеса крутяться/i }))
     await user.click(screen.getByRole('button', { name: /^Далі$/i }))
     expect(screen.getByText('Перевірте заявку')).toBeInTheDocument()
   })
@@ -2562,12 +2576,44 @@ describe('POMICH role-based flows', () => {
     expect(screen.getByText('Де ви зараз?')).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: /Підтвердити місце/i }))
-    expect(screen.getByText('Що з автомобілем?')).toBeInTheDocument()
+    expect(screen.getByText('Чому авто не заводиться?')).toBeInTheDocument()
     expect(screen.queryByText('Куди доставити авто?')).not.toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: /Авто не заводиться/i }))
+    await user.click(screen.getByRole('radio', { name: /Стартер мовчить/i }))
+    await user.click(screen.getByRole('radio', { name: /Запустити від іншого АКБ/i }))
     await user.click(screen.getByRole('button', { name: /^Далі$/i }))
     expect(screen.getByText('Перевірте заявку')).toBeInTheDocument()
     expect(screen.getByText(/По місцю, нікуди їхати не потрібно/i)).toBeInTheDocument()
+  })
+
+  it.each([
+    ['Пробило колесо', 'Що з колесом?', 'Одне колесо', false],
+    ['Закінчилось пальне', 'Яке пальне потрібно?', 'Дизель', false],
+    ['Замкнулось авто', 'Як відкрити авто?', 'Ключі залишилися всередині', true],
+    ['Інша допомога', 'Що потрібно полагодити?', 'Перегрів двигуна', true],
+  ])('shows service-specific details for %s', async (serviceName, heading, option, expandOther) => {
+    const user = userEvent.setup()
+    await openCustomerHome(user)
+    if (expandOther) await user.click(screen.getByRole('button', { name: /Інша проблема/i }))
+    await user.click(screen.getByRole('button', { name: new RegExp(serviceName, 'i') }))
+    await user.click(screen.getByRole('button', { name: /Підтвердити місце/i }))
+    expect(screen.getByRole('heading', { name: heading })).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: new RegExp(option, 'i') })).toBeInTheDocument()
+    expect(screen.getByText(/Крок 3 з 4/i)).toBeInTheDocument()
+  })
+
+  it('clears service answers when the customer changes the problem', async () => {
+    const user = userEvent.setup()
+    await openCustomerHome(user)
+    await user.click(screen.getByRole('button', { name: /Не заводиться/i }))
+    await user.click(screen.getByRole('button', { name: /Підтвердити місце/i }))
+    await user.click(screen.getByRole('radio', { name: /Стартер мовчить/i }))
+    await user.click(screen.getByRole('radio', { name: /Запустити від іншого АКБ/i }))
+    await user.click(screen.getByRole('button', { name: /Назад/i }))
+    await user.click(screen.getByRole('button', { name: /Назад/i }))
+    await user.click(screen.getByRole('button', { name: /Закінчилось пальне/i }))
+    await user.click(screen.getByRole('button', { name: /Підтвердити місце/i }))
+    expect(screen.getByRole('radio', { name: /Дизель/i })).toHaveAttribute('aria-checked', 'false')
+    expect(screen.getByRole('button', { name: /^Далі$/i })).toBeDisabled()
   })
 
   it('submits an order and shows the success state', async () => {
@@ -2593,7 +2639,8 @@ describe('POMICH role-based flows', () => {
 
     await user.click(screen.getByRole('button', { name: /Не заводиться/i }))
     await user.click(screen.getByRole('button', { name: /Підтвердити місце/i }))
-    await user.click(screen.getByRole('button', { name: /Авто не заводиться/i }))
+    await user.click(screen.getByRole('radio', { name: /Стартер мовчить/i }))
+    await user.click(screen.getByRole('radio', { name: /Запустити від іншого АКБ/i }))
     await user.click(screen.getByRole('button', { name: /^Далі$/i }))
     await user.click(screen.getByRole('button', { name: /Надіслати заявку/i }))
 

@@ -7,6 +7,7 @@ import {
   sanitizeLocation,
   validateCustomerOrderInput,
   buildOrderFingerprint,
+  isWithinUkraineServiceArea,
 } from './pomichDomain'
 
 describe('pomichDomain', () => {
@@ -55,6 +56,11 @@ describe('pomichDomain', () => {
     })
 
     expect(invalid).toEqual(['destination'])
+  })
+
+  it('blocks order coordinates outside the current Ukraine service area', () => {
+    expect(isWithinUkraineServiceArea({ lat: 48.6208, lng: 22.2879 })).toBe(true)
+    expect(isWithinUkraineServiceArea({ lat: 54.8359, lng: 9.5461 })).toBe(false)
   })
 
   it('prevents a partner from accepting an order twice in the same state', () => {

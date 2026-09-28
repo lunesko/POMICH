@@ -4,6 +4,7 @@ import { createPortal } from "react-dom"
 import type { OrderResponse } from "../../api/client"
 import { getServiceLabel, type Point } from "../../lib/constants"
 import type { ServiceKey } from "../../lib/pomichDomain"
+import { isServiceDetails, serviceDetailRows } from "../../lib/serviceDetails"
 import { formatCabinetOrderStatus, formatCabinetReviewStars } from "../customer/OrderTerminalStep"
 import ServiceIcon from "../ui/ServiceIcon"
 import { SecondaryButton } from "../ui/SecondaryButton"
@@ -106,6 +107,7 @@ export default function OrderHistoryDetailSheet({
   viewer: OrderHistoryViewer
   onClose: () => void
 }) {
+  const detailRows = serviceDetailRows(isServiceDetails(order.serviceDetails) ? order.serviceDetails : undefined)
   const { client: pickup, partner: partnerPoint, destination, partnerEstimated } = resolveHistoryRoutePoints(order)
   const duration = formatOrderDuration(order)
   const counterpart =
@@ -213,11 +215,9 @@ export default function OrderHistoryDetailSheet({
                 <strong>Куди:</strong> {order.destination}
               </div>
             ) : null}
-            {order.vehicleState ? (
-              <div>
-                <strong>Авто:</strong> {order.vehicleState}
-              </div>
-            ) : null}
+            {detailRows.length > 0
+              ? detailRows.map((row) => <div key={row.label}><strong>{row.label}</strong> {row.value}</div>)
+              : order.vehicleState ? <div><strong>Деталі:</strong> {order.vehicleState}</div> : null}
             {order.customerComment ? (
               <div>
                 <strong>Коментар:</strong> {order.customerComment}

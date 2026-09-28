@@ -1,3 +1,5 @@
+import type { ServiceDetails } from '../lib/serviceDetails'
+
 const defaultBaseUrl = '/api'
 
 const providerErrorMessages: Record<string, string> = {
@@ -196,6 +198,7 @@ export interface OrderResponse {
   chatId?: string
   telegramUsername?: string
   vehicleState?: string
+  serviceDetails?: ServiceDetails
   customerComment?: string
   customerId?: string
   customerName?: string
@@ -372,6 +375,7 @@ export interface DispatchOffer {
   respondedAt?: string
   service?: string
   vehicleState?: string
+  serviceDetails?: ServiceDetails
   approximateLocation?: string
   customerComment?: string
   customerCoordinates?: {
@@ -460,6 +464,7 @@ export interface MapRequestPin {
   status?: string
   customerLocation?: string
   vehicleState?: string
+  serviceDetails?: ServiceDetails
   customerComment?: string
   customerCoordinates?: {
     lat: number

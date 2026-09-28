@@ -25,6 +25,11 @@ type NominatimReverseResponse = {
   address?: NominatimAddress
 }
 
+type NominatimSearchResponse = NominatimReverseResponse & {
+  lat?: string
+  lon?: string
+}
+
 const REVERSE_CACHE_TTL_MS = 5 * 60 * 1000
 const REVERSE_CACHE_MAX = 64
 const reverseCache = new Map<string, { expiresAt: number; data: NominatimReverseResponse }>()
@@ -151,4 +156,28 @@ export async function reverseGeocodeAddress(point: GeoPoint): Promise<string> {
     // fall through to coordinates
   }
   return `${point.lat.toFixed(5)}, ${point.lng.toFixed(5)}`
+}
+
+/** Resolve a user-entered Ukrainian destination into a real map point. */
+export async function forwardGeocodeAddress(query: string): Promise<{ point: GeoPoint; label: string } | null> {
+  const normalized = query.trim()
+  if (normalized.length < 3) return null
+  try {
+    const response = await fetch(
+      `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=ua&accept-language=uk&addressdetails=1&q=${encodeURIComponent(normalized)}`,
+      { headers: { Accept: "application/json" } },
+    )
+    if (!response.ok) return null
+    const results = (await response.json()) as NominatimSearchResponse[]
+    const first = results[0]
+    const lat = Number(first?.lat)
+    const lng = Number(first?.lon)
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null
+    return {
+      point: { lat, lng },
+      label: formatNominatimAddress(first) || normalized,
+    }
+  } catch {
+    return null
+  }
 }
