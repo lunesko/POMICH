@@ -1,38 +1,17 @@
 import { Component, type ErrorInfo, type ReactNode } from "react"
 
+import {
+  clearClientCaches,
+  recoverFromChunkError,
+  resetChunkReloadGuard,
+} from "../../lib/chunkRecovery"
+
 interface PomichErrorBoundaryProps {
   children: ReactNode
 }
 
 interface PomichErrorBoundaryState {
   error: Error | null
-}
-
-const CHUNK_RELOAD_KEY = "pomich-chunk-reload"
-
-function isChunkLoadError(error: Error | null | undefined): boolean {
-  if (!error) return false
-  const text = `${error.name} ${error.message}`
-  return /Failed to fetch dynamically imported module|Loading chunk|ChunkLoadError|Importing a module script failed|error loading dynamically imported module/i.test(
-    text,
-  )
-}
-
-async function clearClientCaches(): Promise<void> {
-  try {
-    if ("caches" in window) {
-      const keys = await caches.keys()
-      await Promise.all(keys.map((key) => caches.delete(key)))
-    }
-  } catch {
-    // ignore
-  }
-  try {
-    const regs = await navigator.serviceWorker?.getRegistrations()
-    if (regs) await Promise.all(regs.map((reg) => reg.unregister()))
-  } catch {
-    // ignore
-  }
 }
 
 export default class PomichErrorBoundary extends Component<PomichErrorBoundaryProps, PomichErrorBoundaryState> {
@@ -44,15 +23,12 @@ export default class PomichErrorBoundary extends Component<PomichErrorBoundaryPr
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error("[POMICH] UI crash", error, info.componentStack)
-    if (typeof window === "undefined" || !isChunkLoadError(error)) return
-    if (window.sessionStorage.getItem(CHUNK_RELOAD_KEY) === "1") return
-    window.sessionStorage.setItem(CHUNK_RELOAD_KEY, "1")
-    void clearClientCaches().finally(() => window.location.reload())
+    recoverFromChunkError(error)
   }
 
   private reload = () => {
     if (typeof window === "undefined") return
-    window.sessionStorage.removeItem(CHUNK_RELOAD_KEY)
+    resetChunkReloadGuard()
     void clearClientCaches().finally(() => window.location.reload())
   }
 
@@ -93,7 +69,7 @@ export default class PomichErrorBoundary extends Component<PomichErrorBoundaryPr
             onClick={this.reload}
             style={{
               marginTop: 16,
-              minHeight: 48,
+              minHeight: 44,
               width: "100%",
               border: "none",
               borderRadius: 12,
