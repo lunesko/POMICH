@@ -33,6 +33,7 @@ test("public landing fits the viewport and has no serious axe violations", async
 
 test("role selection is clear and accessible", async ({ page }) => {
   await page.goto("/")
+  await expect(page.getByText("Допомога на дорозі за хвилини", { exact: true })).toBeVisible()
   const register = page.getByRole("button", { name: "Зареєструватися" })
   if (!(await register.first().isVisible())) {
     await page.getByRole("button", { name: "Меню" }).click()

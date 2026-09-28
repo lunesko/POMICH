@@ -50,14 +50,7 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Run UX and accessibility checks
-        run: npm run test:e2e:update
-
-      - name: Upload visual baselines for integration review
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-visual-baselines
-          path: e2e/**/*-snapshots
-          retention-days: 1
+        run: npm run test:e2e
 
       - name: Upload Playwright report on failure
         if: failure()
