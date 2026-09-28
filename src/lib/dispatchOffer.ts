@@ -128,6 +128,7 @@ export function pinFromOffer(offer: DispatchOffer): MapRequestPin {
     service: offer.service,
     status: offer.orderStatus || "searching",
     vehicleState: offer.vehicleState,
+    serviceDetails: offer.serviceDetails,
     customerComment: offer.customerComment,
     customerLocation: offer.approximateLocation,
     customerCoordinates: offer.customerCoordinates,

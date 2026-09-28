@@ -1,0 +1,29 @@
+.pomich-disabled-reason {
+  margin-top: 8px;
+  color: var(--pomich-muted);
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.4;
+  text-align: center;
+}
+
+.pomich-address-resolved {
+  display: grid;
+  gap: 4px;
+  margin-top: 10px;
+  border: 1px solid color-mix(in srgb, var(--pomich-brand) 35%, transparent);
+  border-radius: 14px;
+  padding: 12px;
+  background: color-mix(in srgb, var(--pomich-brand) 10%, var(--pomich-card-bg));
+}
+
+.pomich-address-resolved strong { color: var(--pomich-brand); font-size: 12px; font-weight: 850; }
+.pomich-address-resolved span { color: var(--pomich-muted); font-size: 13px; font-weight: 700; line-height: 1.4; }
+
+html,
+body { scroll-padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
+
+input,
+textarea,
+select,
+button { scroll-margin-bottom: calc(96px + env(safe-area-inset-bottom)); }

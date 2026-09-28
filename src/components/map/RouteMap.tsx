@@ -78,6 +78,7 @@ import {
 import { readSheetHeights, type SheetSnap } from "../../hooks/useMobileSheetSnap"
 import { type MapTileTheme } from "../../lib/theme"
 import { isOccupiedCoordinates, OCCUPIED_PICK_MESSAGE } from "../../lib/occupiedTerritories"
+import { isServiceDetails, summarizeServiceDetails } from "../../lib/serviceDetails"
 import { isMapRequestPinActive } from "../../lib/dispatchOffer"
 import type { DirectoryScopeMode } from "../../lib/directoryScope"
 import { UKRAINE_BOUNDS, UKRAINE_MAP_FIT_MAX_ZOOM, UKRAINE_MAP_FIT_MAX_ZOOM_MOBILE } from "../../lib/ukraineMapMask"
@@ -1977,7 +1978,9 @@ export function RouteMap({
 
                       <div style={{ marginTop: 4, fontSize: 12, lineHeight: 1.35, overflowWrap: "anywhere" }}>{pin.customerLocation ?? "Поруч"}</div>
 
-                      {pin.vehicleState ? <div style={{ marginTop: 4, fontSize: 12 }}>{pin.vehicleState}</div> : null}
+                      {isServiceDetails(pin.serviceDetails)
+                        ? <div style={{ marginTop: 4, fontSize: 12 }}>{summarizeServiceDetails(pin.serviceDetails)}</div>
+                        : pin.vehicleState ? <div style={{ marginTop: 4, fontSize: 12 }}>{pin.vehicleState}</div> : null}
 
                       {pin.customerComment ? <div style={{ marginTop: 6, fontSize: 12, fontStyle: "italic", lineHeight: 1.35 }}>{pin.customerComment}</div> : null}
 
@@ -2297,4 +2300,3 @@ export function RouteMap({
 
 
 export default RouteMap
-

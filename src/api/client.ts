@@ -1,3 +1,5 @@
+import type { ServiceDetails } from '../lib/serviceDetails'
+
 const defaultBaseUrl = '/api'
 
 const providerErrorMessages: Record<string, string> = {
@@ -196,6 +198,7 @@ export interface OrderResponse {
   chatId?: string
   telegramUsername?: string
   vehicleState?: string
+  serviceDetails?: ServiceDetails
   customerComment?: string
   customerId?: string
   customerName?: string
@@ -372,6 +375,7 @@ export interface DispatchOffer {
   respondedAt?: string
   service?: string
   vehicleState?: string
+  serviceDetails?: ServiceDetails
   approximateLocation?: string
   customerComment?: string
   customerCoordinates?: {
@@ -460,6 +464,7 @@ export interface MapRequestPin {
   status?: string
   customerLocation?: string
   vehicleState?: string
+  serviceDetails?: ServiceDetails
   customerComment?: string
   customerCoordinates?: {
     lat: number
@@ -712,6 +717,9 @@ export async function getMapProviders(options?: {
   /** Comma-separated presence filter, e.g. "online" or "online,busy". */
   status?: string
   verificationStatus?: "verified" | "pending" | "unverified"
+  bbox?: [number, number, number, number]
+  zoom?: number
+  service?: string
 }) {
   const params = new URLSearchParams()
   if (options?.scope === "all") params.set("scope", "all")
@@ -722,6 +730,9 @@ export async function getMapProviders(options?: {
   if (options?.kind) params.set("kind", options.kind)
   if (options?.status) params.set("status", options.status)
   if (options?.verificationStatus) params.set("verification_status", options.verificationStatus)
+  if (options?.bbox) params.set("bbox", options.bbox.join(","))
+  if (options?.zoom != null) params.set("zoom", String(Math.round(options.zoom)))
+  if (options?.service) params.set("service", options.service)
   const query = params.toString()
   const response = await fetch(`${getBaseUrl()}/map/providers${query ? `?${query}` : ""}`)
 
@@ -814,7 +825,15 @@ export async function getNearestMapSettlement(lat: number, lng: number, maxKm = 
     throw new Error(`Nearest settlement request failed with ${response.status}`)
   }
 
-  return response.json() as Promise<MapSettlement & { distanceKm?: number }>
+  return response.json() as Promise<
+    Partial<MapSettlement> & {
+      distanceKm?: number
+      fallback?: "radius"
+      radiusKm?: number
+      code?: string
+      message?: string
+    }
+  >
 }
 
 export async function getNearbyMapOrders(

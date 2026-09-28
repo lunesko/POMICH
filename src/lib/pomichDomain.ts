@@ -14,6 +14,11 @@ export interface Coordinate {
   lng: number
 }
 
+/** Coarse safety gate; exact occupied-area checks remain server-side. */
+export function isWithinUkraineServiceArea(point: Coordinate): boolean {
+  return point.lat >= 44.0 && point.lat <= 52.5 && point.lng >= 22.0 && point.lng <= 40.5
+}
+
 export interface PriceBreakdown {
   price: number
   etaMinutes: number

@@ -1,8 +1,10 @@
-const TILE_CACHE = "pomich-map-tiles-v37"
-const ASSET_CACHE = "pomich-assets-v37"
+const TILE_CACHE = "pomich-map-tiles-v40"
+const ASSET_CACHE = "pomich-assets-v40"
 const TILE_CACHE_MAX = 350
 const TILE_HOST_PATTERN = /(^|\.)(tile\.openstreetmap\.org|basemaps\.cartocdn\.com)$/
-const HASHED_ASSET = /\/assets\/[^/]+\.[a-zA-Z0-9_-]{6,}\.(js|css|woff2?|png|jpg|webp|svg)$/
+// Vite emits name-HASH.ext (the hash may itself end with "-" or "_").
+const HASHED_ASSET = /\/assets\/[^/]+-[a-zA-Z0-9_-]{6,}\.(js|css|woff2?|png|jpg|webp|svg)$/
+const tileInflight = new Map()
 
 self.addEventListener("install", () => {
   self.skipWaiting()
@@ -40,7 +42,9 @@ self.addEventListener("fetch", (event) => {
   // Never intercept API — always network.
   if (url.pathname.startsWith("/api/")) return
 
-  // HTML / SW entry — always network so clients pick up new Vite hashes after deploy.
+  // HTML / SW entry — leave the request to the browser network stack. Calling
+  // respondWith(fetch()) here turned an ordinary navigation interruption/reload into
+  // a noisy unhandled FetchEvent rejection in DevTools.
   if (
     url.origin === self.location.origin &&
     (url.pathname === "/" ||
@@ -48,7 +52,6 @@ self.addEventListener("fetch", (event) => {
       url.pathname === "/pomich-sw.js" ||
       url.pathname.endsWith(".html"))
   ) {
-    event.respondWith(fetch(event.request))
     return
   }
 
@@ -94,15 +97,23 @@ self.addEventListener("fetch", (event) => {
   event.respondWith(
     caches.open(TILE_CACHE).then(async (cache) => {
       const cached = await cache.match(event.request)
-      if (cached) {
-        event.waitUntil(putWithTileCap(cache, event.request, cached))
-        return cached
+      if (cached) return cached
+      const key = event.request.url
+      const existing = tileInflight.get(key)
+      if (existing) return (await existing).clone()
+      const requestPromise = (async () => {
+        const response = await fetch(event.request)
+        if (response.ok || response.type === "opaque") {
+          await putWithTileCap(cache, event.request, response)
+        }
+        return response
+      })()
+      tileInflight.set(key, requestPromise)
+      try {
+        return (await requestPromise).clone()
+      } finally {
+        tileInflight.delete(key)
       }
-      const response = await fetch(event.request)
-      if (response.ok || response.type === "opaque") {
-        await putWithTileCap(cache, event.request, response)
-      }
-      return response
     }),
   )
 })

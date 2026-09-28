@@ -37,6 +37,7 @@ from bot.order_store import (
 from bot.realtime import publish_order_event, publish_provider_event
 from bot.telegram_bot import notify_dispatch_offers, notify_order_cancelled, notify_order_created
 from bot.ops_log import record_ops_event
+from bot.service_details import ServiceDetailsValidationError, validate_service_details
 
 router = APIRouter(tags=["orders"])
 
@@ -81,6 +82,34 @@ def create_order(payload: dict, authorization: str | None = Header(default=None)
         raise HTTPException(status_code=401, detail="customer_session_required")
     else:
         payload["customerIdentity"] = {"type": "guest", "customerId": customer_principal.subject_id}
+
+    service = str(payload.get("service") or "").strip().lower()
+    if source in {"web", "telegram-mini-app"} and str(payload.get("status") or "searching") == "searching":
+        try:
+            payload["serviceDetails"] = validate_service_details(service, payload.get("serviceDetails"))
+        except ServiceDetailsValidationError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        pickup_value = payload.get("customerCoordinates")
+        if not isinstance(pickup_value, dict):
+            raise HTTPException(status_code=422, detail="customer_coordinates_required")
+        try:
+            pickup_lat = float(pickup_value.get("lat"))
+            pickup_lng = float(pickup_value.get("lng"))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=422, detail="customer_coordinates_invalid")
+        if not (44.0 <= pickup_lat <= 52.5 and 22.0 <= pickup_lng <= 40.5):
+            raise HTTPException(status_code=422, detail="service_area_ukraine_only")
+        if service == "tow":
+            destination_value = payload.get("destinationCoordinates")
+            if not isinstance(destination_value, dict):
+                raise HTTPException(status_code=422, detail="destination_coordinates_required")
+            try:
+                destination_lat = float(destination_value.get("lat"))
+                destination_lng = float(destination_value.get("lng"))
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=422, detail="destination_coordinates_invalid")
+            if abs(destination_lat - pickup_lat) < 0.0001 and abs(destination_lng - pickup_lng) < 0.0001:
+                raise HTTPException(status_code=422, detail="destination_must_differ_from_pickup")
 
     pickup = payload.get("customerCoordinates")
     if isinstance(pickup, dict):

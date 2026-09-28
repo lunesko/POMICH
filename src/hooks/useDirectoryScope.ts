@@ -99,7 +99,11 @@ export function useDirectoryScope(options?: { refreshMs?: number; enabled?: bool
   const resolveNearestSettlement = useCallback(async (lat: number, lng: number): Promise<MapSettlement | null> => {
     try {
       const fromApi = await getNearestMapSettlement(lat, lng)
-      if (fromApi?.name) return fromApi
+      if (fromApi?.id && fromApi.name) return fromApi as MapSettlement
+      // 404 is kept for compatibility with an older backend; the current backend
+      // returns an explicit 200/fallback=radius result. Both are authoritative and
+      // should not trigger a second full-registry lookup.
+      if (fromApi === null || fromApi?.fallback === "radius") return null
     } catch {
       // Fall back to cached/full list when API is unavailable.
     }

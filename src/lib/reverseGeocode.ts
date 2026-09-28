@@ -25,6 +25,60 @@ type NominatimReverseResponse = {
   address?: NominatimAddress
 }
 
+type NominatimSearchResponse = NominatimReverseResponse & {
+  lat?: string
+  lon?: string
+}
+
+const REVERSE_CACHE_TTL_MS = 5 * 60 * 1000
+const REVERSE_CACHE_MAX = 64
+const reverseCache = new Map<string, { expiresAt: number; data: NominatimReverseResponse }>()
+const reverseInflight = new Map<string, Promise<NominatimReverseResponse | null>>()
+
+function reverseKey(point: GeoPoint): string {
+  // ~11 m cells: address/city do not change for normal stationary GPS jitter.
+  return `${point.lat.toFixed(4)},${point.lng.toFixed(4)}`
+}
+
+async function fetchReverseData(point: GeoPoint): Promise<NominatimReverseResponse | null> {
+  const key = reverseKey(point)
+  const cached = reverseCache.get(key)
+  if (cached && cached.expiresAt > Date.now()) return cached.data
+  if (cached) reverseCache.delete(key)
+
+  const pending = reverseInflight.get(key)
+  if (pending) return pending
+
+  const request = (async () => {
+    const response = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${point.lat}&lon=${point.lng}&accept-language=uk&addressdetails=1`,
+      { headers: { Accept: "application/json" } },
+    )
+    if (!response.ok) return null
+    const data = (await response.json()) as NominatimReverseResponse
+    reverseCache.set(key, { expiresAt: Date.now() + REVERSE_CACHE_TTL_MS, data })
+    while (reverseCache.size > REVERSE_CACHE_MAX) {
+      const oldest = reverseCache.keys().next().value as string | undefined
+      if (!oldest) break
+      reverseCache.delete(oldest)
+    }
+    return data
+  })()
+
+  reverseInflight.set(key, request)
+  try {
+    return await request
+  } finally {
+    reverseInflight.delete(key)
+  }
+}
+
+/** Test isolation for the module-level request cache. */
+export function clearReverseGeocodeCacheForTests(): void {
+  reverseCache.clear()
+  reverseInflight.clear()
+}
+
 /** Neighbourhood nicknames (e.g. «Каліфорнія» in Перечин) confuse users — skip in UI labels. */
 const NOISY_NEIGHBOURHOOD = /каліфорн|california|району?$|квартал/i
 
@@ -86,13 +140,8 @@ export function formatNominatimAddress(data: NominatimReverseResponse): string {
 
 export async function reverseGeocodeCity(point: GeoPoint): Promise<string> {
   try {
-    const response = await fetch(
-      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${point.lat}&lon=${point.lng}&accept-language=uk&addressdetails=1`,
-      { headers: { Accept: "application/json" } },
-    )
-    if (!response.ok) return ""
-    const data = (await response.json()) as NominatimReverseResponse
-    return extractCityFromNominatim(data)
+    const data = await fetchReverseData(point)
+    return data ? extractCityFromNominatim(data) : ""
   } catch {
     return ""
   }
@@ -100,16 +149,35 @@ export async function reverseGeocodeCity(point: GeoPoint): Promise<string> {
 
 export async function reverseGeocodeAddress(point: GeoPoint): Promise<string> {
   try {
-    const response = await fetch(
-      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${point.lat}&lon=${point.lng}&accept-language=uk&addressdetails=1`,
-      { headers: { Accept: "application/json" } },
-    )
-    if (!response.ok) throw new Error("geocode failed")
-    const data = (await response.json()) as NominatimReverseResponse
-    const label = formatNominatimAddress(data)
+    const data = await fetchReverseData(point)
+    const label = data ? formatNominatimAddress(data) : ""
     if (label) return label
   } catch {
     // fall through to coordinates
   }
   return `${point.lat.toFixed(5)}, ${point.lng.toFixed(5)}`
+}
+
+/** Resolve a user-entered Ukrainian destination into a real map point. */
+export async function forwardGeocodeAddress(query: string): Promise<{ point: GeoPoint; label: string } | null> {
+  const normalized = query.trim()
+  if (normalized.length < 3) return null
+  try {
+    const response = await fetch(
+      `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=ua&accept-language=uk&addressdetails=1&q=${encodeURIComponent(normalized)}`,
+      { headers: { Accept: "application/json" } },
+    )
+    if (!response.ok) return null
+    const results = (await response.json()) as NominatimSearchResponse[]
+    const first = results[0]
+    const lat = Number(first?.lat)
+    const lng = Number(first?.lon)
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null
+    return {
+      point: { lat, lng },
+      label: formatNominatimAddress(first) || normalized,
+    }
+  } catch {
+    return null
+  }
 }

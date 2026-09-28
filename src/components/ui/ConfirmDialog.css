@@ -1,0 +1,33 @@
+.pomich-confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(8, 15, 22, 0.62);
+  backdrop-filter: blur(6px);
+}
+
+.pomich-confirm-dialog {
+  width: min(100%, 420px);
+  border: 1px solid var(--pomich-border);
+  border-radius: 22px;
+  padding: 22px;
+  background: var(--pomich-card-bg);
+  color: var(--pomich-text);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.3);
+}
+
+.pomich-confirm-dialog h2 { margin: 0; font-size: 21px; line-height: 1.2; }
+.pomich-confirm-dialog p { margin: 10px 0 0; color: var(--pomich-muted); font-weight: 700; line-height: 1.5; }
+.pomich-confirm-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 20px; }
+.pomich-confirm-actions button { min-height: 48px; border-radius: 14px; padding: 0 14px; font: inherit; font-weight: 900; cursor: pointer; }
+.pomich-confirm-cancel { border: 1px solid var(--pomich-border); background: var(--pomich-input-bg); color: var(--pomich-text); }
+.pomich-confirm-submit { border: 0; background: var(--pomich-brand); color: #fff; }
+.pomich-confirm-submit.is-danger { background: #c93b3b; }
+
+@media (max-width: 420px) {
+  .pomich-confirm-actions { grid-template-columns: 1fr; }
+  .pomich-confirm-submit { order: -1; }
+}

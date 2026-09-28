@@ -7,28 +7,33 @@ import { initMobileCompactClasses } from './hooks/useMobileCompact'
 import { applyPomichThemeToDocument, resolveInitialPomichTheme } from './lib/theme'
 import { initTelegramApp, syncAppViewportHeight } from './telegram'
 
-const telegramContext = initTelegramApp()
-if (typeof document !== 'undefined') {
-  if (telegramContext.isTelegram) {
-    document.documentElement.classList.add('tg-compact')
+async function bootstrap() {
+  await (window.__pomichTelegramReady ?? Promise.resolve())
+  const telegramContext = initTelegramApp()
+  if (typeof document !== 'undefined') {
+    if (telegramContext.isTelegram) {
+      document.documentElement.classList.add('tg-compact')
+    }
+    initMobileCompactClasses()
+    syncAppViewportHeight(telegramContext.webApp)
   }
-  initMobileCompactClasses()
-  syncAppViewportHeight(telegramContext.webApp)
-}
-applyPomichThemeToDocument(resolveInitialPomichTheme({ telegramColorScheme: telegramContext.webApp?.colorScheme }))
+  applyPomichThemeToDocument(resolveInitialPomichTheme({ telegramColorScheme: telegramContext.webApp?.colorScheme }))
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <PomichErrorBoundary>
-      <App />
-    </PomichErrorBoundary>
-  </React.StrictMode>,
-)
+  ReactDOM.createRoot(document.getElementById('root')!).render(
+    <React.StrictMode>
+      <PomichErrorBoundary>
+        <App />
+      </PomichErrorBoundary>
+    </React.StrictMode>,
+  )
+}
+
+void bootstrap()
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker
-      .register('/pomich-sw.js?v=37')
+      .register('/pomich-sw.js?v=40')
       .then((registration) => {
         // Pick up new SW quickly after deploy so hashed chunks stay in sync.
         registration.update().catch(() => undefined)

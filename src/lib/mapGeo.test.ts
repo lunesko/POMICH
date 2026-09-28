@@ -27,6 +27,7 @@ import {
   resolveGroundSpeedMps,
   resolveMapZoomForSpeed,
   resolveSheetBottomPaddingPx,
+  shouldAcceptGeoUpdate,
   shouldRecenterMap,
   SHEET_PADDING_SAFETY_PX,
   smoothSpeedMps,
@@ -82,6 +83,11 @@ describe("mapGeo", () => {
 
     expect(shouldRecenterMap(uzhgorodCenter, tinyMove)).toBe(false)
     expect(shouldRecenterMap(uzhgorodCenter, largeMove)).toBe(true)
+  })
+
+  it("filters stationary GPS jitter using the reported accuracy", () => {
+    expect(shouldAcceptGeoUpdate(uzhgorodCenter, { lat: 48.62084, lng: 22.2879 }, 20)).toBe(false)
+    expect(shouldAcceptGeoUpdate(uzhgorodCenter, { lat: 48.6212, lng: 22.2879 }, 20)).toBe(true)
   })
 
   it("defines fly threshold above recenter threshold", () => {
@@ -283,6 +289,14 @@ describe("mapGeo", () => {
     const onSuccess = vi.fn()
     requestCurrentPosition(onSuccess, vi.fn(), { mode: "explicit" })
     expect(getCurrentPosition).toHaveBeenCalled()
+    const publicCall = getCurrentPosition.mock.calls[0] as unknown as [
+      PositionCallback,
+      PositionErrorCallback?,
+      PositionOptions?,
+    ]
+    expect(publicCall[2]).toMatchObject({
+      enableHighAccuracy: true,
+    })
     expect(onSuccess).toHaveBeenCalledWith({ lat: 48.65, lng: 22.31 })
     expect(readRememberedGeoPermission()).toBe("granted")
   })
@@ -308,6 +322,14 @@ describe("mapGeo", () => {
     requestCurrentPosition(onSuccess, vi.fn(), { mode: "explicit" })
     // Browser must start in the same gesture (Safari/Chrome); LM may win the race.
     expect(getCurrentPosition).toHaveBeenCalled()
+    const telegramCall = getCurrentPosition.mock.calls[0] as unknown as [
+      PositionCallback,
+      PositionErrorCallback?,
+      PositionOptions?,
+    ]
+    expect(telegramCall[2]).toMatchObject({
+      enableHighAccuracy: false,
+    })
     expect(onSuccess).toHaveBeenCalledWith({ lat: 48.61, lng: 22.27 })
     expect(readRememberedGeoPermission()).toBeNull()
   })

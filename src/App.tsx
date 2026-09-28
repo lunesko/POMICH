@@ -4,6 +4,7 @@ import AppErrorBoundary from './components/AppErrorBoundary'
 import { PomichThemeProvider } from './context/PomichThemeProvider'
 import { MapAtmosphereProvider } from './components/layout/PomichMapShell'
 import { useTelegramUx } from './hooks/useTelegramUx'
+import { ConfirmDialogProvider } from './components/ui/ConfirmDialog'
 
 function TelegramRoot({ children }: { children: ReactNode }) {
   useTelegramUx()
@@ -14,11 +15,13 @@ export default function App() {
   return (
     <AppErrorBoundary>
       <PomichThemeProvider>
-        <TelegramRoot>
-          <MapAtmosphereProvider>
-            <CustomerApp />
-          </MapAtmosphereProvider>
-        </TelegramRoot>
+        <ConfirmDialogProvider>
+          <TelegramRoot>
+            <MapAtmosphereProvider>
+              <CustomerApp />
+            </MapAtmosphereProvider>
+          </TelegramRoot>
+        </ConfirmDialogProvider>
       </PomichThemeProvider>
     </AppErrorBoundary>
   )

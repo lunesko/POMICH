@@ -33,7 +33,8 @@ export function isClientProfileComplete(profile: CustomerProfile): boolean {
 /** Registered on server or profile already has name + valid phone. */
 export function isReturningClient(status: UserAccountStatus): boolean {
   if (status.clientRegistered) return true
-  if (status.rolesRegistered.includes("customer")) return true
+  const roles = status.rolesRegistered ?? []
+  if (roles.includes("customer")) return true
   return Boolean(status.profile && isClientProfileComplete(status.profile))
 }
 
@@ -45,7 +46,8 @@ export function isPartnerLocallyRegistered(providerId: string): boolean {
 /** Registered partner on server, in rolesRegistered, linked id, or local completion flag. */
 export function isReturningPartner(status: UserAccountStatus): boolean {
   if (status.providerRegistered) return true
-  if (status.rolesRegistered.includes("provider")) return true
+  const roles = status.rolesRegistered ?? []
+  if (roles.includes("provider")) return true
   const linkedId = (status.linkedProviderId || "").trim() || resolveProviderIdForCustomer(status.customerId, status.linkedProviderId)
   if (linkedId && isPartnerLocallyRegistered(linkedId)) return true
   if (typeof window !== "undefined") {
@@ -105,9 +107,10 @@ export function resolvePartnerIdentity(status: UserAccountStatus): {
 /** Fill client name/phone from cached partner profile when switching partner → client. */
 export function hydrateClientFromPartner(status: UserAccountStatus): UserAccountStatus {
   if (isReturningClient(status)) {
-    const rolesRegistered = status.rolesRegistered.includes("customer")
-      ? status.rolesRegistered
-      : ([...status.rolesRegistered, "customer"] as UserRole[])
+    const roles = status.rolesRegistered ?? []
+    const rolesRegistered = roles.includes("customer")
+      ? roles
+      : ([...roles, "customer"] as UserRole[])
     return {
       ...status,
       clientRegistered: true,
@@ -128,9 +131,10 @@ export function hydrateClientFromPartner(status: UserAccountStatus): UserAccount
     }
   }
 
-  const rolesRegistered = status.rolesRegistered.includes("customer")
-    ? status.rolesRegistered
-    : ([...status.rolesRegistered, "customer"] as UserRole[])
+  const roles = status.rolesRegistered ?? []
+  const rolesRegistered = roles.includes("customer")
+    ? roles
+    : ([...roles, "customer"] as UserRole[])
 
   return {
     ...status,
@@ -196,9 +200,10 @@ export function buildRoleSwitchPreservedAccount(
 export function enrichPartnerAccountStatus(status: UserAccountStatus): UserAccountStatus {
   if (!isReturningPartner(status)) return status
   const linkedId = (status.linkedProviderId || "").trim() || resolveProviderIdForCustomer(status.customerId, status.linkedProviderId)
-  const rolesRegistered = status.rolesRegistered.includes("provider")
-    ? status.rolesRegistered
-    : ([...status.rolesRegistered, "provider"] as UserRole[])
+  const roles = status.rolesRegistered ?? []
+  const rolesRegistered = roles.includes("provider")
+    ? roles
+    : ([...roles, "provider"] as UserRole[])
   const withPartner: UserAccountStatus = {
     ...status,
     linkedProviderId: linkedId || status.linkedProviderId,

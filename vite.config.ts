@@ -65,22 +65,8 @@ export default defineConfig(({ mode }) => {
       },
       target: ['es2022', 'chrome109', 'safari15'],
       cssMinify: true,
-      rollupOptions: {
-        output: {
-          manualChunks(id) {
-            if (id.includes('node_modules/leaflet') || id.includes('node_modules/react-leaflet')) {
-              return 'leaflet'
-            }
-            if (
-              id.includes('node_modules/react-dom') ||
-              id.includes('node_modules/react/') ||
-              id.includes('node_modules/scheduler')
-            ) {
-              return 'react'
-            }
-          },
-        },
-      },
+      // Let Rollup keep lazy route dependencies with their dynamic entry. Forced
+      // vendor chunks created a cycle that pulled Leaflet into the initial graph.
     },
     plugins: [
       react(),

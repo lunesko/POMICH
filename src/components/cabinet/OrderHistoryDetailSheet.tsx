@@ -4,13 +4,25 @@ import { createPortal } from "react-dom"
 import type { OrderResponse } from "../../api/client"
 import { getServiceLabel, type Point } from "../../lib/constants"
 import type { ServiceKey } from "../../lib/pomichDomain"
+import { isServiceDetails, serviceDetailRows } from "../../lib/serviceDetails"
 import { formatCabinetOrderStatus, formatCabinetReviewStars } from "../customer/OrderTerminalStep"
 import ServiceIcon from "../ui/ServiceIcon"
 import { SecondaryButton } from "../ui/SecondaryButton"
 
-const LazyRouteMap = lazy(() => import("../map/RouteMap"))
+const LazyRouteMap = lazy(() =>
+  import("../map/RouteMap").catch((error) => {
+    console.error("[POMICH] RouteMap chunk failed", error)
+    throw error
+  }),
+)
 
 export type OrderHistoryViewer = "customer" | "partner"
+
+function shortOrderId(id?: string): string {
+  if (!id) return "—"
+  if (id.length <= 14) return id
+  return `${id.slice(0, 8)}…${id.slice(-4)}`
+}
 
 function parseTime(value?: string): number | undefined {
   if (!value) return undefined
@@ -106,6 +118,7 @@ export default function OrderHistoryDetailSheet({
   viewer: OrderHistoryViewer
   onClose: () => void
 }) {
+  const detailRows = serviceDetailRows(isServiceDetails(order.serviceDetails) ? order.serviceDetails : undefined)
   const { client: pickup, partner: partnerPoint, destination, partnerEstimated } = resolveHistoryRoutePoints(order)
   const duration = formatOrderDuration(order)
   const counterpart =
@@ -165,7 +178,9 @@ export default function OrderHistoryDetailSheet({
             </span>
             {getServiceLabel(order.service)}
           </div>
-          <h2 className="pomich-history-detail__title">Заявка #{order.id || "—"}</h2>
+          <h2 className="pomich-history-detail__title" title={order.id || undefined}>
+            Заявка #{shortOrderId(order.id)}
+          </h2>
           <div className="pomich-history-detail__status">{formatCabinetOrderStatus(order.status)}</div>
 
           <div className="pomich-history-detail__grid">
@@ -213,11 +228,9 @@ export default function OrderHistoryDetailSheet({
                 <strong>Куди:</strong> {order.destination}
               </div>
             ) : null}
-            {order.vehicleState ? (
-              <div>
-                <strong>Авто:</strong> {order.vehicleState}
-              </div>
-            ) : null}
+            {detailRows.length > 0
+              ? detailRows.map((row) => <div key={row.label}><strong>{row.label}</strong> {row.value}</div>)
+              : order.vehicleState ? <div><strong>Деталі:</strong> {order.vehicleState}</div> : null}
             {order.customerComment ? (
               <div>
                 <strong>Коментар:</strong> {order.customerComment}

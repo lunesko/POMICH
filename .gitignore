@@ -40,3 +40,7 @@ _tmp_*.py
 /providers_api.json
 /_diag_*.py
 /_run_deploy.py
+
+# Browser-test output (visual baselines under e2e/ remain tracked)
+/playwright-report/
+/test-results/

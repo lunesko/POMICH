@@ -40,9 +40,11 @@ import {
 } from "../../lib/constants"
 import { authSessionStorageKey, isAuthSessionToken, readStoredAuthSession, storeAuthSession } from "../../lib/auth"
 import { formatCustomerCity, formatCustomerDisplayName } from "../../lib/customerDisplay"
+import { isServiceDetails, serviceDetailRows } from "../../lib/serviceDetails"
 import { VerificationPill } from "../ui/VerificationPill"
 import { StatusPill } from "../ui/StatusPill"
 import { Timeline } from "../ui/Timeline"
+import { useConfirmDialog } from "../ui/ConfirmDialog"
 
 type AdminSection = "dashboard" | "clients" | "providers" | "orders" | "logs" | "map" | "verification" | "settings"
 
@@ -113,7 +115,7 @@ function AdminLogin({
           <span>Пароль</span>
           <input value={password} onChange={(event) => onPasswordChange(event.target.value)} type="password" autoComplete="current-password" aria-label="Пароль" />
         </label>
-        {error ? <div className="admin-alert admin-alert-error">{error}</div> : null}
+        {error ? <div className="admin-alert admin-alert-error" role="alert">{error}</div> : null}
         <button className="admin-primary-btn" onClick={onSubmit} disabled={!login.trim() || !password.trim() || saving}>
           {saving ? "Входимо…" : "Увійти"}
         </button>
@@ -140,6 +142,7 @@ function LoadingState({ text = "Завантажуємо…" }: { text?: string 
 }
 
 export default function AdminFlow({ adminToken }: { adminToken?: string }) {
+  const confirm = useConfirmDialog()
   const adminSessionStorageKey = useMemo(() => authSessionStorageKey("admin", "admin"), [])
   const [adminAccessToken, setAdminAccessToken] = useState<string | undefined>(() => {
     if (isAuthSessionToken(adminToken)) return adminToken
@@ -345,6 +348,14 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
 
   const removeProvider = async (providerId: string) => {
     if (!adminAuthToken) return
+    const providerName = providers.find((item) => item.id === providerId)?.name || providerId
+    if (!await confirm({
+      title: "Видалити партнера?",
+      description: `Профіль «${providerName}» буде видалено без можливості відновлення.`,
+      confirmLabel: "Видалити",
+      cancelLabel: "Залишити",
+      danger: true,
+    })) return
     setSaving(true)
     try {
       await adminDeleteProvider(providerId, adminAuthToken)
@@ -360,7 +371,13 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
 
   const runGuestPurge = async () => {
     if (!adminAuthToken) return
-    if (!window.confirm("Видалити guest-сесії старші за 7 днів без телефону та без заявок?")) return
+    if (!await confirm({
+      title: "Очистити старі guest-сесії?",
+      description: "Будуть видалені лише сесії старші за 7 днів без телефону та без заявок.",
+      confirmLabel: "Очистити",
+      cancelLabel: "Скасувати",
+      danger: true,
+    })) return
     setPurgeStatus(undefined)
     setSaving(true)
     try {
@@ -421,6 +438,7 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
             <button
               key={item.id}
               className={`admin-nav-item${section === item.id ? " admin-nav-item-active" : ""}`}
+              aria-current={section === item.id ? "page" : undefined}
               onClick={() => {
                 setSection(item.id)
                 setSidebarOpen(false)
@@ -459,7 +477,7 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
           </button>
         </header>
 
-        {error ? <div className="admin-alert admin-alert-error admin-alert-inline">{error}</div> : null}
+        {error ? <div className="admin-alert admin-alert-error admin-alert-inline" role="alert">{error}</div> : null}
 
         <div className="admin-content">
           {loading && !stats ? <LoadingState /> : null}
@@ -522,13 +540,13 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
                     <button className="admin-ghost-btn" onClick={() => runGuestPurge()} disabled={saving}>
                       Очистити старі guest
                     </button>
-                    <input className="admin-search" value={clientQuery} onChange={(event) => setClientQuery(event.target.value)} placeholder="Пошук…" />
+                    <input className="admin-search" value={clientQuery} onChange={(event) => setClientQuery(event.target.value)} placeholder="Пошук…" aria-label="Пошук клієнтів" />
                   </div>
                 </div>
                 {purgeStatus ? <div className="admin-muted admin-panel-note">{purgeStatus}</div> : null}
                 <div className="admin-list">
                   {clients.map((client) => (
-                    <button key={client.id} className={`admin-list-item${selectedClient?.id === client.id ? " admin-list-item-active" : ""}`} onClick={() => setSelectedClientId(client.id)}>
+                    <button key={client.id} aria-pressed={selectedClient?.id === client.id} className={`admin-list-item${selectedClient?.id === client.id ? " admin-list-item-active" : ""}`} onClick={() => setSelectedClientId(client.id)}>
                       <div>
                         <strong>{formatCustomerDisplayName(client)}</strong>
                         <div className="admin-muted">{client.phone || "—"} · {formatCustomerCity(client.city)}</div>
@@ -551,11 +569,11 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
               <div className="admin-panel">
                 <div className="admin-panel-head">
                   <h2>{section === "verification" ? "Перевірка партнерів" : "Партнери"}</h2>
-                  <input className="admin-search" value={providerQuery} onChange={(event) => setProviderQuery(event.target.value)} placeholder="Пошук…" />
+                  <input className="admin-search" value={providerQuery} onChange={(event) => setProviderQuery(event.target.value)} placeholder="Пошук…" aria-label="Пошук партнерів" />
                 </div>
                 <div className="admin-list">
                   {(section === "verification" ? pendingProviders : providers).map((provider) => (
-                    <button key={provider.id} className={`admin-list-item${selectedProvider?.id === provider.id ? " admin-list-item-active" : ""}`} onClick={() => setSelectedProviderId(provider.id)}>
+                    <button key={provider.id} aria-pressed={selectedProvider?.id === provider.id} className={`admin-list-item${selectedProvider?.id === provider.id ? " admin-list-item-active" : ""}`} onClick={() => setSelectedProviderId(provider.id)}>
                       <div>
                         <strong>{provider.name}</strong>
                         <div className="admin-muted">{provider.phone || "—"} · {providerStatusLabel(provider.status)}</div>
@@ -597,7 +615,7 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
                 </div>
                 <div className="admin-list">
                   {filteredOrders.map((order) => (
-                    <button key={order.id} className={`admin-list-item${selectedOrder?.id === order.id ? " admin-list-item-active" : ""}`} onClick={() => setSelectedOrderId(order.id)}>
+                    <button key={order.id} aria-pressed={selectedOrder?.id === order.id} className={`admin-list-item${selectedOrder?.id === order.id ? " admin-list-item-active" : ""}`} onClick={() => setSelectedOrderId(order.id)}>
                       <div>
                         <strong>{order.id}</strong>
                         <div className="admin-muted">{getServiceEmoji(order.service)} {getServiceLabel(order.service)}</div>
@@ -645,6 +663,7 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
                       value={opsOrderQuery}
                       onChange={(event) => setOpsOrderQuery(event.target.value)}
                       placeholder="Фільтр по #заявці…"
+                      aria-label="Фільтр логів за номером заявки"
                     />
                   </div>
                 </div>
@@ -902,8 +921,20 @@ function OrderEditor({
   onRetryDispatch: () => Promise<void>
   onOpenLogs?: (orderId: string) => void
 }) {
+  const confirm = useConfirmDialog()
   const status = normalizeOrderStatus(order.status)
   const offers = order.offers ?? []
+  const detailRows = serviceDetailRows(isServiceDetails(order.serviceDetails) ? order.serviceDetails : undefined)
+  const changeStatus = async (nextStatus: OrderStatus) => {
+    if (nextStatus === "cancelled" && !await confirm({
+      title: `Скасувати заявку ${order.id ?? ""}?`,
+      description: "Клієнт і партнер одразу побачать новий статус.",
+      confirmLabel: "Скасувати заявку",
+      cancelLabel: "Залишити активною",
+      danger: true,
+    })) return
+    void onStatusChange(order, nextStatus)
+  }
   const timeline = useMemo(() => {
     const rows: Array<{ key: string; at?: string; label: string; detail?: string; tone: "info" | "warn" | "error" }> = []
     for (const entry of order.statusHistory ?? []) {
@@ -955,13 +986,24 @@ function OrderEditor({
         <div><span>Виконавець</span><strong>{order.assignedProvider?.name ?? order.assignedProviderId ?? "—"}</strong></div>
         <div><span>Створено</span><strong>{order.createdAt ?? "—"}</strong></div>
       </div>
+      {(detailRows.length > 0 || order.vehicleState || order.customerComment) ? (
+        <div className="admin-subpanel">
+          <h3>Деталі заявки</h3>
+          <div className="admin-kv-grid">
+            {detailRows.length > 0
+              ? detailRows.map((row) => <div key={row.label}><span>{row.label}</span><strong>{row.value}</strong></div>)
+              : order.vehicleState ? <div><span>Деталі</span><strong>{order.vehicleState}</strong></div> : null}
+            {order.customerComment ? <div><span>Коментар клієнта</span><strong>{order.customerComment}</strong></div> : null}
+          </div>
+        </div>
+      ) : null}
       <Timeline status={status} />
       <div className="admin-chip-row">
         {nextOrderStatuses(status).filter((nextStatus) => nextStatus !== "cancelled").map((nextStatus) => (
-          <button key={nextStatus} className="admin-chip" onClick={() => onStatusChange(order, nextStatus)} disabled={!adminAuthToken}>{orderStatusLabels[nextStatus]}</button>
+          <button key={nextStatus} className="admin-chip" onClick={() => changeStatus(nextStatus)} disabled={!adminAuthToken}>{orderStatusLabels[nextStatus]}</button>
         ))}
         {nextOrderStatuses(status).includes("cancelled") ? (
-          <button className="admin-chip admin-chip-danger" onClick={() => onStatusChange(order, "cancelled")} disabled={!adminAuthToken}>Скасувати</button>
+          <button className="admin-chip admin-chip-danger" onClick={() => changeStatus("cancelled")} disabled={!adminAuthToken}>Скасувати</button>
         ) : null}
         <button className="admin-chip admin-chip-brand" onClick={onRetryDispatch}>Повторити dispatch</button>
         {order.id && onOpenLogs ? (

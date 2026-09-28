@@ -3,6 +3,7 @@ import { useEffect, useRef } from "react"
 import type { DispatchOffer } from "../../api/client"
 import { getProviderCapabilityLabel, getServiceEmoji, type Point } from "../../lib/constants"
 import { parseOfferPrice } from "../../lib/dispatchOffer"
+import { isServiceDetails, serviceDetailRows } from "../../lib/serviceDetails"
 import LazyRouteMap from "../map/LazyRouteMap"
 import { usePomichTheme } from "../../context/PomichThemeProvider"
 import type { MapTileTheme } from "../../lib/theme"
@@ -44,6 +45,7 @@ export function IncomingOfferStep({
   const customerPickup = offer.customerCoordinates ?? providerLocation
   const eta = offer.etaMinutes ?? Math.ceil((offer.distanceKm ?? 1) * 4)
   const distanceLabel = typeof offer.distanceKm === "number" ? `${offer.distanceKm.toFixed(1)} км` : "—"
+  const detailRows = serviceDetailRows(isServiceDetails(offer.serviceDetails) ? offer.serviceDetails : undefined)
 
   useEffect(() => {
     const coarse = typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches
@@ -111,9 +113,9 @@ export function IncomingOfferStep({
             <span>{distanceLabel} до клієнта</span>
             {offer.approximateLocation ? <span>{offer.approximateLocation}</span> : null}
           </div>
-          {offer.vehicleState ? (
-            <div className="pomich-incoming-offer__row"><strong>Авто:</strong> {offer.vehicleState}</div>
-          ) : null}
+          {detailRows.length > 0
+            ? detailRows.map((row) => <div key={row.label} className="pomich-incoming-offer__row"><strong>{row.label}</strong> {row.value}</div>)
+            : offer.vehicleState ? <div className="pomich-incoming-offer__row"><strong>Деталі:</strong> {offer.vehicleState}</div> : null}
           {offer.customerComment ? (
             <div className="pomich-incoming-offer__comment">
               <strong>Коментар:</strong> {offer.customerComment}

@@ -103,6 +103,8 @@ def test_sql_runtime_store_persists_orders_without_json_file(sql_runtime):
         "2026081104",
         "2026081201",
         "2026082001",
+        "2026092701",
+        "2026092702",
     ]
 
 
@@ -303,6 +305,107 @@ def test_sql_map_providers_bbox_filter(sql_runtime):
     ids = {item["id"] for item in inside}
     assert "near" in ids
     assert "far" not in ids
+
+
+def test_sql_map_filters_kind_and_service_before_limit(sql_runtime):
+    directory = {**_provider("a-directory", 48.62, 22.28, specialties=["tow"]), "providerKind": "directory"}
+    wrong_service = _provider("b-fuel", 48.62, 22.28, specialties=["fuel"])
+    matching = _provider("z-tow", 48.62, 22.28, specialties=["tow"])
+    save_providers([directory, wrong_service, matching])
+
+    visible = runtime_store.sql_map_providers(kind="dispatch", service="tow", limit=1)
+
+    assert [item["id"] for item in visible] == ["z-tow"]
+
+
+def test_sql_dispatch_wave_commit_blocks_duplicate_active_offer(sql_runtime):
+    order = save_order({"service": "tow", "customerCoordinates": {"lat": 48.62, "lng": 22.28}})
+    proposed_order = {
+        **order,
+        "dispatchState": "OFFERS_SENT",
+        "dispatchInfo": {"offersSent": 1, "offersSentThisWave": 1},
+        "dispatchEvents": [{"type": "OFFER_CREATED", "offerId": "OF-ONE", "providerId": "p1"}],
+    }
+    first = {
+        "id": "OF-ONE",
+        "orderId": order["id"],
+        "providerId": "p1",
+        "status": "pending",
+        "createdAt": "2026-09-27T10:00:00Z",
+        "expiresAt": "2026-09-27T10:02:00Z",
+    }
+    duplicate = {**first, "id": "OF-TWO"}
+
+    runtime_store.sql_commit_dispatch_wave(proposed_order, [first])
+    persisted_order, persisted_offers = runtime_store.sql_commit_dispatch_wave(
+        {**proposed_order, "dispatchEvents": [{"type": "OFFER_CREATED", "offerId": "OF-TWO", "providerId": "p1"}]},
+        [duplicate],
+    )
+
+    assert persisted_order["id"] == order["id"]
+    assert [offer["id"] for offer in persisted_offers] == ["OF-ONE"]
+    assert _table_count(runtime_store.dispatch_offers) == 1
+
+
+def test_price_confirmation_does_not_restore_concurrently_cancelled_order(sql_runtime, monkeypatch):
+    from bot import order_store
+
+    order = save_order({"service": "tow", "status": "accepted"})
+    runtime_store.sql_upsert_order({**order, "status": "accepted"})
+    monkeypatch.setattr(order_store, "expire_stale_and_notify", lambda **kwargs: [])
+    commit = runtime_store.sql_commit_order_snapshot
+
+    def cancel_before_commit(original, proposed):
+        runtime_store.sql_upsert_order({**original, "status": "cancelled"})
+        return commit(original, proposed)
+
+    monkeypatch.setattr(order_store, "sql_commit_order_snapshot", cancel_before_commit)
+    with pytest.raises(order_store.DispatchConflict):
+        order_store.confirm_order_price(order["id"])
+    assert runtime_store.sql_get_order(order["id"])["status"] == "cancelled"
+
+
+def test_expiration_preserves_concurrent_confirmation_and_unrelated_orders(sql_runtime, monkeypatch):
+    from bot import order_store
+
+    idle = save_order({"service": "tow"})
+    runtime_store.sql_upsert_order({**idle, "status": "accepted", "acceptedAt": "2020-01-01T00:00:00Z"})
+    unrelated = save_order({"service": "tow"})
+    cancel = order_store._cancel_idle_accepted_orders_in_memory
+
+    def confirm_while_expiring(orders, offers):
+        result = cancel(orders, offers)
+        runtime_store.sql_upsert_order({**runtime_store.sql_get_order(idle["id"]), "status": "price_confirmed"})
+        runtime_store.sql_upsert_order({**runtime_store.sql_get_order(unrelated["id"]), "status": "accepted"})
+        return result
+
+    monkeypatch.setattr(order_store, "_cancel_idle_accepted_orders_in_memory", confirm_while_expiring)
+    assert order_store.expire_stale_dispatch() == []
+    assert runtime_store.sql_get_order(idle["id"])["status"] == "price_confirmed"
+    assert runtime_store.sql_get_order(unrelated["id"])["status"] == "accepted"
+
+
+def test_expiration_scans_beyond_first_thousand_active_orders(sql_runtime):
+    from bot import order_store
+
+    payloads = [{"id": f"order-{index:04}", "status": "searching", "service": "tow"} for index in range(1000)]
+    payloads.append({"id": "order-1000", "status": "accepted", "service": "tow", "acceptedAt": "2020-01-01T00:00:00Z"})
+    runtime_store.save_collection("orders", payloads)
+    cancelled = order_store.expire_stale_dispatch()
+    assert [item["id"] for item in cancelled] == ["order-1000"]
+    assert runtime_store.sql_get_order("order-1000")["status"] == "cancelled"
+
+
+def test_dispatch_snapshot_rejects_concurrently_changed_offer(sql_runtime):
+    order = save_order({"service": "tow"})
+    offer = {"id": "offer-race", "orderId": order["id"], "providerId": "p1", "status": "pending"}
+    runtime_store.sql_upsert_offer(offer)
+    original_offers = runtime_store.sql_offers_for_order(order["id"])
+    runtime_store.sql_upsert_offer({**offer, "status": "accepted"})
+    assert not runtime_store.sql_commit_order_snapshot(order, {**order, "status": "cancelled"},
+        original_offers, [{**original_offers[0], "status": "cancelled"}])
+    assert runtime_store.sql_get_order(order["id"])["status"] == "searching"
+    assert runtime_store.sql_offers_for_order(order["id"])[0]["status"] == "accepted"
 
 
 def _table_names():
