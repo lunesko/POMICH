@@ -7859,6 +7859,11 @@ html.tg-compact .pomich-ride-screen__map .leaflet-top.leaflet-left {
 .admin-subpanel { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--admin-border); }
 .admin-subpanel h3 { margin: 0 0 10px; font-size: 14px; }
 .admin-login-shell {
+  --admin-border: rgba(255,255,255,0.12);
+  --admin-text: #eef2f7;
+  --admin-muted: #b4c0d0;
+  --admin-brand: #16a36a;
+  color: var(--admin-text);
   min-height: 100vh;
   display: grid;
   place-items: center;

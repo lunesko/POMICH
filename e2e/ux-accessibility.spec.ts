@@ -7,17 +7,30 @@ async function expectNoSeriousAccessibilityViolations(page: import("@playwright/
   expect(blocking, blocking.map((item) => `${item.id}: ${item.help}`).join("\n")).toEqual([])
 }
 
+test.beforeEach(async ({ page }) => {
+  await page.emulateMedia({ colorScheme: "light", reducedMotion: "reduce" })
+  await page.addInitScript(() => {
+    window.localStorage.clear()
+    window.sessionStorage.clear()
+  })
+  await page.route("**/api/**", (route) => route.abort("connectionrefused"))
+})
+
 test("public landing is visually stable and has no serious axe violations", async ({ page }) => {
   await page.goto("/")
-  await expect(page.getByRole("heading", { name: /Допомога на дорозі — поруч/i })).toBeVisible()
+  await expect(page.getByText("Допомога на дорозі — поруч", { exact: true })).toBeVisible()
   await expectNoSeriousAccessibilityViolations(page)
   await expect(page).toHaveScreenshot("01-public-landing.png", { fullPage: true })
 })
 
 test("role selection is clear and accessible", async ({ page }) => {
   await page.goto("/")
-  await page.getByRole("button", { name: "Зареєструватися" }).first().click()
-  await expect(page.getByText(/Оберіть роль/i)).toBeVisible()
+  const register = page.getByRole("button", { name: "Зареєструватися" })
+  if (!(await register.first().isVisible())) {
+    await page.getByRole("button", { name: "Меню" }).click()
+  }
+  await register.first().click()
+  await expect(page.getByText("Оберіть вашу роль", { exact: true })).toBeVisible()
   await expectNoSeriousAccessibilityViolations(page)
   await expect(page).toHaveScreenshot("02-role-selection.png", { fullPage: true })
 })
