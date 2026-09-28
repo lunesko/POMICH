@@ -134,3 +134,7 @@
 *.nc                 filter=lfs diff=lfs merge=lfs -text
 *.mat                filter=lfs diff=lfs merge=lfs -text
 public/maps/* filter=lfs diff=lfs merge=lfs -text
+
+# Keep decorative basemap as regular git blobs (small generated assets)
+public/maps/ukraine-basemap.jpg filter= diff= merge= -text
+public/maps/ukraine-basemap.webp filter= diff= merge= -text

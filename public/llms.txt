@@ -6,9 +6,14 @@
 - Клієнт Telegram: https://t.me/pomich_ua_bot
 - Партнер Telegram: https://t.me/pomich_help_bot
 - Послуги: евакуатор, не заводиться (АКБ), пробило колесо, закінчилось пальне
-- Пілот: Ужгород
+- Пілот: Ужгород · сервіс по Україні
+- Конфіденційність: https://pomich.help/privacy
+- Безпека: https://pomich.help/safety
+- Партнерам: https://pomich.help/partner
 
 ## Docs
 - /sitemap.xml
 - /robots.txt
-- /docs/SEO_PUBLIC_LAYER.md (у репозиторії)
+- /privacy
+- /about
+- /safety
