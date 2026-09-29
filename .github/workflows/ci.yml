@@ -102,6 +102,15 @@ jobs:
           DATABASE_URL: postgresql+psycopg://pomich:pomich@127.0.0.1:5432/pomich
         run: python scripts/postgis_smoke.py
 
+      - name: Verify PostGIS backup restore round trip
+        run: |
+          bash -n scripts/ops/backup_postgres.sh scripts/ops/verify_postgres_backup.sh
+          docker exec "${{ job.services.postgres.id }}" sh -ec \
+            'export PGPASSWORD="$POSTGRES_PASSWORD"; exec pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc --no-owner --no-acl' \
+            > "$RUNNER_TEMP/pomich-ci.dump"
+          (cd "$RUNNER_TEMP" && sha256sum pomich-ci.dump > pomich-ci.dump.sha256)
+          bash scripts/ops/verify_postgres_backup.sh "$RUNNER_TEMP/pomich-ci.dump"
+
   deploy-production:
     name: Deploy production
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
