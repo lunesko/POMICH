@@ -18,6 +18,7 @@ import {
   SESSION_MISMATCH_DISMISS_KEY,
   SESSION_MISMATCH_NOTICE_KEY,
   storeAuthSession,
+  getStoredQueryToken,
   TELEGRAM_STALE_WEB_MISMATCH_MESSAGE,
 } from './auth'
 
@@ -25,6 +26,25 @@ describe('customer auth storage', () => {
   beforeEach(() => {
     window.localStorage.clear()
     window.sessionStorage.clear()
+  })
+
+  it('keeps bearer secrets out of browser storage and clears bootstrap URL tokens', async () => {
+    const key = authSessionStorageKey('customer', 'guest-test')
+    storeAuthSession(key, {
+      role: 'customer', subjectId: 'guest-test', customerId: 'guest-test',
+      tokenType: 'Bearer', accessToken: 'pomich_auth_v1.secret',
+      expiresAt: Math.floor(Date.now() / 1000) + 3600,
+    })
+    expect(window.sessionStorage.getItem(key)).not.toContain('secret')
+    expect(window.sessionStorage.getItem(key)).not.toContain('accessToken')
+
+    window.history.replaceState({}, '', '/?admin_token=one-time-secret#admin')
+    expect(getStoredQueryToken('admin_token', 'pomichAdminToken')).toBe('one-time-secret')
+    expect(window.location.search).toBe('')
+    expect(window.sessionStorage.getItem('pomichAdminToken')).toBeNull()
+    expect(getStoredQueryToken('admin_token', 'pomichAdminToken')).toBe('one-time-secret')
+    await Promise.resolve()
+    expect(getStoredQueryToken('admin_token', 'pomichAdminToken')).toBeUndefined()
   })
 
   it('prefers telegram customer id over stale web guest token', () => {

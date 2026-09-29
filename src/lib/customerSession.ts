@@ -2,6 +2,7 @@ import {
   createGuestCustomerSession,
   createTelegramCustomerSession,
   getUserAccount,
+  restoreBrowserSession,
   type AuthSession,
   type CustomerProfile,
 } from "../api/client"
@@ -234,6 +235,18 @@ export async function resolveCustomerAuthSession(
   let customerId = restored?.customerId ?? expectedCustomerId
   let token =
     restored?.token ?? readStoredAuthSession(authSessionStorageKey("customer", customerId), "customer", customerId)
+
+  if (!token && !ctx.chatId && !isExplicitLogout()) {
+    try {
+      const browserSession = await restoreBrowserSession("customer")
+      if (browserSession?.customerId && browserSession.accessToken) {
+        customerId = applyCustomerAuthSession(browserSession)
+        token = browserSession.accessToken
+      }
+    } catch {
+      // Network failures still use the existing guest/phone login flow.
+    }
+  }
 
   if (token) {
     let account: UserAccountStatus

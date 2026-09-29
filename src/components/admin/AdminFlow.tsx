@@ -6,6 +6,7 @@ import {
   adminUpdateProvider,
   createAdminAccountSession,
   createAdminSession,
+  restoreBrowserSession,
   getAdminClients,
   getAdminOrders,
   getAdminOpsLog,
@@ -181,10 +182,19 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
     if (adminAuthToken) return
     if (!adminToken) {
       setAuthError(undefined)
-      return
+      let cancelled = false
+      void restoreBrowserSession("admin").then((session) => {
+        if (cancelled || !session) return
+        storeAuthSession(adminSessionStorageKey, session)
+        setAdminAccessToken(session.accessToken)
+      }).catch(() => undefined)
+      return () => { cancelled = true }
     }
     if (isAuthSessionToken(adminToken)) {
-      if (typeof window !== "undefined") window.sessionStorage.setItem(adminSessionStorageKey, adminToken)
+      storeAuthSession(adminSessionStorageKey, {
+        role: "admin", subjectId: "admin", tokenType: "Bearer", accessToken: adminToken,
+        expiresAt: Math.floor(Date.now() / 1000) + 3600,
+      })
       setAdminAccessToken(adminToken)
       setAuthError(undefined)
       return

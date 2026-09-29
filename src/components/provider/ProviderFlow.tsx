@@ -5,6 +5,7 @@ import {
   createProviderAccountSession,
   createProviderSession,
   createSelfProviderSession,
+  restoreBrowserSession,
   declineProviderOffer,
   getCustomerProfile,
   getOrder,
@@ -626,6 +627,8 @@ export default function ProviderFlow({
       if (providerToken) {
         return createProviderSession(providerId, providerToken)
       }
+      const restored = await restoreBrowserSession("provider")
+      if (restored) return restored
       throw new Error("provider_auth_missing")
     }
 
