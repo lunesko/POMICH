@@ -7,6 +7,11 @@ import { initMobileCompactClasses } from './hooks/useMobileCompact'
 import { applyPomichThemeToDocument, resolveInitialPomichTheme } from './lib/theme'
 import { initTelegramApp, syncAppViewportHeight } from './telegram'
 
+// Load after the application bootstrap; reporting must never block first paint.
+if (typeof window !== 'undefined') {
+  void import('./lib/webVitals').then(({ startWebVitals }) => startWebVitals()).catch(() => undefined)
+}
+
 async function bootstrap() {
   await (window.__pomichTelegramReady ?? Promise.resolve())
   const telegramContext = initTelegramApp()

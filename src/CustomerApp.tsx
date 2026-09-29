@@ -173,6 +173,9 @@ export default function CustomerApp() {
     return null
   }, [telegramContext.botKind, telegramContext.chatId, telegramContext.initData, telegramLoggedOut])
   const [role, setRole] = useState<Role | null>(initialRole)
+  useEffect(() => {
+    document.documentElement.dataset.pomichView = role ?? 'landing'
+  }, [role])
   const [account, setAccount] = useState<UserAccountStatus | null>(null)
   const [showOnboarding, setShowOnboarding] = useState(() => {
     if (initialRole === "customer" || initialRole === "provider") {
