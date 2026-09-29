@@ -67,6 +67,9 @@ jobs:
 
   postgis-runtime:
     name: PostGIS runtime smoke
+    # The restore drill starts a second PostGIS container; avoid competing with
+    # the browser suite for the runner's memory.
+    needs: test
     runs-on: ubuntu-latest
 
     services:
