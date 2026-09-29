@@ -3,7 +3,7 @@ from __future__ import annotations
 import hmac
 import uuid
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Request, Response
 
 from bot.api_deps import (
     configured_admin_secret,
@@ -32,6 +32,7 @@ from bot.order_store import (
 )
 from bot.otp_verification import OtpVerificationError, confirm_customer_verification_code, send_customer_verification_code
 from bot.telegram_config import normalize_telegram_bot_kind
+from bot.browser_sessions import clear_browser_sessions, require_same_origin, restore_browser_session, set_browser_session
 
 router = APIRouter(tags=["auth"])
 
@@ -58,26 +59,29 @@ def _secrets_match(supplied: str | None, expected: str) -> bool:
 
 
 @router.post("/auth/admin/session")
-def create_admin_session(x_pomich_admin_token: str | None = Header(default=None)) -> dict:
+def create_admin_session(response: Response, x_pomich_admin_token: str | None = Header(default=None)) -> dict:
     secret = configured_admin_secret()
     if not _secrets_match(x_pomich_admin_token, secret):
         raise HTTPException(status_code=401, detail="admin_token_invalid")
-    return issue_role_session("admin", "admin", secret)
+    session = issue_role_session("admin", "admin", secret)
+    set_browser_session(response, session)
+    return session
 
 
 @router.post("/auth/admin/login")
-def create_admin_account_session(payload: dict) -> dict:
+def create_admin_account_session(payload: dict, response: Response) -> dict:
     account = find_admin_account(str(payload.get("username") or ""), str(payload.get("password") or ""))
     if account is None:
         raise HTTPException(status_code=401, detail="admin_credentials_invalid")
     subject_id = str(account.get("id") or account.get("username") or "admin").strip()
     session = issue_role_session("admin", subject_id, configured_admin_secret())
     session["username"] = str(account.get("username") or subject_id)
+    set_browser_session(response, session)
     return session
 
 
 @router.post("/auth/provider/session")
-def create_provider_session(payload: dict, x_pomich_provider_token: str | None = Header(default=None)) -> dict:
+def create_provider_session(payload: dict, response: Response, x_pomich_provider_token: str | None = Header(default=None)) -> dict:
     secret = configured_provider_secret()
     if not _secrets_match(x_pomich_provider_token, secret):
         raise HTTPException(status_code=401, detail="provider_token_invalid")
@@ -88,11 +92,12 @@ def create_provider_session(payload: dict, x_pomich_provider_token: str | None =
     # /auth/provider/login or /auth/provider/self/session for day-to-day partner auth.
     session = issue_role_session("provider", provider_id, secret)
     session["providerId"] = provider_id
+    set_browser_session(response, session)
     return session
 
 
 @router.post("/auth/provider/self/session")
-def create_self_provider_session(payload: dict, authorization: str | None = Header(default=None)) -> dict:
+def create_self_provider_session(payload: dict, response: Response, authorization: str | None = Header(default=None)) -> dict:
     customer_id = str(payload.get("customerId") or "").strip()
     if not customer_id:
         raise HTTPException(status_code=400, detail="customerId missing")
@@ -108,11 +113,12 @@ def create_self_provider_session(payload: dict, authorization: str | None = Head
     sync_linked_provider_phone_verification_from_customer(provider_id)
     session = issue_role_session("provider", provider_id, configured_provider_secret())
     session["providerId"] = provider_id
+    set_browser_session(response, session)
     return session
 
 
 @router.post("/auth/provider/login")
-def create_provider_account_session(payload: dict) -> dict:
+def create_provider_account_session(payload: dict, response: Response) -> dict:
     provider_id = str(payload.get("providerId") or "").strip()
     login = str(payload.get("login") or payload.get("username") or provider_id).strip()
     account = find_provider_account(login, str(payload.get("password") or ""), provider_id)
@@ -121,11 +127,12 @@ def create_provider_account_session(payload: dict) -> dict:
     session = issue_role_session("provider", str(account["providerId"]), configured_provider_secret())
     session["providerId"] = str(account["providerId"])
     session["username"] = str(account.get("username") or login)
+    set_browser_session(response, session)
     return session
 
 
 @router.post("/auth/customer/guest/session")
-def create_guest_customer_session(payload: dict | None = None) -> dict:
+def create_guest_customer_session(response: Response, payload: dict | None = None) -> dict:
     """Mint a guest customer bearer.
 
     Security rules:
@@ -153,11 +160,13 @@ def create_guest_customer_session(payload: dict | None = None) -> dict:
     session["customerId"] = customer_id
     session["profile"] = profile
     session["account"] = build_user_account_status(customer_id)
+    set_browser_session(response, session)
     return session
 
 
 @router.post("/auth/customer/telegram/session")
 def create_telegram_customer_session(
+    response: Response,
     payload: dict | None = None,
     x_telegram_init_data: str | None = Header(default=None),
     x_pomich_telegram_bot: str | None = Header(default=None),
@@ -192,6 +201,7 @@ def create_telegram_customer_session(
     session["telegramBotKind"] = bot_kind
     if bot_kind == "provider":
         session["providerAccount"] = _provider_account_summary(customer_id, profile)
+    set_browser_session(response, session)
     return session
 
 
@@ -253,7 +263,7 @@ def customer_phone_login_send(payload: dict) -> dict:
 
 
 @router.post("/auth/customer/phone/login/confirm")
-def customer_phone_login_confirm(payload: dict) -> dict:
+def customer_phone_login_confirm(payload: dict, response: Response) -> dict:
     phone = str(payload.get("phone") or "").strip()
     code = str(payload.get("code") or "").strip()
     if not phone:
@@ -270,4 +280,19 @@ def customer_phone_login_confirm(payload: dict) -> dict:
     session["customerId"] = customer_id
     session["profile"] = confirmed_profile
     session["account"] = build_user_account_status(customer_id)
+    set_browser_session(response, session)
     return session
+
+
+@router.post("/auth/browser/restore")
+def browser_restore(payload: dict, request: Request, response: Response) -> dict:
+    require_same_origin(request)
+    return restore_browser_session(request, response, str(payload.get("role") or ""))
+
+
+@router.post("/auth/browser/logout", status_code=204)
+def browser_logout(request: Request) -> Response:
+    require_same_origin(request)
+    response = Response(status_code=204)
+    clear_browser_sessions(response)
+    return response

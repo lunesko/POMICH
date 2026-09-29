@@ -523,6 +523,33 @@ export async function createAdminSession(adminToken: string) {
   return response.json() as Promise<AuthSession>
 }
 
+export async function restoreBrowserSession(role: 'customer' | 'provider' | 'admin'): Promise<AuthSession | undefined> {
+  const response = await fetch(`${getBaseUrl()}/auth/browser/restore`, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ role }),
+  })
+  if (response.status === 401) return undefined
+  if (!response.ok) throw new Error(`Session restore failed with ${response.status}`)
+  const session = await response.json() as Partial<AuthSession>
+  if (session.role !== role || typeof session.subjectId !== 'string' || !session.subjectId ||
+      typeof session.accessToken !== 'string' || !session.accessToken.startsWith('pomich_auth_v1.') ||
+      typeof session.expiresAt !== 'number' || session.expiresAt <= Date.now() / 1000) {
+    throw new Error('Invalid browser session response')
+  }
+  return session as AuthSession
+}
+
+export async function logoutBrowserSessions(): Promise<void> {
+  const response = await fetch(`${getBaseUrl()}/auth/browser/logout`, {
+    method: 'POST',
+    credentials: 'same-origin',
+    keepalive: true,
+  })
+  if (!response.ok) throw new Error(`Browser logout failed with ${response.status}`)
+}
+
 export async function createAdminAccountSession(username: string, password: string) {
   const response = await fetch(`${getBaseUrl()}/auth/admin/login`, {
     method: 'POST',

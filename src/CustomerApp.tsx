@@ -1,6 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
 
-import { getUserAccount, updateProviderPresence, type UserAccountStatus } from "./api/client"
+import { getUserAccount, logoutBrowserSessions, updateProviderPresence, type UserAccountStatus } from "./api/client"
 import AppShell from "./components/layout/AppShell"
 import LandingPage from "./components/landing/LandingPage"
 import CustomerAppFallback from "./components/CustomerAppFallback"
@@ -162,10 +162,10 @@ export default function CustomerApp() {
           typeof window !== "undefined" &&
             (window.sessionStorage.getItem("pomichLinkedProviderId") || window.localStorage.getItem("pomichLinkedProviderId")),
         )
-        if (storedRole === "provider" && (hasCustomerSession || hasLinkedProvider || telegramContext.initData)) {
+        if (storedRole === "provider" && (hasCustomerSession || hasLinkedProvider || telegramContext.initData || readPersistedCustomerId() !== "customer-web")) {
           return "provider"
         }
-        if (storedRole === "customer" && (hasCustomerSession || telegramContext.initData)) {
+        if (storedRole === "customer") {
           return "customer"
         }
       }
@@ -448,7 +448,7 @@ export default function CustomerApp() {
     }
     goToLanding()
   }, [enterCustomerFlow, enterPartnerFlow, goToLanding])
-  const handleLogout = () => {
+  const handleLogout = async () => {
     // Block Telegram auto-relogin AND web session restore after explicit logout.
     markExplicitLogout(telegramContext.isTelegram ? telegramContext.chatId : undefined)
     // Always leave the ride first — logout must work from completion/review screens.
@@ -466,6 +466,12 @@ export default function CustomerApp() {
     setShowCabinet(false)
     setShowLanding(true)
     setRole(null)
+
+    try {
+      await logoutBrowserSessions()
+    } catch {
+      // Local logout still completes if the network is unavailable.
+    }
 
     if (typeof window !== "undefined") {
       const url = new URL(window.location.href)

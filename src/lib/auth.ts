@@ -1,16 +1,22 @@
 import type { AuthSession } from "../api/client"
 
+const inMemorySessions = new Map<string, AuthSession>()
+const renderBootstrapTokens = new Map<string, string>()
+
 export function getStoredQueryToken(queryName: string, storageName: string) {
   if (typeof window === "undefined") return undefined
   const url = new URL(window.location.href)
   const queryToken = url.searchParams.get(queryName)
-  const token = queryToken ?? window.sessionStorage.getItem(storageName)
-  if (token) window.sessionStorage.setItem(storageName, token)
+  // Clear tokens left by older releases. New secrets live in memory only.
+  window.sessionStorage.removeItem(storageName)
   if (queryToken) {
+    // StrictMode renders twice synchronously. Keep the token only for this turn.
+    renderBootstrapTokens.set(storageName, queryToken)
+    queueMicrotask(() => renderBootstrapTokens.delete(storageName))
     url.searchParams.delete(queryName)
     window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`)
   }
-  return token ?? undefined
+  return queryToken || renderBootstrapTokens.get(storageName)
 }
 
 export const AUTH_SESSION_PREFIX = "pomich_auth_v1."
@@ -42,21 +48,19 @@ export function authSessionStorageKey(role: "admin" | "provider" | "customer", s
 export function readStoredAuthSession(storageKey: string, expectedRole: "admin" | "provider" | "customer", expectedSubjectId: string) {
   if (typeof window === "undefined") return undefined
   const rawValue = window.sessionStorage.getItem(storageKey)
-  if (!rawValue) return undefined
-
-  try {
-    const session = JSON.parse(rawValue) as Partial<AuthSession>
-    const expiresAt = Number(session.expiresAt ?? 0)
-    if (session.role !== expectedRole || session.subjectId !== expectedSubjectId || !isAuthSessionToken(session.accessToken) || expiresAt <= Math.floor(Date.now() / 1000) + 30) {
-      window.sessionStorage.removeItem(storageKey)
-      return undefined
-    }
-    return session.accessToken
-  } catch {
-    if (isAuthSessionToken(rawValue)) return rawValue
+  const session = inMemorySessions.get(storageKey)
+  if (!rawValue || !session || session.role !== expectedRole || (expectedRole !== "admin" && session.subjectId !== expectedSubjectId) || !isAuthSessionToken(session.accessToken) || session.expiresAt <= Math.floor(Date.now() / 1000) + 30) {
+    inMemorySessions.delete(storageKey)
     window.sessionStorage.removeItem(storageKey)
     return undefined
   }
+  // Never accept an old persisted bearer, even if it looks valid.
+  if (rawValue.includes('accessToken') || rawValue.startsWith(AUTH_SESSION_PREFIX)) {
+    inMemorySessions.delete(storageKey)
+    window.sessionStorage.removeItem(storageKey)
+    return undefined
+  }
+  return session.accessToken
 }
 
 export const CUSTOMER_ID_STORAGE_KEY = "pomichCustomerId"
@@ -146,6 +150,9 @@ export function purgeStaleCustomerSessions(activeCustomerId: string) {
     if (customerId !== activeCustomerId) keysToRemove.push(key)
   }
   keysToRemove.forEach((key) => window.sessionStorage.removeItem(key))
+  for (const key of inMemorySessions.keys()) {
+    if (key.startsWith("pomichAuthSession:customer:") && key !== authSessionStorageKey("customer", activeCustomerId)) inMemorySessions.delete(key)
+  }
 }
 
 /** True when browser persisted id differs from the Telegram user (stale desktop guest session). */
@@ -218,6 +225,9 @@ export function clearCustomerAuthStorage() {
     if (key?.startsWith("pomichAuthSession:customer:")) keysToRemove.push(key)
   }
   keysToRemove.forEach((key) => window.sessionStorage.removeItem(key))
+  for (const key of inMemorySessions.keys()) {
+    if (key.startsWith("pomichAuthSession:customer:")) inMemorySessions.delete(key)
+  }
 }
 
 /**
@@ -228,8 +238,10 @@ export function clearProviderAuthStorage(options?: { includeAdmin?: boolean }) {
   if (typeof window === "undefined") return
 
   window.sessionStorage.removeItem("pomichProviderToken")
+  renderBootstrapTokens.delete("pomichProviderToken")
   if (options?.includeAdmin) {
     window.sessionStorage.removeItem("pomichAdminToken")
+    renderBootstrapTokens.delete("pomichAdminToken")
   }
 
   const keysToRemove: string[] = []
@@ -245,6 +257,9 @@ export function clearProviderAuthStorage(options?: { includeAdmin?: boolean }) {
     }
   }
   keysToRemove.forEach((key) => window.sessionStorage.removeItem(key))
+  for (const key of inMemorySessions.keys()) {
+    if (key.startsWith("pomichAuthSession:provider:") || (options?.includeAdmin && key.startsWith("pomichAuthSession:admin:"))) inMemorySessions.delete(key)
+  }
 }
 
 /** Clear every auth token and persisted session (logout only — not role switch). */
@@ -256,6 +271,8 @@ export function clearAllAuthStorage() {
   clearSessionMismatchDismiss()
   window.sessionStorage.removeItem("pomichProviderToken")
   window.sessionStorage.removeItem("pomichAdminToken")
+  renderBootstrapTokens.clear()
+  inMemorySessions.clear()
   window.sessionStorage.removeItem("pomichLinkedProviderId")
   // Leave active ride so logout from completion/review never restores the order UI.
   window.sessionStorage.removeItem("pomichActiveOrder")
@@ -278,7 +295,9 @@ export function clearAllAuthStorage() {
 
 export function storeAuthSession(storageKey: string, session: AuthSession) {
   if (typeof window === "undefined") return
-  window.sessionStorage.setItem(storageKey, JSON.stringify(session))
+  inMemorySessions.set(storageKey, session)
+  // Metadata signals a same-tab session, but must never contain the bearer.
+  window.sessionStorage.setItem(storageKey, JSON.stringify({ role: session.role, subjectId: session.subjectId, expiresAt: session.expiresAt }))
   if (session.role === "customer") {
     const customerId = session.customerId ?? session.subjectId
     if (customerId) persistCustomerId(customerId)
