@@ -102,6 +102,20 @@ jobs:
           DATABASE_URL: postgresql+psycopg://pomich:pomich@127.0.0.1:5432/pomich
         run: python scripts/postgis_smoke.py
 
+      - name: Verify PostGIS backup restore round trip
+        env:
+          PGPASSWORD: pomich
+        run: |
+          bash -n scripts/ops/backup_postgres.sh scripts/ops/verify_postgres_backup.sh
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client-16
+          /usr/lib/postgresql/16/bin/pg_dump -h 127.0.0.1 -U pomich -d pomich -Fc --no-owner --no-acl -f "$RUNNER_TEMP/pomich-ci.dump"
+          (cd "$RUNNER_TEMP" && sha256sum pomich-ci.dump > pomich-ci.dump.sha256)
+          (cd "$RUNNER_TEMP" && sha256sum --check pomich-ci.dump.sha256)
+          /usr/lib/postgresql/16/bin/psql -h 127.0.0.1 -U pomich -d pomich -c 'CREATE DATABASE pomich_verify'
+          /usr/lib/postgresql/16/bin/pg_restore -h 127.0.0.1 -U pomich -d pomich_verify --exit-on-error --no-owner --no-acl "$RUNNER_TEMP/pomich-ci.dump"
+          test "$(/usr/lib/postgresql/16/bin/psql -h 127.0.0.1 -U pomich -d pomich_verify -Atc "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'")" -gt 0
+
   deploy-production:
     name: Deploy production
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'

@@ -1,0 +1,12 @@
+[Unit]
+Description=POMICH PostgreSQL encrypted off-site backup
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/pomich
+EnvironmentFile=/etc/pomich/backup.env
+ExecStart=/opt/pomich/scripts/ops/backup_postgres.sh
+TimeoutStartSec=30min
