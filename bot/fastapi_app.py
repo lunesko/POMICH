@@ -21,7 +21,7 @@ from bot.api_deps import (
     runtime_config_errors,
     validate_runtime_config,
 )
-from bot.routers import admin, auth, customers, events, health, internal, orders, providers, telegram, ws
+from bot.routers import admin, auth, customers, events, health, internal, orders, providers, telegram, telemetry, ws
 from bot.security_headers import SecurityHeadersMiddleware
 from bot.telegram_bot import notify_dispatch_offers, notify_order_accepted, notify_order_cancelled, notify_order_created
 from bot.runtime_store import get_engine, sql_storage_enabled
@@ -95,6 +95,7 @@ app.add_middleware(SecurityHeadersMiddleware)
 
 _API_ROUTERS = (
     health.router,
+    telemetry.router,
     admin.router,
     auth.router,
     customers.router,
