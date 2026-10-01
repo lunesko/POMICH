@@ -33,6 +33,41 @@ SKIP_DIRS = {
 }
 SKIP_FILES = {".env.deploy", "deploy.py"}
 
+_LFS_POINTER_PREFIX = b"version https://git-lfs.github.com/spec/v1"
+# Binaries that must be real files on the deploy host (not Git LFS pointer stubs).
+_LFS_CRITICAL_GLOBS = (
+    "public/fonts/*.woff2",
+    "public/*.png",
+    "public/*.ico",
+    "public/*.jpg",
+    "public/maps/*",
+    "public/geo/*",
+)
+
+
+def assert_no_lfs_pointers(local_root=None) -> None:
+    """Fail fast if deploy would ship Git LFS pointer stubs (blank Mini App / broken fonts)."""
+    root = Path(local_root) if local_root else Path(__file__).parent.resolve()
+    offenders = []
+    for pattern in _LFS_CRITICAL_GLOBS:
+        for path in root.glob(pattern):
+            if not path.is_file():
+                continue
+            try:
+                head = path.read_bytes()[:64]
+            except OSError:
+                continue
+            if head.startswith(_LFS_POINTER_PREFIX):
+                offenders.append(str(path.relative_to(root)))
+    if offenders:
+        joined = ", ".join(offenders[:12])
+        more = f" (+{len(offenders) - 12} more)" if len(offenders) > 12 else ""
+        print(
+            "ERROR: Git LFS pointer files present — run `git lfs pull` before deploy:\n"
+            f"  {joined}{more}"
+        )
+        sys.exit(1)
+
 
 def _generate_bootstrap_secret(nbytes: int = 32) -> str:
     return secrets.token_urlsafe(nbytes)
@@ -259,6 +294,7 @@ def main():
         run(ssh, "apt-get update && apt-get install -y docker-compose-plugin")
 
     print("\n3) Uploading project files...")
+    assert_no_lfs_pointers()
     upload_project(ssh)
 
     print("\n4) Creating .env.production...")
