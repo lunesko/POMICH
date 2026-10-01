@@ -2,6 +2,7 @@ import { Component, type ErrorInfo, type ReactNode } from "react"
 
 import {
   clearClientCaches,
+  hardBootNavigate,
   isChunkLoadError,
   recoverFromChunkError,
   resetChunkReloadGuard,
@@ -34,7 +35,7 @@ export default class FlowChunkBoundary extends Component<FlowChunkBoundaryProps,
   private retry = () => {
     this.setState({ error: null })
     resetChunkReloadGuard()
-    void clearClientCaches().finally(() => window.location.reload())
+    void clearClientCaches().finally(() => hardBootNavigate())
   }
 
   render() {

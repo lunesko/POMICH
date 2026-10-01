@@ -2,6 +2,7 @@ import { Component, type ErrorInfo, type ReactNode } from "react"
 
 import {
   clearClientCaches,
+  hardBootNavigate,
   recoverFromChunkError,
   resetChunkReloadGuard,
 } from "../../lib/chunkRecovery"
@@ -29,7 +30,7 @@ export default class PomichErrorBoundary extends Component<PomichErrorBoundaryPr
   private reload = () => {
     if (typeof window === "undefined") return
     resetChunkReloadGuard()
-    void clearClientCaches().finally(() => window.location.reload())
+    void clearClientCaches().finally(() => hardBootNavigate())
   }
 
   render() {

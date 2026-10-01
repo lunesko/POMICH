@@ -17,8 +17,16 @@ async function bootstrap() {
   // Drop one-shot cache-bust query from boot recovery so shares/bookmarks stay clean.
   try {
     const url = new URL(window.location.href)
+    let changed = false
     if (url.searchParams.has('_pomich')) {
       url.searchParams.delete('_pomich')
+      changed = true
+    }
+    if (url.searchParams.has('_clear')) {
+      url.searchParams.delete('_clear')
+      changed = true
+    }
+    if (changed) {
       window.history.replaceState({}, '', url.pathname + url.search + url.hash)
     }
   } catch {
@@ -48,7 +56,7 @@ void bootstrap()
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker
-      .register('/pomich-sw.js?v=44')
+      .register('/pomich-sw.js?v=45')
       .then((registration) => {
         // Pick up new SW quickly after deploy so hashed chunks stay in sync.
         registration.update().catch(() => undefined)

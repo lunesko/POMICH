@@ -1606,6 +1606,11 @@ def test_dist_root_static_files_served_before_spa_fallback(tmp_path, monkeypatch
     assert "no-store" in (index.headers.get("cache-control") or "")
     assert "no-cache" in (index.headers.get("cache-control") or "")
 
+    cleared = client.get("/?_pomich=1&_clear=1")
+    assert cleared.status_code == 200
+    assert "clear-site-data" in {k.lower() for k in cleared.headers.keys()}
+    assert "cache" in (cleared.headers.get("clear-site-data") or "").lower()
+
 
 def test_dispatch_list_excludes_directory_and_map_is_slim(monkeypatch, tmp_path) -> None:
     _use_temp_store(monkeypatch, tmp_path)
