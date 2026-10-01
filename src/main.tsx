@@ -38,7 +38,7 @@ void bootstrap()
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker
-      .register('/pomich-sw.js?v=40')
+      .register('/pomich-sw.js?v=41')
       .then((registration) => {
         // Pick up new SW quickly after deploy so hashed chunks stay in sync.
         registration.update().catch(() => undefined)

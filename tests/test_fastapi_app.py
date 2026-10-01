@@ -71,6 +71,11 @@ def _use_provider_auth(monkeypatch) -> dict:
 
 
 def _provider_session_headers(client: TestClient, provider_id: str) -> dict:
+    if order_store.get_provider_profile(provider_id) is None:
+        order_store.update_provider_profile(
+            provider_id,
+            {"name": provider_id, "status": "offline", "specialties": ["tow"]},
+        )
     response = client.post("/api/auth/provider/session", headers=PROVIDER_HEADERS, json={"providerId": provider_id})
     assert response.status_code == 200
     return {"Authorization": f"Bearer {response.json()['accessToken']}"}
@@ -594,6 +599,41 @@ def test_fastapi_telegram_mini_app_order_uses_verified_identity(monkeypatch, tmp
     assert response.json()["chatId"] == "42"
     assert response.json()["customerId"] == "tg-42"
     assert response.json()["customerIdentity"]["type"] == "telegram"
+
+
+def test_fastapi_telegram_mini_app_order_requires_session_when_bots_unset(monkeypatch, tmp_path) -> None:
+    """Without Telegram bot tokens, source=telegram-mini-app must not skip auth."""
+    _use_temp_store(monkeypatch, tmp_path)
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("POMICH_TELEGRAM_CUSTOMER_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("POMICH_TELEGRAM_PROVIDER_BOT_TOKEN", raising=False)
+    monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", CUSTOMER_SESSION_SECRET)
+    client = TestClient(app)
+
+    anonymous = client.post(
+        "/api/orders",
+        json={
+            "source": "telegram-mini-app",
+            "service": "tow",
+            "status": "draft",
+            "customerId": "tg-attacker",
+        },
+    )
+    assert anonymous.status_code == 401
+    assert anonymous.json()["detail"] == "customer_session_required"
+
+    headers = _customer_session_headers(client)
+    authed = client.post(
+        "/api/orders",
+        headers=headers,
+        json={
+            "source": "telegram-mini-app",
+            "service": "tow",
+            "status": "draft",
+        },
+    )
+    assert authed.status_code == 201
+    assert authed.json()["customerId"].startswith("guest-")
 
 
 def test_fastapi_rejects_admin_orders_without_token(monkeypatch) -> None:
@@ -1380,6 +1420,13 @@ def test_fastapi_provider_public_card_no_auth(monkeypatch, tmp_path) -> None:
     assert body["name"] == "p-public"
     assert len(body["reviews"]) == 1
     assert body["reviews"][0]["comment"] == "Good job"
+    # Public card must not leak contacts or exact GPS (same privacy bar as map pins).
+    assert "phone" not in body
+    assert "telegram" not in body
+    location = body.get("location")
+    assert isinstance(location, dict)
+    assert location["lat"] == round(float(location["lat"]), 3)
+    assert location["lng"] == round(float(location["lng"]), 3)
 
 
 def test_geo_static_files_served_before_spa_fallback(tmp_path, monkeypatch):
