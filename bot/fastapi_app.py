@@ -8,7 +8,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -173,6 +173,14 @@ _INDEX_NO_CACHE_HEADERS = {
     "Expires": "0",
     "Surrogate-Control": "no-store",
 }
+
+
+def _index_response_headers(*, clear_site_data: bool = False) -> dict[str, str]:
+    headers = dict(_INDEX_NO_CACHE_HEADERS)
+    if clear_site_data:
+        # Wipe Cache Storage + SW-related storage for stuck Telegram WebViews.
+        headers["Clear-Site-Data"] = '"cache", "storage"'
+    return headers
 
 
 # Dotfiles and VCS/config paths must never fall through to SPA index.html (scanners get HTML 200).
@@ -426,7 +434,7 @@ def sitemap_xml():
 
 @app.get("/")
 @app.get("/{full_path:path}")
-def serve_frontend(full_path: str = ""):
+def serve_frontend(request: Request, full_path: str = ""):
     normalized = str(full_path or "").lstrip("/")
     if _is_sensitive_spa_path(normalized):
         raise HTTPException(status_code=404, detail="Not found")
@@ -480,9 +488,10 @@ def serve_frontend(full_path: str = ""):
         if index_path.exists():
             # HTMLResponse (not FileResponse) — avoid ETag/304 so Telegram WebView
             # cannot keep a stale shell that points at deleted Vite chunks.
+            clear = bool(request.query_params.get("_pomich") or request.query_params.get("_clear"))
             return HTMLResponse(
                 index_path.read_text(encoding="utf-8"),
-                headers=_INDEX_NO_CACHE_HEADERS,
+                headers=_index_response_headers(clear_site_data=clear),
             )
         return {"detail": "Frontend build is missing. Run npm run build first."}
 

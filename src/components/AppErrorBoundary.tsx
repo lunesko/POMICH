@@ -2,6 +2,7 @@ import { Component, type ErrorInfo, type ReactNode } from "react"
 
 import {
   clearClientCaches,
+  hardBootNavigate,
   isChunkLoadError,
   recoverFromChunkError,
   resetChunkReloadGuard,
@@ -30,7 +31,7 @@ export default class AppErrorBoundary extends Component<AppErrorBoundaryProps, A
   private retry = () => {
     this.setState({ error: null })
     resetChunkReloadGuard()
-    void clearClientCaches().finally(() => window.location.reload())
+    void clearClientCaches().finally(() => hardBootNavigate())
   }
 
   render() {

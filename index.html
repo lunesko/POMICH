@@ -29,8 +29,7 @@
     <meta name="twitter:description" content="Викликайте евакуатор, АКБ, колесо або пальне поруч із вами." />
     <meta name="twitter:image" content="https://pomich.help/og-cover.jpg" />
     <link rel="preconnect" href="https://telegram.org" crossorigin />
-    <!-- Self-hosted Sora (latin) — no fonts.googleapis.com round-trip on critical path -->
-    <link rel="preload" href="/fonts/sora-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <!-- Fonts load via CSS @font-face — do not preload (LFS stubs used to break Mini App boot). -->
     <link rel="dns-prefetch" href="https://telegram.org" />
     <link rel="dns-prefetch" href="https://tile.openstreetmap.org" />
     <link rel="dns-prefetch" href="https://basemaps.cartocdn.com" />
@@ -139,6 +138,9 @@
           >
             Оновити
           </button>
+          <p id="pomich-boot-hint" style="display:none;margin:14px 0 0;font-size:0.85rem;line-height:1.4;opacity:0.75;font-weight:600;">
+            Якщо кнопка не допомагає — закрийте Mini App хрестиком і відкрийте знову з бота.
+          </p>
         </div>
       </div>
     </div>
@@ -147,7 +149,9 @@
         var KEY = "pomich-boot-reload"
         var msg = document.getElementById("pomich-boot-msg")
         var btn = document.getElementById("pomich-boot-reload")
-        var navigating = false
+        var hint = document.getElementById("pomich-boot-hint")
+        var reloadStarted = false
+        var lastNext = ""
 
         function alreadyBusted() {
           try {
@@ -157,24 +161,93 @@
           }
         }
 
-        function hardNavigate() {
-          if (navigating) return
-          navigating = true
-          var next
-          try {
-            var url = new URL(location.href)
-            url.searchParams.set("_pomich", String(Date.now()))
-            next = url.toString()
-          } catch (e) {
-            next = location.pathname + location.search + (location.search ? "&" : "?") + "_pomich=" + Date.now() + location.hash
-          }
+        function buildNextUrl() {
+          return location.origin + "/?_pomich=" + Date.now() + "&_clear=1"
+        }
+
+        function tryBrowserNavigate(next) {
+          // Telegram WebView often ignores one of these; try several.
           try {
             location.replace(next)
-          } catch (e1) {
-            try {
-              location.href = next
-            } catch (e2) {}
+          } catch (e1) {}
+          try {
+            location.assign(next)
+          } catch (e2) {}
+          try {
+            location.href = next
+          } catch (e3) {}
+          try {
+            var a = document.createElement("a")
+            a.href = next
+            a.rel = "noopener"
+            a.style.display = "none"
+            document.body.appendChild(a)
+            a.click()
+          } catch (e4) {}
+        }
+
+        function tryTelegramOpen(next, openBot) {
+          try {
+            var tg = window.Telegram && window.Telegram.WebApp
+            if (!tg) return
+            if (typeof tg.openLink === "function") {
+              try {
+                tg.openLink(next, { try_instant_view: false })
+              } catch (e1) {}
+            }
+            if (openBot && typeof tg.openTelegramLink === "function") {
+              // Last resort: bounce through the bot so Mini App cold-starts.
+              try {
+                tg.openTelegramLink("https://t.me/pomich_ua_bot")
+              } catch (e2) {}
+            }
+          } catch (e3) {}
+        }
+
+        function stillOnBoot() {
+          return !!document.getElementById("pomich-boot")
+        }
+
+        function showExternalFallback(next) {
+          reloadStarted = false
+          if (msg) {
+            msg.textContent =
+              "Mini App не перезавантажується. Відкрийте в браузері або закрийте хрестиком і зайдіть з бота знову."
           }
+          if (hint) hint.style.display = "block"
+          if (!btn) return
+          btn.disabled = false
+          btn.removeAttribute("aria-busy")
+          btn.textContent = "Відкрити в браузері"
+          var openExternal = function (ev) {
+            try {
+              if (ev && ev.preventDefault) ev.preventDefault()
+            } catch (e) {}
+            var target = next || lastNext || buildNextUrl()
+            try {
+              window.open(target, "_blank")
+            } catch (e2) {}
+            tryTelegramOpen(target, true)
+          }
+          btn.onclick = openExternal
+          btn.ontouchend = openExternal
+        }
+
+        function hardNavigate(attempt) {
+          var n = typeof attempt === "number" ? attempt : 0
+          var next = buildNextUrl()
+          lastNext = next
+          tryBrowserNavigate(next)
+          // After first in-webview attempt fails, escape via Telegram openLink.
+          if (n >= 1) tryTelegramOpen(next, n >= 3)
+          if (n >= 3) {
+            showExternalFallback(next)
+            return
+          }
+          window.setTimeout(function () {
+            if (!stillOnBoot()) return
+            hardNavigate(n + 1)
+          }, n === 0 ? 400 : 900)
         }
 
         function clearCachesBestEffort() {
@@ -203,6 +276,8 @@
         }
 
         function clearAndReload() {
+          if (reloadStarted) return
+          reloadStarted = true
           if (btn) {
             btn.disabled = true
             btn.setAttribute("aria-busy", "true")
@@ -213,8 +288,8 @@
             sessionStorage.setItem(KEY, "1")
           } catch (e) {}
           clearCachesBestEffort()
-          window.setTimeout(hardNavigate, 120)
-          window.setTimeout(hardNavigate, 1500)
+          // Navigate immediately — do not wait on cache/SW promises (they hang in TG).
+          hardNavigate(0)
         }
 
         function showReload(reason, auto) {
@@ -224,6 +299,7 @@
             btn.disabled = false
             btn.textContent = "Оновити"
           }
+          if (hint) hint.style.display = "block"
           // Never auto-loop: if we already cache-busted once, wait for a tap.
           if (!auto || alreadyBusted()) return
           var already = false
@@ -247,21 +323,25 @@
           }
         }
 
+        function onReloadTap(ev) {
+          try {
+            if (ev && ev.preventDefault) ev.preventDefault()
+          } catch (e) {}
+          try {
+            if (ev && ev.stopPropagation) ev.stopPropagation()
+          } catch (e2) {}
+          clearAndReload()
+        }
+
         if (btn) {
-          btn.addEventListener("click", function (ev) {
-            try {
-              ev.preventDefault()
-            } catch (e) {}
-            clearAndReload()
-          })
+          // Inline + multiple events: TG WebView sometimes drops addEventListener clicks.
+          btn.onclick = onReloadTap
+          btn.ontouchend = onReloadTap
+          btn.addEventListener("click", onReloadTap, false)
+          btn.addEventListener("pointerup", onReloadTap, false)
           btn.addEventListener(
             "touchend",
-            function (ev) {
-              try {
-                ev.preventDefault()
-              } catch (e) {}
-              clearAndReload()
-            },
+            onReloadTap,
             { passive: false },
           )
         }

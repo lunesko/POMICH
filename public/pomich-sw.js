@@ -1,5 +1,5 @@
-const TILE_CACHE = "pomich-map-tiles-v44"
-const ASSET_CACHE = "pomich-assets-v44"
+const TILE_CACHE = "pomich-map-tiles-v45"
+const ASSET_CACHE = "pomich-assets-v45"
 const TILE_CACHE_MAX = 350
 const TILE_HOST_PATTERN = /(^|\.)(tile\.openstreetmap\.org|basemaps\.cartocdn\.com)$/
 // Vite emits name-HASH.ext (the hash may itself end with "-" or "_").
