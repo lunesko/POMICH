@@ -124,7 +124,104 @@
         <p>Увімкніть JavaScript або відкрийте Telegram-бота <a href="https://t.me/pomich_ua_bot">@pomich_ua_bot</a>.</p>
       </main>
     </noscript>
-    <div id="root"></div>
+    <div id="root">
+      <div
+        id="pomich-boot"
+        style="min-height:100dvh;display:flex;align-items:center;justify-content:center;padding:24px;font-family:system-ui,sans-serif;background:#E2E9E6;color:#1A2332;text-align:center;box-sizing:border-box;"
+      >
+        <div style="max-width:22rem;">
+          <div style="font-weight:900;font-size:1.15rem;letter-spacing:0.04em;">POMICH</div>
+          <p id="pomich-boot-msg" style="margin:12px 0 0;font-weight:700;line-height:1.45;opacity:0.85;">Завантаження…</p>
+          <button
+            id="pomich-boot-reload"
+            type="button"
+            style="display:none;margin-top:16px;min-height:44px;width:100%;border:none;border-radius:12px;background:linear-gradient(135deg,#16A36A 0%,#2F80ED 100%);color:#fff;font-weight:900;font-family:inherit;cursor:pointer;"
+          >
+            Оновити
+          </button>
+        </div>
+      </div>
+    </div>
+    <script>
+      (function () {
+        var KEY = "pomich-boot-reload"
+        var msg = document.getElementById("pomich-boot-msg")
+        var btn = document.getElementById("pomich-boot-reload")
+        var recovering = false
+        function clearAndReload() {
+          if (recovering) return
+          recovering = true
+          try {
+            sessionStorage.setItem(KEY, "1")
+          } catch (e) {}
+          var done = function () {
+            location.reload()
+          }
+          var tasks = []
+          try {
+            if (window.caches && caches.keys) {
+              tasks.push(
+                caches.keys().then(function (keys) {
+                  return Promise.all(keys.map(function (k) {
+                    return caches.delete(k)
+                  }))
+                }),
+              )
+            }
+          } catch (e) {}
+          try {
+            if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+              tasks.push(
+                navigator.serviceWorker.getRegistrations().then(function (regs) {
+                  return Promise.all(
+                    regs.map(function (reg) {
+                      return reg.unregister()
+                    }),
+                  )
+                }),
+              )
+            }
+          } catch (e) {}
+          Promise.all(tasks).then(done, done)
+        }
+        function showReload(reason) {
+          if (msg) msg.textContent = reason || "Не вдалося завантажити. Натисніть «Оновити» — очистимо кеш."
+          if (btn) btn.style.display = "block"
+          var already = false
+          try {
+            already = sessionStorage.getItem(KEY) === "1"
+          } catch (e) {}
+          if (!already) {
+            clearAndReload()
+          }
+        }
+        if (btn) btn.addEventListener("click", clearAndReload)
+        window.addEventListener(
+          "error",
+          function (ev) {
+            var t = ev && ev.target
+            if (!t || (t.tagName !== "SCRIPT" && t.tagName !== "LINK")) return
+            showReload("Після оновлення залишився старий кеш.")
+          },
+          true,
+        )
+        window.addEventListener("unhandledrejection", function (ev) {
+          var reason = ev && ev.reason
+          var text = reason && (reason.message || String(reason)) || ""
+          if (/Failed to fetch dynamically imported module|Loading chunk|Importing a module script failed/i.test(text)) {
+            showReload("Після оновлення залишився старий кеш.")
+          }
+        })
+        window.setTimeout(function () {
+          var root = document.getElementById("root")
+          if (!root) return
+          // React mounted — boot placeholder gone or replaced.
+          if (!document.getElementById("pomich-boot")) return
+          if (root.childElementCount > 1) return
+          showReload("Довге завантаження. Оновіть сторінку.")
+        }, 10000)
+      })()
+    </script>
     <script type="module" src="/src/main.tsx"></script>
     <!-- figma:body-end -->
   </body>

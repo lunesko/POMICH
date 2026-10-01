@@ -38,10 +38,14 @@ void bootstrap()
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker
-      .register('/pomich-sw.js?v=41')
+      .register('/pomich-sw.js?v=42')
       .then((registration) => {
         // Pick up new SW quickly after deploy so hashed chunks stay in sync.
         registration.update().catch(() => undefined)
+        // If an older SW is still controlling this tab, force an update cycle.
+        if (navigator.serviceWorker.controller) {
+          registration.update().catch(() => undefined)
+        }
         navigator.serviceWorker.addEventListener('controllerchange', () => {
           if (sessionStorage.getItem('pomich-sw-refresh') === '1') return
           sessionStorage.setItem('pomich-sw-refresh', '1')

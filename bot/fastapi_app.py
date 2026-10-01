@@ -168,9 +168,12 @@ elif DATA_GEO_DIR.exists():
 # A mount binds the directory at import time and breaks tests / can serve Git LFS pointers.
 
 _INDEX_NO_CACHE_HEADERS = {
-    "Cache-Control": "no-cache, no-store, must-revalidate",
+    "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
     "Pragma": "no-cache",
+    "Expires": "0",
+    "Surrogate-Control": "no-store",
 }
+
 
 # Dotfiles and VCS/config paths must never fall through to SPA index.html (scanners get HTML 200).
 _SENSITIVE_SPA_PREFIXES = (
@@ -460,7 +463,14 @@ def serve_frontend(full_path: str = ""):
 
     root_file = _resolve_dist_root_file(normalized)
     if root_file is not None:
-        headers = {"Cache-Control": "no-cache"} if root_file.name == "pomich-sw.js" else {"Cache-Control": "public, max-age=86400"}
+        if root_file.name == "pomich-sw.js":
+            headers = {
+                "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            }
+        else:
+            headers = {"Cache-Control": "public, max-age=86400"}
         media = _media_type_for_root_file(root_file)
         return FileResponse(root_file, media_type=media, headers=headers)
 
@@ -468,7 +478,12 @@ def serve_frontend(full_path: str = ""):
     if not normalized:
         index_path = DIST_DIR / "index.html"
         if index_path.exists():
-            return FileResponse(index_path, headers=_INDEX_NO_CACHE_HEADERS)
+            # HTMLResponse (not FileResponse) — avoid ETag/304 so Telegram WebView
+            # cannot keep a stale shell that points at deleted Vite chunks.
+            return HTMLResponse(
+                index_path.read_text(encoding="utf-8"),
+                headers=_INDEX_NO_CACHE_HEADERS,
+            )
         return {"detail": "Frontend build is missing. Run npm run build first."}
 
     return HTMLResponse(_not_found_html(), status_code=404, headers={"Cache-Control": "no-store"})
