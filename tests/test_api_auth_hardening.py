@@ -63,6 +63,9 @@ def test_nearby_orders_require_provider_session(monkeypatch, tmp_path) -> None:
     fastapi_tests._use_temp_store(monkeypatch, tmp_path)
     monkeypatch.setenv("POMICH_PROVIDER_TOKEN", "test-provider-secret-xxxxxxxx")
     client = TestClient(app)
+    from bot.order_store import update_provider_profile
+
+    update_provider_profile("p1", {"name": "p1", "status": "offline", "specialties": ["tow"]})
     save_order(
         {
             "id": "PM-OPEN",
@@ -144,20 +147,34 @@ def test_provider_bootstrap_requires_existing_provider(monkeypatch, tmp_path) ->
     fastapi_tests._use_temp_store(monkeypatch, tmp_path)
     monkeypatch.setenv("POMICH_PROVIDER_TOKEN", "test-provider-secret-xxxxxxxx")
     client = TestClient(app)
-    # Bootstrap still mints for unknown ids by design (ops). Constant-time compare still applies.
     denied = client.post(
         "/api/auth/provider/session",
         headers={"X-POMICH-Provider-Token": "wrong-provider-secret-xxxxxxxx"},
         json={"providerId": "provider-does-not-exist"},
     )
     assert denied.status_code == 401
-    ok = client.post(
+    missing = client.post(
         "/api/auth/provider/session",
         headers={"X-POMICH-Provider-Token": "test-provider-secret-xxxxxxxx"},
         json={"providerId": "provider-does-not-exist"},
     )
+    assert missing.status_code == 404
+    assert missing.json()["detail"] == "provider_not_found"
+
+    from bot.order_store import update_provider_profile
+
+    update_provider_profile(
+        "provider-oleksandr",
+        {"name": "Олександр", "status": "offline", "specialties": ["tow"]},
+    )
+    ok = client.post(
+        "/api/auth/provider/session",
+        headers={"X-POMICH-Provider-Token": "test-provider-secret-xxxxxxxx"},
+        json={"providerId": "provider-oleksandr"},
+    )
     assert ok.status_code == 200
-    assert ok.json()["providerId"] == "provider-does-not-exist"
+    assert ok.json()["providerId"] == "provider-oleksandr"
+    assert ok.json()["role"] == "provider"
 
 
 def test_sensitive_scanner_paths_are_not_spa_fallback(monkeypatch, tmp_path) -> None:

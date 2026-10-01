@@ -66,18 +66,27 @@ def create_order(payload: dict, authorization: str | None = Header(default=None)
     verified_telegram = None
     if source == "telegram-mini-app":
         verified_telegram = verify_init_data_or_raise(init_data)
-        user = (verified_telegram or {}).get("user") or {}
-        supplied_telegram_id = payload.get("telegramUserId") or payload.get("chatId")
-        if user.get("id") and supplied_telegram_id is not None and str(supplied_telegram_id) != str(user.get("id")):
-            raise HTTPException(status_code=401, detail="telegram_user_mismatch")
-        apply_verified_telegram_identity(payload, verified_telegram)
-        if customer_principal is not None and payload.get("customerId") != customer_principal.subject_id:
-            # Guest web session + verified Telegram Mini App: upgrade to tg-* owner.
-            guest_upgrade = str(customer_principal.subject_id).startswith("guest-") and str(
-                payload.get("customerId") or ""
-            ).startswith("tg-")
-            if not guest_upgrade:
-                raise HTTPException(status_code=403, detail="customer_identity_mismatch")
+        # When Telegram bots are not configured, verify_init_data_or_raise returns None
+        # without checking initData — require a customer bearer so anonymous clients
+        # cannot create orders under an attacker-chosen customerId.
+        if verified_telegram is None:
+            if customer_principal is None:
+                raise HTTPException(status_code=401, detail="customer_session_required")
+            payload["customerId"] = customer_principal.subject_id
+            payload["customerIdentity"] = {"type": "guest", "customerId": customer_principal.subject_id}
+        else:
+            user = verified_telegram.get("user") or {}
+            supplied_telegram_id = payload.get("telegramUserId") or payload.get("chatId")
+            if user.get("id") and supplied_telegram_id is not None and str(supplied_telegram_id) != str(user.get("id")):
+                raise HTTPException(status_code=401, detail="telegram_user_mismatch")
+            apply_verified_telegram_identity(payload, verified_telegram)
+            if customer_principal is not None and payload.get("customerId") != customer_principal.subject_id:
+                # Guest web session + verified Telegram Mini App: upgrade to tg-* owner.
+                guest_upgrade = str(customer_principal.subject_id).startswith("guest-") and str(
+                    payload.get("customerId") or ""
+                ).startswith("tg-")
+                if not guest_upgrade:
+                    raise HTTPException(status_code=403, detail="customer_identity_mismatch")
     elif customer_principal is None:
         raise HTTPException(status_code=401, detail="customer_session_required")
     else:

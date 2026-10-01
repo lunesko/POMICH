@@ -4301,12 +4301,27 @@ def get_provider_public_card(
     provider_store_path: Optional[Path] = None,
     limit: int = 20,
 ) -> Optional[Dict[str, Any]]:
-    """Public partner card for map clients: profile summary + reviews (no auth)."""
+    """Public partner card for map clients: profile summary + reviews (no auth).
+
+    Contacts and exact coordinates stay private until assignment — same privacy bar
+    as ``/map/providers`` pins. Directory businesses may keep a public street address.
+    """
     provider = get_provider_profile(provider_id, provider_store_path)
     if provider is None:
         return None
     reviews = list_provider_public_reviews(provider_id, store_path=store_path, limit=limit)
-    return {
+    provider_kind = provider.get("providerKind") or "dispatch"
+    location = provider.get("location")
+    approx_location = None
+    if isinstance(location, dict):
+        try:
+            approx_location = {
+                "lat": round(float(location.get("lat")), 3),
+                "lng": round(float(location.get("lng")), 3),
+            }
+        except (TypeError, ValueError):
+            approx_location = None
+    card: Dict[str, Any] = {
         "id": provider.get("id"),
         "name": provider.get("name") or "Партнер POMICH",
         "rating": provider.get("rating"),
@@ -4315,18 +4330,18 @@ def get_provider_public_card(
         "specialties": provider.get("specialties") or [],
         "status": provider.get("status"),
         "etaMinutes": provider.get("etaMinutes"),
-        "providerKind": provider.get("providerKind") or "dispatch",
+        "providerKind": provider_kind,
         "city": provider.get("city"),
-        "address": provider.get("address"),
-        "phone": provider.get("phone"),
-        "telegram": provider.get("telegram"),
         "verificationStatus": provider.get("verificationStatus"),
         "openingHours": provider.get("openingHours"),
         "website": provider.get("website"),
         "ordersCompleted": provider.get("ordersCompleted"),
-        "location": provider.get("location"),
+        "location": approx_location,
         "reviews": reviews,
     }
+    if provider_kind == "directory" and provider.get("address") is not None:
+        card["address"] = provider.get("address")
+    return card
 
 
 def _increment_provider_orders_completed(provider_id: str, provider_store_path: Optional[Path] = None) -> None:

@@ -88,8 +88,10 @@ def create_provider_session(payload: dict, response: Response, x_pomich_provider
     provider_id = str(payload.get("providerId") or "").strip()
     if not provider_id:
         raise HTTPException(status_code=400, detail="providerId missing")
-    # Bootstrap token is ops-only: possession alone can mint any providerId. Prefer
-    # /auth/provider/login or /auth/provider/self/session for day-to-day partner auth.
+    # Ops bootstrap only — never mint a session for a non-existent providerId.
+    # Day-to-day partner auth: /auth/provider/login or /auth/provider/self/session.
+    if get_provider_profile(provider_id) is None:
+        raise HTTPException(status_code=404, detail="provider_not_found")
     session = issue_role_session("provider", provider_id, secret)
     session["providerId"] = provider_id
     set_browser_session(response, session)

@@ -17,6 +17,11 @@ import {
   writeDirectoryScope,
   type DirectoryScopeMode,
 } from "../lib/directoryScope"
+import {
+  canRequestGeoSilently,
+  readCachedGeoPosition,
+  requestCurrentPosition,
+} from "../lib/mapGeo"
 import { isUkraineServiceCity, normalizeServiceCity, resolveServiceCityFromGeo, serviceCityCenter } from "../lib/ukraineCities"
 import { readPreferredCity } from "../lib/preferredCity"
 
@@ -150,7 +155,7 @@ export function useDirectoryScope(options?: { refreshMs?: number; enabled?: bool
     }
   }, [fetchProviders, fetchProvidersNear, geoRadiusPoint, resolvedCity, scope])
 
-  const resolveCityFromGeo = useCallback(async (): Promise<boolean> => {
+  const resolveCityFromGeo = useCallback(async (options?: { explicit?: boolean }): Promise<boolean> => {
     if (typeof navigator === "undefined" || !("geolocation" in navigator)) {
       setGeoStatus("error")
       setGeoError("Геолокація недоступна у цьому браузері.")
@@ -161,60 +166,93 @@ export function useDirectoryScope(options?: { refreshMs?: number; enabled?: bool
     setGeoError(undefined)
     setGeoRadiusPoint(null)
 
-    return new Promise((resolve) => {
-      navigator.geolocation.getCurrentPosition(
-        async (position) => {
-          const lat = position.coords.latitude
-          const lng = position.coords.longitude
-          const occupiedMessage = validateGeoForDirectory(lat, lng)
-          if (occupiedMessage) {
-            setGeoStatus("occupied")
-            setGeoError(occupiedMessage)
-            resolve(false)
-            return
-          }
+    const applyPoint = async (lat: number, lng: number): Promise<boolean> => {
+      const occupiedMessage = validateGeoForDirectory(lat, lng)
+      if (occupiedMessage) {
+        setGeoStatus("occupied")
+        setGeoError(occupiedMessage)
+        return false
+      }
 
-          const nearest = await resolveNearestSettlement(lat, lng)
-          if (nearest?.name) {
-            const distanceKm =
-              typeof (nearest as { distanceKm?: number }).distanceKm === "number"
-                ? (nearest as { distanceKm?: number }).distanceKm!
-                : settlementDistanceKm(nearest, lat, lng)
-            if (distanceKm != null && distanceKm > NEAREST_CITY_MAX_KM) {
-              await applyGeoRadiusScope({ lat, lng })
-              resolve(true)
-              return
-            }
-            const serviceCity =
-              resolveServiceCityFromGeo({ lat, lng }, nearest.name) ||
-              (isUkraineServiceCity(nearest.name) ? normalizeServiceCity(nearest.name) : "")
-            if (!serviceCity) {
-              await applyGeoRadiusScope({ lat, lng })
-              resolve(true)
-              return
-            }
-            setResolvedCity(serviceCity)
-            setGeoRadiusPoint(null)
-            setCityCenter(serviceCityCenter(serviceCity) ?? nearest.center ?? { lat, lng })
-            setGeoStatus("ok")
-            setGeoError(undefined)
-            resolve(true)
-            return
-          }
-
+      const nearest = await resolveNearestSettlement(lat, lng)
+      if (nearest?.name) {
+        const distanceKm =
+          typeof (nearest as { distanceKm?: number }).distanceKm === "number"
+            ? (nearest as { distanceKm?: number }).distanceKm!
+            : settlementDistanceKm(nearest, lat, lng)
+        if (distanceKm != null && distanceKm > NEAREST_CITY_MAX_KM) {
           await applyGeoRadiusScope({ lat, lng })
-          resolve(true)
+          return true
+        }
+        const serviceCity =
+          resolveServiceCityFromGeo({ lat, lng }, nearest.name) ||
+          (isUkraineServiceCity(nearest.name) ? normalizeServiceCity(nearest.name) : "")
+        if (!serviceCity) {
+          await applyGeoRadiusScope({ lat, lng })
+          return true
+        }
+        setResolvedCity(serviceCity)
+        setGeoRadiusPoint(null)
+        setCityCenter(serviceCityCenter(serviceCity) ?? nearest.center ?? { lat, lng })
+        setGeoStatus("ok")
+        setGeoError(undefined)
+        return true
+      }
+
+      await applyGeoRadiusScope({ lat, lng })
+      return true
+    }
+
+    const failWithoutPrompt = (message: string, status: DirectoryGeoStatus = "error") => {
+      setGeoStatus(status)
+      setGeoError(message)
+      return false
+    }
+
+    // Mount / auto: never call browser geolocation unless permission is already granted
+    // (or we have a fresh cache). Landing "my-city" used to prompt on every visit.
+    if (!options?.explicit) {
+      const cached = readCachedGeoPosition()
+      const silentOk = await canRequestGeoSilently()
+      if (!silentOk) {
+        if (cached) return applyPoint(cached.lat, cached.lng)
+        return failWithoutPrompt(
+          "Натисніть «Оновити», щоб дозволити геолокацію.",
+          "denied",
+        )
+      }
+      return new Promise((resolve) => {
+        requestCurrentPosition(
+          (point) => {
+            void applyPoint(point.lat, point.lng).then(resolve)
+          },
+          () => {
+            if (cached) {
+              void applyPoint(cached.lat, cached.lng).then(resolve)
+              return
+            }
+            resolve(failWithoutPrompt("Не вдалося визначити місцезнаходження."))
+          },
+          { mode: "auto" },
+        )
+      })
+    }
+
+    return new Promise((resolve) => {
+      requestCurrentPosition(
+        (point) => {
+          void applyPoint(point.lat, point.lng).then(resolve)
         },
-        (error) => {
-          setGeoStatus(error.code === error.PERMISSION_DENIED ? "denied" : "error")
+        (message, kind) => {
+          setGeoStatus(kind === "permission-denied" ? "denied" : "error")
           setGeoError(
-            error.code === error.PERMISSION_DENIED
+            kind === "permission-denied"
               ? "Дозвольте доступ до геолокації в браузері або Telegram."
-              : "Не вдалося визначити місцезнаходження.",
+              : message || "Не вдалося визначити місцезнаходження.",
           )
           resolve(false)
         },
-        { enableHighAccuracy: false, timeout: 8000, maximumAge: 120000 },
+        { mode: "explicit" },
       )
     })
   }, [applyGeoRadiusScope, resolveNearestSettlement])
@@ -266,7 +304,8 @@ export function useDirectoryScope(options?: { refreshMs?: number; enabled?: bool
   const retryGeo = useCallback(async () => {
     if (scope !== "my-city") return
     setGeoError(undefined)
-    const ok = await resolveCityFromGeo()
+    // Explicit gesture — OS may prompt once; mount path stays silent.
+    const ok = await resolveCityFromGeo({ explicit: true })
     if (ok) {
       bumpRecenter()
       return
