@@ -72,13 +72,21 @@ def _use_provider_auth(monkeypatch) -> dict:
 
 def _provider_session_headers(client: TestClient, provider_id: str) -> dict:
     if order_store.get_provider_profile(provider_id) is None:
-        order_store.update_provider_profile(
-            provider_id,
-            {"name": provider_id, "status": "offline", "specialties": ["tow"]},
-        )
+        # Persist an empty shell so ops bootstrap cannot invent phantom provider ids.
+        providers = order_store.load_providers()
+        providers.append(order_store.build_empty_provider_profile_shell(provider_id))
+        order_store.save_providers(providers)
     response = client.post("/api/auth/provider/session", headers=PROVIDER_HEADERS, json={"providerId": provider_id})
-    assert response.status_code == 200
+    assert response.status_code == 200, response.text
     return {"Authorization": f"Bearer {response.json()['accessToken']}"}
+
+
+def _provider_bearer_for_subject(provider_id: str) -> dict:
+    """Issue a provider bearer without requiring a persisted profile (shell GET tests)."""
+    from bot.api_deps import configured_provider_secret, issue_role_session
+
+    session = issue_role_session("provider", provider_id, configured_provider_secret())
+    return {"Authorization": f"Bearer {session['accessToken']}"}
 
 
 def _admin_session_headers(client: TestClient) -> dict:
@@ -460,7 +468,15 @@ def test_fastapi_provider_profile_get_returns_empty_shell_when_missing(monkeypat
     _use_temp_store(monkeypatch, tmp_path)
     _use_provider_auth(monkeypatch)
     client = TestClient(app)
-    provider_headers = _provider_session_headers(client, "provider-guest-new")
+    # Bootstrap must not mint for a non-existent provider.
+    denied = client.post(
+        "/api/auth/provider/session",
+        headers=PROVIDER_HEADERS,
+        json={"providerId": "provider-guest-new"},
+    )
+    assert denied.status_code == 404
+    # Profile GET still returns an empty shell when a valid session subject has no row yet.
+    provider_headers = _provider_bearer_for_subject("provider-guest-new")
 
     response = client.get("/api/providers/provider-guest-new/profile", headers=provider_headers)
 
@@ -480,7 +496,7 @@ def test_fastapi_provider_profile_shell_prefills_linked_customer(monkeypatch, tm
         {"name": "PowerGear", "phone": "+380635236801", "city": "Ужгород", "linkedProviderId": "provider-guest-powergear"},
     )
     client = TestClient(app)
-    provider_headers = _provider_session_headers(client, "provider-guest-powergear")
+    provider_headers = _provider_bearer_for_subject("provider-guest-powergear")
 
     response = client.get("/api/providers/provider-guest-powergear/profile", headers=provider_headers)
 
