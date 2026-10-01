@@ -1,7 +1,7 @@
 /** Shared helpers for recovering from stale Vite chunk loads after deploy. */
 
 export const CHUNK_RELOAD_KEY = "pomich-chunk-reload"
-export const SW_GENERATION = "43"
+export const SW_GENERATION = "44"
 
 export function isChunkLoadError(error: Error | null | undefined): boolean {
   if (!error) return false
