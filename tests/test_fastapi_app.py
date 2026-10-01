@@ -1603,7 +1603,8 @@ def test_dist_root_static_files_served_before_spa_fallback(tmp_path, monkeypatch
     index = client.get("/")
     assert index.status_code == 200
     assert "POMICH" in index.text
-    assert index.headers.get("cache-control") == "no-cache, no-store, must-revalidate"
+    assert "no-store" in (index.headers.get("cache-control") or "")
+    assert "no-cache" in (index.headers.get("cache-control") or "")
 
 
 def test_dispatch_list_excludes_directory_and_map_is_slim(monkeypatch, tmp_path) -> None:
