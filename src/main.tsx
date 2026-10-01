@@ -14,6 +14,16 @@ if (typeof window !== 'undefined') {
 
 async function bootstrap() {
   await (window.__pomichTelegramReady ?? Promise.resolve())
+  // Drop one-shot cache-bust query from boot recovery so shares/bookmarks stay clean.
+  try {
+    const url = new URL(window.location.href)
+    if (url.searchParams.has('_pomich')) {
+      url.searchParams.delete('_pomich')
+      window.history.replaceState({}, '', url.pathname + url.search + url.hash)
+    }
+  } catch {
+    // ignore
+  }
   const telegramContext = initTelegramApp()
   if (typeof document !== 'undefined') {
     if (telegramContext.isTelegram) {
@@ -38,7 +48,7 @@ void bootstrap()
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker
-      .register('/pomich-sw.js?v=42')
+      .register('/pomich-sw.js?v=43')
       .then((registration) => {
         // Pick up new SW quickly after deploy so hashed chunks stay in sync.
         registration.update().catch(() => undefined)

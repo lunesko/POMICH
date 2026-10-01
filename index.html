@@ -147,46 +147,88 @@
         var KEY = "pomich-boot-reload"
         var msg = document.getElementById("pomich-boot-msg")
         var btn = document.getElementById("pomich-boot-reload")
-        var recovering = false
-        function clearAndReload() {
-          if (recovering) return
-          recovering = true
+        var navigating = false
+
+        function hardNavigate() {
+          if (navigating) return
+          navigating = true
+          var next
           try {
-            sessionStorage.setItem(KEY, "1")
-          } catch (e) {}
-          var done = function () {
-            location.reload()
+            var url = new URL(location.href)
+            url.searchParams.set("_pomich", String(Date.now()))
+            next = url.toString()
+          } catch (e) {
+            next = location.pathname + location.search + (location.search ? "&" : "?") + "_pomich=" + Date.now() + location.hash
           }
-          var tasks = []
+          try {
+            // Telegram WebView often ignores location.reload(); replace forces a new document.
+            location.replace(next)
+          } catch (e1) {
+            try {
+              location.href = next
+            } catch (e2) {}
+          }
+          // Last resort inside Telegram Mini App.
+          try {
+            var tg = window.Telegram && window.Telegram.WebApp
+            if (tg && typeof tg.openLink === "function") {
+              window.setTimeout(function () {
+                try {
+                  tg.openLink(next, { try_instant_view: false })
+                } catch (e3) {}
+              }, 400)
+            }
+          } catch (e4) {}
+        }
+
+        function clearCachesBestEffort() {
           try {
             if (window.caches && caches.keys) {
-              tasks.push(
-                caches.keys().then(function (keys) {
-                  return Promise.all(keys.map(function (k) {
-                    return caches.delete(k)
-                  }))
-                }),
-              )
+              caches.keys().then(function (keys) {
+                keys.forEach(function (k) {
+                  try {
+                    caches.delete(k)
+                  } catch (e) {}
+                })
+              })
             }
           } catch (e) {}
           try {
             if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
-              tasks.push(
-                navigator.serviceWorker.getRegistrations().then(function (regs) {
-                  return Promise.all(
-                    regs.map(function (reg) {
-                      return reg.unregister()
-                    }),
-                  )
-                }),
-              )
+              navigator.serviceWorker.getRegistrations().then(function (regs) {
+                regs.forEach(function (reg) {
+                  try {
+                    reg.unregister()
+                  } catch (e) {}
+                })
+              })
             }
           } catch (e) {}
-          Promise.all(tasks).then(done, done)
         }
+
+        function clearAndReload() {
+          if (btn) {
+            btn.disabled = true
+            btn.setAttribute("aria-busy", "true")
+            btn.textContent = "Оновлюємо…"
+          }
+          if (msg) msg.textContent = "Очищаємо кеш і перезавантажуємо…"
+          try {
+            sessionStorage.setItem(KEY, "1")
+          } catch (e) {}
+          clearCachesBestEffort()
+          // Never wait on Cache Storage / SW in Telegram WebView — it can hang forever.
+          window.setTimeout(hardNavigate, 120)
+          window.setTimeout(hardNavigate, 1500)
+        }
+
         function showReload(reason) {
           if (msg) msg.textContent = reason || "Не вдалося завантажити. Натисніть «Оновити» — очистимо кеш."
-          if (btn) btn.style.display = "block"
+          if (btn) {
+            btn.style.display = "block"
+            btn.disabled = false
+            btn.textContent = "Оновити"
+          }
           var already = false
           try {
             already = sessionStorage.getItem(KEY) === "1"
@@ -195,7 +237,22 @@
             clearAndReload()
           }
         }
-        if (btn) btn.addEventListener("click", clearAndReload)
+
+        if (btn) {
+          btn.addEventListener("click", function (ev) {
+            try {
+              ev.preventDefault()
+            } catch (e) {}
+            clearAndReload()
+          })
+          btn.addEventListener("touchend", function (ev) {
+            try {
+              ev.preventDefault()
+            } catch (e) {}
+            clearAndReload()
+          }, { passive: false })
+        }
+
         window.addEventListener(
           "error",
           function (ev) {
@@ -207,7 +264,7 @@
         )
         window.addEventListener("unhandledrejection", function (ev) {
           var reason = ev && ev.reason
-          var text = reason && (reason.message || String(reason)) || ""
+          var text = (reason && (reason.message || String(reason))) || ""
           if (/Failed to fetch dynamically imported module|Loading chunk|Importing a module script failed/i.test(text)) {
             showReload("Після оновлення залишився старий кеш.")
           }
@@ -215,7 +272,6 @@
         window.setTimeout(function () {
           var root = document.getElementById("root")
           if (!root) return
-          // React mounted — boot placeholder gone or replaced.
           if (!document.getElementById("pomich-boot")) return
           if (root.childElementCount > 1) return
           showReload("Довге завантаження. Оновіть сторінку.")
