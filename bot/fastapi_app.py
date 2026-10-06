@@ -329,7 +329,8 @@ def _seo_landing_html(slug: str, page: dict[str, str]) -> str:
   <meta name="twitter:image:alt" content="Pomich — допомога на дорозі: евакуатор, АКБ, колесо, пальне." />
   <meta name="robots" content="index,follow" />
   <link rel="manifest" href="/manifest.webmanifest" />
-  <link rel="icon" href="/favicon.ico" />
+  <link rel="icon" type="image/png" href="/favicon.png" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@700;800&family=Sora:wght@600;700&display=swap" rel="stylesheet" />
