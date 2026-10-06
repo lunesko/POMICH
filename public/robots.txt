@@ -9,6 +9,7 @@ Allow: /geo/
 Allow: /manifest.webmanifest
 Allow: /sitemap.xml
 Allow: /robots.txt
+Allow: /googled52348759b575563.html
 
 # App / API shells — not for organic landing index
 Disallow: /api/

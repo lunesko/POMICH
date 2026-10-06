@@ -1,4 +1,6 @@
 import { usePomichTheme } from "../../context/PomichThemeProvider"
+import BrandLogo from "../ui/BrandLogo"
+import BetaNotice from "../ui/BetaNotice"
 import { mediaQueries } from "../../lib/breakpoints"
 import { useMediaQuery } from "../../hooks/useMediaQuery"
 import { useTelegramUx } from "../../hooks/useTelegramUx"
@@ -118,10 +120,7 @@ export default function RoleSelectionScreen({
         style={{ paddingTop: "calc(10px + env(safe-area-inset-top, 0px))" }}
       >
         <div className="inline-flex items-center gap-2 font-extrabold">
-          <span className="pomich-role-brand-mark" aria-hidden="true">
-            P
-          </span>
-          <span className="pomich-role-brand-wordmark text-base">POMICH</span>
+          <BrandLogo compact={isCompact} />
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <ThemeToggle compact />
@@ -147,6 +146,7 @@ export default function RoleSelectionScreen({
         style={{ paddingBottom: "calc(20px + env(safe-area-inset-bottom, 0px))" }}
       >
         <div className="w-full max-w-[440px] text-center">
+          <BetaNotice />
           <div className="pomich-map-copy-plate pomich-role-hero-plate pomich-role-hero-plate--compact">
             <LiveBadge label="Допомога на дорозі · UA" />
             <h1 className="pomich-role-hero-title pomich-role-hero-title--compact font-extrabold leading-[1.05]">

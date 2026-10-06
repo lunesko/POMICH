@@ -14,6 +14,8 @@ import { UKRAINE_WIDE_LABEL } from "../../lib/ukraineCities"
 import { getTelegramContext } from "../../telegram"
 import { ThemeToggle } from "../ui/ThemeToggle"
 import ServiceIcon from "../ui/ServiceIcon"
+import BrandLogo from "../ui/BrandLogo"
+import BetaNotice from "../ui/BetaNotice"
 import { usePomichTheme } from "../../context/PomichThemeProvider"
 import { type PomichThemeColors, type PomichThemeMode } from "../../lib/theme"
 
@@ -427,8 +429,7 @@ export default function LandingPage({
               if (onHiddenAdmin) event.preventDefault()
             }}
           >
-            <span className="pomich-landing-header__mark" style={{ width: layoutCompact ? 34 : 42, height: layoutCompact ? 34 : 42, fontSize: layoutCompact ? 16 : 20 }}>P</span>
-            <span style={{ fontSize: layoutCompact ? 16 : 20 }}>POMICH</span>
+            <BrandLogo compact={layoutCompact} />
           </a>
           {layoutCompact ? (
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -513,6 +514,7 @@ export default function LandingPage({
               margin: layoutCompact ? "0 auto" : "0",
             }}
           >
+            <BetaNotice />
             <h1
               className="landing-hero-brand"
               style={{

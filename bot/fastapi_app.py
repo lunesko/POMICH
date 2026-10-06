@@ -314,9 +314,17 @@ def _seo_landing_html(slug: str, page: dict[str, str]) -> str:
   <meta property="og:description" content="{lead}" />
   <meta property="og:url" content="{canonical}" />
   <meta property="og:type" content="website" />
-  <meta property="og:image" content="https://pomich.help/og-cover.jpg" />
+  <meta property="og:image" content="https://pomich.help/og-cover-v2.png" />
+  <meta property="og:image:type" content="image/png" />
+  <meta property="og:image:width" content="1730" />
+  <meta property="og:image:height" content="909" />
+  <meta property="og:image:alt" content="Pomich — допомога на дорозі: евакуатор, АКБ, колесо, пальне." />
   <meta property="og:locale" content="uk_UA" />
   <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="{title}" />
+  <meta name="twitter:description" content="{lead}" />
+  <meta name="twitter:image" content="https://pomich.help/og-cover-v2.png" />
+  <meta name="twitter:image:alt" content="Pomich — допомога на дорозі: евакуатор, АКБ, колесо, пальне." />
   <meta name="robots" content="index,follow" />
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="icon" href="/favicon.ico" />
