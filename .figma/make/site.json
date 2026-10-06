@@ -6,10 +6,10 @@
     "index": true
   },
   "icons": {
-    "icon": "/favicon.ico"
+    "icon": "/favicon.png"
   },
   "openGraph": {
-    "image": "https://pomich.help/og-cover.jpg"
+    "image": "https://pomich.help/og-cover-v2.png"
   },
   "accessibility": {
     "addBypassLinks": false,

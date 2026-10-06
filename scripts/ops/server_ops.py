@@ -25,7 +25,7 @@ _LFS_POINTER_PREFIX = b"version https://git-lfs.github.com/spec/v1"
 _REQUIRED_BINARY_ASSETS = (
     PROJECT_ROOT / "public" / "maps" / "ukraine-basemap.webp",
     PROJECT_ROOT / "public" / "maps" / "ukraine-basemap.jpg",
-    PROJECT_ROOT / "public" / "og-cover.jpg",
+    PROJECT_ROOT / "public" / "og-cover-v2.png",
     PROJECT_ROOT / "public" / "favicon.ico",
     PROJECT_ROOT / "public" / "icon-192.png",
     PROJECT_ROOT / "public" / "apple-touch-icon.png",

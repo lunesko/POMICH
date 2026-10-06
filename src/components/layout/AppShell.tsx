@@ -3,6 +3,8 @@ import type { ReactNode } from "react"
 import type { Role } from "../../lib/constants"
 import { useTelegramBackButton, useTelegramUx } from "../../hooks/useTelegramUx"
 import { ThemeToggle } from "../ui/ThemeToggle"
+import BrandLogo from "../ui/BrandLogo"
+import BetaNotice from "../ui/BetaNotice"
 
 interface AppShellProps {
   children: ReactNode
@@ -88,7 +90,10 @@ export function AppShell({
             </div>
           </header>
         ) : null}
-        <div className="pomich-tg-main pomich-app-main min-h-0 min-w-0 flex-1">{children}</div>
+        <div className="pomich-tg-main pomich-app-main min-h-0 min-w-0 flex-1">
+          {role ? <BetaNotice /> : null}
+          {children}
+        </div>
       </div>
     )
   }
@@ -99,7 +104,7 @@ export function AppShell({
         <header className="pomich-tg-header w-full">
           <div className="pomich-app-header-bar" style={{ maxWidth: "80rem", marginInline: "auto", paddingInline: "1.5rem" }}>
             <button type="button" onClick={() => onRoleChange(null)} className="pomich-app-header-brand text-xl">
-              POMICH
+              <BrandLogo />
             </button>
             {sessionLabel ? (
               <span className="pomich-app-header-session hidden md:inline">
@@ -131,7 +136,10 @@ export function AppShell({
           </div>
         </header>
       ) : null}
-      <div className="pomich-app-main min-h-0 flex-1">{children}</div>
+      <div className="pomich-app-main min-h-0 flex-1">
+        {role ? <BetaNotice /> : null}
+        {children}
+      </div>
     </div>
   )
 }
