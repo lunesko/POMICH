@@ -25,6 +25,7 @@ test.beforeEach(async ({ page }) => {
 test("public landing fits the viewport and has no serious axe violations", async ({ page }) => {
   await page.goto("/")
   await expect(page.getByText("Допомога на дорозі за хвилини", { exact: true })).toBeVisible()
+  await expect(page.locator('img[src="/pomich-logo.png"]')).toHaveJSProperty("naturalWidth", 2149)
   await expectNoSeriousAccessibilityViolations(page)
   await expect(page.locator("body")).toBeInViewport({ ratio: 0.1 })
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(page.viewportSize()!.width)
