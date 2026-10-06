@@ -68,8 +68,9 @@ def decrypt_field(value: str) -> str:
     try:
         return fernet.decrypt(token.encode("ascii")).decode("utf-8")
     except Exception:
-        # Wrong key or corrupted token — hide ciphertext; field re-encrypts on next profile save.
-        return ""
+        # Keep the ciphertext. Returning "" would let the next profile save
+        # encrypt an empty value and permanently wipe customer PII.
+        return normalized
 
 
 def encrypt_customer_profile(profile: dict[str, Any]) -> dict[str, Any]:

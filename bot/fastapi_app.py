@@ -83,6 +83,8 @@ _cors_kwargs: dict = {
         "X-POMICH-Provider-Token",
         "X-POMICH-Health-Token",
         "X-POMICH-Internal-Token",
+        "X-Telegram-Init-Data",
+        "X-POMICH-Telegram-Bot",
     ],
 }
 # Tunnel regex only outside production — production must list exact HTTPS origins.

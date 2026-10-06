@@ -30,9 +30,23 @@ def _project_root() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
+_LOCAL_ENV_LOADED_PATHS: set[str] = set()
+
+
 def load_local_env(path: Path | None = None) -> None:
+    """Load repo-root `.env` once per process path.
+
+    Re-applying setdefault on every Telegram config read breaks pytest isolation:
+    `monkeypatch.delenv(...)` is undone the next time a helper calls this.
+    """
+    if (os.getenv("POMICH_SKIP_LOCAL_ENV") or "").strip() in {"1", "true", "yes"}:
+        return
     env_path = path or (_project_root() / ".env")
+    resolved = str(env_path.resolve()) if env_path.exists() else str(env_path)
+    if resolved in _LOCAL_ENV_LOADED_PATHS:
+        return
     if not env_path.exists():
+        _LOCAL_ENV_LOADED_PATHS.add(resolved)
         return
 
     for raw_line in env_path.read_text(encoding="utf-8").splitlines():
@@ -43,6 +57,7 @@ def load_local_env(path: Path | None = None) -> None:
         name = name.strip()
         value = value.strip().strip('"').strip("'")
         os.environ.setdefault(name, value)
+    _LOCAL_ENV_LOADED_PATHS.add(resolved)
 
 
 def normalize_telegram_bot_kind(value: str | None) -> TelegramBotKind | None:

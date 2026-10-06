@@ -35,3 +35,18 @@ def test_customer_profile_encryption(encryption_env):
     restored = decrypt_customer_profile(stored)
     assert restored["phone"] == profile["phone"]
     assert restored["name"] == profile["name"]
+
+
+def test_decrypt_failure_preserves_ciphertext(encryption_env, monkeypatch):
+    encrypted = encrypt_field("+380671112233")
+    # Force a different key so decrypt fails.
+    other = generate_encryption_key()
+    monkeypatch.setenv("POMICH_ENCRYPTION_KEY", other)
+    import bot.field_encryption as module
+
+    module._fernet = None
+    module._fernet_checked = False
+    assert decrypt_field(encrypted) == encrypted
+    # Re-encrypt must not wipe the ciphertext with an empty value.
+    stored = encrypt_customer_profile({"id": "tg-1", "phone": encrypted})
+    assert stored["phone"] == encrypted
