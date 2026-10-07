@@ -126,6 +126,7 @@ def main() -> None:
             "2026082001",
             "2026092701",
             "2026092702",
+            "2026100701",
         ], versions
 
         save_providers(
@@ -160,6 +161,25 @@ def main() -> None:
         assert Counter(offer["status"] for offer in load_offers()) == {"accepted": 1, "lost": 1}, load_offers()
         assert load_orders()[0]["status"] == "accepted", load_orders()[0]
         assert any(provider["status"] == "busy" for provider in load_providers()), load_providers()
+
+        current = load_orders()[0]
+        updated = runtime_store.sql_upsert_order({**current, "source": "postgis-smoke"})
+        assert updated["version"] == current["version"] + 1
+        assert not runtime_store.sql_commit_order_snapshot(current, {**current, "status": "cancelled"})
+        from bot.rate_limits import _take
+        key = f"smoke-{time.time_ns()}"
+        assert _take(key, int(time.time()) + 60) == 1
+        assert _take(key, int(time.time()) + 60) == 2
+        from bot import otp_repository
+        with otp_repository.transaction():
+            otp_repository.save({"smoke": {"failedAttempts": 1}})
+        with otp_repository.transaction():
+            assert otp_repository.load()["smoke"]["failedAttempts"] == 1
+            otp_repository.save({})
+        from bot.storage import realtime_events
+        after = realtime_events.cursor()
+        realtime_events.publish("smoke", {"type": "smoke"})
+        assert realtime_events.since("smoke", after)[0][1]["type"] == "smoke"
 
     print("postgres_postgis_migration_dispatch_smoke=passed")
 

@@ -4,22 +4,18 @@ from bot import realtime
 
 
 def test_realtime_publish_reaches_subscriber():
-    realtime.reset_realtime_for_tests()
-    channel = realtime.channel_for_order("order-1")
-    queue = realtime.subscribe(channel)
-    try:
-        realtime.publish_order_event({"id": "order-1", "status": "accepted", "customerId": "c1"}, "order.accepted")
-
-        async def _read():
-            return await asyncio.wait_for(queue.get(), timeout=1.0)
-
-        message = asyncio.run(_read())
-        assert message["type"] == "order.accepted"
-        assert message["payload"]["id"] == "order-1"
-        assert message["payload"]["status"] == "accepted"
-    finally:
-        realtime.unsubscribe(channel, queue)
-        realtime.reset_realtime_for_tests()
+    async def run():
+        channel = realtime.channel_for_order("order-1")
+        queue = realtime.subscribe(channel)
+        try:
+            realtime.publish_order_event({"id": "order-1", "status": "accepted", "customerId": "c1"}, "order.accepted")
+            message = await asyncio.wait_for(queue.get(), timeout=1.0)
+            assert message["type"] == "order.accepted"
+            assert message["payload"]["id"] == "order-1"
+            assert message["payload"]["status"] == "accepted"
+        finally:
+            realtime.unsubscribe(channel, queue)
+    asyncio.run(run())
 
 
 def test_realtime_provider_channel_helpers():
@@ -28,49 +24,37 @@ def test_realtime_provider_channel_helpers():
 
 
 def test_realtime_ws_and_sse_share_bus():
-    realtime.reset_realtime_for_tests()
-    channel = realtime.channel_for_order("order-ws")
-    sse_queue = realtime.subscribe(channel)
-    try:
+    async def run():
+        channel = realtime.channel_for_order("order-ws")
+        queue = realtime.subscribe(channel)
+        connected = asyncio.Event()
+        delivered = asyncio.Event()
+
         class FakeWs:
-            sent: list[dict] = []
+            def __init__(self):
+                self.sent = []
 
             async def send_json(self, data):
                 self.sent.append(data)
+                if data["type"] == "connected":
+                    connected.set()
+                if data["type"] == "order.updated":
+                    delivered.set()
 
-        fake_ws = FakeWs()
-
-        async def _run():
-            pump_task = asyncio.create_task(realtime.pump_websocket(fake_ws, channel))
-            await asyncio.sleep(0.05)
-            realtime.publish(channel, "order.updated", {"id": "order-ws", "status": "assigned"})
-            await asyncio.sleep(0.05)
-            pump_task.cancel()
-            try:
-                await pump_task
-            except asyncio.CancelledError:
-                pass
-            return fake_ws.sent
-
-        sent = asyncio.run(_run())
-        assert sent[0]["type"] == "connected"
-        assert any(item.get("type") == "order.updated" for item in sent)
-
-        async def _drain():
-            while True:
-                try:
-                    sse_queue.get_nowait()
-                except asyncio.QueueEmpty:
-                    break
-
-        asyncio.run(_drain())
-
-        realtime.publish(channel, "order.accepted", {"id": "order-ws", "status": "accepted"})
-        sse_message = asyncio.run(asyncio.wait_for(sse_queue.get(), timeout=1.0))
-        assert sse_message["type"] == "order.accepted"
-    finally:
-        realtime.unsubscribe(channel, sse_queue)
-        realtime.reset_realtime_for_tests()
+        ws = FakeWs()
+        task = asyncio.create_task(realtime.pump_websocket(ws, channel))
+        try:
+            await asyncio.wait_for(connected.wait(), 1)
+            realtime.publish(channel, "order.updated", {"id": "order-ws"})
+            message = await asyncio.wait_for(queue.get(), 1)
+            await asyncio.wait_for(delivered.wait(), 1)
+            assert message["type"] == "order.updated"
+            assert ws.sent[0]["type"] == "connected"
+        finally:
+            task.cancel()
+            await task
+            realtime.unsubscribe(channel, queue)
+    asyncio.run(run())
 
 
 def test_pump_websocket_unsubscribes_on_send_failure():
@@ -100,3 +84,41 @@ def test_pump_websocket_unsubscribes_on_send_failure():
     listeners = asyncio.run(_run())
     assert listeners == []
     realtime.reset_realtime_for_tests()
+
+
+def test_publish_from_thread_wakes_waiting_consumer():
+    async def run():
+        channel = "order:thread"
+        queue = realtime.subscribe(channel)
+        try:
+            consumer = asyncio.create_task(queue.get())
+            await asyncio.sleep(0)
+            await asyncio.to_thread(realtime.publish, channel, "order.updated", {"id": "thread"})
+            message = await asyncio.wait_for(consumer, 1)
+            assert message["payload"] == {"id": "thread"}
+        finally:
+            realtime.unsubscribe(channel, queue)
+    asyncio.run(run(), debug=True)
+
+
+def test_full_queue_keeps_latest_events():
+    async def run():
+        channel = "order:full"
+        queue = realtime.subscribe(channel, maxsize=2)
+        try:
+            await asyncio.to_thread(lambda: [realtime.publish(channel, "update", {"n": n}) for n in range(5)])
+            await asyncio.sleep(0)
+            assert queue.qsize() == 2
+            assert [queue.get_nowait()["payload"]["n"] for _ in range(2)] == [3, 4]
+        finally:
+            realtime.unsubscribe(channel, queue)
+    asyncio.run(run(), debug=True)
+
+
+def test_publish_removes_subscriber_with_closed_loop():
+    channel = "order:closed"
+    async def register():
+        return realtime.subscribe(channel)
+    asyncio.run(register())
+    realtime.publish(channel, "update")
+    assert channel not in realtime._CHANNELS

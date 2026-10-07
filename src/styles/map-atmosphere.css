@@ -1,0 +1,209 @@
+/* ── Shared map atmosphere shell (landing + all non-ride pages) ── */
+.pomich-map-shell {
+  position: relative;
+  isolation: isolate;
+  min-height: 100dvh;
+}
+.pomich-map-shell--root {
+  min-height: 100dvh;
+  min-height: var(--tg-viewport-stable-height, 100dvh);
+  height: 100%;
+  width: 100%;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  /* Transparent so frosted chrome can show the decorative / ride map through */
+  background: transparent;
+  color: var(--pomich-text);
+}
+.pomich-map-shell__bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.pomich-map-shell--root > .pomich-map-shell__bg,
+.pomich-map-shell__bg--fixed {
+  position: fixed;
+}
+.pomich-map-shell:not(.pomich-map-shell--root) > .pomich-map-shell__bg:not(.pomich-map-shell__bg--fixed) {
+  position: absolute;
+}
+.pomich-map-shell__scrim,
+.pomich-map-shell__vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+.pomich-map-shell__atmosphere {
+  z-index: 1;
+}
+.pomich-map-shell__fade {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 120px;
+  pointer-events: none;
+  z-index: 2;
+}
+.pomich-map-shell__content {
+  position: relative;
+  /* Above decorative bg/scrim (sibling stacking), never under black overlays */
+  z-index: 3;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: var(--tg-viewport-stable-height, 100dvh);
+  min-width: 0;
+  width: 100%;
+}
+/* Telegram / mobile compact: fill #root; do NOT use min-height:100dvh here —
+   that breaks percentage height on .pomich-tg-app and collapses .pomich-tg-main to 0 */
+html.tg-compact .pomich-map-shell--root,
+html.mobile-compact .pomich-map-shell--root {
+  height: 100%;
+  min-height: 0;
+  max-height: 100%;
+  overflow: hidden;
+}
+html.tg-compact .pomich-map-shell--root > .pomich-map-shell__content,
+html.mobile-compact .pomich-map-shell--root > .pomich-map-shell__content {
+  flex: 1 1 0;
+  height: 100%;
+  min-height: 0;
+  max-height: 100%;
+  overflow: hidden;
+}
+/* Direct app roots must fill the shell so .pomich-tg-main flex:1 gets real height */
+html.tg-compact .pomich-map-shell--root > .pomich-map-shell__content > *,
+html.mobile-compact .pomich-map-shell--root > .pomich-map-shell__content > * {
+  flex: 1 1 0;
+  min-height: 0;
+  max-height: 100%;
+  width: 100%;
+}
+/* Let the decorative map show through page shells — except cabinet (must stay opaque). */
+.pomich-map-shell--root .pomich-themed-shell,
+.pomich-map-shell--root .pomich-tg-app,
+.pomich-map-shell--root .pomich-onboarding-page,
+.pomich-map-shell--root .pomich-boot-screen,
+.pomich-map-shell--root .pomich-role-select,
+.pomich-map-shell--root .pomich-app-fallback,
+.pomich-map-shell--root .pomich-screen-layout {
+  background: transparent;
+}
+.pomich-map-shell--root .pomich-cabinet-shell {
+  background: var(--pomich-bg, #e2e9e6) !important;
+}
+/* Form / role plates: solid over map — readability first (cabinet keeps glass below) */
+.pomich-map-shell--root .pomich-form-card,
+.pomich-map-shell--root .pomich-onboarding-card,
+.pomich-map-shell--root .pomich-role-card,
+.pomich-map-shell--root .pomich-app-fallback__card,
+.pomich-map-shell--root .pomich-terminal-card {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  background: var(--pomich-surface);
+  color: var(--pomich-text);
+  border-color: var(--pomich-glass-border);
+  box-shadow: var(--pomich-card-shadow);
+}
+.pomich-map-shell--root .pomich-role-card {
+  background:
+    linear-gradient(165deg, rgba(255, 255, 255, 0.28), transparent 44%),
+    var(--pomich-surface);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.35) inset,
+    0 10px 28px rgba(28, 42, 36, 0.08),
+    0 2px 6px rgba(0, 0, 0, 0.04);
+}
+[data-pomich-theme="dark"] .pomich-map-shell--root .pomich-form-card,
+[data-pomich-theme="dark"] .pomich-map-shell--root .pomich-onboarding-card,
+[data-pomich-theme="dark"] .pomich-map-shell--root .pomich-role-card,
+[data-pomich-theme="dark"] .pomich-map-shell--root .pomich-app-fallback__card,
+[data-pomich-theme="dark"] .pomich-map-shell--root .pomich-terminal-card {
+  background: #12151A;
+  border-color: rgba(255, 255, 255, 0.22);
+}
+[data-pomich-theme="light"] .pomich-map-shell--root .pomich-form-card,
+[data-pomich-theme="light"] .pomich-map-shell--root .pomich-onboarding-card,
+[data-pomich-theme="light"] .pomich-map-shell--root .pomich-role-card,
+[data-pomich-theme="light"] .pomich-map-shell--root .pomich-app-fallback__card,
+[data-pomich-theme="light"] .pomich-map-shell--root .pomich-terminal-card,
+html:not([data-pomich-theme]) .pomich-map-shell--root .pomich-form-card,
+html:not([data-pomich-theme]) .pomich-map-shell--root .pomich-onboarding-card,
+html:not([data-pomich-theme]) .pomich-map-shell--root .pomich-role-card,
+html:not([data-pomich-theme]) .pomich-map-shell--root .pomich-app-fallback__card,
+html:not([data-pomich-theme]) .pomich-map-shell--root .pomich-terminal-card {
+  background: #E8EEEB;
+  border-color: #C5D4CC;
+}
+[data-pomich-theme="light"] .pomich-map-shell--root .pomich-role-card,
+html:not([data-pomich-theme]) .pomich-map-shell--root .pomich-role-card {
+  background:
+    linear-gradient(165deg, rgba(255, 255, 255, 0.42), transparent 46%),
+    #E8EEEB;
+}
+/* Client cabinet: frosted glass over map atmosphere */
+.pomich-map-shell--root .pomich-cabinet-card {
+  background: var(--pomich-glass-card) !important;
+  border-color: var(--pomich-glass-border) !important;
+  backdrop-filter: blur(18px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(18px) saturate(180%) !important;
+  box-shadow: var(--pomich-card-shadow);
+  color: var(--pomich-text);
+}
+[data-pomich-theme="dark"] .pomich-map-shell--root .pomich-cabinet-card {
+  background: rgba(18, 22, 28, 0.52) !important;
+  border-color: rgba(255, 255, 255, 0.14) !important;
+}
+[data-pomich-theme="light"] .pomich-map-shell--root .pomich-cabinet-card,
+html:not([data-pomich-theme]) .pomich-map-shell--root .pomich-cabinet-card {
+  background: rgba(232, 238, 235, 0.78) !important;
+  border-color: rgba(28, 42, 36, 0.12) !important;
+}
+.pomich-map-shell--root .pomich-form-error {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+[data-pomich-theme="dark"] .pomich-map-shell--root .pomich-form-error {
+  background: #3f1219;
+}
+[data-pomich-theme="light"] .pomich-map-shell--root .pomich-form-error,
+html:not([data-pomich-theme]) .pomich-map-shell--root .pomich-form-error {
+  background: #FFF1F2;
+}
+/* Form footers stay solid; cabinet footer keeps glass chrome */
+.pomich-map-shell--root .pomich-form-footer-bar {
+  background: var(--pomich-footer-bg);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.pomich-map-shell--root .pomich-cabinet-footer {
+  background: rgba(8, 12, 14, 0.28) !important;
+  backdrop-filter: blur(16px) saturate(1.2) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(1.2) !important;
+  border-top-color: rgba(255, 255, 255, 0.1);
+}
+[data-pomich-theme="light"] .pomich-map-shell--root .pomich-cabinet-footer,
+html:not([data-pomich-theme]) .pomich-map-shell--root .pomich-cabinet-footer {
+  background: rgba(228, 235, 231, 0.82) !important;
+  border-top-color: rgba(28, 42, 36, 0.10);
+}
+.pomich-map-shell--root .pomich-cabinet-shell > .pomich-cabinet-header .pomich-form-header,
+.pomich-map-shell--root .pomich-cabinet-header .pomich-form-header {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  max-width: none !important;
+  width: 100% !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}

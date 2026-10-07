@@ -1,0 +1,1307 @@
+/* ── Mobile compact UI components (client + partner flows) ── */
+.tg-sheet-compact {
+  border-top-left-radius: 16px !important;
+  border-top-right-radius: 16px !important;
+}
+.tg-sheet-compact .pomich-sheet-panel__body {
+  padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px) + var(--tg-content-safe-area-inset-bottom, 0px));
+}
+.pomich-flow-stack {
+  display: grid;
+  gap: var(--pomich-space-2);
+}
+.pomich-flow-panel {
+  padding: 0 var(--pomich-space-4) var(--pomich-space-4);
+  display: grid;
+  gap: var(--pomich-space-3);
+}
+.pomich-sheet-section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--pomich-space-3);
+  margin-top: var(--pomich-space-3);
+  margin-bottom: var(--pomich-space-2);
+}
+.pomich-sheet-section-title {
+  font-weight: 950;
+  font-size: var(--pomich-text-xl);
+  line-height: 1.1;
+  color: var(--pomich-text);
+}
+.pomich-sheet-badge {
+  flex-shrink: 0;
+  border-radius: 999px;
+  padding: 5px 9px;
+  font-size: var(--pomich-text-xs);
+  font-weight: 950;
+  white-space: nowrap;
+}
+
+/* POMICH 1.0 Home — compact emergency problem cards («Що сталося?») */
+.pomich-home-sheet {
+  display: grid;
+  gap: 6px;
+}
+.pomich-home-sheet__intro {
+  display: grid;
+  gap: 2px;
+}
+.pomich-home-sheet__intro .pomich-step-badge {
+  margin-bottom: 0;
+  padding: 4px 8px;
+  font-size: 10px;
+}
+.pomich-home-sheet__title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 950;
+  letter-spacing: -0.03em;
+  line-height: 1.12;
+  color: var(--pomich-text);
+}
+.pomich-home-sheet__subtitle {
+  margin: 0;
+  color: var(--pomich-muted);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+.pomich-home-sheet .pomich-sheet-section-head {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+.pomich-home-sheet .pomich-sheet-section-title {
+  font-size: 0.86rem;
+}
+.pomich-home-sheet .pomich-sheet-badge {
+  padding: 3px 7px;
+  font-size: 9px;
+}
+.pomich-problem-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 0;
+}
+.pomich-problem-grid--peek {
+  gap: 5px;
+  margin-top: 2px;
+}
+.pomich-problem-card {
+  display: grid;
+  grid-template-columns: 1.35rem 1fr;
+  grid-template-areas:
+    "emoji label"
+    "emoji hint";
+  column-gap: 7px;
+  row-gap: 1px;
+  align-items: start;
+  min-height: 0;
+  padding: 8px 9px;
+  border: 1px solid color-mix(in srgb, var(--pomich-border) 85%, transparent);
+  border-radius: 12px;
+  background:
+    linear-gradient(
+      155deg,
+      color-mix(in srgb, var(--pomich-card-bg) 92%, #fff) 0%,
+      var(--pomich-card-bg) 100%
+    );
+  color: var(--pomich-text);
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.35) inset,
+    0 4px 12px rgba(17, 19, 21, 0.04);
+  backdrop-filter: blur(12px) saturate(160%);
+  -webkit-backdrop-filter: blur(12px) saturate(160%);
+  transition:
+    transform 0.18s cubic-bezier(0.4, 0, 0.2, 1),
+    border-color 0.18s ease,
+    box-shadow 0.18s ease;
+  animation: pomichServiceRowIn 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.pomich-problem-card--peek {
+  grid-template-areas: "emoji label";
+  grid-template-rows: auto;
+  align-items: center;
+  padding: 6px 8px;
+  border-radius: 10px;
+  min-height: 2.35rem;
+}
+.pomich-problem-card:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: rgba(34, 197, 94, 0.4);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.4) inset,
+    0 8px 16px -4px rgba(34, 197, 94, 0.12);
+}
+.pomich-problem-card:active:not(:disabled) {
+  transform: translateY(1px) scale(0.985);
+}
+.pomich-problem-card:disabled {
+  cursor: not-allowed;
+}
+.pomich-problem-card__emoji {
+  grid-area: emoji;
+  align-self: center;
+  font-size: 1.15rem;
+  line-height: 1;
+  filter: drop-shadow(0 1px 1px rgba(17, 19, 21, 0.12));
+}
+.pomich-problem-card--peek .pomich-problem-card__emoji {
+  font-size: 1.05rem;
+}
+.pomich-problem-card__label {
+  grid-area: label;
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+.pomich-problem-card--peek .pomich-problem-card__label {
+  font-size: 0.74rem;
+  line-height: 1.1;
+}
+.pomich-problem-card__hint {
+  grid-area: hint;
+  display: block;
+  font-size: 0.62rem;
+  font-weight: 650;
+  line-height: 1.2;
+  color: var(--pomich-muted);
+}
+.pomich-problem-other {
+  margin-top: 2px;
+}
+.pomich-problem-other__toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 2.15rem;
+  padding: 0 11px;
+  border: 1px dashed var(--pomich-border);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--pomich-text);
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 850;
+  cursor: pointer;
+}
+.pomich-problem-other__toggle:hover {
+  border-color: rgba(34, 197, 94, 0.4);
+  background: color-mix(in srgb, var(--pomich-card-bg) 70%, transparent);
+}
+.pomich-home-sheet__meta {
+  display: grid;
+  gap: 8px;
+  margin-top: 2px;
+}
+.pomich-home-sheet__location {
+  margin-top: 0 !important;
+  border-radius: 14px !important;
+  padding: 2px 10px 8px !important;
+}
+.pomich-home-sheet__availability {
+  border-radius: 14px !important;
+  padding: 10px 12px !important;
+  gap: 6px !important;
+}
+
+.pomich-service-row {
+  min-height: var(--pomich-service-row-height);
+  width: 100%;
+  display: grid;
+  grid-template-columns: var(--pomich-service-icon) 1fr auto;
+  align-items: center;
+  gap: var(--pomich-space-3);
+  border: 1px solid var(--pomich-border);
+  border-radius: var(--pomich-card-radius);
+  padding: var(--pomich-space-2) var(--pomich-space-3);
+  background: var(--pomich-card-bg);
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  box-shadow: 0 6px 20px rgba(17, 19, 21, 0.05);
+  color: var(--pomich-text);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  transition:
+    transform 0.22s cubic-bezier(0.4, 0, 0.2, 1),
+    background 0.22s ease,
+    border-color 0.22s ease,
+    box-shadow 0.22s ease;
+  animation: pomichServiceRowIn 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.pomich-service-row:hover:not(:disabled) {
+  transform: translateY(-3px);
+  background: color-mix(in srgb, var(--pomich-card-bg) 82%, var(--pomich-brand) 18%);
+  border-color: rgba(34, 197, 94, 0.45);
+  box-shadow: 0 12px 26px -4px rgba(34, 197, 94, 0.18), 0 4px 12px rgba(0, 0, 0, 0.04);
+}
+.pomich-service-row:hover:not(:disabled) .pomich-service-row__icon {
+  animation-play-state: paused;
+  transform: scale(1.08) rotate(-3deg);
+  box-shadow: 0 8px 16px rgba(15, 23, 42, 0.12);
+}
+.pomich-service-row:hover:not(:disabled) .pomich-service-icon-glyph {
+  animation: pomichServiceGlyphHover 0.9s ease-in-out infinite;
+}
+.pomich-service-row:hover:not(:disabled) .pomich-service-row__chevron {
+  transform: translateX(4px);
+  opacity: 1;
+}
+.pomich-service-row:active:not(:disabled) {
+  transform: translateY(-1px) scale(0.99);
+}
+.pomich-service-row:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+  box-shadow: none;
+  animation: none;
+}
+.pomich-service-row__icon {
+  width: var(--pomich-service-icon);
+  height: var(--pomich-service-icon);
+  border-radius: calc(var(--pomich-card-radius) - 2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: transform 0.22s ease, box-shadow 0.22s ease;
+  animation: pomichServiceIconIdle 4.8s ease-in-out infinite;
+}
+.pomich-service-icon-svg {
+  display: block;
+  overflow: visible;
+  filter: drop-shadow(0 2px 3px rgba(15, 23, 42, 0.12));
+}
+.pomich-service-icon-glyph {
+  transform-origin: 20px 22px;
+  animation: pomichServiceGlyphIdle 5.6s ease-in-out infinite;
+}
+.pomich-service-row__label {
+  display: block;
+  font-size: var(--pomich-text-sm);
+  font-weight: 950;
+  color: var(--pomich-text);
+  line-height: 1.2;
+}
+.pomich-service-row__hint {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--pomich-text-xs);
+  font-weight: 750;
+  color: var(--pomich-muted);
+  line-height: 1.25;
+}
+.pomich-service-row__chevron {
+  color: var(--pomich-brand);
+  font-weight: 950;
+  font-size: var(--pomich-text-sm);
+  opacity: 0.75;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+.landing-service-card {
+  transition:
+    transform 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+.landing-service-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(34, 197, 94, 0.35);
+}
+
+.landing-section-eyebrow {
+  display: inline-flex;
+  border: 1px solid rgba(22, 163, 106, 0.35);
+  background: rgba(22, 163, 106, 0.12);
+  color: var(--pomich-badge-text, #0B7A4D);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-weight: 800;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+.landing-trust-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+@media (min-width: 720px) {
+  .landing-trust-grid {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+  }
+}
+.landing-trust-item {
+  border: 1px solid color-mix(in srgb, var(--pomich-border) 85%, transparent);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: color-mix(in srgb, var(--pomich-card-bg) 86%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  text-align: left;
+  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.landing-trust-item:hover {
+  transform: translateY(-1px);
+  border-color: rgba(22, 163, 106, 0.35);
+  box-shadow: 0 8px 18px -8px rgba(22, 163, 106, 0.2);
+}
+.landing-trust-item__title {
+  font-size: 0.86rem;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  color: var(--pomich-text);
+}
+.landing-trust-item__text {
+  margin-top: 3px;
+  font-size: 0.72rem;
+  font-weight: 650;
+  line-height: 1.35;
+  color: var(--pomich-muted);
+}
+.landing-faq {
+  display: grid;
+  gap: 8px;
+  max-width: 640px;
+  margin: 0 auto;
+}
+.landing-faq__item {
+  border: 1px solid color-mix(in srgb, var(--pomich-border) 85%, transparent);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: color-mix(in srgb, var(--pomich-card-bg) 88%, transparent);
+  text-align: left;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+.landing-faq__item[open] {
+  border-color: rgba(22, 163, 106, 0.35);
+  box-shadow: 0 8px 18px -10px rgba(22, 163, 106, 0.18);
+}
+.landing-faq__item summary {
+  cursor: pointer;
+  font-weight: 850;
+  font-size: 0.88rem;
+  color: var(--pomich-text);
+  list-style: none;
+}
+.landing-faq__item summary::-webkit-details-marker { display: none; }
+.landing-faq__item summary::after {
+  content: "+";
+  float: right;
+  color: var(--pomich-brand);
+  font-weight: 900;
+}
+.landing-faq__item[open] summary::after { content: "–"; }
+.landing-faq__item p {
+  margin: 8px 0 0;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  font-weight: 650;
+  color: var(--pomich-muted);
+}
+@keyframes landingRevealIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.landing-reveal {
+  animation: landingRevealIn 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .landing-reveal,
+  .landing-trust-item,
+  .landing-faq__item {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+.landing-service-row {
+  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+.landing-service-row:hover {
+  transform: translateY(-1px);
+  border-color: rgba(34, 197, 94, 0.45) !important;
+  box-shadow: 0 8px 18px -6px rgba(22, 163, 106, 0.18);
+}
+.landing-service-row:active {
+  transform: translateY(1px) scale(0.99);
+}
+.landing-step-row:last-child {
+  border-bottom: none !important;
+}
+.landing-service-card:active {
+  transform: translateY(1px) scale(0.99);
+}
+.pomich-service-card__icon,
+.landing-service-card__icon {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 0.75rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  animation: pomichServiceIconIdle 4.8s ease-in-out infinite;
+}
+.landing-service-card__icon {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 0.85rem;
+}
+.landing-service-card__icon svg,
+.landing-service-card__icon img {
+  width: 1.35rem;
+  height: 1.35rem;
+  max-width: 1.35rem;
+  max-height: 1.35rem;
+}
+.landing-service-card:hover .landing-service-card__icon {
+  transform: scale(1.04);
+}
+@keyframes pomichServiceRowIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes pomichServiceIconIdle {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-1.5px);
+  }
+}
+@keyframes pomichServiceGlyphIdle {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-1px);
+  }
+}
+@keyframes pomichServiceGlyphHover {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-1.5px) rotate(2deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pomich-service-row,
+  .pomich-service-row__icon,
+  .pomich-service-icon-glyph,
+  .pomich-service-card__icon,
+  .landing-service-card__icon {
+    animation: none !important;
+    transition: none !important;
+  }
+  .pomich-service-row:hover:not(:disabled),
+  .pomich-service-row:hover:not(:disabled) .pomich-service-row__icon {
+    transform: none;
+  }
+}
+.pomich-flow-secondary-btn {
+  width: 100%;
+  min-height: var(--pomich-btn-height-sm);
+  padding: var(--pomich-space-2) var(--pomich-space-3);
+  border-radius: var(--pomich-card-radius);
+  background: var(--pomich-ghost-bg);
+  color: var(--pomich-label);
+  border: 1px solid var(--pomich-border);
+  font-size: var(--pomich-text-sm);
+  font-weight: 800;
+  cursor: pointer;
+  font-family: inherit;
+}
+.pomich-flow-secondary-btn.is-danger {
+  background: var(--pomich-error-bg);
+  color: var(--pomich-error-text);
+  border-color: var(--pomich-error-border);
+}
+.pomich-flow-secondary-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+.pomich-duty-panel {
+  background: var(--pomich-glass-card);
+  border: 1px solid var(--pomich-glass-border);
+  border-radius: 12px;
+  padding: 10px 11px;
+}
+.pomich-sheet-panel .pomich-primary-btn {
+  min-height: var(--pomich-btn-height);
+  font-size: var(--pomich-text-base);
+  border-radius: var(--pomich-card-radius);
+  box-shadow: none;
+}
+.pomich-sheet-panel .pomich-flow-secondary-btn {
+  min-height: var(--pomich-btn-height-sm);
+  font-size: var(--pomich-text-sm);
+  border-radius: calc(var(--pomich-card-radius) - 2px);
+}
+.pomich-duty-panel__head {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--pomich-space-3);
+  align-items: center;
+}
+.pomich-duty-panel__label {
+  color: var(--pomich-muted);
+  font-weight: 800;
+  font-size: var(--pomich-text-xs);
+}
+.pomich-duty-panel__status {
+  color: var(--pomich-text);
+  font-weight: 950;
+  font-size: var(--pomich-text-xl);
+  margin-top: 2px;
+  line-height: 1.15;
+}
+.pomich-duty-stat-grid {
+  margin-top: var(--pomich-space-3);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--pomich-space-2);
+}
+.pomich-duty-stat {
+  background: var(--pomich-service-tone-default);
+  border-radius: calc(var(--pomich-card-radius) - 2px);
+  padding: var(--pomich-space-2) var(--pomich-space-3);
+}
+.pomich-duty-stat__label {
+  color: var(--pomich-muted);
+  font-size: var(--pomich-text-xs);
+  font-weight: 800;
+}
+.pomich-duty-stat__value {
+  color: var(--pomich-text);
+  font-weight: 950;
+  font-size: var(--pomich-text-sm);
+  margin-top: 2px;
+  line-height: 1.2;
+}
+.pomich-duty-panel__note {
+  color: var(--pomich-muted);
+  font-weight: 700;
+  font-size: var(--pomich-text-sm);
+  margin-top: var(--pomich-space-3);
+  line-height: 1.4;
+}
+.pomich-duty-panel {
+  display: grid;
+  gap: 8px;
+}
+.pomich-duty-panel--peek {
+  gap: 6px;
+}
+.pomich-duty-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.pomich-duty-panel__titles {
+  min-width: 0;
+}
+.pomich-duty-panel__eyebrow {
+  color: var(--pomich-muted);
+  font-weight: 800;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.pomich-duty-panel__status-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 1px;
+}
+.pomich-duty-panel__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #9ca3af;
+  flex-shrink: 0;
+}
+.pomich-duty-panel__dot.is-on {
+  background: #16a34a;
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.18);
+}
+.pomich-duty-panel__status {
+  color: var(--pomich-text);
+  font-weight: 950;
+  font-size: 0.98rem;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+.pomich-duty-panel--peek .pomich-duty-panel__status {
+  font-size: 0.95rem;
+}
+.pomich-duty-panel__hint {
+  margin-top: 2px;
+  color: var(--pomich-muted);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+.pomich-duty-panel__metrics {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.pomich-duty-metric {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-height: 2.15rem;
+  padding: 6px 9px;
+  border-radius: 11px;
+  border: 1px solid var(--pomich-border);
+  background: color-mix(in srgb, var(--pomich-card-bg) 88%, transparent);
+}
+.pomich-duty-metric__label {
+  color: var(--pomich-muted);
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1.15;
+}
+.pomich-duty-metric__value {
+  color: var(--pomich-text);
+  font-size: 0.98rem;
+  font-weight: 950;
+  line-height: 1;
+}
+.pomich-duty-panel__banner {
+  border-radius: 11px;
+  padding: 7px 9px;
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1.3;
+}
+.pomich-duty-panel__banner--warn {
+  background: var(--pomich-warn-bg);
+  color: var(--pomich-warn-text);
+}
+.pomich-duty-panel__banner--error {
+  background: var(--pomich-error-bg);
+  color: var(--pomich-error-text);
+}
+.pomich-duty-panel__actions {
+  display: grid;
+  gap: 6px;
+}
+.pomich-duty-panel .pomich-primary-btn {
+  min-height: 38px;
+  border-radius: 11px;
+  font-size: 13px;
+  padding: 8px 12px;
+}
+.pomich-duty-panel--peek .pomich-primary-btn {
+  min-height: 36px;
+}
+.pomich-duty-toggle {
+  width: 48px;
+  height: 30px;
+  border-radius: 999px;
+  padding: 3px;
+  border: none;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  cursor: pointer;
+  font-family: inherit;
+}
+.pomich-duty-toggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.pomich-duty-toggle.is-on {
+  background: #dcfce7;
+  justify-content: flex-end;
+}
+.pomich-duty-toggle.is-off {
+  background: #e5e7eb;
+  justify-content: flex-start;
+}
+.pomich-duty-toggle__knob {
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+}
+.pomich-duty-toggle.is-on .pomich-duty-toggle__knob {
+  background: var(--pomich-brand);
+}
+.pomich-duty-toggle.is-off .pomich-duty-toggle__knob {
+  background: #9ca3af;
+}
+.pomich-presence-toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  z-index: 2000;
+  max-width: min(92vw, 360px);
+  background: #111315;
+  color: #fff;
+  border-radius: var(--pomich-card-radius);
+  padding: var(--pomich-space-2) var(--pomich-space-4);
+  font-size: var(--pomich-text-sm);
+  font-weight: 800;
+  line-height: 1.4;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.28);
+  text-align: center;
+}
+.pomich-tg-header {
+  min-height: var(--pomich-header-stack-height);
+  height: auto !important;
+  overflow: visible !important;
+}
+.pomich-app-header-menu-btn {
+  font-size: 15px;
+  padding: 2px 0;
+  font-weight: 800;
+}
+.pomich-app-header-role-label {
+  font-size: var(--pomich-text-xs);
+}
+.pomich-app-header-chip--compact {
+  padding: 2px 7px;
+  font-size: 11px;
+  height: 28px;
+  min-height: 28px;
+}
+html.mobile-compact .pomich-map-chip,
+html.tg-compact .pomich-map-chip {
+  padding: 6px 10px !important;
+  font-size: var(--pomich-text-xs) !important;
+}
+html.mobile-compact .pomich-map-chip--brand,
+html.tg-compact .pomich-map-chip--brand {
+  font-size: var(--pomich-text-sm) !important;
+}
+html.mobile-compact .pomich-ride-screen__chrome,
+html.tg-compact .pomich-ride-screen__chrome {
+  display: none !important;
+}
+html.mobile-compact .pomich-map-tools-toggle,
+html.tg-compact .pomich-map-tools-toggle,
+html.mobile-compact .pomich-map-tools-panel,
+html.tg-compact .pomich-map-tools-panel {
+  top: var(--pomich-map-chrome-top);
+  right: var(--pomich-map-chrome-right);
+}
+html.mobile-compact .pomich-map-tools-toggle,
+html.tg-compact .pomich-map-tools-toggle {
+  max-width: min(44vw, 148px);
+  padding: 7px 10px;
+  font-size: 10px;
+  /* Soft sage plate — readable over OSM without glare */
+  background: #E4EBE7 !important;
+  color: #1A2332 !important;
+  border: 1px solid #A8BBB2 !important;
+}
+html.mobile-compact .pomich-map-tools-panel,
+html.tg-compact .pomich-map-tools-panel {
+  background: #E8EEEB !important;
+  color: #1A2332 !important;
+  border: 1px solid #A8BBB2 !important;
+}
+html.mobile-compact .pomich-map-tools-panel__brand,
+html.tg-compact .pomich-map-tools-panel__brand,
+html.mobile-compact .pomich-map-tools-filter-btn,
+html.tg-compact .pomich-map-tools-filter-btn,
+html.mobile-compact .pomich-map-tools-scope-btn,
+html.tg-compact .pomich-map-tools-scope-btn,
+html.mobile-compact .pomich-map-tools-panel__close,
+html.tg-compact .pomich-map-tools-panel__close {
+  color: #0F172A !important;
+}
+html.mobile-compact[data-pomich-theme="dark"] .pomich-map-tools-toggle,
+html.tg-compact[data-pomich-theme="dark"] .pomich-map-tools-toggle,
+html.mobile-compact[data-pomich-theme="dark"] .pomich-map-tools-panel,
+html.tg-compact[data-pomich-theme="dark"] .pomich-map-tools-panel {
+  background: #181C24 !important;
+  color: #F8FAFC !important;
+  border-color: rgba(255, 255, 255, 0.28) !important;
+}
+html.mobile-compact[data-pomich-theme="dark"] .pomich-map-tools-panel__brand,
+html.tg-compact[data-pomich-theme="dark"] .pomich-map-tools-panel__brand,
+html.mobile-compact[data-pomich-theme="dark"] .pomich-map-tools-filter-btn,
+html.tg-compact[data-pomich-theme="dark"] .pomich-map-tools-filter-btn,
+html.mobile-compact[data-pomich-theme="dark"] .pomich-map-tools-scope-btn,
+html.tg-compact[data-pomich-theme="dark"] .pomich-map-tools-scope-btn,
+html.mobile-compact[data-pomich-theme="dark"] .pomich-map-tools-panel__close,
+html.tg-compact[data-pomich-theme="dark"] .pomich-map-tools-panel__close {
+  color: #F8FAFC !important;
+}
+html.mobile-compact[data-pomich-theme="dark"] .pomich-map-tools-scope-btn,
+html.tg-compact[data-pomich-theme="dark"] .pomich-map-tools-scope-btn {
+  background: rgba(255, 255, 255, 0.08) !important;
+  border-color: rgba(255, 255, 255, 0.22) !important;
+}
+html.mobile-compact[data-pomich-theme="dark"] .pomich-map-tools-scope-btn.is-active,
+html.tg-compact[data-pomich-theme="dark"] .pomich-map-tools-scope-btn.is-active {
+  background: rgba(22, 163, 106, 0.22) !important;
+  border-color: rgba(142, 240, 190, 0.55) !important;
+}
+html.mobile-compact .pomich-map-chrome-row,
+html.tg-compact .pomich-map-chrome-row {
+  left: calc(var(--pomich-map-chrome-left) + var(--pomich-map-zoom-cluster, 34px) + 8px);
+  top: var(--pomich-map-chrome-top);
+  gap: 6px;
+}
+html.mobile-compact .pomich-map-chrome-row__brand,
+html.tg-compact .pomich-map-chrome-row__brand {
+  display: none;
+}
+html.mobile-compact .pomich-route-map .leaflet-top.leaflet-left,
+html.tg-compact .pomich-route-map .leaflet-top.leaflet-left,
+html.mobile-compact .pomich-ride-screen__map .leaflet-top.leaflet-left,
+html.tg-compact .pomich-ride-screen__map .leaflet-top.leaflet-left {
+  top: var(--pomich-map-chrome-top) !important;
+  left: var(--pomich-map-chrome-left) !important;
+}
+.pomich-service-card {
+  min-height: var(--pomich-service-row-height);
+  border-radius: calc(var(--pomich-card-radius) - 2px);
+  padding: var(--pomich-space-2) var(--pomich-space-3);
+}
+.pomich-form-card {
+  border-radius: var(--pomich-card-radius);
+  padding: var(--pomich-card-padding);
+  gap: var(--pomich-space-2);
+}
+.pomich-form-label {
+  font-size: var(--pomich-text-xs);
+}
+.pomich-location-row {
+  display: grid;
+  grid-template-columns: 32px 1fr;
+  gap: var(--pomich-space-2);
+  align-items: center;
+  padding: var(--pomich-space-2) 0;
+}
+.pomich-location-row__icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+}
+.pomich-location-row__title {
+  color: var(--pomich-text);
+  font-weight: 900;
+  font-size: var(--pomich-text-sm);
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  line-height: 1.25;
+}
+.pomich-location-row__subtitle {
+  color: var(--pomich-muted);
+  font-weight: 700;
+  font-size: var(--pomich-text-xs);
+  margin-top: 1px;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+}
+.pomich-sheet-heading__title {
+  font-size: var(--pomich-text-xl);
+  line-height: 1.08;
+  font-weight: 950;
+  color: var(--pomich-text);
+}
+.pomich-sheet-heading__subtitle {
+  margin-top: var(--pomich-space-1);
+  color: var(--pomich-muted);
+  font-size: var(--pomich-text-sm);
+  line-height: 1.35;
+  font-weight: 750;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.pomich-step-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 999px;
+  padding: 7px 11px;
+  background: var(--pomich-selected-bg);
+  color: var(--pomich-brand);
+  font-size: var(--pomich-text-xs);
+  font-weight: 950;
+  margin-bottom: 12px;
+  max-width: 100%;
+  text-wrap: balance;
+  line-height: 1.2;
+}
+/* Home: destination row is a promise, not an input */
+.pomich-location-hint {
+  opacity: 0.78;
+  pointer-events: none;
+  user-select: none;
+}
+.pomich-location-hint .pomich-location-row__subtitle {
+  color: var(--pomich-muted);
+}
+.pomich-order-request-sheet {
+  position: fixed;
+  inset: 0;
+  /* Above tg-header (3200) and cabinet shell (3200); just over history sheet (4500) */
+  z-index: 4600;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(17, 19, 21, 0.48);
+  padding: 12px;
+  padding-bottom: calc(
+    12px + env(safe-area-inset-bottom, 0px) + var(--tg-content-safe-area-inset-bottom, 0px)
+  );
+  /* Prefer visible viewport so browser/TG chrome does not clip the confirm CTA */
+  max-height: var(--tg-viewport-stable-height, 100dvh);
+  box-sizing: border-box;
+}
+.pomich-order-request-sheet__panel {
+  width: min(100%, 420px);
+  max-height: min(
+    88dvh,
+    calc(var(--tg-viewport-stable-height, 100dvh) - env(safe-area-inset-top, 0px) - 24px)
+  );
+  overflow: hidden;
+  border-radius: 20px;
+  background: var(--pomich-card-bg);
+  border: 1px solid var(--pomich-border);
+  padding: 16px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.24);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  -webkit-overflow-scrolling: touch;
+}
+.pomich-order-request-sheet__scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  display: grid;
+  gap: 12px;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.pomich-order-request-sheet__handle {
+  width: 42px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--pomich-sheet-handle);
+  margin: 0 auto 4px;
+}
+.pomich-order-request-sheet__title {
+  font-weight: 950;
+  font-size: var(--pomich-text-xl);
+  color: var(--pomich-text);
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+.pomich-order-request-sheet__meta {
+  color: var(--pomich-muted);
+  font-weight: 800;
+  font-size: var(--pomich-text-sm);
+}
+.pomich-order-request-sheet__details {
+  display: grid;
+  gap: 8px;
+  color: var(--pomich-text);
+  font-size: var(--pomich-text-sm);
+  font-weight: 700;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.pomich-order-request-sheet__comment {
+  background: var(--pomich-info-bg);
+  color: var(--pomich-info-text);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+.pomich-order-request-sheet__comment p {
+  margin: 6px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.pomich-order-request-sheet__price-label {
+  display: grid;
+  gap: 6px;
+  font-size: var(--pomich-text-xs);
+  font-weight: 850;
+  color: var(--pomich-label);
+}
+.pomich-order-request-sheet__actions {
+  display: grid;
+  gap: 10px;
+  flex: 0 0 auto;
+  position: relative;
+  padding-top: 8px;
+  margin-top: 0;
+  background: var(--pomich-card-bg);
+  border-top: 1px solid var(--pomich-border);
+  /* Keep CTA above home-indicator / Telegram inset */
+  padding-bottom: max(2px, env(safe-area-inset-bottom, 0px));
+}
+.pomich-offer-accept-footer {
+  display: grid;
+  gap: 10px;
+}
+.pomich-form-footer-bar:has(.pomich-offer-accept-footer) {
+  /* Compact offer CTA footer — price lives in scrollable body */
+  padding-top: 10px;
+  padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px) + var(--tg-content-safe-area-inset-bottom, 0px));
+  flex-shrink: 0;
+  z-index: 5;
+}
+.pomich-price-confirm-actions {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  padding-top: 12px;
+  padding-bottom: 4px;
+  background: linear-gradient(
+    to top,
+    var(--pomich-card-bg) 70%,
+    color-mix(in srgb, var(--pomich-card-bg) 70%, transparent)
+  );
+}
+.pomich-offer-price-input {
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  width: 100% !important;
+  min-height: 44px !important;
+  height: auto !important;
+  pointer-events: auto !important;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.pomich-offer-price-input--compact {
+  min-height: 38px !important;
+  font-size: 16px !important;
+  font-weight: 900 !important;
+  padding: 0 10px !important;
+  border-radius: 10px !important;
+}
+.pomich-offer-inline-error {
+  background: var(--pomich-error-bg);
+  color: var(--pomich-error-text);
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-weight: 800;
+  font-size: var(--pomich-text-sm);
+}
+.pomich-incoming-offer {
+  padding: 8px 14px 12px;
+  display: grid;
+  gap: 10px;
+}
+.pomich-incoming-offer .pomich-route-map {
+  height: 180px !important;
+  min-height: 160px !important;
+  border-radius: 16px !important;
+}
+.pomich-incoming-offer__card {
+  background: var(--pomich-card-bg);
+  border: 1px solid var(--pomich-border);
+  border-radius: 14px;
+  padding: 12px;
+  display: grid;
+  gap: 6px;
+}
+.pomich-incoming-offer__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: flex-start;
+}
+.pomich-incoming-offer__title {
+  font-weight: 950;
+  font-size: var(--pomich-text-base);
+  color: var(--pomich-text);
+  line-height: 1.2;
+}
+.pomich-incoming-offer__eta {
+  background: var(--pomich-selected-bg, #E8F8F1);
+  color: var(--pomich-brand);
+  border-radius: 999px;
+  padding: 5px 9px;
+  font-weight: 950;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.pomich-incoming-offer__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  color: var(--pomich-muted);
+  font-weight: 750;
+  font-size: var(--pomich-text-sm);
+}
+.pomich-incoming-offer__row,
+.pomich-incoming-offer__comment {
+  color: var(--pomich-text);
+  font-size: var(--pomich-text-sm);
+  font-weight: 700;
+  line-height: 1.35;
+}
+.pomich-incoming-offer__comment {
+  background: var(--pomich-info-bg);
+  color: var(--pomich-info-text);
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+.pomich-incoming-offer__price,
+.pomich-incoming-offer__note {
+  display: grid;
+  gap: 5px;
+  font-size: var(--pomich-text-xs);
+  font-weight: 850;
+  color: var(--pomich-label);
+}
+.pomich-order-request-sheet__title {
+  font-weight: 950;
+  font-size: var(--pomich-text-lg);
+  color: var(--pomich-text);
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+.pomich-order-request-sheet__panel {
+  gap: 10px;
+  padding: 14px;
+}
+.pomich-order-request-sheet__scroll {
+  gap: 10px;
+}
+.pomich-app-header-chip--compact {
+  max-width: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-inline: 7px;
+  font-size: 11px;
+}
+.pomich-tg-header {
+  overflow-x: clip;
+  overflow-y: visible;
+}
+.pomich-tg-header .pomich-app-header-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  width: 100%;
+  min-height: 2.5rem;
+  min-width: 0;
+  padding-inline: 8px;
+}
+.pomich-tg-header .pomich-app-header-actions-cluster {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  min-width: 0;
+  flex: 0 0 auto;
+  margin-left: auto;
+  overflow: visible;
+}
+/* Compact header controls — override global 44px touch mins that blow up the row */
+.pomich-tg-header .pomich-theme-toggle {
+  min-width: 0;
+  min-height: 0;
+}
+.pomich-tg-header .pomich-theme-toggle--compact {
+  --toggle-width: 40px;
+  --toggle-height: 22px;
+  --toggle-pad: 2px;
+  --toggle-knob: 16px;
+  --toggle-icon-size: 10px;
+  width: var(--toggle-width);
+  height: var(--toggle-height);
+}
+.pomich-tg-header .pomich-app-header-chip--compact {
+  height: 26px;
+  min-height: 26px;
+  padding: 0 7px;
+  font-size: 11px;
+  letter-spacing: 0.01em;
+}
+.pomich-tg-header .pomich-app-header-session {
+  height: 26px;
+  padding: 0 8px 0 6px;
+  font-size: 12px;
+  width: max-content;
+  max-width: min(48vw, 11.5rem);
+  flex: 0 1 auto;
+}
+.pomich-tg-header .pomich-app-header-menu-btn {
+  min-height: 26px;
+  min-width: 26px;
+  padding: 0 2px;
+}
+.pomich-tg-header .pomich-app-header-actions-cluster::-webkit-scrollbar {
+  display: none;
+}
+.pomich-tg-header .flex.items-center.gap-1\.5,
+.pomich-tg-header .flex.items-center.gap-2 {
+  min-width: 0;
+  flex-shrink: 1;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.pomich-comment-field {
+  width: 100%;
+  min-height: 88px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--pomich-border);
+  background: var(--pomich-input-bg);
+  color: var(--pomich-text);
+  font: inherit;
+  font-size: var(--pomich-text-sm);
+  font-weight: 700;
+  line-height: 1.4;
+  resize: vertical;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.pomich-comment-field:focus {
+  outline: 2px solid color-mix(in srgb, var(--pomich-brand) 35%, transparent);
+  outline-offset: 1px;
+}

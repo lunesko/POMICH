@@ -25,8 +25,17 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: "npm"
+
+      - name: Validate nginx edge configuration
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nginx openssl
+          sudo python3 scripts/check_nginx_config.py
+
+      - name: Check tracked files for credentials
+        run: python scripts/check_secrets.py
 
       - name: Install Python dependencies
         run: python -m pip install --upgrade pip && python -m pip install -r requirements.txt
@@ -34,8 +43,8 @@ jobs:
       - name: Install Node dependencies
         run: npm ci
 
-      - name: Check production dependency vulnerabilities
-        run: npm audit --omit=dev --audit-level=high
+      - name: Check dependency vulnerabilities
+        run: npm audit --audit-level=moderate
 
       - name: Run backend tests
         run: python -m pytest

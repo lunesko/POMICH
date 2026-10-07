@@ -1,0 +1,332 @@
+/* ── POMICH animated sea / coastal background ── */
+[data-pomich-theme="light"] {
+  --pomich-sea-sky-top: #7ec8e8;
+  --pomich-sea-sky-mid: #3da8c4;
+  --pomich-sea-horizon: #1a8aa8;
+  --pomich-sea-deep: #0c5570;
+  --pomich-sea-abyss: #083548;
+  --pomich-sea-glow: rgba(22, 163, 106, 0.22);
+  --pomich-sea-shimmer: rgba(255, 255, 255, 0.38);
+  --pomich-sea-wave-1: rgba(255, 255, 255, 0.28);
+  --pomich-sea-wave-2: rgba(180, 230, 245, 0.22);
+  --pomich-sea-wave-3: rgba(22, 163, 106, 0.14);
+  --pomich-sea-foam: rgba(255, 255, 255, 0.18);
+  --pomich-sea-bubble: rgba(255, 255, 255, 0.42);
+  --pomich-sea-fade: var(--pomich-bg);
+  --pomich-sea-chip-bg: rgba(255, 255, 255, 0.92);
+  --pomich-sea-chip-text: #0f172a;
+  --pomich-sea-chip-muted: #475569;
+}
+[data-pomich-theme="dark"] {
+  --pomich-sea-sky-top: #0a1a2e;
+  --pomich-sea-sky-mid: #0d2847;
+  --pomich-sea-horizon: #0f3d5c;
+  --pomich-sea-deep: #082a42;
+  --pomich-sea-abyss: #051525;
+  --pomich-sea-glow: rgba(22, 163, 106, 0.18);
+  --pomich-sea-shimmer: rgba(105, 167, 255, 0.12);
+  --pomich-sea-wave-1: rgba(142, 240, 190, 0.12);
+  --pomich-sea-wave-2: rgba(105, 167, 255, 0.1);
+  --pomich-sea-wave-3: rgba(22, 163, 106, 0.08);
+  --pomich-sea-foam: rgba(142, 240, 190, 0.06);
+  --pomich-sea-bubble: rgba(142, 240, 190, 0.22);
+  --pomich-sea-fade: var(--pomich-bg);
+  --pomich-sea-chip-bg: rgba(9, 11, 14, 0.82);
+  --pomich-sea-chip-text: #ffffff;
+  --pomich-sea-chip-muted: #b9c2d0;
+}
+.pomich-sea-bg--light {
+  --pomich-sea-sky-top: #7ec8e8;
+  --pomich-sea-sky-mid: #3da8c4;
+  --pomich-sea-horizon: #1a8aa8;
+  --pomich-sea-deep: #0c5570;
+  --pomich-sea-abyss: #083548;
+  --pomich-sea-glow: rgba(22, 163, 106, 0.22);
+  --pomich-sea-shimmer: rgba(255, 255, 255, 0.38);
+  --pomich-sea-wave-1: rgba(255, 255, 255, 0.28);
+  --pomich-sea-wave-2: rgba(180, 230, 245, 0.22);
+  --pomich-sea-wave-3: rgba(22, 163, 106, 0.14);
+  --pomich-sea-foam: rgba(255, 255, 255, 0.18);
+  --pomich-sea-bubble: rgba(255, 255, 255, 0.42);
+  --pomich-sea-fade: #f5f8fb;
+}
+.pomich-sea-bg--dark {
+  --pomich-sea-sky-top: #0a1a2e;
+  --pomich-sea-sky-mid: #0d2847;
+  --pomich-sea-horizon: #0f3d5c;
+  --pomich-sea-deep: #082a42;
+  --pomich-sea-abyss: #051525;
+  --pomich-sea-glow: rgba(22, 163, 106, 0.18);
+  --pomich-sea-shimmer: rgba(105, 167, 255, 0.12);
+  --pomich-sea-wave-1: rgba(142, 240, 190, 0.12);
+  --pomich-sea-wave-2: rgba(105, 167, 255, 0.1);
+  --pomich-sea-wave-3: rgba(22, 163, 106, 0.08);
+  --pomich-sea-foam: rgba(142, 240, 190, 0.06);
+  --pomich-sea-bubble: rgba(142, 240, 190, 0.22);
+  --pomich-sea-fade: #090b0e;
+}
+.pomich-sea-bg {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+  background: linear-gradient(180deg, var(--pomich-sea-sky-top) 0%, var(--pomich-sea-sky-mid) 38%, var(--pomich-sea-horizon) 58%, var(--pomich-sea-deep) 100%);
+}
+.pomich-sea-bg--subtle {
+  opacity: 0.92;
+}
+.pomich-sea-bg--hero {
+  opacity: 1;
+}
+.pomich-sea-bg__sky,
+.pomich-sea-bg__glow,
+.pomich-sea-bg__shimmer,
+.pomich-sea-bg__horizon,
+.pomich-sea-bg__ocean,
+.pomich-sea-bg__foam,
+.pomich-sea-bg__fade {
+  position: absolute;
+  inset: 0;
+}
+.pomich-sea-bg__glow {
+  background:
+    radial-gradient(ellipse 90% 55% at 50% 8%, var(--pomich-sea-glow), transparent 62%),
+    radial-gradient(ellipse 60% 40% at 82% 18%, rgba(29, 111, 212, 0.14), transparent 58%);
+  animation: pomichSeaGlow 14s ease-in-out infinite alternate;
+}
+.pomich-sea-bg__shimmer {
+  background: linear-gradient(
+    115deg,
+    transparent 28%,
+    var(--pomich-sea-shimmer) 46%,
+    transparent 64%
+  );
+  background-size: 220% 100%;
+  mix-blend-mode: soft-light;
+  opacity: 0.55;
+  animation: pomichSeaShimmer 9s ease-in-out infinite;
+}
+.pomich-sea-bg__horizon {
+  top: auto;
+  height: 42%;
+  bottom: 18%;
+  background: linear-gradient(180deg, transparent, rgba(0, 0, 0, 0.08) 100%);
+}
+.pomich-sea-bg__ocean {
+  top: 52%;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--pomich-sea-horizon) 70%, transparent) 0%,
+    var(--pomich-sea-deep) 42%,
+    var(--pomich-sea-abyss) 100%
+  );
+  animation: pomichSeaSwell 11s ease-in-out infinite alternate;
+}
+.pomich-sea-bg__waves {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: min(28%, 180px);
+  overflow: hidden;
+}
+.pomich-sea-bg__wave {
+  position: absolute;
+  left: -4%;
+  width: 108%;
+  height: 100%;
+  fill: currentColor;
+}
+.pomich-sea-bg__wave--1 {
+  bottom: 0;
+  color: var(--pomich-sea-wave-1);
+  animation: pomichSeaWaveDrift 16s linear infinite;
+}
+.pomich-sea-bg__wave--2 {
+  bottom: 8%;
+  color: var(--pomich-sea-wave-2);
+  opacity: 0.85;
+  animation: pomichSeaWaveDrift 22s linear infinite reverse;
+}
+.pomich-sea-bg__wave--3 {
+  bottom: 16%;
+  color: var(--pomich-sea-wave-3);
+  opacity: 0.7;
+  animation: pomichSeaWaveDrift 28s linear infinite;
+}
+.pomich-sea-bg__foam {
+  top: auto;
+  height: 18%;
+  bottom: 0;
+  background: linear-gradient(180deg, transparent, var(--pomich-sea-foam));
+  animation: pomichSeaFoam 7s ease-in-out infinite alternate;
+}
+.pomich-sea-bg__bubbles {
+  position: absolute;
+  inset: 38% 0 0;
+}
+.pomich-sea-bg__bubble {
+  position: absolute;
+  bottom: -12px;
+  width: calc(6px + (var(--bubble-i, 0) * 1.2px));
+  height: calc(6px + (var(--bubble-i, 0) * 1.2px));
+  border-radius: 999px;
+  background: radial-gradient(circle at 30% 30%, var(--pomich-sea-bubble), transparent 70%);
+  opacity: 0;
+  animation: pomichSeaBubble 7.5s ease-in infinite;
+  animation-delay: var(--bubble-delay, 0s);
+  left: calc(8% + (var(--bubble-i, 0) * 11%));
+}
+.pomich-sea-bg__fade {
+  top: auto;
+  height: 140px;
+  bottom: 0;
+  background: linear-gradient(180deg, transparent, var(--pomich-sea-fade));
+}
+.pomich-sea-atmosphere {
+  position: relative;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  isolation: isolate;
+  overflow: hidden;
+}
+.pomich-sea-atmosphere__bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+.pomich-sea-atmosphere__content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 100dvh;
+  min-height: 0;
+}
+.pomich-sea-atmosphere .pomich-themed-shell {
+  background: transparent;
+}
+.pomich-sea-atmosphere .pomich-form-header,
+.pomich-sea-atmosphere .pomich-form-footer-bar {
+  background: var(--pomich-footer-bg);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.pomich-sea-atmosphere .pomich-form-card,
+.pomich-sea-atmosphere .pomich-terminal-card,
+.pomich-sea-atmosphere .pomich-onboarding-card {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  background: var(--pomich-glass-card);
+}
+.pomich-terminal-sea-screen {
+  background: var(--pomich-sea-abyss);
+}
+.pomich-terminal-sea-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--pomich-border) 70%, transparent);
+  background: var(--pomich-sea-chip-bg);
+  color: var(--pomich-sea-chip-text);
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 900;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.16);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+.pomich-terminal-sea-chip--muted {
+  color: var(--pomich-sea-chip-muted);
+}
+.pomich-terminal-sea-chip__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--pomich-brand);
+  box-shadow: 0 0 12px rgba(22, 163, 106, 0.65);
+}
+.pomich-landing .pomich-sea-bg__fade {
+  --pomich-sea-fade: var(--pomich-section, var(--pomich-bg));
+}
+@keyframes pomichSeaGlow {
+  0% { transform: translateY(0) scale(1); opacity: 0.85; }
+  100% { transform: translateY(-2%) scale(1.03); opacity: 1; }
+}
+@keyframes pomichSeaShimmer {
+  0% { background-position: 120% 0; }
+  100% { background-position: -40% 0; }
+}
+@keyframes pomichSeaSwell {
+  0% { transform: translateY(0); }
+  100% { transform: translateY(-1.5%); }
+}
+@keyframes pomichSeaWaveDrift {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-4%); }
+}
+@keyframes pomichSeaFoam {
+  0% { opacity: 0.45; }
+  100% { opacity: 0.75; }
+}
+@keyframes pomichSeaBubble {
+  0% { transform: translateY(0) scale(0.6); opacity: 0; }
+  12% { opacity: 0.75; }
+  100% { transform: translateY(-120px) scale(1.05); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pomich-sea-bg__glow,
+  .pomich-sea-bg__shimmer,
+  .pomich-sea-bg__ocean,
+  .pomich-sea-bg__wave,
+  .pomich-sea-bg__foam,
+  .pomich-sea-bg__bubble {
+    animation: none !important;
+  }
+  .pomich-sea-bg__bubble {
+    display: none;
+  }
+}
+.pomich-app-main {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.pomich-app-main > * {
+  flex: 1 1 0;
+  min-height: 0;
+}
+.pomich-app-fallback {
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  padding: 24px;
+  background: var(--pomich-bg);
+}
+.pomich-app-fallback__card {
+  max-width: 420px;
+  width: 100%;
+  border: 1px solid var(--pomich-border);
+  border-radius: 18px;
+  background: var(--pomich-surface);
+  padding: 24px;
+  text-align: center;
+  display: grid;
+  gap: 16px;
+}
+.pomich-app-fallback__title {
+  font-weight: 900;
+  color: var(--pomich-text);
+}
+.pomich-app-fallback__actions {
+  display: grid;
+  gap: 10px;
+}

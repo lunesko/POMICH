@@ -30,23 +30,13 @@ def _project_root() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
-_LOCAL_ENV_LOADED_PATHS: set[str] = set()
-
-
 def load_local_env(path: Path | None = None) -> None:
-    """Load repo-root `.env` once per process path.
-
-    Re-applying setdefault on every Telegram config read breaks pytest isolation:
-    `monkeypatch.delenv(...)` is undone the next time a helper calls this.
-    """
-    if (os.getenv("POMICH_SKIP_LOCAL_ENV") or "").strip() in {"1", "true", "yes"}:
+    if os.getenv("POMICH_SKIP_LOCAL_ENV", "").strip().lower() in {"1", "true", "yes"}:
+        return
+    if os.getenv("POMICH_LOAD_LOCAL_ENV", "1").strip().lower() in {"0", "false", "no"}:
         return
     env_path = path or (_project_root() / ".env")
-    resolved = str(env_path.resolve()) if env_path.exists() else str(env_path)
-    if resolved in _LOCAL_ENV_LOADED_PATHS:
-        return
     if not env_path.exists():
-        _LOCAL_ENV_LOADED_PATHS.add(resolved)
         return
 
     for raw_line in env_path.read_text(encoding="utf-8").splitlines():
@@ -57,7 +47,6 @@ def load_local_env(path: Path | None = None) -> None:
         name = name.strip()
         value = value.strip().strip('"').strip("'")
         os.environ.setdefault(name, value)
-    _LOCAL_ENV_LOADED_PATHS.add(resolved)
 
 
 def normalize_telegram_bot_kind(value: str | None) -> TelegramBotKind | None:
@@ -84,14 +73,12 @@ def _is_public_https_url(value: str | None) -> bool:
 
 
 def get_base_web_app_url() -> str | None:
-    load_local_env()
     url = (os.getenv("WEB_APP_URL") or os.getenv("VITE_WEB_APP_URL") or "").strip()
     return url if _is_public_https_url(url) else None
 
 
 def _legacy_bot_token() -> str | None:
     """Backward-compatible local fallback only. Never use VITE_ tokens in new code paths."""
-    load_local_env()
     token = (os.getenv("TELEGRAM_BOT_TOKEN") or "").strip()
     if token:
         return token
@@ -100,7 +87,6 @@ def _legacy_bot_token() -> str | None:
 
 
 def _token_for_kind(kind: TelegramBotKind) -> str | None:
-    load_local_env()
     if kind == "customer":
         dedicated = (os.getenv("TELEGRAM_CUSTOMER_BOT_TOKEN") or "").strip()
     else:
@@ -111,7 +97,6 @@ def _token_for_kind(kind: TelegramBotKind) -> str | None:
 
 
 def _username_for_kind(kind: TelegramBotKind) -> str:
-    load_local_env()
     if kind == "customer":
         configured = (os.getenv("TELEGRAM_CUSTOMER_BOT_USERNAME") or "").strip().lstrip("@")
     else:
@@ -129,7 +114,6 @@ def _append_web_app_params(base: str, *, role: TelegramBotKind, tg_bot: Telegram
 
 
 def _web_app_url_for_kind(kind: TelegramBotKind) -> str | None:
-    load_local_env()
     if kind == "customer":
         dedicated = (os.getenv("TELEGRAM_CUSTOMER_WEB_APP_URL") or "").strip()
     else:

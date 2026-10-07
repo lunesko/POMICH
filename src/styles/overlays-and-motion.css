@@ -1,0 +1,251 @@
+/* Leaflet popups stay inside the map layer — never above app chrome (header ~3200) */
+.pomich-ride-screen__map .leaflet-pane.leaflet-popup-pane,
+.pomich-route-map .leaflet-pane.leaflet-popup-pane {
+  z-index: 430;
+  pointer-events: auto;
+}
+.pomich-tg-header,
+.pomich-themed-shell > .pomich-tg-header {
+  z-index: 3200 !important;
+}
+
+/* Animated Radar & Partner Search Visuals */
+.pomich-radar-container {
+  position: relative;
+  width: 100%;
+  max-width: 280px;
+  height: 170px;
+  margin: 12px auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pomich-radar-ring {
+  position: absolute;
+  border-radius: 50%;
+  border: 2px solid var(--pomich-accent, #16a36a);
+  box-shadow: 0 0 16px rgba(22, 163, 106, 0.35);
+  animation: pomichRadarExpand 2.8s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+}
+
+.pomich-radar-ring:nth-child(1) {
+  animation-delay: 0s;
+}
+.pomich-radar-ring:nth-child(2) {
+  animation-delay: 0.9s;
+}
+.pomich-radar-ring:nth-child(3) {
+  animation-delay: 1.8s;
+}
+
+@keyframes pomichRadarExpand {
+  0% {
+    width: 48px;
+    height: 48px;
+    opacity: 0.9;
+    transform: scale(0.6);
+  }
+  70% {
+    opacity: 0.35;
+  }
+  100% {
+    width: 210px;
+    height: 210px;
+    opacity: 0;
+    transform: scale(1.15);
+  }
+}
+
+.pomich-radar-beam {
+  position: absolute;
+  width: 160px;
+  height: 160px;
+  border-radius: 50%;
+  background: conic-gradient(
+    from 0deg,
+    rgba(22, 163, 106, 0.38) 0deg,
+    rgba(47, 128, 237, 0.25) 45deg,
+    transparent 120deg
+  );
+  animation: pomichRadarRotate 3s linear infinite;
+  pointer-events: none;
+}
+
+@keyframes pomichRadarRotate {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.pomich-radar-center-icon {
+  position: relative;
+  z-index: 10;
+  width: 76px;
+  height: 76px;
+  border-radius: 24px;
+  background: linear-gradient(135deg, #16A36A 0%, #2F80ED 100%);
+  box-shadow: 0 12px 32px rgba(22, 163, 106, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 36px;
+  animation: pomichIconPulse 2.2s ease-in-out infinite;
+}
+
+@keyframes pomichIconPulse {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 12px 32px rgba(22, 163, 106, 0.45);
+  }
+  50% {
+    transform: scale(1.08);
+    box-shadow: 0 18px 42px rgba(47, 128, 237, 0.55);
+  }
+}
+
+/* ==========================================================================
+   Landing hero motion (kept intentional; do NOT reintroduce opacity:0 clip text)
+   ========================================================================== */
+
+.landing-hero-brand-word {
+  display: inline-flex;
+  position: relative;
+}
+
+.landing-hero-brand-letter {
+  display: inline-block;
+  color: inherit !important;
+  -webkit-text-fill-color: inherit !important;
+  background: none !important;
+  -webkit-background-clip: border-box !important;
+  background-clip: border-box !important;
+  opacity: 1 !important;
+  will-change: transform;
+  animation: landingHeroLetterIn 0.75s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.landing-hero-brand-underline {
+  height: 5px;
+  background: linear-gradient(90deg, #16A36A 0%, #1D6FD4 100%);
+  box-shadow: 0 0 12px rgba(22, 163, 106, 0.35);
+  animation: landingHeroUnderlineDraw 0.85s cubic-bezier(0.16, 1, 0.3, 1) 0.4s both;
+}
+
+.landing-hero-eyebrow {
+  animation: landingHeroFadeUp 0.65s cubic-bezier(0.16, 1, 0.3, 1) 0.12s both;
+}
+
+.landing-hero-title {
+  animation: landingHeroFadeUp 0.7s cubic-bezier(0.16, 1, 0.3, 1) 0.35s both;
+}
+
+.landing-hero-support {
+  animation: landingHeroFadeUp 0.75s cubic-bezier(0.16, 1, 0.3, 1) 0.48s both;
+}
+
+.landing-hero-ctas {
+  animation: landingHeroFadeUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.58s both;
+}
+
+.landing-hero-cta-primary,
+.landing-hero-cta-secondary {
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.2s ease, box-shadow 0.2s ease !important;
+}
+
+.landing-hero-cta-primary {
+  background: linear-gradient(135deg, #16A36A 0%, #1A8F6A 55%, #15803D 100%) !important;
+  box-shadow: 0 8px 24px rgba(22, 163, 106, 0.32), inset 0 1px 1px rgba(255, 255, 255, 0.22) !important;
+}
+
+.landing-hero-cta-primary:hover {
+  transform: translateY(-2px) !important;
+  box-shadow: 0 12px 28px rgba(22, 163, 106, 0.4) !important;
+}
+
+.landing-hero-cta-primary:active {
+  transform: translateY(1px) scale(0.98) !important;
+}
+
+.landing-hero-cta-secondary {
+  background: linear-gradient(135deg, #1D6FD4 0%, #2F80ED 55%, #3B9AE8 100%) !important;
+  box-shadow: 0 8px 24px rgba(29, 111, 212, 0.32), inset 0 1px 1px rgba(255, 255, 255, 0.22) !important;
+}
+
+.landing-hero-cta-secondary:hover {
+  transform: translateY(-2px) !important;
+  box-shadow: 0 12px 28px rgba(29, 111, 212, 0.4) !important;
+}
+
+.landing-hero-cta-secondary:active {
+  transform: translateY(1px) scale(0.98) !important;
+}
+
+/* Soft one-shot sheen on primary CTA only (no infinite loop) */
+.landing-hero-cta-primary::after {
+  content: "";
+  position: absolute;
+  top: -50%;
+  left: -60%;
+  width: 55%;
+  height: 200%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.28) 50%,
+    transparent 100%
+  );
+  transform: rotate(25deg);
+  animation: pomichButtonShineOnce 1.6s ease-out 1s both;
+  pointer-events: none;
+}
+
+@keyframes pomichButtonShineOnce {
+  0% {
+    left: -60%;
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  100% {
+    left: 140%;
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-hero-brand-letter,
+  .landing-hero-brand-underline,
+  .landing-hero-eyebrow,
+  .landing-hero-title,
+  .landing-hero-support,
+  .landing-hero-ctas,
+  .landing-hero-cta-primary::after,
+  .landing-hero-brand-sheen,
+  .landing-hero-live-dot {
+    animation: none !important;
+  }
+  .landing-hero-brand-letter,
+  .landing-hero-eyebrow,
+  .landing-hero-title,
+  .landing-hero-support,
+  .landing-hero-ctas {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+  .landing-hero-brand-underline {
+    opacity: 1 !important;
+    transform: scaleX(1) !important;
+  }
+  .landing-hero-cta-primary:hover,
+  .landing-hero-cta-secondary:hover,
+  .landing-service-card:hover {
+    transform: none !important;
+  }
+}

@@ -26,6 +26,7 @@ __pycache__/
 *.key
 *credentials*
 *secret*
+!scripts/check_secrets.py
 !.env.example
 !.env.production.example
 cloudflared*.json

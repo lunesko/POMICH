@@ -1,8 +1,7 @@
 """In-process realtime fan-out for order/partner updates (SSE + WebSocket).
 
 JSON file store remains the local/dev fallback; production uses PostGIS via runtime_store.
-This bus is intentionally process-local — sufficient for single-app deploy; multi-worker
-would need Redis/Postgres LISTEN later.
+SQL deployments use a shared event log; local JSON development uses in-process fan-out.
 """
 
 from __future__ import annotations
@@ -16,7 +15,8 @@ from typing import Any, AsyncIterator, Protocol
 
 _LOCK = threading.Lock()
 _SEQ = 0
-_CHANNELS: dict[str, list[asyncio.Queue]] = defaultdict(list)
+_POLLERS: dict[asyncio.Queue, asyncio.Task] = {}
+_CHANNELS: dict[str, list[tuple[asyncio.Queue, asyncio.AbstractEventLoop]]] = defaultdict(list)
 
 
 def _next_seq() -> int:
@@ -39,7 +39,7 @@ def channel_for_customer(customer_id: str) -> str:
 
 
 def publish(channel: str, event_type: str, payload: dict[str, Any] | None = None) -> None:
-    """Publish to all local subscribers. Safe to call from sync request handlers."""
+    """Publish to subscribers, including other SQL workers. Safe to call from sync request handlers."""
     message = {
         "seq": _next_seq(),
         "type": event_type,
@@ -47,20 +47,26 @@ def publish(channel: str, event_type: str, payload: dict[str, Any] | None = None
         "ts": int(time.time()),
         "payload": payload or {},
     }
+    from bot.runtime_store import sql_storage_enabled
+    if sql_storage_enabled():
+        from bot.storage import realtime_events
+        realtime_events.publish(channel, message)
+        return
     with _LOCK:
         queues = list(_CHANNELS.get(channel, []))
-    for queue in queues:
+    for queue, loop in queues:
         try:
-            queue.put_nowait(message)
-        except asyncio.QueueFull:
-            try:
-                queue.get_nowait()
-            except asyncio.QueueEmpty:
-                pass
-            try:
-                queue.put_nowait(message)
-            except asyncio.QueueFull:
-                pass
+            loop.call_soon_threadsafe(_enqueue, queue, message)
+        except RuntimeError:
+            # The subscriber's loop closed between the snapshot and scheduling.
+            unsubscribe(channel, queue)
+
+
+def _enqueue(queue: asyncio.Queue, message: dict[str, Any]) -> None:
+    """Run all queue operations on the subscriber's event loop."""
+    if queue.full():
+        queue.get_nowait()
+    queue.put_nowait(message)
 
 
 def publish_order_event(order: dict[str, Any] | None, event_type: str = "order.updated") -> None:
@@ -95,17 +101,46 @@ def publish_provider_event(provider_id: str, event_type: str, payload: dict[str,
 
 
 def subscribe(channel: str, *, maxsize: int = 32) -> asyncio.Queue:
+    loop = asyncio.get_running_loop()
+    from bot.runtime_store import sql_storage_enabled
+    after = None
+    if sql_storage_enabled():
+        from bot.storage import realtime_events
+        # Capture the start cursor before exposing the subscription. Publications
+        # committed during registration are then included in the first poll.
+        after = realtime_events.cursor()
     queue: asyncio.Queue = asyncio.Queue(maxsize=maxsize)
     with _LOCK:
-        _CHANNELS[channel].append(queue)
+        _CHANNELS[channel].append((queue, loop))
+        if after is not None:
+            _POLLERS[queue] = loop.create_task(_poll_sql(channel, queue, after))
     return queue
+
+
+async def _poll_sql(channel: str, queue: asyncio.Queue, after: int) -> None:
+    from bot.storage import realtime_events
+    import logging
+    while True:
+        try:
+            rows = await asyncio.to_thread(realtime_events.since, channel, after)
+            for seq, message in rows:
+                _enqueue(queue, message)
+                after = seq
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # Keep connections alive; reconnect/hydration covers missed transient updates.
+            logging.getLogger(__name__).warning("Realtime SQL polling failed", exc_info=False)
+        await asyncio.sleep(0.5)
 
 
 def unsubscribe(channel: str, queue: asyncio.Queue) -> None:
     with _LOCK:
+        task = _POLLERS.pop(queue, None)
+        if task is not None and not task.done() and not task.get_loop().is_closed():
+            task.get_loop().call_soon_threadsafe(task.cancel)
         listeners = _CHANNELS.get(channel) or []
-        if queue in listeners:
-            listeners.remove(queue)
+        listeners[:] = [(q, loop) for q, loop in listeners if q is not queue]
         if not listeners and channel in _CHANNELS:
             del _CHANNELS[channel]
 
@@ -167,11 +202,15 @@ def _sse(data: dict[str, Any]) -> str:
 
 def reset_realtime_for_tests() -> None:
     with _LOCK:
+        for task in _POLLERS.values():
+            if not task.done() and not task.get_loop().is_closed():
+                task.get_loop().call_soon_threadsafe(task.cancel)
+        _POLLERS.clear()
         _CHANNELS.clear()
 
 
 def realtime_stats() -> dict[str, int]:
-    """Lightweight in-process subscriber counts (single-worker bus)."""
+    """Lightweight subscriber counts for this API worker."""
     with _LOCK:
         channels = len(_CHANNELS)
         subscribers = sum(len(queues) for queues in _CHANNELS.values())

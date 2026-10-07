@@ -1,6 +1,7 @@
-"""Legacy Flask entrypoint removed — use FastAPI (`bot.fastapi_app:app`) with uvicorn."""
+"""Compatibility module for the canonical FastAPI app (ASGI only)."""
+import os
+from bot.fastapi_app import app
 
-raise SystemExit(
-    "POMICH no longer ships a Flask app. Start the API with:\n"
-    "  uvicorn bot.fastapi_app:app --host 0.0.0.0 --port 8000"
-)
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", "8000")))

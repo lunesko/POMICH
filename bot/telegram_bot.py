@@ -130,7 +130,6 @@ def _project_root() -> Path:
 
 
 def get_bot_mode() -> str:
-    load_local_env()
     return (os.getenv("TELEGRAM_MODE") or "polling").strip().lower()
 
 
@@ -144,7 +143,7 @@ def get_web_app_url() -> str | None:
     return get_base_web_app_url()
 
 
-def _request_json(url: str, payload: dict[str, Any] | None = None, *, timeout: int = 30) -> dict[str, Any]:
+def _request_json(url: str, payload: dict[str, Any] | None = None, *, timeout: int = 5) -> dict[str, Any]:
     data = json.dumps(payload).encode("utf-8") if payload is not None else None
     request = urllib.request.Request(
         url,
@@ -164,7 +163,7 @@ def _request_json(url: str, payload: dict[str, Any] | None = None, *, timeout: i
         description = error_body.get("description") if isinstance(error_body, dict) else str(exc)
         raise TelegramApiError(description, status_code=exc.code, payload=error_body) from exc
     except Exception as exc:
-        raise TelegramApiError(str(exc)) from exc
+        raise TelegramApiError(f"Telegram request failed ({type(exc).__name__})") from exc
 
     if not body.get("ok"):
         raise TelegramApiError(body.get("description", "Telegram API returned ok=false"), payload=body)
@@ -184,7 +183,7 @@ class TelegramBotClient:
             raise TelegramApiError("Telegram bot token is not configured")
         self.base_url = f"https://api.telegram.org/bot{self.token}"
 
-    def request(self, method: str, payload: dict[str, Any] | None = None, *, timeout: int = 30) -> dict[str, Any]:
+    def request(self, method: str, payload: dict[str, Any] | None = None, *, timeout: int = 5) -> dict[str, Any]:
         return _request_json(f"{self.base_url}/{method}", payload, timeout=timeout)
 
     def get_me(self) -> dict[str, Any]:
@@ -1045,6 +1044,7 @@ def print_diagnostics() -> int:
 
 
 def main() -> int:
+    load_local_env()
     command = sys.argv[1] if len(sys.argv) > 1 else "polling"
     if command in {"doctor", "diagnostics"}:
         return print_diagnostics()

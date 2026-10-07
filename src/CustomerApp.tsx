@@ -1,3 +1,4 @@
+import { useAppNavigation } from "./hooks/useAppNavigation"
 import { Suspense, lazy, useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
 
 import { getUserAccount, logoutBrowserSessions, updateProviderPresence, type UserAccountStatus } from "./api/client"
@@ -172,12 +173,10 @@ export default function CustomerApp() {
     }
     return null
   }, [telegramContext.botKind, telegramContext.chatId, telegramContext.initData, telegramLoggedOut])
-  const [role, setRole] = useState<Role | null>(initialRole)
-  useEffect(() => {
-    document.documentElement.dataset.pomichView = role ?? 'landing'
-  }, [role])
-  const [account, setAccount] = useState<UserAccountStatus | null>(null)
-  const [showOnboarding, setShowOnboarding] = useState(() => {
+
+  const { role, setRole, showOnboarding, setShowOnboarding, pendingRole, setPendingRole, startAtRoleSelect, setStartAtRoleSelect, loginMode, setLoginMode, showLanding, setShowLanding, showCabinet, setShowCabinet, cabinetInitialEditing, setCabinetInitialEditing, forceRolePicker, setForceRolePicker, rolePickerKey, setRolePickerKey, onboardingSessionKey, setOnboardingSessionKey, entryScreen, setEntryScreen, cabinetFocus, setCabinetFocus, providerEntryScreen, setProviderEntryScreen } = useAppNavigation({
+    role: initialRole,
+    showOnboarding: () => {
     if (initialRole === "customer" || initialRole === "provider") {
       // Restored from storage with a clean URL — enter flow directly (session hydrate effects run).
       const fromQuery =
@@ -189,25 +188,33 @@ export default function CustomerApp() {
     }
     if (telegramContext.isTelegram && initialRole !== "admin" && !providerToken && !telegramLoggedOut) return true
     return false
-  })
-  const [pendingRole, setPendingRole] = useState<Role | null>(initialRole === "customer" || initialRole === "provider" ? initialRole : null)
-  const [startAtRoleSelect, setStartAtRoleSelect] = useState(false)
-  // Phone OTP login is web-only; Telegram WebApp auth uses initData → tg-{id} session.
-  const [loginMode, setLoginMode] = useState(false)
-  const [showLanding, setShowLanding] = useState(() => telegramLoggedOut)
-  const [showCabinet, setShowCabinet] = useState(false)
-  const [cabinetInitialEditing, setCabinetInitialEditing] = useState(false)
-  const [customerToken, setCustomerToken] = useState<string | undefined>()
-  const [forceRolePicker, setForceRolePicker] = useState(false)
-  const [rolePickerKey, setRolePickerKey] = useState(0)
-  const [onboardingSessionKey, setOnboardingSessionKey] = useState(0)
-  const [entryScreen, setEntryScreen] = useState<PomichEntryScreen | null>(() => resolveEntryScreen())
-  const [cabinetFocus, setCabinetFocus] = useState<"profile" | "history">("profile")
-  const [providerEntryScreen, setProviderEntryScreen] = useState<"duty" | "offers" | "verify" | undefined>(() => {
+  },
+    pendingRole: initialRole === "customer" || initialRole === "provider" ? initialRole : null,
+    startAtRoleSelect: false,
+    loginMode: false,
+    showLanding: () => telegramLoggedOut,
+    showCabinet: false,
+    cabinetInitialEditing: false,
+    forceRolePicker: false,
+    rolePickerKey: 0,
+    onboardingSessionKey: 0,
+    entryScreen: () => resolveEntryScreen(),
+    cabinetFocus: "profile",
+    providerEntryScreen: () => {
     const screen = resolveEntryScreen()
     if (screen === "duty" || screen === "offers" || screen === "verify") return screen
     return undefined
+  }
   })
+  useEffect(() => {
+    document.documentElement.dataset.pomichView = role ?? 'landing'
+  }, [role])
+  const [account, setAccount] = useState<UserAccountStatus | null>(null)
+
+  // Phone OTP login is web-only; Telegram WebApp auth uses initData → tg-{id} session.
+
+  const [customerToken, setCustomerToken] = useState<string | undefined>()
+
   const compact = telegramContext.isTelegram || isMobile
   const skipOnboarding = initialRole === "admin" || Boolean(providerToken)
 
@@ -594,12 +601,7 @@ export default function CustomerApp() {
         setShowLanding(false)
         return
       }
-      // Clean address bar: keep persisted role instead of dumping to landing on back/forward.
-      const stored = readActiveAppRole()
-      if (stored) {
-        setRole(stored)
-        setShowLanding(false)
-      }
+      // Clean URLs restore the complete navigation snapshot in useAppNavigation.
     }
 
     window.addEventListener("popstate", syncRoleFromUrl)

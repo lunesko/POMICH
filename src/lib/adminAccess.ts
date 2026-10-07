@@ -19,7 +19,7 @@ export function applyHiddenAdminEntry() {
   const url = new URL(window.location.href)
   url.searchParams.set("role", "admin")
   url.hash = ""
-  window.history.replaceState({}, "", `${url.pathname}${url.search}`)
+  window.history.replaceState(window.history.state ?? {}, "", `${url.pathname}${url.search}`)
 }
 
 export function isAdminEntryLocation(search = typeof window !== "undefined" ? window.location.search : "", hash = typeof window !== "undefined" ? window.location.hash : ""): boolean {
