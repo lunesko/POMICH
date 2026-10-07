@@ -1,0 +1,11 @@
+/** Shared CSS variable tokens for provider flow UI. */
+export const BRAND = "var(--pomich-brand)"
+export const DARK = "var(--pomich-text)"
+export const BG = "var(--pomich-bg)"
+export const BORDER = "var(--pomich-border)"
+export const MUTED = "var(--pomich-muted)"
+export const SUBTLE = "var(--pomich-subtle)"
+export const CARD = "var(--pomich-card-bg)"
+export const SURFACE_TONE = "var(--pomich-service-tone-default)"
+export const SELECTED = "var(--pomich-selected-bg)"
+export const GHOST = "var(--pomich-ghost-bg)"

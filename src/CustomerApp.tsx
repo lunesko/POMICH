@@ -1,4 +1,7 @@
-import { Suspense, lazy, useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, type ReactNode } from "react"
+import { MemoryRouter, Route, Routes } from "react-router-dom"
+
+import { selectShellPath, useAppShellStore } from "./store/appShellStore"
 
 import { getUserAccount, logoutBrowserSessions, updateProviderPresence, type UserAccountStatus } from "./api/client"
 import AppShell from "./components/layout/AppShell"
@@ -6,7 +9,7 @@ import LandingPage from "./components/landing/LandingPage"
 import CustomerAppFallback from "./components/CustomerAppFallback"
 import FlowChunkBoundary from "./components/ui/FlowChunkBoundary"
 import OnboardingGate from "./components/onboarding/OnboardingGate"
-import { getTelegramContext, resolveEntryRole, resolveEntryScreen, clearEntryScreenParam, sanitizePublicAppUrl, type PomichEntryScreen } from "./telegram"
+import { getTelegramContext, resolveEntryRole, resolveEntryScreen, clearEntryScreenParam, sanitizePublicAppUrl } from "./telegram"
 import { DEFAULT_CUSTOMER_NAME, isCustomerProfileComplete, isCustomerVerified } from "./lib/customerProfile"
 import { getActiveProviderId, type Role } from "./lib/constants"
 import { readCachedProviderProfile } from "./lib/providerProfileCache"
@@ -137,6 +140,14 @@ function CabinetSuspense({ children, onBack }: { children: ReactNode; onBack: ()
 }
 
 export default function CustomerApp() {
+  return (
+    <MemoryRouter initialEntries={["/landing"]}>
+      <CustomerAppInner />
+    </MemoryRouter>
+  )
+}
+
+function CustomerAppInner() {
   const telegramContext = useMemo(() => getTelegramContext(), [])
   const telegramLoggedOut = telegramContext.isTelegram && isExplicitLogout(telegramContext.chatId)
   const isMobile = useMediaQuery(mediaQueries.mobile)
@@ -172,12 +183,7 @@ export default function CustomerApp() {
     }
     return null
   }, [telegramContext.botKind, telegramContext.chatId, telegramContext.initData, telegramLoggedOut])
-  const [role, setRole] = useState<Role | null>(initialRole)
-  useEffect(() => {
-    document.documentElement.dataset.pomichView = role ?? 'landing'
-  }, [role])
-  const [account, setAccount] = useState<UserAccountStatus | null>(null)
-  const [showOnboarding, setShowOnboarding] = useState(() => {
+  const initialShowOnboarding = (() => {
     if (initialRole === "customer" || initialRole === "provider") {
       // Restored from storage with a clean URL — enter flow directly (session hydrate effects run).
       const fromQuery =
@@ -189,25 +195,75 @@ export default function CustomerApp() {
     }
     if (telegramContext.isTelegram && initialRole !== "admin" && !providerToken && !telegramLoggedOut) return true
     return false
-  })
-  const [pendingRole, setPendingRole] = useState<Role | null>(initialRole === "customer" || initialRole === "provider" ? initialRole : null)
-  const [startAtRoleSelect, setStartAtRoleSelect] = useState(false)
+  })()
+  const initialEntryScreen = resolveEntryScreen()
+  const initialProviderEntryScreen =
+    initialEntryScreen === "duty" || initialEntryScreen === "offers" || initialEntryScreen === "verify"
+      ? initialEntryScreen
+      : undefined
+
+  const shellHydrated = useRef(false)
+  if (!shellHydrated.current) {
+    useAppShellStore.setState({
+      role: initialRole,
+      account: null,
+      showOnboarding: initialShowOnboarding,
+      showLanding: telegramLoggedOut,
+      showCabinet: false,
+      pendingRole: initialRole === "customer" || initialRole === "provider" ? initialRole : null,
+      startAtRoleSelect: false,
+      loginMode: false,
+      customerToken: undefined,
+      forceRolePicker: false,
+      rolePickerKey: 0,
+      onboardingSessionKey: 0,
+      entryScreen: initialEntryScreen,
+      cabinetFocus: "profile",
+      cabinetInitialEditing: false,
+      providerEntryScreen: initialProviderEntryScreen,
+    })
+    shellHydrated.current = true
+  }
+
+  const role = useAppShellStore((s) => s.role)
+  const setRole = useAppShellStore((s) => s.setRole)
+  const account = useAppShellStore((s) => s.account)
+  const setAccount = useAppShellStore((s) => s.setAccount)
+  const showOnboarding = useAppShellStore((s) => s.showOnboarding)
+  const setShowOnboarding = useAppShellStore((s) => s.setShowOnboarding)
+  const pendingRole = useAppShellStore((s) => s.pendingRole)
+  const setPendingRole = useAppShellStore((s) => s.setPendingRole)
+  const startAtRoleSelect = useAppShellStore((s) => s.startAtRoleSelect)
+  const setStartAtRoleSelect = useAppShellStore((s) => s.setStartAtRoleSelect)
   // Phone OTP login is web-only; Telegram WebApp auth uses initData → tg-{id} session.
-  const [loginMode, setLoginMode] = useState(false)
-  const [showLanding, setShowLanding] = useState(() => telegramLoggedOut)
-  const [showCabinet, setShowCabinet] = useState(false)
-  const [cabinetInitialEditing, setCabinetInitialEditing] = useState(false)
-  const [customerToken, setCustomerToken] = useState<string | undefined>()
-  const [forceRolePicker, setForceRolePicker] = useState(false)
-  const [rolePickerKey, setRolePickerKey] = useState(0)
-  const [onboardingSessionKey, setOnboardingSessionKey] = useState(0)
-  const [entryScreen, setEntryScreen] = useState<PomichEntryScreen | null>(() => resolveEntryScreen())
-  const [cabinetFocus, setCabinetFocus] = useState<"profile" | "history">("profile")
-  const [providerEntryScreen, setProviderEntryScreen] = useState<"duty" | "offers" | "verify" | undefined>(() => {
-    const screen = resolveEntryScreen()
-    if (screen === "duty" || screen === "offers" || screen === "verify") return screen
-    return undefined
-  })
+  const loginMode = useAppShellStore((s) => s.loginMode)
+  const setLoginMode = useAppShellStore((s) => s.setLoginMode)
+  const showLanding = useAppShellStore((s) => s.showLanding)
+  const setShowLanding = useAppShellStore((s) => s.setShowLanding)
+  const showCabinet = useAppShellStore((s) => s.showCabinet)
+  const setShowCabinet = useAppShellStore((s) => s.setShowCabinet)
+  const cabinetInitialEditing = useAppShellStore((s) => s.cabinetInitialEditing)
+  const setCabinetInitialEditing = useAppShellStore((s) => s.setCabinetInitialEditing)
+  const customerToken = useAppShellStore((s) => s.customerToken)
+  const setCustomerToken = useAppShellStore((s) => s.setCustomerToken)
+  const forceRolePicker = useAppShellStore((s) => s.forceRolePicker)
+  const setForceRolePicker = useAppShellStore((s) => s.setForceRolePicker)
+  const rolePickerKey = useAppShellStore((s) => s.rolePickerKey)
+  const bumpRolePickerKey = useAppShellStore((s) => s.bumpRolePickerKey)
+  const onboardingSessionKey = useAppShellStore((s) => s.onboardingSessionKey)
+  const bumpOnboardingSessionKey = useAppShellStore((s) => s.bumpOnboardingSessionKey)
+  const entryScreen = useAppShellStore((s) => s.entryScreen)
+  const setEntryScreen = useAppShellStore((s) => s.setEntryScreen)
+  const cabinetFocus = useAppShellStore((s) => s.cabinetFocus)
+  const setCabinetFocus = useAppShellStore((s) => s.setCabinetFocus)
+  const providerEntryScreen = useAppShellStore((s) => s.providerEntryScreen)
+  const setProviderEntryScreen = useAppShellStore((s) => s.setProviderEntryScreen)
+  const shellPath = useAppShellStore(selectShellPath)
+
+  useEffect(() => {
+    document.documentElement.dataset.pomichView = role ?? "landing"
+  }, [role])
+
   const compact = telegramContext.isTelegram || isMobile
   const skipOnboarding = initialRole === "admin" || Boolean(providerToken)
 
@@ -420,7 +476,7 @@ export default function CustomerApp() {
     setLoginMode(true)
     setShowOnboarding(true)
     setShowLanding(false)
-    setOnboardingSessionKey((value) => value + 1)
+    bumpOnboardingSessionKey()
     sanitizePublicAppUrl({ preserveAdminRole: false })
   }, [])
 
@@ -516,7 +572,7 @@ export default function CustomerApp() {
     }
     sanitizePublicAppUrl({ preserveAdminRole: false })
     setForceRolePicker(true)
-    setRolePickerKey((value) => value + 1)
+    bumpRolePickerKey()
     setPendingRole(null)
     setStartAtRoleSelect(true)
     setShowOnboarding(true)
@@ -700,75 +756,83 @@ export default function CustomerApp() {
     }
   }, [showCabinet, role, account?.customerId, account?.profile?.city, customerToken])
 
-  if ((!skipOnboarding || forceRolePicker) && showOnboarding) {
-    return (
-      <OnboardingGate
-        key={forceRolePicker ? `role-picker-${rolePickerKey}` : `onboarding-${onboardingSessionKey}-${loginMode ? "login" : "flow"}`}
-        skip={false}
-        startAtRoleSelect={startAtRoleSelect || forceRolePicker}
-        loginMode={loginMode}
-        initialRole={pendingRole}
-        preservedAccount={
-          forceRolePicker
-            ? buildRoleSwitchPreservedAccount(
-                account,
-                account?.customerId || readPersistedCustomerId(telegramContext.chatId),
-              )
-            : undefined
+  const routePath = useMemo(() => {
+    if ((forceRolePicker || !skipOnboarding) && showOnboarding) return "/onboarding" as const
+    if (shellPath === "/onboarding") {
+      if (role === "admin") return "/admin" as const
+      if (role === "provider") return "/provider" as const
+      if (role === "customer") return "/customer" as const
+      return "/landing" as const
+    }
+    return shellPath
+  }, [forceRolePicker, skipOnboarding, showOnboarding, shellPath, role])
+
+  const onboardingView = (
+    <OnboardingGate
+      key={forceRolePicker ? `role-picker-${rolePickerKey}` : `onboarding-${onboardingSessionKey}-${loginMode ? "login" : "flow"}`}
+      skip={false}
+      startAtRoleSelect={startAtRoleSelect || forceRolePicker}
+      loginMode={loginMode}
+      initialRole={pendingRole}
+      preservedAccount={
+        forceRolePicker
+          ? buildRoleSwitchPreservedAccount(
+              account,
+              account?.customerId || readPersistedCustomerId(telegramContext.chatId),
+            )
+          : undefined
+      }
+      onShowLanding={() => {
+        setForceRolePicker(false)
+        setShowOnboarding(false)
+        setStartAtRoleSelect(false)
+        setLoginMode(false)
+        setPendingRole(null)
+        setShowLanding(true)
+      }}
+      onLogout={handleLogout}
+      onReady={({ role: readyRole, account: readyAccount, customerToken: readyToken }) => {
+        const nextAccount = enrichPartnerAccountStatus(readyAccount)
+        setAccount(nextAccount)
+        setCustomerToken(readyToken)
+        if (nextAccount.linkedProviderId) storeLinkedProviderId(nextAccount.linkedProviderId)
+        if (nextAccount.profile && typeof window !== "undefined") {
+          window.sessionStorage.setItem("pomichBootstrapProfile", JSON.stringify(nextAccount.profile))
         }
-        onShowLanding={() => {
-          setForceRolePicker(false)
-          setShowOnboarding(false)
-          setStartAtRoleSelect(false)
-          setLoginMode(false)
-          setPendingRole(null)
-          setShowLanding(true)
-        }}
-        onLogout={handleLogout}
-        onReady={({ role: readyRole, account: readyAccount, customerToken: readyToken }) => {
-          const nextAccount = enrichPartnerAccountStatus(readyAccount)
-          setAccount(nextAccount)
-          setCustomerToken(readyToken)
-          if (nextAccount.linkedProviderId) storeLinkedProviderId(nextAccount.linkedProviderId)
-          if (nextAccount.profile && typeof window !== "undefined") {
-            window.sessionStorage.setItem("pomichBootstrapProfile", JSON.stringify(nextAccount.profile))
-          }
-          setForceRolePicker(false)
-          setShowOnboarding(false)
-          setStartAtRoleSelect(false)
-          setLoginMode(false)
-          setPendingRole(null)
-          applyRoleToUrl(readyRole)
-        }}
-      />
-    )
-  }
+        setForceRolePicker(false)
+        setShowOnboarding(false)
+        setStartAtRoleSelect(false)
+        setLoginMode(false)
+        setPendingRole(null)
+        applyRoleToUrl(readyRole)
+      }}
+    />
+  )
 
-  if (showCabinet && role === "customer" && !account?.profile) {
-    return (
-      <div className="pomich-boot-screen pomich-cabinet-shell" style={{ display: "grid", gap: 12, placeItems: "center", padding: 24, textAlign: "center" }}>
-        <div style={{ fontWeight: 900, fontSize: 18 }}>Спочатку заповніть профіль</div>
-        <div style={{ color: "var(--pomich-muted)", fontWeight: 700, maxWidth: 320 }}>
-          Кабінет відкриється після збереження імені та телефону.
+  const customerCabinetView = (() => {
+    if (!account?.profile) {
+      return (
+        <div className="pomich-boot-screen pomich-cabinet-shell" style={{ display: "grid", gap: 12, placeItems: "center", padding: 24, textAlign: "center" }}>
+          <div style={{ fontWeight: 900, fontSize: 18 }}>Спочатку заповніть профіль</div>
+          <div style={{ color: "var(--pomich-muted)", fontWeight: 700, maxWidth: 320 }}>
+            Кабінет відкриється після збереження імені та телефону.
+          </div>
+          <button
+            type="button"
+            className="pomich-primary-btn"
+            onClick={() => {
+              setShowCabinet(false)
+              void enterCustomerFlow()
+            }}
+          >
+            Заповнити профіль
+          </button>
+          <button type="button" className="pomich-ghost-btn" onClick={() => setShowCabinet(false)}>
+            Назад
+          </button>
         </div>
-        <button
-          type="button"
-          className="pomich-primary-btn"
-          onClick={() => {
-            setShowCabinet(false)
-            void enterCustomerFlow()
-          }}
-        >
-          Заповнити профіль
-        </button>
-        <button type="button" className="pomich-ghost-btn" onClick={() => setShowCabinet(false)}>
-          Назад
-        </button>
-      </div>
-    )
-  }
-
-  if (showCabinet && account?.profile && role === "customer") {
+      )
+    }
     // History is keyed by session subject. Prefer Telegram tg-* / token subject over a stale guest account id.
     const persistedCustomerId = readPersistedCustomerId(telegramContext.chatId)
     const provisionalCustomerId =
@@ -793,32 +857,32 @@ export default function CustomerApp() {
     return (
       <CabinetSuspense onBack={() => setShowCabinet(false)}>
         <ClientCabinet
-        profile={cabinetProfile}
-        customerId={cabinetCustomerId}
-        customerToken={cabinetCustomerToken}
-        currentRole="customer"
-        initialFocus={cabinetFocus}
-        sessionMismatchWarning={sessionMismatchWarning}
-        onDismissSessionMismatch={() => dismissSessionMismatchNotice(cabinetCustomerId)}
-        onBack={() => setShowCabinet(false)}
-        onStartOrder={() => {
-          setShowCabinet(false)
-          void enterCustomerFlow()
-        }}
-        onSwitchRole={handleSwitchRole}
-        onLogout={handleLogout}
-        onProfileUpdate={(nextProfile) => {
-          setAccount((prev) => (prev ? { ...prev, profile: nextProfile } : prev))
-          if (typeof window !== "undefined") {
-            window.sessionStorage.setItem("pomichBootstrapProfile", JSON.stringify(nextProfile))
-          }
-        }}
+          profile={cabinetProfile}
+          customerId={cabinetCustomerId}
+          customerToken={cabinetCustomerToken}
+          currentRole="customer"
+          initialFocus={cabinetFocus}
+          sessionMismatchWarning={sessionMismatchWarning}
+          onDismissSessionMismatch={() => dismissSessionMismatchNotice(cabinetCustomerId)}
+          onBack={() => setShowCabinet(false)}
+          onStartOrder={() => {
+            setShowCabinet(false)
+            void enterCustomerFlow()
+          }}
+          onSwitchRole={handleSwitchRole}
+          onLogout={handleLogout}
+          onProfileUpdate={(nextProfile) => {
+            setAccount((prev) => (prev ? { ...prev, profile: nextProfile } : prev))
+            if (typeof window !== "undefined") {
+              window.sessionStorage.setItem("pomichBootstrapProfile", JSON.stringify(nextProfile))
+            }
+          }}
         />
       </CabinetSuspense>
     )
-  }
+  })()
 
-  if (showCabinet && role === "provider") {
+  const providerCabinetView = (() => {
     const cabinetProviderId = getActiveProviderId()
     const cabinetProviderToken =
       (typeof window !== "undefined"
@@ -834,93 +898,105 @@ export default function CustomerApp() {
         }}
       >
         <ProviderCabinet
-        providerId={cabinetProviderId}
-        providerToken={cabinetProviderToken}
-        initialProfile={cachedProviderProfile}
-        currentRole="provider"
-        initialEditing={cabinetInitialEditing}
-        onBack={() => {
-          setShowCabinet(false)
-          setCabinetInitialEditing(false)
-        }}
-        onSwitchRole={handleSwitchRole}
-        onLogout={handleLogout}
+          providerId={cabinetProviderId}
+          providerToken={cabinetProviderToken}
+          initialProfile={cachedProviderProfile}
+          currentRole="provider"
+          initialEditing={cabinetInitialEditing}
+          onBack={() => {
+            setShowCabinet(false)
+            setCabinetInitialEditing(false)
+          }}
+          onSwitchRole={handleSwitchRole}
+          onLogout={handleLogout}
         />
       </CabinetSuspense>
     )
-  }
+  })()
 
-  if (role === "admin") {
-    return (
-      <FlowSuspense>
-        <AdminFlow adminToken={adminToken} />
-      </FlowSuspense>
-    )
-  }
+  const landingView = (
+    <LandingPage
+      onSelect={(nextRole) => {
+        // Transition immediately — do not await session restore on the landing page
+        // (slow/hung network looked like dead CTAs with no boot screen).
+        if (nextRole === "customer") {
+          beginOnboarding("customer", false, false)
+          return
+        }
+        beginOnboarding("provider", false, true)
+      }}
+      onRegister={() => beginOnboarding(null, true, false)}
+      onLogin={() => void enterCustomerFlow()}
+      onHiddenAdmin={() => {
+        setRole("admin")
+        setShowLanding(false)
+        setShowOnboarding(false)
+        applyHiddenAdminEntry()
+      }}
+    />
+  )
+
+  const appFlowView = (
+    <AppShell
+      compact={compact}
+      role={role}
+      loggedInName={loggedInCustomerName}
+      onRoleChange={handleRoleChange}
+      onOpenCabinet={() => {
+        if (role === "customer" && !account?.profile) {
+          setShowCabinet(false)
+          void enterCustomerFlow()
+          return
+        }
+        setCabinetInitialEditing(false)
+        setShowCabinet(true)
+      }}
+      onSwitchRole={handleSwitchRole}
+      onLogout={handleLogout}
+    >
+      {role === "provider" ? (
+        <FlowSuspense>
+          <ProviderFlow
+            providerToken={providerToken}
+            providerRegistered={account ? isReturningPartner(account) : false}
+            initialScreen={providerEntryScreen}
+            onLogout={handleLogout}
+            onRestoreAccount={restorePartnerAccount}
+          />
+        </FlowSuspense>
+      ) : role === "customer" && account && !isReturningClient(hydrateClientFromPartner(enrichPartnerAccountStatus(account))) ? (
+        <CustomerAppFallback
+          message="Потрібно завершити реєстрацію клієнта."
+          onRetry={() => beginOnboarding("customer", false, true)}
+          onLanding={() => {
+            goToLanding()
+          }}
+        />
+      ) : (
+        <FlowSuspense>
+          <CustomerFlow onLogout={handleLogout} />
+        </FlowSuspense>
+      )}
+    </AppShell>
+  )
 
   return (
-    role === null || showLanding ? (
-      <LandingPage
-        onSelect={(nextRole) => {
-          // Transition immediately — do not await session restore on the landing page
-          // (slow/hung network looked like dead CTAs with no boot screen).
-          if (nextRole === "customer") {
-            beginOnboarding("customer", false, false)
-            return
-          }
-          beginOnboarding("provider", false, true)
-        }}
-        onRegister={() => beginOnboarding(null, true, false)}
-        onLogin={() => void enterCustomerFlow()}
-        onHiddenAdmin={() => {
-          setRole("admin")
-          setShowLanding(false)
-          setShowOnboarding(false)
-          applyHiddenAdminEntry()
-        }}
+    <Routes location={routePath}>
+      <Route path="/onboarding" element={onboardingView} />
+      <Route path="/customer/cabinet" element={customerCabinetView} />
+      <Route path="/provider/cabinet" element={providerCabinetView} />
+      <Route
+        path="/admin"
+        element={
+          <FlowSuspense>
+            <AdminFlow adminToken={adminToken} />
+          </FlowSuspense>
+        }
       />
-    ) : (
-      <AppShell
-        compact={compact}
-        role={role}
-        loggedInName={loggedInCustomerName}
-        onRoleChange={handleRoleChange}
-        onOpenCabinet={() => {
-          if (role === "customer" && !account?.profile) {
-            setShowCabinet(false)
-            void enterCustomerFlow()
-            return
-          }
-          setCabinetInitialEditing(false)
-          setShowCabinet(true)
-        }}
-        onSwitchRole={handleSwitchRole}
-        onLogout={handleLogout}
-      >
-        {role === "provider" ? (
-          <FlowSuspense>
-            <ProviderFlow
-              providerToken={providerToken}
-              providerRegistered={account ? isReturningPartner(account) : false}
-              initialScreen={providerEntryScreen}
-              onLogout={handleLogout}
-              onRestoreAccount={restorePartnerAccount}
-            />
-          </FlowSuspense>
-        ) : role === "customer" && account && !isReturningClient(hydrateClientFromPartner(enrichPartnerAccountStatus(account))) ? (
-          <CustomerAppFallback
-            message="Потрібно завершити реєстрацію клієнта."
-            onRetry={() => beginOnboarding("customer", false, true)}
-            onLanding={() => {
-              goToLanding()
-            }}
-          />
-        ) : (
-          <FlowSuspense>
-            <CustomerFlow onLogout={handleLogout} />
-          </FlowSuspense>
-        )}
-      </AppShell>
-    )
+      <Route path="/landing" element={landingView} />
+      <Route path="/customer" element={appFlowView} />
+      <Route path="/provider" element={appFlowView} />
+      <Route path="*" element={landingView} />
+    </Routes>
   )
 }

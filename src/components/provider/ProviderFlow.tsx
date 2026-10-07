@@ -104,218 +104,33 @@ import type { ServiceKey } from "../../lib/pomichDomain"
 import type { MapTileTheme } from "../../lib/theme"
 import { useConfirmDialog } from "../ui/ConfirmDialog"
 
-function VerificationPill({ status }: { status?: VerificationStatus }) {
-  const tone = verificationTone(status)
-  return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, borderRadius: 999, padding: "5px 9px", background: tone.background, color: tone.color, border: `1px solid ${tone.border}`, fontSize: 11, fontWeight: 900 }}>
-      <span style={{ width: 6, height: 6, borderRadius: 999, background: "currentColor" }} />
-      {verificationLabel(status)}
-    </span>
-  )
-}
-
-function SheetHeading({ title, subtitle }: { title: string; subtitle?: string }) {
-  return (
-    <div>
-      <div style={{ fontSize: 22, fontWeight: 950, color: DARK, letterSpacing: "-0.03em" }}>{title}</div>
-      {subtitle ? <div style={{ marginTop: 6, color: MUTED, fontWeight: 700, fontSize: 13, lineHeight: 1.35 }}>{subtitle}</div> : null}
-    </div>
-  )
-}
-
-const BRAND = "var(--pomich-brand)"
-const DARK = "var(--pomich-text)"
-const BG = "var(--pomich-bg)"
-const BORDER = "var(--pomich-border)"
-const MUTED = "var(--pomich-muted)"
-const SUBTLE = "var(--pomich-subtle)"
-const CARD = "var(--pomich-card-bg)"
-const SURFACE_TONE = "var(--pomich-service-tone-default)"
-const SELECTED = "var(--pomich-selected-bg)"
-const GHOST = "var(--pomich-ghost-bg)"
-
-function resolveSessionProviderId(session: { providerId?: string; subjectId?: string }, fallback: string) {
-  return String(session.providerId || session.subjectId || fallback).trim() || fallback
-}
-
-function PrimaryButton({
-  label,
-  onClick,
-  loading = false,
-  disabled = false,
-  loadingLabel = "Зачекайте…",
-}: {
-  label: string
-  onClick?: () => void
-  loading?: boolean
-  disabled?: boolean
-  loadingLabel?: string
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled || loading}
-      className={`pomich-primary-btn${disabled || loading ? " is-disabled" : ""}`}
-    >
-      {loading ? loadingLabel : label}
-    </button>
-  )
-}
-
-function SecondaryButton({ label, onClick, danger = false, disabled = false }: { label: string; onClick?: () => void; danger?: boolean; disabled?: boolean }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className={`pomich-flow-secondary-btn${danger ? " is-danger" : ""}`}
-    >
-      {label}
-    </button>
-  )
-}
-
-function StatusPill({ status }: { status: OrderStatus }) {
-  const cancelled = status === "cancelled"
-  return (
-    <div className={`pomich-status-pill ${cancelled ? "pomich-status-pill--cancelled" : "pomich-status-pill--active"}`}>
-      <span className="pomich-status-pill__dot" />
-      {orderStatusLabels[status]}
-    </div>
-  )
-}
-
-function Timeline({ status }: { status: OrderStatus }) {
-  const steps: Array<{ status: OrderStatus; label: string }> = [
-    { status: "searching", label: "Пошук" },
-    { status: "accepted", label: "Ціна" },
-    { status: "price_confirmed", label: "Підтверджено" },
-    { status: "en_route", label: "У дорозі" },
-    { status: "arrived", label: "На місці" },
-    { status: "in_progress", label: "Робота" },
-    { status: "completed", label: "Готово" },
-  ]
-  const currentIndex = status === "cancelled" ? -1 : Math.max(0, steps.findIndex((step) => step.status === status))
-
-  return (
-    <div style={{ display: "grid", gridTemplateColumns: `repeat(${steps.length}, 1fr)`, gap: 6 }}>
-      {steps.map((step, index) => {
-        const active = index <= currentIndex
-        return (
-          <div key={step.status} style={{ minWidth: 0 }}>
-            <div style={{ height: 5, borderRadius: 999, background: active ? BRAND : BORDER }} />
-            <div style={{ marginTop: 5, fontSize: 10, color: active ? DARK : SUBTLE, fontWeight: 800, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{step.label}</div>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
-function ProviderCard({
-  orderId,
-  eta,
-  assignedProvider,
-  fallbackName,
-}: {
-  orderId?: string
-  eta?: number
-  assignedProvider?: OrderResponse["assignedProvider"] | ProviderAvailability
-  fallbackName?: string
-}) {
-  const cardProvider = assignedProvider
-  if (!cardProvider) {
-    return (
-      <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 18, padding: 14 }}>
-        <div style={{ fontWeight: 900, color: DARK }}>{fallbackName ?? "Партнер прийняв заявку"}</div>
-        <div style={{ color: MUTED, fontWeight: 700, marginTop: 6, fontSize: 13 }}>Завантажуємо дані виконавця…</div>
-      </div>
-    )
-  }
-  const phone = cardProvider.phone
-  const telegram = cardProvider.telegram
-  const rating = cardProvider.rating
-  const distanceKm = "distanceKm" in cardProvider && typeof cardProvider.distanceKm === "number" ? cardProvider.distanceKm : undefined
-  const verificationStatus = "verificationStatus" in cardProvider ? cardProvider.verificationStatus : "verified"
-  const distanceLabel =
-    typeof distanceKm === "number"
-      ? distanceKm < 0.15
-        ? "Поруч із вами"
-        : `${distanceKm.toFixed(1)} км від вас`
-      : null
-  return (
-    <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 18, padding: 14, boxShadow: "0 8px 22px rgba(0,0,0,0.05)" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
-        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-          <div style={{ width: 48, height: 48, borderRadius: 14, background: SELECTED, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24 }}>🚛</div>
-          <div>
-            <div style={{ fontWeight: 900, color: DARK }}>{cardProvider.name ?? fallbackName ?? "Партнер"}</div>
-            <div style={{ fontSize: 12, color: MUTED, marginTop: 2 }}>{[cardProvider.vehicle, cardProvider.plate].filter(Boolean).join(" · ") || "Дані авто уточнюються"}</div>
-            <div style={{ marginTop: 6 }}><VerificationPill status={verificationStatus} /></div>
-          </div>
-        </div>
-        {typeof rating === "number" ? <div style={{ textAlign: "right", fontWeight: 900, color: BRAND }}>★ {rating}</div> : null}
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: phone && telegram ? "1fr 1fr" : "1fr", gap: 10, marginTop: 12 }}>
-        {phone ? (
-          <SecondaryButton label="📞 Подзвонити" onClick={() => { window.location.href = `tel:${phone}` }} />
-        ) : null}
-        {telegram ? (
-          <SecondaryButton
-            label="💬 Чат"
-            onClick={() => {
-              window.open(`https://t.me/${telegram}${orderId ? `?start=order_${orderId}` : ""}`, "_blank", "noopener,noreferrer")
-            }}
-          />
-        ) : null}
-      </div>
-      {eta ? <div style={{ marginTop: 10, color: MUTED, fontSize: 13, fontWeight: 700 }}>Прибуття приблизно за {eta} хв</div> : null}
-      {distanceLabel ? <div style={{ marginTop: 6, color: MUTED, fontSize: 13, fontWeight: 700 }}>{distanceLabel}</div> : null}
-    </div>
-  )
-}
-
-function ScreenLayout({ children, footer, className = "" }: { children: React.ReactNode; footer?: React.ReactNode; className?: string }) {
-  return (
-    <div className={`pomich-themed-shell pomich-screen-layout ${className}`.trim()} style={{ width: "100%", maxWidth: "100%", minWidth: 0, height: "100%", minHeight: "100%", display: "flex", flexDirection: "column", overflowX: "hidden" }}>
-      <div className="pomich-screen-layout__content" style={{ flex: 1, minWidth: 0, overflow: "auto", overflowX: "hidden" }}>{children}</div>
-      {footer ? <FormFooterBar>{footer}</FormFooterBar> : null}
-    </div>
-  )
-}
-
-function Header({
-  title,
-  subtitle,
-  onBack,
-  status,
-  showThemeToggle: _showThemeToggle,
-  compactToggle: _compactToggle,
-}: {
-  title: string
-  subtitle?: string
-  onBack?: () => void
-  status?: OrderStatus
-  showThemeToggle?: boolean
-  compactToggle?: boolean
-}) {
-  return (
-    <FormHeader>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-          {onBack ? <button type="button" aria-label="Назад" onClick={onBack} className="pomich-back-btn">←</button> : null}
-          <div style={{ minWidth: 0 }}>
-            <div className="pomich-header-title">{title}</div>
-            {subtitle ? <div className="pomich-header-subtitle">{subtitle}</div> : null}
-          </div>
-        </div>
-        {status ? <StatusPill status={status} /> : null}
-      </div>
-    </FormHeader>
-  )
-}
-
+import {
+  VerificationPill,
+  SheetHeading,
+  resolveSessionProviderId,
+  PrimaryButton,
+  SecondaryButton,
+  StatusPill,
+  Timeline,
+  ProviderCard,
+  ScreenLayout,
+  Header,
+} from "./providerFlowUi"
+import {
+  BRAND,
+  DARK,
+  BG,
+  BORDER,
+  MUTED,
+  SUBTLE,
+  CARD,
+  SURFACE_TONE,
+  SELECTED,
+  GHOST,
+} from "./providerFlowTokens"
+import AwaitingPriceStep from "./steps/AwaitingPriceStep"
+import ArrivedWorkStep from "./steps/ArrivedWorkStep"
+import NavigationStep from "./steps/NavigationStep"
 
 export default function ProviderFlow({
   providerToken,
@@ -2282,151 +2097,55 @@ export default function ProviderFlow({
   }
 
   if (step === "awaiting_price") {
-    const proposed = activeOrder?.partnerProposedPrice
-    const idleSecondsLeft = acceptedIdleSecondsLeft(activeOrder, offerClock)
     return (
-      <ScreenLayout
-        footer={
-          <SecondaryButton
-            label={orderAdvancing ? "Скасовуємо…" : "Скасувати заявку"}
-            danger
-            disabled={orderAdvancing}
-            onClick={() => {
-              void cancelActiveOrder()
-            }}
-          />
-        }
-      >
-        <Header title="Очікуємо клієнта" subtitle={activeOrder?.id ? `Замовлення #${activeOrder.id}` : undefined} status="accepted" showThemeToggle={false} compactToggle />
-        <div style={{ padding: "8px 16px 16px", display: "grid", gap: 12 }}>
-          <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 18, padding: 16 }}>
-            <div style={{ fontWeight: 950, fontSize: 20, color: DARK }}>Ціну надіслано клієнту</div>
-            <div style={{ color: MUTED, fontWeight: 750, marginTop: 8, lineHeight: 1.45 }}>
-              Ви запропонували {typeof proposed === "number" ? `${proposed.toLocaleString("uk-UA")} ₴` : "ціну"}. Клієнт підтвердить або зв'яжеться для обговорення.
-            </div>
-            <div style={{ marginTop: 14, background: "var(--pomich-warn-bg)", color: "var(--pomich-warn-text)", borderRadius: 14, padding: 12, fontWeight: 800, lineHeight: 1.45 }}>
-              {idleSecondsLeft > 0
-                ? `Якщо клієнт не підтвердить ціну за ${formatCountdown(idleSecondsLeft)}, заявку буде скасовано.`
-                : "Час очікування вийшов — заявку буде скасовано автоматично."}
-            </div>
-            <div style={{ marginTop: 14 }}>
-              <Timeline status="accepted" />
-            </div>
-          </div>
-          {offerError ? <div style={{ background: "var(--pomich-error-bg)", color: "var(--pomich-error-text)", borderRadius: 14, padding: 12, fontWeight: 800 }}>{offerError}</div> : null}
-        </div>
-      </ScreenLayout>
+      <AwaitingPriceStep
+        activeOrder={activeOrder}
+        offerClock={offerClock}
+        orderAdvancing={orderAdvancing}
+        offerError={offerError}
+        onCancel={() => {
+          void cancelActiveOrder()
+        }}
+      />
     )
   }
 
   if (step === "arrived") {
-    const activeStatus = normalizeOrderStatus(activeOrder?.status)
-    const nextStatus: OrderStatus = activeStatus === "arrived" ? "in_progress" : "completed"
     return (
-      <ScreenLayout
-        footer={
-          <>
-            <PrimaryButton
-              label={activeStatus === "arrived" ? "ПОЧАТИ РОБОТУ" : "ЗАВЕРШИТИ"}
-              loading={orderAdvancing}
-              loadingLabel={activeStatus === "arrived" ? "Починаємо…" : "Завершуємо…"}
-              onClick={() => {
-                if (activeOrder) void advanceProviderOrder(nextStatus)
-                else setStep("completed")
-              }}
-            />
-            <SecondaryButton
-              label={orderAdvancing ? "Скасовуємо…" : "Скасувати заявку"}
-              danger
-              disabled={orderAdvancing}
-              onClick={() => {
-                void cancelActiveOrder()
-              }}
-            />
-          </>
-        }
-      >
-        <Header title={activeStatus === "in_progress" ? "Допомога триває" : "Ви на місці"} subtitle="Клієнт бачить ваш статус у POMICH" status={activeStatus === "in_progress" ? "in_progress" : "arrived"} showThemeToggle={false} compactToggle />
-        <div style={{ padding: "8px 16px 16px", display: "grid", gap: 12 }}>
-          <ProviderCard orderId={activeOrder?.id} assignedProvider={activeOrder?.assignedProvider ?? providerPresence} />
-          <div style={{ background: CARD, borderRadius: 18, border: `1px solid ${BORDER}`, padding: 14 }}>
-            <Timeline status={activeStatus === "in_progress" ? "in_progress" : "arrived"} />
-            <div style={{ fontWeight: 900, color: DARK, marginTop: 16 }}>Поточна дія</div>
-            <div style={{ color: MUTED, fontWeight: 700, marginTop: 6 }}>
-              {activeStatus === "arrived"
-                ? "Натисніть «Почати роботу», коли починаєте допомогу клієнту."
-                : "Підтвердіть завершення, коли допомогу надано."}
-            </div>
-          </div>
-          {offerError ? <div style={{ background: "var(--pomich-error-bg)", color: "var(--pomich-error-text)", borderRadius: 14, padding: 12, fontWeight: 800 }}>{offerError}</div> : null}
-        </div>
-      </ScreenLayout>
+      <ArrivedWorkStep
+        activeOrder={activeOrder}
+        providerPresence={providerPresence}
+        orderAdvancing={orderAdvancing}
+        offerError={offerError}
+        onAdvance={(nextStatus) => {
+          void advanceProviderOrder(nextStatus)
+        }}
+        onCancel={() => {
+          void cancelActiveOrder()
+        }}
+        onCompletedFallback={() => setStep("completed")}
+      />
     )
   }
 
   if (step === "navigation") {
-    const activeStatus = normalizeOrderStatus(activeOrder?.status)
-    const nextStatus: OrderStatus = activeStatus === "price_confirmed" || activeStatus === "assigned" || activeStatus === "accepted" ? "en_route" : "arrived"
-    const hasLiveGps = Number.isFinite(providerLocation.lat) && Number.isFinite(providerLocation.lng)
-    // Never fall back to hardcoded Uzhhorod demo points — that drew a fake blue destination
-    // and/or routed to the wrong pickup after accept.
-    const routePickup = activeOrder?.customerCoordinates
-    const routeDestination = activeOrder?.destinationCoordinates
-    const customerLabel = activeOrder?.customerLocation || "Точка подачі клієнта"
     return (
-      <ScreenLayout
-        footer={
-          <>
-            <PrimaryButton
-              label={activeStatus === "en_route" ? "Я НА МІСЦІ" : "ЇДУ ДО КЛІЄНТА"}
-              loading={orderAdvancing}
-              loadingLabel={activeStatus === "en_route" ? "Оновлюємо…" : "Виїжджаємо…"}
-              disabled={activeStatus === "accepted"}
-              onClick={() => {
-                if (activeOrder) void advanceProviderOrder(nextStatus)
-                else setStep("arrived")
-              }}
-            />
-            <SecondaryButton
-              label={orderAdvancing ? "Скасовуємо…" : "Скасувати заявку"}
-              danger
-              disabled={orderAdvancing}
-              onClick={() => {
-                void cancelActiveOrder()
-              }}
-            />
-          </>
-        }
-      >
-        <Header title="Маршрут до клієнта" subtitle={activeOrder?.id ? `Активне замовлення #${activeOrder.id}` : "Активне замовлення"} status={activeStatus === "en_route" ? "en_route" : "price_confirmed"} showThemeToggle={false} compactToggle />
-        <div style={{ padding: "0 16px 16px", display: "grid", gap: 12 }}>
-          {routePickup ? (
-            <LazyRouteMap
-              pickup={routePickup}
-              destination={routeDestination}
-              providerPosition={hasLiveGps ? providerLocation : undefined}
-              subtitle={hasLiveGps ? "Ваша GPS-позиція" : "Очікуємо геолокацію"}
-              mapTileTheme={mapTileTheme}
-              geoSpeedMps={providerSpeedMps}
-              recenterTrigger={providerRecenterTrigger}
-            />
-          ) : (
-            <div style={{ background: CARD, borderRadius: 18, border: `1px solid ${BORDER}`, padding: 14, color: MUTED, fontWeight: 700 }}>
-              Немає координат клієнта для побудови маршруту. Оновіть заявку або попросіть клієнта надіслати геолокацію ще раз.
-            </div>
-          )}
-          <div style={{ background: "var(--pomich-accent-panel-bg)", color: "#fff", borderRadius: 18, padding: 16 }}>
-            <div style={{ fontWeight: 950, fontSize: 20 }}>{hasLiveGps ? "Навігація за GPS" : "Немає GPS"}</div>
-            <div style={{ color: "#CBD5E1", marginTop: 6, fontWeight: 700 }}>Клієнт: {customerLabel}</div>
-            <div style={{ color: "#CBD5E1", marginTop: 8, fontWeight: 700, lineHeight: 1.4 }}>
-              {hasLiveGps
-                ? "Позиція оновлюється з вашого пристрою. Імітацію руху вимкнено."
-                : "Увімкніть геолокацію, щоб бачити себе на карті. Рух не імітується."}
-            </div>
-          </div>
-          {offerError ? <div style={{ background: "var(--pomich-error-bg)", color: "var(--pomich-error-text)", borderRadius: 14, padding: 12, fontWeight: 800 }}>{offerError}</div> : null}
-        </div>
-      </ScreenLayout>
+      <NavigationStep
+        activeOrder={activeOrder}
+        providerLocation={providerLocation}
+        providerSpeedMps={providerSpeedMps}
+        providerRecenterTrigger={providerRecenterTrigger}
+        mapTileTheme={mapTileTheme}
+        orderAdvancing={orderAdvancing}
+        offerError={offerError}
+        onAdvance={(nextStatus) => {
+          void advanceProviderOrder(nextStatus)
+        }}
+        onCancel={() => {
+          void cancelActiveOrder()
+        }}
+        onArrivedFallback={() => setStep("arrived")}
+      />
     )
   }
 
