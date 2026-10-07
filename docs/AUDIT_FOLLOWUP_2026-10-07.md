@@ -48,8 +48,8 @@ Reviewed both supplied audit files against main at `1a2df96303218c5cdc197852a9f6
 | Check | Result |
 |---|---|
 | Baseline backend / frontend | 250 / 375 tests passed |
-| Final backend | 275 passed; one dependency deprecation warning |
-| Final frontend | 386 passed across 58 files |
+| Final backend | 276 passed; one dependency deprecation warning |
+| Final frontend | 390 passed across 58 files |
 | TypeScript | npx tsc --noEmit passed |
 | Production build | npm run build passed |
 | Production dependency audit | Zero vulnerabilities reported |
@@ -57,7 +57,7 @@ Reviewed both supplied audit files against main at `1a2df96303218c5cdc197852a9f6
 | Existing-database migration | SQLite order version backfill and subsequent update passed |
 | Multiple independent processes | OTP state, realtime delivery and rate-limit counter passed against shared SQLite |
 
-Chromium installation failed locally with a corrupt/truncated archive. GitHub CI for commit `1c7e988c0bc09bab8761aec50617d401a9dd991b` subsequently passed unit tests/build, Playwright UX/accessibility checks, PostGIS runtime smoke and backup/restore round trip (run `37573350861`). The follow-up changes require another CI run. A new nginx -t step validates the edge files using disposable TLS fixtures; nginx is not installed in this local environment, so that check must run in CI. No live VPS/bot verification or deployment was performed. Do not treat pending follow-up CI checks as passed.
+Chromium installation failed locally with a corrupt/truncated archive. GitHub CI for commit `1c7e988c0bc09bab8761aec50617d401a9dd991b` subsequently passed unit tests/build, Playwright UX/accessibility checks, PostGIS runtime smoke and backup/restore round trip (run `37573350861`). The follow-up changes and integration of main at `98cdd804f5564d11029dc0444595b28add182c5e` require another CI run. A new nginx -t step validates the edge files using disposable TLS fixtures; nginx is not installed in this local environment, so that check must run in CI. No live VPS/bot verification or deployment was performed. Do not treat pending follow-up CI checks as passed.
 
 ## Deployment and remaining architectural work
 
@@ -75,6 +75,7 @@ Chromium installation failed locally with a corrupt/truncated archive. GitHub CI
 - Back/Forward now synchronizes or clears the persisted role; reload and landing-restoration regressions cover both storage locations.
 - Extracted provider geolocation/offer-feed hooks and customer nearby-provider/order-tracking hooks. A polling regression covers clock ticks, equal specialty arrays and subscription cleanup.
 - Split the original backend order/API tests into eleven feature modules with shared non-test support; split 54 frontend flow declarations into five feature modules with shared mocks/setup. Existing test counts are retained, plus the new regressions.
+- Integrated the main-branch branding/beta-notice changes without reverting assets or metadata; deduplicated CORS/CSP declarations and preserved strict decryption failures. The original main API cases are all retained in the new feature test files.
 - Added actual nginx syntax validation to CI, generating temporary certificates and DH parameters without touching deployment certificates or changing routing/header directives.
 
 Merge after required CI checks. Server credential installation, monitoring account configuration and production rollout remain deployment operations outside the available access.

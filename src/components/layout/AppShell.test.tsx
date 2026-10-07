@@ -16,6 +16,25 @@ function renderShell(ui: ReactNode) {
 }
 
 describe("AppShell compact header", () => {
+  it.each([
+    ["customer", true],
+    ["provider", true],
+    ["customer", false],
+    ["provider", false],
+  ] as const)("keeps the beta notice out of the map layout for %s (compact: %s)", (role, compact) => {
+    const { container } = renderShell(
+      <AppShell compact={compact} role={role} onRoleChange={() => undefined}>
+        <div data-testid="ride-content">Map content</div>
+      </AppShell>,
+    )
+
+    const notice = container.querySelector("details.pomich-beta-badge")
+    expect(notice?.closest("header")).not.toBeNull()
+    expect(notice).not.toHaveAttribute("open")
+    expect(container.querySelector(".pomich-app-main")?.children).toHaveLength(1)
+    expect(screen.getByTestId("ride-content")).toBeInTheDocument()
+  })
+
   it("shows the user name on the left and Кабінет next to Роль on the right", async () => {
     const user = userEvent.setup()
     const onOpenCabinet = vi.fn()

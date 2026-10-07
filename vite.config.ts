@@ -185,27 +185,35 @@ function figmaSiteConfiguration(config: FigmaSiteConfiguration): Plugin {
         result = replaceHtmlCommentSlot(result, 'figma:body-end', bodyEnd)
 
         const tags: HtmlTagDescriptor[] = []
-        if (description) {
+        const hasMeta = (attr: "name" | "property", value: string) =>
+          new RegExp(`<meta[^>]+${attr}=["']${value}["']`, "i").test(result)
+        const hasRelIcon = /<link[^>]+rel=["']icon["']/i.test(result)
+
+        if (description && !hasMeta("name", "description")) {
           tags.push({ tag: 'meta', attrs: { name: 'description', content: description }, injectTo: 'head' })
         }
-        if (config.robots?.index === false) {
+        if (config.robots?.index === false && !hasMeta("name", "robots")) {
           tags.push({ tag: 'meta', attrs: { name: 'robots', content: 'noindex, nofollow' }, injectTo: 'head' })
         }
-        if (favicon) {
+        if (favicon && !hasRelIcon) {
           tags.push({ tag: 'link', attrs: { rel: 'icon', href: favicon }, injectTo: 'head' })
         }
-        if (title) {
+        if (title && !hasMeta("property", "og:title")) {
           tags.push({ tag: 'meta', attrs: { property: 'og:title', content: title }, injectTo: 'head' })
         }
-        if (description) {
+        if (description && !hasMeta("property", "og:description")) {
           tags.push({ tag: 'meta', attrs: { property: 'og:description', content: description }, injectTo: 'head' })
         }
         if (socialImage) {
-          tags.push(
-            { tag: 'meta', attrs: { property: 'og:image', content: socialImage }, injectTo: 'head' },
-            { tag: 'meta', attrs: { name: 'twitter:card', content: 'summary_large_image' }, injectTo: 'head' },
-            { tag: 'meta', attrs: { name: 'twitter:image', content: socialImage }, injectTo: 'head' },
-          )
+          if (!hasMeta("property", "og:image")) {
+            tags.push({ tag: 'meta', attrs: { property: 'og:image', content: socialImage }, injectTo: 'head' })
+          }
+          if (!hasMeta("name", "twitter:card")) {
+            tags.push({ tag: 'meta', attrs: { name: 'twitter:card', content: 'summary_large_image' }, injectTo: 'head' })
+          }
+          if (!hasMeta("name", "twitter:image")) {
+            tags.push({ tag: 'meta', attrs: { name: 'twitter:image', content: socialImage }, injectTo: 'head' })
+          }
         }
 
         if (googleAnalyticsId) {

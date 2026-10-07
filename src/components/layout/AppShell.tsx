@@ -63,6 +63,7 @@ export function AppShell({
                 <div className="min-w-0 flex-1" aria-hidden="true" />
               )}
               <div className="pomich-app-header-actions-cluster" role="toolbar" aria-label="Дії">
+                <BetaNotice compact />
                 <ThemeToggle compact />
                 {onOpenCabinet ? (
                   <button
@@ -91,7 +92,6 @@ export function AppShell({
           </header>
         ) : null}
         <div className="pomich-tg-main pomich-app-main min-h-0 min-w-0 flex-1">
-          {role ? <BetaNotice /> : null}
           {children}
         </div>
       </div>
@@ -112,6 +112,7 @@ export function AppShell({
               </span>
             ) : null}
             <div className="pomich-app-header-actions-cluster">
+              <BetaNotice compact />
               <ThemeToggle />
               {onOpenCabinet ? (
                 <button type="button" onClick={onOpenCabinet} className="pomich-app-header-chip pomich-app-header-chip--regular">
@@ -137,7 +138,6 @@ export function AppShell({
         </header>
       ) : null}
       <div className="pomich-app-main min-h-0 flex-1">
-        {role ? <BetaNotice /> : null}
         {children}
       </div>
     </div>

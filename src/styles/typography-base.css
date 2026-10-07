@@ -49,6 +49,50 @@
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
+.pomich-beta-badge {
+  flex: 0 0 auto;
+  color: #65420b;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.pomich-beta-badge summary {
+  display: block;
+  cursor: pointer;
+  list-style: none;
+  padding: 8px 10px;
+  border: 1px solid #f5c75e;
+  border-radius: 999px;
+  background: #fff5d9;
+  font-weight: 800;
+}
+
+.pomich-beta-badge summary::-webkit-details-marker {
+  display: none;
+}
+
+.pomich-beta-badge summary:focus-visible {
+  outline: 2px solid #f5c75e;
+  outline-offset: 3px;
+}
+
+.pomich-beta-badge__message {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: max(12px, var(--pomich-chrome-inset-right));
+  width: min(320px, calc(100vw - 24px));
+  padding: 12px 16px;
+  border: 1px solid #f5c75e;
+  border-radius: 12px;
+  background: #fff5d9;
+  box-shadow: 0 8px 24px #0003;
+  white-space: normal;
+}
+
+.pomich-beta-badge__message p {
+  margin: 4px 0 0;
+}
+
 .pomich-beta-notice {
   position: relative;
   display: flex;

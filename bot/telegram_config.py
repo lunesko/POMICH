@@ -31,6 +31,8 @@ def _project_root() -> Path:
 
 
 def load_local_env(path: Path | None = None) -> None:
+    if os.getenv("POMICH_SKIP_LOCAL_ENV", "").strip().lower() in {"1", "true", "yes"}:
+        return
     if os.getenv("POMICH_LOAD_LOCAL_ENV", "1").strip().lower() in {"0", "false", "no"}:
         return
     env_path = path or (_project_root() / ".env")

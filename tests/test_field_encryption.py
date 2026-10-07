@@ -66,3 +66,13 @@ def test_invalid_key_cannot_write_plaintext(monkeypatch):
     monkeypatch.setenv("POMICH_ENCRYPTION_KEY", "invalid")
     with pytest.raises(FieldEncryptionError):
         encrypt_field("+380991234876")
+
+
+def test_decrypt_failure_preserves_ciphertext_without_exposing_it(encryption_env, monkeypatch):
+    from bot.field_encryption import FieldEncryptionError
+    from pytest import raises
+    encrypted = encrypt_field("+380671112233")
+    monkeypatch.setenv("POMICH_ENCRYPTION_KEY", generate_encryption_key())
+    with raises(FieldEncryptionError):
+        decrypt_field(encrypted)
+    assert encrypt_customer_profile({"id": "tg-1", "phone": encrypted})["phone"] == encrypted
