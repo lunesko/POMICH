@@ -80,20 +80,26 @@ def test_start_command_returns_welcome_message():
     with patch.dict(os.environ, {"WEB_APP_URL": WEB_APP_BASE, "TELEGRAM_BOT_TOKEN": "1:x"}, clear=False):
         with patch("bot.telegram_bot.upsert_telegram_customer_profile", return_value={}):
             with patch("bot.telegram_bot._check_customer_registered", return_value=False):
-                result = handle_update({
-                    "update_id": 1,
-                    "message": {
-                        "chat": {"id": 42},
-                        "from": {"id": 42, "first_name": "Аня"},
-                        "text": "/start",
-                    },
-                }, client, bot_kind="customer")
+                with patch("bot.telegram_bot._check_customer_verified", return_value=False):
+                    with patch("bot.telegram_bot._check_provider_registered", return_value=False):
+                        result = handle_update({
+                            "update_id": 1,
+                            "message": {
+                                "chat": {"id": 42},
+                                "from": {"id": 42, "first_name": "Аня"},
+                                "text": "/start",
+                            },
+                        }, client, bot_kind="customer")
 
     assert result["handled"] is True
     assert result["type"] == "start"
     assert "POMICH" in client.messages[0]["text"]
-    markup = client.messages[0]["reply_markup"]
-    assert markup["inline_keyboard"][0][0]["text"] == "Викликати допомогу"
+    labels = _provider_start_button_labels(client.messages[0]["reply_markup"])
+    assert labels[0] == "Викликати допомогу"
+    assert "Мій профіль" not in labels
+    assert "Історія" not in labels
+    assert "Підтвердити профіль" not in labels
+    assert "Стати партнером" in labels
 
 
 def test_start_registered_user_gets_customer_webapp_button():
@@ -102,19 +108,27 @@ def test_start_registered_user_gets_customer_webapp_button():
     with patch.dict(os.environ, {"WEB_APP_URL": WEB_APP_BASE, "TELEGRAM_BOT_TOKEN": "1:x"}, clear=False):
         with patch("bot.telegram_bot.upsert_telegram_customer_profile", return_value={}):
             with patch("bot.telegram_bot._check_customer_registered", return_value=True):
-                with patch("bot.telegram_bot.get_customer_profile", return_value={"name": "Аня", "phone": "+380671112233"}):
-                    result = handle_update({
-                        "update_id": 5,
-                        "message": {
-                            "chat": {"id": 42},
-                            "from": {"id": 42, "first_name": "Аня"},
-                            "text": "/start",
-                        },
-                    }, client, bot_kind="customer")
+                with patch("bot.telegram_bot._check_customer_verified", return_value=True):
+                    with patch("bot.telegram_bot._check_provider_registered", return_value=False):
+                        with patch("bot.telegram_bot.get_customer_profile", return_value={"name": "Аня", "phone": "+380671112233"}):
+                            result = handle_update({
+                                "update_id": 5,
+                                "message": {
+                                    "chat": {"id": 42},
+                                    "from": {"id": 42, "first_name": "Аня"},
+                                    "text": "/start",
+                                },
+                            }, client, bot_kind="customer")
 
     assert result["registered"] is True
+    assert result["verified"] is True
     assert "З поверненням" in client.messages[0]["text"]
-    assert client.messages[0]["reply_markup"]["inline_keyboard"][0][0]["text"] == "Викликати допомогу"
+    labels = _provider_start_button_labels(client.messages[0]["reply_markup"])
+    assert labels[0] == "Викликати допомогу"
+    assert "Мій профіль" in labels
+    assert "Історія" in labels
+    assert "Підтвердити профіль" not in labels
+    assert "Стати партнером" in labels
 
 
 def test_legacy_role_callback_sends_role_specific_webapp():
@@ -257,3 +271,65 @@ def test_provider_start_shows_verify_when_profile_unverified():
     assert result["verified"] is False
     labels = _provider_start_button_labels(client.messages[0]["reply_markup"])
     assert "Підтвердити профіль" in labels
+
+
+def test_customer_start_shows_confirm_when_registered_unverified():
+    client = FakeTelegramClient(kind="customer")
+
+    with patch.dict(os.environ, {"WEB_APP_URL": WEB_APP_BASE, "TELEGRAM_BOT_TOKEN": "1:x"}, clear=False):
+        with patch("bot.telegram_bot.upsert_telegram_customer_profile", return_value={}):
+            with patch("bot.telegram_bot._check_customer_registered", return_value=True):
+                with patch("bot.telegram_bot._check_customer_verified", return_value=False):
+                    with patch("bot.telegram_bot._check_provider_registered", return_value=False):
+                        with patch(
+                            "bot.telegram_bot.get_customer_profile",
+                            return_value={"name": "Аня", "phone": "+380671112233"},
+                        ):
+                            result = handle_update(
+                                {
+                                    "update_id": 12,
+                                    "message": {
+                                        "chat": {"id": 42},
+                                        "from": {"id": 42, "first_name": "Аня"},
+                                        "text": "/start",
+                                    },
+                                },
+                                client,
+                                bot_kind="customer",
+                            )
+
+    assert result["registered"] is True
+    assert result["verified"] is False
+    labels = _provider_start_button_labels(client.messages[0]["reply_markup"])
+    assert "Підтвердити профіль" in labels
+    assert "Мій профіль" not in labels
+
+
+def test_customer_start_hides_become_partner_when_already_partner():
+    client = FakeTelegramClient(kind="customer")
+
+    with patch.dict(os.environ, {"WEB_APP_URL": WEB_APP_BASE, "TELEGRAM_BOT_TOKEN": "1:x"}, clear=False):
+        with patch("bot.telegram_bot.upsert_telegram_customer_profile", return_value={}):
+            with patch("bot.telegram_bot._check_customer_registered", return_value=True):
+                with patch("bot.telegram_bot._check_customer_verified", return_value=True):
+                    with patch("bot.telegram_bot._check_provider_registered", return_value=True):
+                        with patch(
+                            "bot.telegram_bot.get_customer_profile",
+                            return_value={"name": "Аня", "phone": "+380671112233"},
+                        ):
+                            handle_update(
+                                {
+                                    "update_id": 13,
+                                    "message": {
+                                        "chat": {"id": 42},
+                                        "from": {"id": 42, "first_name": "Аня"},
+                                        "text": "/start",
+                                    },
+                                },
+                                client,
+                                bot_kind="customer",
+                            )
+
+    labels = _provider_start_button_labels(client.messages[0]["reply_markup"])
+    assert "Стати партнером" not in labels
+    assert "Мій профіль" in labels

@@ -19,6 +19,7 @@ from bot.order_store import (
     is_provider_verified,
     load_orders,
     normalize_order_status,
+    normalize_verification_status,
     resolve_linked_provider_id,
     update_provider_presence,
     upsert_telegram_customer_profile,
@@ -105,6 +106,19 @@ def _check_customer_registered(tg_user_id: str) -> bool:
     name = _customer_display_name(profile)
     phone = str(profile.get("phone") or "").strip()
     return bool(name and phone)
+
+
+def _check_customer_verified(tg_user_id: str) -> bool:
+    if not tg_user_id:
+        return False
+    profile = get_customer_profile(f"tg-{tg_user_id}")
+    if not isinstance(profile, dict):
+        return False
+    status = normalize_verification_status(profile.get("verificationStatus"), "unverified")
+    if status == "verified":
+        return True
+    verification = profile.get("verification") if isinstance(profile.get("verification"), dict) else {}
+    return bool(verification.get("phone"))
 
 
 def _provider_profile_for_telegram_user(tg_user_id: str) -> dict[str, Any] | None:
@@ -293,20 +307,34 @@ def _build_webapp_keyboard(*, role: str | None = None, kind: TelegramBotKind | N
     return {"inline_keyboard": [[button]]}
 
 
-def _build_customer_start_keyboard() -> dict[str, Any]:
+def _build_customer_start_keyboard(
+    *,
+    registered: bool = False,
+    verified: bool = False,
+    show_become_partner: bool = True,
+) -> dict[str, Any]:
     rows: list[list[dict[str, Any]]] = []
     # Button label must match the Mini App screen (?screen=) opened by the WebApp URL.
     open_btn = _webapp_button(CUSTOMER_MENU_TEXT, _screen_url("customer", "order"))
-    profile_btn = _webapp_button("Мій профіль", _screen_url("customer", "profile"))
-    history_btn = _webapp_button("Історія", _screen_url("customer", "history"))
     if open_btn:
         rows.append([open_btn])
-    profile_row = [btn for btn in (profile_btn, history_btn) if btn]
-    if profile_row:
-        rows.append(profile_row)
-    provider_cfg = get_telegram_bot_config("provider")
-    partner_username = provider_cfg.username if provider_cfg else "pomich_help_bot"
-    rows.append([_url_button("Стати партнером", f"https://t.me/{partner_username}?start=partner")])
+
+    if registered:
+        # Verified clients get profile/history. Unverified get a confirm CTA instead of a redundant profile link.
+        profile_btn = (
+            _webapp_button("Мій профіль", _screen_url("customer", "profile"))
+            if verified
+            else _webapp_button("Підтвердити профіль", _screen_url("customer", "profile"))
+        )
+        history_btn = _webapp_button("Історія", _screen_url("customer", "history"))
+        profile_row = [btn for btn in (profile_btn, history_btn) if btn]
+        if profile_row:
+            rows.append(profile_row)
+
+    if show_become_partner:
+        provider_cfg = get_telegram_bot_config("provider")
+        partner_username = provider_cfg.username if provider_cfg else "pomich_help_bot"
+        rows.append([_url_button("Стати партнером", f"https://t.me/{partner_username}?start=partner")])
     return {"inline_keyboard": rows}
 
 
@@ -399,6 +427,8 @@ def _handle_customer_command(
 
     if command == "/start":
         registered = _check_customer_registered(tg_user_id)
+        verified = _check_customer_verified(tg_user_id)
+        already_partner = _check_provider_registered(tg_user_id)
         if registered:
             profile = get_customer_profile(f"tg-{tg_user_id}")
             display_name = _customer_display_name(profile)
@@ -409,8 +439,22 @@ def _handle_customer_command(
             )
         else:
             greeting = CUSTOMER_WELCOME_TEXT
-        bot.send_message(chat_id, greeting, reply_markup=_build_customer_start_keyboard())
-        return {"handled": True, "type": "start", "botKind": "customer", "registered": registered}
+        bot.send_message(
+            chat_id,
+            greeting,
+            reply_markup=_build_customer_start_keyboard(
+                registered=registered,
+                verified=verified,
+                show_become_partner=not already_partner,
+            ),
+        )
+        return {
+            "handled": True,
+            "type": "start",
+            "botKind": "customer",
+            "registered": registered,
+            "verified": verified,
+        }
 
     if command == "/app":
         bot.send_message(chat_id, "Відкрийте POMICH:", reply_markup=keyboard)
