@@ -23,7 +23,7 @@ Code fixes in this branch address the highest-risk findings below. Remaining ite
 4. **Tokens in query strings** (`adminToken`, `providerToken`, `access_token`) — migrate fully to headers/storage / WS protocol.
 5. **Password storage** — prefer `passwordHash=sha256:` (or better, salted) everywhere; add login rate limits.
 6. **Public `/providers/{id}/public` phone/telegram** — ~~product decision~~ **redacted 2026-10** (same bar as map pins).
-7. **Legacy Flask shim** (`bot/app.py`, `bot/routes.py`) — keep out of production entrypoints.
+7. **Legacy Flask shim** — removed as a dependency; `bot/app.py` / `bot/routes.py` are stubs pointing at FastAPI.
 8. Dead backend routes still present (ukraine import, verification submit, legacy `/offers/{id}/accept`) — unused by FE after this PR but not removed from API yet.
 9. **Guest restore-by-id** — knowing a persisted `guest-<uuid>` still mints a bearer; prefer HttpOnly cookie restore only (see `docs/AUDIT_2026-10-01.md`).
 
@@ -34,6 +34,8 @@ Code fixes in this branch address the highest-risk findings below. Remaining ite
 
 ## Secrets / repo hygiene
 
-- No live Fernet keys, bot tokens, or SSH passwords found committed.
+- No live Fernet keys, bot tokens, or SSH passwords found committed on this remote (`.env` is not in git history here).
 - `.env*`, `.env.deploy` remain gitignored.
-- Hardcoded production host IP in deploy scripts is operational convenience, not a credential — prefer env overrides (`POMICH_SSH_HOST`).
+- Production provider bot token was rotated on the server (2026-10-06); never commit bot tokens.
+- `.env.example` uses `POMICH_SSH_HOST=your-server-ip` (no public VPS IP).
+- CSP is emitted by `bot/security_headers.py` and mirrored at the nginx edge (`deploy/nginx/pomich.help.conf`).

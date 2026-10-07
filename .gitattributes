@@ -141,6 +141,11 @@ public/maps/ukraine-basemap.webp filter= diff= merge= -text
 
 # Branding must be available in CI and deployments without an LFS checkout.
 public/favicon.png filter= diff= merge= -text
+public/favicon-32.png filter= diff= merge= -text
+public/favicon.ico filter= diff= merge= -text
+public/apple-touch-icon.png filter= diff= merge= -text
+public/icon-192.png filter= diff= merge= -text
+public/icon-512.png filter= diff= merge= -text
 public/pomich-logo.png filter= diff= merge= -text
 public/og-cover-v2.png filter= diff= merge= -text
 e2e/ux-accessibility.spec.ts-snapshots/*.png filter= diff= merge= -text

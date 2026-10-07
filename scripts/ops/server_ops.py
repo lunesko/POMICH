@@ -26,8 +26,12 @@ _REQUIRED_BINARY_ASSETS = (
     PROJECT_ROOT / "public" / "maps" / "ukraine-basemap.webp",
     PROJECT_ROOT / "public" / "maps" / "ukraine-basemap.jpg",
     PROJECT_ROOT / "public" / "og-cover-v2.png",
+    PROJECT_ROOT / "public" / "pomich-logo.png",
+    PROJECT_ROOT / "public" / "favicon.png",
     PROJECT_ROOT / "public" / "favicon.ico",
+    PROJECT_ROOT / "public" / "favicon-32.png",
     PROJECT_ROOT / "public" / "icon-192.png",
+    PROJECT_ROOT / "public" / "icon-512.png",
     PROJECT_ROOT / "public" / "apple-touch-icon.png",
 )
 

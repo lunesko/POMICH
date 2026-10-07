@@ -51,18 +51,9 @@ def _api_provider(provider_id: str, lat: float, lng: float) -> dict:
 
 
 def _use_temp_store(monkeypatch, tmp_path) -> tuple:
-    order_path = tmp_path / "orders.json"
-    provider_path = tmp_path / "providers.json"
-    offer_path = tmp_path / "offers.json"
-    customer_path = tmp_path / "customers.json"
-    monkeypatch.setattr(order_store, "_default_store_path", lambda: order_path)
-    monkeypatch.setattr(order_store, "_default_provider_store_path", lambda: provider_path)
-    monkeypatch.setattr(order_store, "_default_offer_store_path", lambda: offer_path)
-    monkeypatch.setattr(order_store, "_default_customer_store_path", lambda: customer_path)
-    from bot import otp_verification as otp_mod
+    from tests.helpers import use_temp_store
 
-    otp_mod._TELEGRAM_OTP_GUARD.clear()
-    return order_path, provider_path, offer_path
+    return use_temp_store(monkeypatch, tmp_path)
 
 
 def _use_provider_auth(monkeypatch) -> dict:
