@@ -50,21 +50,6 @@ def _api_provider(provider_id: str, lat: float, lng: float) -> dict:
     }
 
 
-def _use_temp_store(monkeypatch, tmp_path) -> tuple:
-    order_path = tmp_path / "orders.json"
-    provider_path = tmp_path / "providers.json"
-    offer_path = tmp_path / "offers.json"
-    customer_path = tmp_path / "customers.json"
-    monkeypatch.setattr(order_store, "_default_store_path", lambda: order_path)
-    monkeypatch.setattr(order_store, "_default_provider_store_path", lambda: provider_path)
-    monkeypatch.setattr(order_store, "_default_offer_store_path", lambda: offer_path)
-    monkeypatch.setattr(order_store, "_default_customer_store_path", lambda: customer_path)
-    from bot import otp_verification as otp_mod
-
-    otp_mod._TELEGRAM_OTP_GUARD.clear()
-    return order_path, provider_path, offer_path
-
-
 def _use_provider_auth(monkeypatch) -> dict:
     monkeypatch.setenv("POMICH_PROVIDER_TOKEN", PROVIDER_TOKEN)
     return PROVIDER_HEADERS
@@ -221,8 +206,8 @@ def test_production_runtime_config_requires_telegram_public_url(monkeypatch) -> 
     assert any("WEB_APP_URL" in error for error in errors)
 
 
-def test_fastapi_updates_provider_presence(monkeypatch, tmp_path) -> None:
-    _use_temp_store(monkeypatch, tmp_path)
+def test_fastapi_updates_provider_presence(monkeypatch, tmp_path, temp_store) -> None:
+    temp_store()
     _use_provider_auth(monkeypatch)
     client = TestClient(app)
     provider_headers = _provider_session_headers(client, "provider-oleksandr")
@@ -249,8 +234,8 @@ def test_fastapi_updates_provider_presence(monkeypatch, tmp_path) -> None:
     assert response.json()["status"] == "online"
 
 
-def test_fastapi_registers_provider_profile(monkeypatch, tmp_path) -> None:
-    _use_temp_store(monkeypatch, tmp_path)
+def test_fastapi_registers_provider_profile(monkeypatch, tmp_path, temp_store) -> None:
+    temp_store()
     _use_provider_auth(monkeypatch)
     client = TestClient(app)
     provider_headers = _provider_session_headers(client, "provider-oleksandr")
@@ -274,8 +259,8 @@ def test_fastapi_registers_provider_profile(monkeypatch, tmp_path) -> None:
     assert response.json()["verificationStatus"] == "verified"
 
 
-def test_fastapi_customer_profile_and_verification_review(monkeypatch, tmp_path) -> None:
-    _use_temp_store(monkeypatch, tmp_path)
+def test_fastapi_customer_profile_and_verification_review(monkeypatch, tmp_path, temp_store) -> None:
+    temp_store()
     monkeypatch.setenv("POMICH_ADMIN_TOKEN", ADMIN_TOKEN)
     client = TestClient(app)
     admin_headers = _admin_session_headers(client)
@@ -307,8 +292,8 @@ def test_fastapi_customer_profile_and_verification_review(monkeypatch, tmp_path)
     assert "Профіль заповнено" in reviewed.json()["trustedBadges"]
 
 
-def test_fastapi_customer_profile_requires_matching_session(monkeypatch, tmp_path) -> None:
-    _use_temp_store(monkeypatch, tmp_path)
+def test_fastapi_customer_profile_requires_matching_session(monkeypatch, tmp_path, temp_store) -> None:
+    temp_store()
     client = TestClient(app)
     own_headers = _customer_session_headers(client, "guest-customer-42")
     other_headers = _customer_session_headers(client, "guest-customer-99")
@@ -324,8 +309,8 @@ def test_fastapi_customer_profile_requires_matching_session(monkeypatch, tmp_pat
     assert other.json()["detail"] == "customer_identity_mismatch"
 
 
-def test_fastapi_provider_verification_submit_and_admin_review(monkeypatch, tmp_path) -> None:
-    _use_temp_store(monkeypatch, tmp_path)
+def test_fastapi_provider_verification_submit_and_admin_review(monkeypatch, tmp_path, temp_store) -> None:
+    temp_store()
     monkeypatch.setenv("POMICH_ADMIN_TOKEN", ADMIN_TOKEN)
     monkeypatch.setenv("POMICH_PROVIDER_TOKEN", PROVIDER_TOKEN)
     client = TestClient(app)
@@ -384,8 +369,8 @@ def test_fastapi_provider_verification_submit_and_admin_review(monkeypatch, tmp_
     assert accepted_presence.json()["status"] == "online"
 
 
-def test_fastapi_requires_provider_token_when_configured(monkeypatch, tmp_path) -> None:
-    _use_temp_store(monkeypatch, tmp_path)
+def test_fastapi_requires_provider_token_when_configured(monkeypatch, tmp_path, temp_store) -> None:
+    temp_store()
     monkeypatch.setenv("POMICH_PROVIDER_TOKEN", PROVIDER_TOKEN)
     client = TestClient(app)
     payload = {
@@ -418,8 +403,8 @@ def test_fastapi_requires_provider_token_when_configured(monkeypatch, tmp_path) 
     assert accepted.json()["specialties"] == ["tow", "fuel"]
 
 
-def test_fastapi_rejects_provider_routes_when_auth_is_not_configured(monkeypatch, tmp_path) -> None:
-    _use_temp_store(monkeypatch, tmp_path)
+def test_fastapi_rejects_provider_routes_when_auth_is_not_configured(monkeypatch, tmp_path, temp_store) -> None:
+    temp_store()
     monkeypatch.delenv("POMICH_PROVIDER_TOKEN", raising=False)
     client = TestClient(app)
 
@@ -438,8 +423,8 @@ def test_fastapi_rejects_provider_routes_when_auth_is_not_configured(monkeypatch
     assert response.json()["detail"] == "provider_auth_not_configured"
 
 
-def test_fastapi_provider_session_is_identity_scoped(monkeypatch, tmp_path) -> None:
-    _use_temp_store(monkeypatch, tmp_path)
+def test_fastapi_provider_session_is_identity_scoped(monkeypatch, tmp_path, temp_store) -> None:
+    temp_store()
     _use_provider_auth(monkeypatch)
     order_store.save_providers(
         [
@@ -464,8 +449,8 @@ def test_fastapi_provider_session_is_identity_scoped(monkeypatch, tmp_path) -> N
     assert other_profile.json()["detail"] == "provider_identity_mismatch"
 
 
-def test_fastapi_provider_profile_get_returns_empty_shell_when_missing(monkeypatch, tmp_path) -> None:
-    _use_temp_store(monkeypatch, tmp_path)
+def test_fastapi_provider_profile_get_returns_empty_shell_when_missing(monkeypatch, tmp_path, temp_store) -> None:
+    temp_store()
     _use_provider_auth(monkeypatch)
     client = TestClient(app)
     # Bootstrap must not mint for a non-existent provider.
@@ -488,8 +473,8 @@ def test_fastapi_provider_profile_get_returns_empty_shell_when_missing(monkeypat
     assert body["specialties"] == []
 
 
-def test_fastapi_provider_profile_shell_prefills_linked_customer(monkeypatch, tmp_path) -> None:
-    _use_temp_store(monkeypatch, tmp_path)
+def test_fastapi_provider_profile_shell_prefills_linked_customer(monkeypatch, tmp_path, temp_store) -> None:
+    temp_store()
     _use_provider_auth(monkeypatch)
     order_store.update_customer_profile(
         "guest-powergear",
@@ -520,8 +505,8 @@ def test_fastapi_admin_session_can_access_admin_routes(monkeypatch) -> None:
     assert orders_response.status_code == 200
 
 
-def test_fastapi_provider_account_login_issues_scoped_session(monkeypatch, tmp_path) -> None:
-    _use_temp_store(monkeypatch, tmp_path)
+def test_fastapi_provider_account_login_issues_scoped_session(monkeypatch, tmp_path, temp_store) -> None:
+    temp_store()
     monkeypatch.setenv("POMICH_PROVIDER_TOKEN", PROVIDER_TOKEN)
     monkeypatch.setenv(
         "POMICH_PROVIDER_ACCOUNTS",
@@ -556,8 +541,8 @@ def test_fastapi_admin_account_login_can_access_admin_routes(monkeypatch) -> Non
     assert orders_response.status_code == 200
 
 
-def test_fastapi_telegram_customer_session_links_profile(monkeypatch, tmp_path) -> None:
-    _use_temp_store(monkeypatch, tmp_path)
+def test_fastapi_telegram_customer_session_links_profile(monkeypatch, tmp_path, temp_store) -> None:
+    temp_store()
     telegram_token = "123456:telegram-token"
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", telegram_token)
     monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", CUSTOMER_SESSION_SECRET)
@@ -583,8 +568,8 @@ def test_fastapi_telegram_customer_session_links_profile(monkeypatch, tmp_path) 
     assert profile_response.json()["telegram"] == "driver_help"
 
 
-def test_fastapi_telegram_mini_app_order_uses_verified_identity(monkeypatch, tmp_path) -> None:
-    _use_temp_store(monkeypatch, tmp_path)
+def test_fastapi_telegram_mini_app_order_uses_verified_identity(monkeypatch, tmp_path, temp_store) -> None:
+    temp_store()
     telegram_token = "123456:telegram-token"
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", telegram_token)
     monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", CUSTOMER_SESSION_SECRET)
@@ -617,9 +602,9 @@ def test_fastapi_telegram_mini_app_order_uses_verified_identity(monkeypatch, tmp
     assert response.json()["customerIdentity"]["type"] == "telegram"
 
 
-def test_fastapi_telegram_mini_app_order_requires_session_when_bots_unset(monkeypatch, tmp_path) -> None:
+def test_fastapi_telegram_mini_app_order_requires_session_when_bots_unset(monkeypatch, tmp_path, temp_store) -> None:
     """Without Telegram bot tokens, source=telegram-mini-app must not skip auth."""
-    _use_temp_store(monkeypatch, tmp_path)
+    temp_store()
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     monkeypatch.delenv("POMICH_TELEGRAM_CUSTOMER_BOT_TOKEN", raising=False)
     monkeypatch.delenv("POMICH_TELEGRAM_PROVIDER_BOT_TOKEN", raising=False)
@@ -665,8 +650,8 @@ def test_fastapi_rejects_admin_orders_without_token(monkeypatch) -> None:
     assert bootstrap_response.json()["detail"] == "admin_session_required"
 
 
-def test_fastapi_create_order_persists_customer_comment(monkeypatch, tmp_path) -> None:
-    _use_temp_store(monkeypatch, tmp_path)
+def test_fastapi_create_order_persists_customer_comment(monkeypatch, tmp_path, temp_store) -> None:
+    temp_store()
     monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", CUSTOMER_SESSION_SECRET)
     client = TestClient(app)
     customer_headers = _customer_session_headers(client)
@@ -703,8 +688,8 @@ def test_fastapi_rejects_invalid_order_transition(monkeypatch) -> None:
     assert response.status_code == 409
 
 
-def test_fastapi_dispatches_order_and_first_offer_acceptance_wins(monkeypatch, tmp_path) -> None:
-    _use_temp_store(monkeypatch, tmp_path)
+def test_fastapi_dispatches_order_and_first_offer_acceptance_wins(monkeypatch, tmp_path, temp_store) -> None:
+    temp_store()
     _use_provider_auth(monkeypatch)
     monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", CUSTOMER_SESSION_SECRET)
     order_store.save_providers(
@@ -762,8 +747,8 @@ def test_fastapi_dispatches_order_and_first_offer_acceptance_wins(monkeypatch, t
     assert {offer["status"] for offer in order["offers"]} == {"accepted", "lost"}
 
 
-def test_fastapi_cancel_order_notifies_partner(monkeypatch, tmp_path) -> None:
-    _use_temp_store(monkeypatch, tmp_path)
+def test_fastapi_cancel_order_notifies_partner(monkeypatch, tmp_path, temp_store) -> None:
+    temp_store()
     _use_provider_auth(monkeypatch)
     monkeypatch.setenv("POMICH_ADMIN_TOKEN", ADMIN_TOKEN)
     order_store.save_providers([_api_provider("p1", 48.6218, 22.2879)])
@@ -806,8 +791,8 @@ def test_fastapi_cancel_order_notifies_partner(monkeypatch, tmp_path) -> None:
     assert offers == []
 
 
-def test_fastapi_provider_can_cancel_assigned_order(monkeypatch, tmp_path) -> None:
-    _use_temp_store(monkeypatch, tmp_path)
+def test_fastapi_provider_can_cancel_assigned_order(monkeypatch, tmp_path, temp_store) -> None:
+    temp_store()
     _use_provider_auth(monkeypatch)
     order_store.save_providers([_api_provider("p1", 48.6218, 22.2879)])
     client = TestClient(app)
@@ -852,8 +837,8 @@ def test_fastapi_provider_can_cancel_assigned_order(monkeypatch, tmp_path) -> No
     assert provider.get("status") == "online"
 
 
-def test_fastapi_admin_can_cancel_order(monkeypatch, tmp_path) -> None:
-    _use_temp_store(monkeypatch, tmp_path)
+def test_fastapi_admin_can_cancel_order(monkeypatch, tmp_path, temp_store) -> None:
+    temp_store()
     monkeypatch.setenv("POMICH_ADMIN_TOKEN", ADMIN_TOKEN)
     client = TestClient(app)
     customer_headers = _customer_session_headers(client, "guest-customer-42")
@@ -874,8 +859,8 @@ def test_fastapi_admin_can_cancel_order(monkeypatch, tmp_path) -> None:
     assert cancelled.json()["status"] == "cancelled"
 
 
-def test_fastapi_dispatch_retry_requires_customer_owner_or_admin(monkeypatch, tmp_path) -> None:
-    _use_temp_store(monkeypatch, tmp_path)
+def test_fastapi_dispatch_retry_requires_customer_owner_or_admin(monkeypatch, tmp_path, temp_store) -> None:
+    temp_store()
     monkeypatch.setenv("POMICH_ADMIN_TOKEN", ADMIN_TOKEN)
     order_store.save_providers([_api_provider("p1", 48.6218, 22.2879)])
     client = TestClient(app)
@@ -911,8 +896,8 @@ def test_fastapi_dispatch_retry_requires_customer_owner_or_admin(monkeypatch, tm
     assert admin_retried.json()["id"] == created_order["id"]
 
 
-def test_fastapi_confirm_price_requires_customer_owner(monkeypatch, tmp_path) -> None:
-    _use_temp_store(monkeypatch, tmp_path)
+def test_fastapi_confirm_price_requires_customer_owner(monkeypatch, tmp_path, temp_store) -> None:
+    temp_store()
     _use_provider_auth(monkeypatch)
     order_store.save_providers([_api_provider("p1", 48.6218, 22.2879)])
     client = TestClient(app)
@@ -950,8 +935,8 @@ def test_fastapi_confirm_price_requires_customer_owner(monkeypatch, tmp_path) ->
     assert confirmed.json()["status"] == "price_confirmed"
 
 
-def test_fastapi_assigned_provider_can_drive_lifecycle(monkeypatch, tmp_path) -> None:
-    _use_temp_store(monkeypatch, tmp_path)
+def test_fastapi_assigned_provider_can_drive_lifecycle(monkeypatch, tmp_path, temp_store) -> None:
+    temp_store()
     _use_provider_auth(monkeypatch)
     order_store.save_providers([_api_provider("p1", 48.6218, 22.2879)])
     client = TestClient(app)
@@ -987,12 +972,12 @@ def test_fastapi_assigned_provider_can_drive_lifecycle(monkeypatch, tmp_path) ->
     assert "assignedOrderId" not in provider
 
 
-def test_admin_endpoints_require_session_and_expose_ops_data(monkeypatch, tmp_path) -> None:
+def test_admin_endpoints_require_session_and_expose_ops_data(monkeypatch, tmp_path, temp_store) -> None:
     monkeypatch.setenv("POMICH_RUNTIME", "dev")
     monkeypatch.setenv("POMICH_ADMIN_TOKEN", ADMIN_TOKEN)
     monkeypatch.setenv("POMICH_PROVIDER_TOKEN", PROVIDER_TOKEN)
     monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", CUSTOMER_SESSION_SECRET)
-    _use_temp_store(monkeypatch, tmp_path)
+    temp_store()
     order_store.save_providers([_api_provider("p1", 48.6218, 22.2879)])
     order_store.update_customer_profile("guest-1", {"name": "Test Client", "phone": "+380501234567", "city": "Ð£Ð¶Ð³Ð¾ÑÐ¾Ð´"})
     order_store.save_order({"service": "tow", "status": "searching", "customerLocation": "Test", "destination": "Garage"})
@@ -1022,7 +1007,7 @@ def test_admin_endpoints_require_session_and_expose_ops_data(monkeypatch, tmp_pa
     assert "corsOrigins" in settings
 
 
-def test_admin_clients_decrypt_filter_and_purge_guests(monkeypatch, tmp_path) -> None:
+def test_admin_clients_decrypt_filter_and_purge_guests(monkeypatch, tmp_path, temp_store) -> None:
     from bot.field_encryption import generate_encryption_key
 
     key = generate_encryption_key()
@@ -1035,7 +1020,7 @@ def test_admin_clients_decrypt_filter_and_purge_guests(monkeypatch, tmp_path) ->
     monkeypatch.setenv("POMICH_RUNTIME", "dev")
     monkeypatch.setenv("POMICH_ADMIN_TOKEN", ADMIN_TOKEN)
     monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", CUSTOMER_SESSION_SECRET)
-    _use_temp_store(monkeypatch, tmp_path)
+    temp_store()
 
     order_store.update_customer_profile("tg-99", {"name": "ÐÐ»ÐµÐºÑÑÐ¹", "phone": "+380679998877", "telegram": "alex"})
     order_store.update_customer_profile("guest-empty", {"name": "ÐÐ»ÑÑÐ½Ñ POMICH"})
@@ -1070,8 +1055,8 @@ def test_admin_clients_decrypt_filter_and_purge_guests(monkeypatch, tmp_path) ->
     assert "guest-empty" in purge["customerIds"]
 
 
-def test_fastapi_customer_otp_send_and_confirm(monkeypatch, tmp_path) -> None:
-    _use_temp_store(monkeypatch, tmp_path)
+def test_fastapi_customer_otp_send_and_confirm(monkeypatch, tmp_path, temp_store) -> None:
+    temp_store()
     otp_path = tmp_path / "otp_codes.json"
     monkeypatch.setattr("bot.otp_verification._default_otp_store_path", lambda: otp_path)
     monkeypatch.setattr("bot.otp_verification._generate_otp_code", lambda: "112233")
@@ -1105,8 +1090,8 @@ def test_fastapi_customer_otp_send_and_confirm(monkeypatch, tmp_path) -> None:
     assert confirm_response.json()["profile"]["verification"]["email"] is True
 
 
-def test_customer_phone_login_send_and_confirm(monkeypatch, tmp_path) -> None:
-    _use_temp_store(monkeypatch, tmp_path)
+def test_customer_phone_login_send_and_confirm(monkeypatch, tmp_path, temp_store) -> None:
+    temp_store()
     otp_path = tmp_path / "otp_codes.json"
     monkeypatch.setattr("bot.otp_verification._default_otp_store_path", lambda: otp_path)
     monkeypatch.setattr("bot.otp_verification._generate_otp_code", lambda: "445566")
@@ -1137,8 +1122,8 @@ def test_customer_phone_login_send_and_confirm(monkeypatch, tmp_path) -> None:
     assert body["account"]["clientRegistered"] is True
 
 
-def test_phone_login_confirm_queues_otp_message_delete(monkeypatch, tmp_path) -> None:
-    _use_temp_store(monkeypatch, tmp_path)
+def test_phone_login_confirm_queues_otp_message_delete(monkeypatch, tmp_path, temp_store) -> None:
+    temp_store()
     otp_path = tmp_path / "otp_codes.json"
     telegram_calls: list[str] = []
     monkeypatch.setattr("bot.otp_verification._default_otp_store_path", lambda: otp_path)
@@ -1178,9 +1163,9 @@ def test_phone_login_confirm_queues_otp_message_delete(monkeypatch, tmp_path) ->
     assert "send" not in telegram_calls
 
 
-def test_customer_phone_login_send_allows_duplicate_registered_phone(monkeypatch, tmp_path) -> None:
+def test_customer_phone_login_send_allows_duplicate_registered_phone(monkeypatch, tmp_path, temp_store) -> None:
     """Login OTP must not 500 when guest + tg rows share the same phone."""
-    _use_temp_store(monkeypatch, tmp_path)
+    temp_store()
     otp_path = tmp_path / "otp_codes.json"
     monkeypatch.setattr("bot.otp_verification._default_otp_store_path", lambda: otp_path)
     monkeypatch.setattr("bot.otp_verification._generate_otp_code", lambda: "778899")
@@ -1224,7 +1209,7 @@ def test_customer_phone_login_send_allows_duplicate_registered_phone(monkeypatch
     assert conflict.json()["detail"] == "phone_already_registered"
 
 
-def test_fastapi_rejects_duplicate_customer_phone(monkeypatch, tmp_path) -> None:
+def test_fastapi_rejects_duplicate_customer_phone(monkeypatch, tmp_path, temp_store) -> None:
     customer_path = tmp_path / "customers.json"
     monkeypatch.setattr(order_store, "_default_customer_store_path", lambda: customer_path)
     monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", CUSTOMER_SESSION_SECRET)
@@ -1245,8 +1230,8 @@ def test_fastapi_rejects_duplicate_customer_phone(monkeypatch, tmp_path) -> None
     assert response.json()["detail"] == "phone_already_registered"
 
 
-def test_fastapi_update_own_phone_unchanged_succeeds(monkeypatch, tmp_path) -> None:
-    _use_temp_store(monkeypatch, tmp_path)
+def test_fastapi_update_own_phone_unchanged_succeeds(monkeypatch, tmp_path, temp_store) -> None:
+    temp_store()
     otp_path = tmp_path / "otp_codes.json"
     monkeypatch.setattr("bot.otp_verification._default_otp_store_path", lambda: otp_path)
     monkeypatch.setattr("bot.otp_verification._generate_otp_code", lambda: "445566")
@@ -1296,9 +1281,9 @@ def test_fastapi_update_own_phone_unchanged_succeeds(monkeypatch, tmp_path) -> N
     assert body["email"] == "power@example.com"
 
 
-def test_verify_send_allows_own_provider_phone_with_tg_duplicate(monkeypatch, tmp_path) -> None:
+def test_verify_send_allows_own_provider_phone_with_tg_duplicate(monkeypatch, tmp_path, temp_store) -> None:
     """Partner OTP must not 409 when provider-{guest} already holds the phone."""
-    _use_temp_store(monkeypatch, tmp_path)
+    temp_store()
     otp_path = tmp_path / "otp_codes.json"
     monkeypatch.setattr("bot.otp_verification._default_otp_store_path", lambda: otp_path)
     monkeypatch.setattr("bot.otp_verification._generate_otp_code", lambda: "778899")
@@ -1343,23 +1328,23 @@ def test_verify_send_allows_own_provider_phone_with_tg_duplicate(monkeypatch, tm
     assert send_response.json()["channel"] == "telegram"
 
 
-def test_sse_order_events_not_found(monkeypatch, tmp_path) -> None:
-    _use_temp_store(monkeypatch, tmp_path)
+def test_sse_order_events_not_found(monkeypatch, tmp_path, temp_store) -> None:
+    temp_store()
     client = TestClient(app)
     response = client.get("/api/events/orders/missing-order")
     assert response.status_code == 404
 
 
-def test_sse_provider_events_require_auth(monkeypatch, tmp_path) -> None:
-    _use_temp_store(monkeypatch, tmp_path)
+def test_sse_provider_events_require_auth(monkeypatch, tmp_path, temp_store) -> None:
+    temp_store()
     _use_provider_auth(monkeypatch)
     client = TestClient(app)
     denied = client.get("/api/events/providers/provider-oleksandr")
     assert denied.status_code == 401
 
 
-def test_ws_order_events_handshake_and_broadcast(monkeypatch, tmp_path) -> None:
-    _use_temp_store(monkeypatch, tmp_path)
+def test_ws_order_events_handshake_and_broadcast(monkeypatch, tmp_path, temp_store) -> None:
+    temp_store()
     monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", CUSTOMER_SESSION_SECRET)
     from bot import realtime
 
@@ -1391,8 +1376,8 @@ def test_ws_order_events_handshake_and_broadcast(monkeypatch, tmp_path) -> None:
         realtime.reset_realtime_for_tests()
 
 
-def test_ws_order_events_not_found(monkeypatch, tmp_path) -> None:
-    _use_temp_store(monkeypatch, tmp_path)
+def test_ws_order_events_not_found(monkeypatch, tmp_path, temp_store) -> None:
+    temp_store()
     client = TestClient(app)
     try:
         with client.websocket_connect("/api/ws/orders/missing-order") as websocket:
@@ -1402,8 +1387,8 @@ def test_ws_order_events_not_found(monkeypatch, tmp_path) -> None:
         pass
 
 
-def test_ws_provider_events_require_auth(monkeypatch, tmp_path) -> None:
-    _use_temp_store(monkeypatch, tmp_path)
+def test_ws_provider_events_require_auth(monkeypatch, tmp_path, temp_store) -> None:
+    temp_store()
     _use_provider_auth(monkeypatch)
     client = TestClient(app)
     try:
@@ -1413,8 +1398,8 @@ def test_ws_provider_events_require_auth(monkeypatch, tmp_path) -> None:
     except Exception:
         pass
 
-def test_fastapi_provider_public_card_no_auth(monkeypatch, tmp_path) -> None:
-    order_path, provider_path, _offer_path = _use_temp_store(monkeypatch, tmp_path)
+def test_fastapi_provider_public_card_no_auth(monkeypatch, tmp_path, temp_store) -> None:
+    order_path, provider_path, _offer_path = temp_store()
     order_store.save_providers([_api_provider("p-public", 48.62, 22.28)])
     order_store.save_order(
         {
@@ -1445,7 +1430,7 @@ def test_fastapi_provider_public_card_no_auth(monkeypatch, tmp_path) -> None:
     assert location["lng"] == round(float(location["lng"]), 3)
 
 
-def test_geo_static_files_served_before_spa_fallback(tmp_path, monkeypatch):
+def test_geo_static_files_served_before_spa_fallback(tmp_path, monkeypatch, temp_store):
     geo_dir = tmp_path / "dist" / "geo"
     geo_dir.mkdir(parents=True)
     border = geo_dir / "ukraine-border.geojson"
@@ -1466,7 +1451,7 @@ def test_geo_static_files_served_before_spa_fallback(tmp_path, monkeypatch):
     assert response.json()["type"] == "Feature"
 
 
-def test_maps_static_files_served_before_spa_fallback(tmp_path, monkeypatch):
+def test_maps_static_files_served_before_spa_fallback(tmp_path, monkeypatch, temp_store):
     maps_dir = tmp_path / "dist" / "maps"
     maps_dir.mkdir(parents=True)
     basemap = maps_dir / "ukraine-basemap.jpg"
@@ -1489,7 +1474,7 @@ def test_maps_static_files_served_before_spa_fallback(tmp_path, monkeypatch):
     assert response.content.startswith(b"\xff\xd8")
 
 
-def test_robots_sitemap_and_seo_landings_are_indexable(monkeypatch, tmp_path):
+def test_robots_sitemap_and_seo_landings_are_indexable(monkeypatch, tmp_path, temp_store):
     public_dir = tmp_path / "public"
     public_dir.mkdir()
     (public_dir / "robots.txt").write_text("User-agent: *\nAllow: /\nSitemap: https://pomich.help/sitemap.xml\n", encoding="utf-8")
@@ -1518,7 +1503,7 @@ def test_robots_sitemap_and_seo_landings_are_indexable(monkeypatch, tmp_path):
 
 
 
-def test_unknown_paths_return_real_html_404(monkeypatch, tmp_path):
+def test_unknown_paths_return_real_html_404(monkeypatch, tmp_path, temp_store):
     dist_dir = tmp_path / "dist"
     dist_dir.mkdir(parents=True)
     (dist_dir / "index.html").write_text("<!doctype html><html><body>POMICH</body></html>", encoding="utf-8")
@@ -1579,7 +1564,7 @@ def test_public_health_hides_internals(monkeypatch):
     assert ok.json()["protocol"] == "fastapi"
 
 
-def test_dist_root_static_files_served_before_spa_fallback(tmp_path, monkeypatch):
+def test_dist_root_static_files_served_before_spa_fallback(tmp_path, monkeypatch, temp_store):
     dist_dir = tmp_path / "dist"
     dist_dir.mkdir(parents=True)
     (dist_dir / "index.html").write_text("<!doctype html><html><body>POMICH</body></html>", encoding="utf-8")
@@ -1607,8 +1592,8 @@ def test_dist_root_static_files_served_before_spa_fallback(tmp_path, monkeypatch
     assert "no-cache" in (index.headers.get("cache-control") or "")
 
 
-def test_dispatch_list_excludes_directory_and_map_is_slim(monkeypatch, tmp_path) -> None:
-    _use_temp_store(monkeypatch, tmp_path)
+def test_dispatch_list_excludes_directory_and_map_is_slim(monkeypatch, tmp_path, temp_store) -> None:
+    temp_store()
     monkeypatch.setenv("POMICH_ADMIN_TOKEN", ADMIN_TOKEN)
     dispatch = {**_api_provider("p-dispatch", 48.62, 22.28), "address": "Приватна база 7"}
     directory = {
@@ -1659,8 +1644,8 @@ def test_dispatch_list_excludes_directory_and_map_is_slim(monkeypatch, tmp_path)
     assert offline_only == []
 
 
-def test_map_nearby_orders_excludes_completed_and_cancelled(monkeypatch, tmp_path) -> None:
-    _use_temp_store(monkeypatch, tmp_path)
+def test_map_nearby_orders_excludes_completed_and_cancelled(monkeypatch, tmp_path, temp_store) -> None:
+    temp_store()
     _use_provider_auth(monkeypatch)
     coords = {"lat": 48.6208, "lng": 22.2879}
     order_store.save_order(

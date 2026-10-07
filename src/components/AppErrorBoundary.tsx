@@ -1,3 +1,4 @@
+import { reportCrash } from "../lib/crashReporting"
 import { Component, type ErrorInfo, type ReactNode } from "react"
 
 import {
@@ -23,6 +24,7 @@ export default class AppErrorBoundary extends Component<AppErrorBoundaryProps, A
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
+    reportCrash("render_error")
     console.error("[POMICH] render crash", error, info.componentStack)
     recoverFromChunkError(error)
   }

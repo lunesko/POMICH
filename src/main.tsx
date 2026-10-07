@@ -1,6 +1,7 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
+import { startCrashReporting } from './lib/crashReporting'
 import PomichErrorBoundary from './components/ui/PomichErrorBoundary'
 import './index.css'
 import { initMobileCompactClasses } from './hooks/useMobileCompact'
@@ -9,6 +10,7 @@ import { initTelegramApp, syncAppViewportHeight } from './telegram'
 
 // Load after the application bootstrap; reporting must never block first paint.
 if (typeof window !== 'undefined') {
+  startCrashReporting()
   void import('./lib/webVitals').then(({ startWebVitals }) => startWebVitals()).catch(() => undefined)
 }
 
@@ -19,7 +21,7 @@ async function bootstrap() {
     const url = new URL(window.location.href)
     if (url.searchParams.has('_pomich')) {
       url.searchParams.delete('_pomich')
-      window.history.replaceState({}, '', url.pathname + url.search + url.hash)
+      window.history.replaceState(window.history.state ?? {}, '', url.pathname + url.search + url.hash)
     }
   } catch {
     // ignore

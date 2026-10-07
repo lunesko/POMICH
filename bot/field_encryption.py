@@ -10,6 +10,11 @@ SENSITIVE_CUSTOMER_FIELDS = ("name", "phone", "email", "city", "bio")
 
 _fernet = None
 _fernet_checked = False
+_fernet_key = None
+
+
+class FieldEncryptionError(RuntimeError):
+    """PII cannot be safely read or written with the configured key."""
 
 
 def encryption_enabled() -> bool:
@@ -17,20 +22,21 @@ def encryption_enabled() -> bool:
 
 
 def _get_fernet():
-    global _fernet, _fernet_checked
-    if _fernet_checked:
-        return _fernet
-    _fernet_checked = True
+    global _fernet, _fernet_checked, _fernet_key
     raw_key = (os.getenv("POMICH_ENCRYPTION_KEY") or "").strip()
+    if _fernet_checked and raw_key == _fernet_key:
+        return _fernet
+    _fernet_checked = False
     if not raw_key:
         _fernet = None
-        return None
-    try:
+    else:
         from cryptography.fernet import Fernet
-
-        _fernet = Fernet(raw_key.encode("ascii"))
-    except Exception:
-        _fernet = None
+        try:
+            _fernet = Fernet(raw_key.encode("ascii"))
+        except (ValueError, UnicodeError) as exc:
+            raise FieldEncryptionError("Invalid PII encryption key") from exc
+    _fernet_key = raw_key
+    _fernet_checked = True
     return _fernet
 
 
@@ -63,13 +69,14 @@ def decrypt_field(value: str) -> str:
         return normalized
     fernet = _get_fernet()
     if fernet is None:
-        return normalized
+        raise FieldEncryptionError("PII encryption key is required to decrypt stored data")
     token = normalized[len(ENC_PREFIX) :]
+    from cryptography.fernet import InvalidToken
     try:
         return fernet.decrypt(token.encode("ascii")).decode("utf-8")
-    except Exception:
-        # Wrong key or corrupted token — hide ciphertext; field re-encrypts on next profile save.
-        return ""
+    except (InvalidToken, ValueError, UnicodeError) as exc:
+        # Block profile updates rather than overwrite unreadable PII with empty values.
+        raise FieldEncryptionError("Stored PII could not be decrypted") from exc
 
 
 def encrypt_customer_profile(profile: dict[str, Any]) -> dict[str, Any]:

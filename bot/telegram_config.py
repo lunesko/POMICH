@@ -31,6 +31,8 @@ def _project_root() -> Path:
 
 
 def load_local_env(path: Path | None = None) -> None:
+    if os.getenv("POMICH_LOAD_LOCAL_ENV", "1").strip().lower() in {"0", "false", "no"}:
+        return
     env_path = path or (_project_root() / ".env")
     if not env_path.exists():
         return
@@ -69,14 +71,12 @@ def _is_public_https_url(value: str | None) -> bool:
 
 
 def get_base_web_app_url() -> str | None:
-    load_local_env()
     url = (os.getenv("WEB_APP_URL") or os.getenv("VITE_WEB_APP_URL") or "").strip()
     return url if _is_public_https_url(url) else None
 
 
 def _legacy_bot_token() -> str | None:
     """Backward-compatible local fallback only. Never use VITE_ tokens in new code paths."""
-    load_local_env()
     token = (os.getenv("TELEGRAM_BOT_TOKEN") or "").strip()
     if token:
         return token
@@ -85,7 +85,6 @@ def _legacy_bot_token() -> str | None:
 
 
 def _token_for_kind(kind: TelegramBotKind) -> str | None:
-    load_local_env()
     if kind == "customer":
         dedicated = (os.getenv("TELEGRAM_CUSTOMER_BOT_TOKEN") or "").strip()
     else:
@@ -96,7 +95,6 @@ def _token_for_kind(kind: TelegramBotKind) -> str | None:
 
 
 def _username_for_kind(kind: TelegramBotKind) -> str:
-    load_local_env()
     if kind == "customer":
         configured = (os.getenv("TELEGRAM_CUSTOMER_BOT_USERNAME") or "").strip().lstrip("@")
     else:
@@ -114,7 +112,6 @@ def _append_web_app_params(base: str, *, role: TelegramBotKind, tg_bot: Telegram
 
 
 def _web_app_url_for_kind(kind: TelegramBotKind) -> str | None:
-    load_local_env()
     if kind == "customer":
         dedicated = (os.getenv("TELEGRAM_CUSTOMER_WEB_APP_URL") or "").strip()
     else:

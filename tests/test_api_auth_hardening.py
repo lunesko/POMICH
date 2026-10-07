@@ -6,11 +6,10 @@ from fastapi.testclient import TestClient
 
 from bot.fastapi_app import app
 from bot.order_store import save_order
-import tests.test_fastapi_app as fastapi_tests
 
 
-def test_read_order_requires_participant(monkeypatch, tmp_path) -> None:
-    fastapi_tests._use_temp_store(monkeypatch, tmp_path)
+def test_read_order_requires_participant(monkeypatch, tmp_path, temp_store) -> None:
+    temp_store()
     monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", "test-customer-secret-xxxxxxxx")
     monkeypatch.setenv("POMICH_PROVIDER_TOKEN", "test-provider-secret-xxxxxxxx")
     client = TestClient(app)
@@ -41,8 +40,8 @@ def test_read_order_requires_participant(monkeypatch, tmp_path) -> None:
     assert allowed.json()["id"] == order["id"]
 
 
-def test_create_order_requires_session(monkeypatch, tmp_path) -> None:
-    fastapi_tests._use_temp_store(monkeypatch, tmp_path)
+def test_create_order_requires_session(monkeypatch, tmp_path, temp_store) -> None:
+    temp_store()
     monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", "test-customer-secret-xxxxxxxx")
     client = TestClient(app)
     bare = client.post(
@@ -59,8 +58,8 @@ def test_create_order_requires_session(monkeypatch, tmp_path) -> None:
     assert created.status_code == 201
 
 
-def test_nearby_orders_require_provider_session(monkeypatch, tmp_path) -> None:
-    fastapi_tests._use_temp_store(monkeypatch, tmp_path)
+def test_nearby_orders_require_provider_session(monkeypatch, tmp_path, temp_store) -> None:
+    temp_store()
     monkeypatch.setenv("POMICH_PROVIDER_TOKEN", "test-provider-secret-xxxxxxxx")
     client = TestClient(app)
     from bot.order_store import update_provider_profile
@@ -117,8 +116,8 @@ def test_telegram_webhook_requires_secret_in_production(monkeypatch) -> None:
     assert ok.json()["ok"] is True
 
 
-def test_guest_session_ignores_client_chosen_unknown_id_and_body(monkeypatch, tmp_path) -> None:
-    fastapi_tests._use_temp_store(monkeypatch, tmp_path)
+def test_guest_session_ignores_client_chosen_unknown_id_and_body(monkeypatch, tmp_path, temp_store) -> None:
+    temp_store()
     monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", "test-customer-secret-xxxxxxxx")
     client = TestClient(app)
 
@@ -143,8 +142,8 @@ def test_guest_session_ignores_client_chosen_unknown_id_and_body(monkeypatch, tm
     assert restored.json()["customerId"] == guest_id
 
 
-def test_provider_bootstrap_requires_existing_provider(monkeypatch, tmp_path) -> None:
-    fastapi_tests._use_temp_store(monkeypatch, tmp_path)
+def test_provider_bootstrap_requires_existing_provider(monkeypatch, tmp_path, temp_store) -> None:
+    temp_store()
     monkeypatch.setenv("POMICH_PROVIDER_TOKEN", "test-provider-secret-xxxxxxxx")
     client = TestClient(app)
     denied = client.post(
@@ -177,8 +176,8 @@ def test_provider_bootstrap_requires_existing_provider(monkeypatch, tmp_path) ->
     assert ok.json()["role"] == "provider"
 
 
-def test_sensitive_scanner_paths_are_not_spa_fallback(monkeypatch, tmp_path) -> None:
-    fastapi_tests._use_temp_store(monkeypatch, tmp_path)
+def test_sensitive_scanner_paths_are_not_spa_fallback(monkeypatch, tmp_path, temp_store) -> None:
+    temp_store()
     client = TestClient(app)
     for path in ("/.env", "/.env.production", "/.git/config", "/.aws/credentials"):
         response = client.get(path)

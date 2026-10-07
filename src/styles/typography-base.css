@@ -1,0 +1,1929 @@
+
+/* Self-hosted Sora — latin brand glyphs; Cyrillic falls through to system-ui */
+@font-face {
+  font-family: "Sora";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/sora-latin-ext.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Sora";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/sora-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Sora";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/sora-latin-ext.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Sora";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/sora-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Sora";
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url("/fonts/sora-latin-ext.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Sora";
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url("/fonts/sora-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+.pomich-beta-notice {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 12px 0 20px;
+  padding: 12px 16px;
+  border: 1px solid #f5c75e;
+  border-radius: 12px;
+  background: #fff5d9;
+  color: #65420b;
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.pomich-beta-notice strong {
+  font-size: 14px;
+  font-weight: 800;
+}
+
+[data-pomich-theme="dark"] .pomich-beta-notice {
+  background: #33280f;
+  border-color: #826325;
+  color: #ffe4a3;
+}
+
+/* POMICH theme tokens — toggled via html[data-pomich-theme] */
+[data-pomich-theme="light"],
+html:not([data-pomich-theme]) {
+  /* Soft sage glass — avoid pure white glare */
+  --pomich-bg: #E2E9E6;
+  --pomich-surface: rgba(232, 238, 235, 0.92);
+  --pomich-text: #1A2332;
+  --pomich-border: rgba(28, 42, 36, 0.10);
+  --pomich-brand: #16A36A;
+  --pomich-muted: #4A5A68;
+  --pomich-label: #2F3F4F;
+  --pomich-subtle: #5F7385;
+  --pomich-accent: #0B7A4D;
+  --pomich-accent-blue: #1D6FD4;
+  --pomich-badge-text: #0B7A4D;
+  --pomich-ghost-bg: rgba(28, 42, 36, 0.05);
+  --pomich-ghost-border: rgba(28, 42, 36, 0.12);
+  --pomich-card-shadow: 0 8px 24px rgba(28, 42, 36, 0.06), 0 1px 2px rgba(0, 0, 0, 0.03);
+  --pomich-error-bg: rgba(254, 226, 226, 0.88);
+  --pomich-error-text: #991B1B;
+  --pomich-error-border: rgba(239, 68, 68, 0.28);
+  --pomich-input-bg: rgba(226, 233, 230, 0.95);
+  --pomich-input-disabled-bg: rgba(220, 228, 224, 0.85);
+  --pomich-prefix-bg: rgba(220, 230, 226, 0.92);
+  --pomich-footer-bg: rgba(232, 238, 235, 0.94);
+  --pomich-nav: rgba(232, 238, 235, 0.94);
+  --pomich-nav-border: rgba(28, 42, 36, 0.10);
+  --pomich-nav-text: #1A2332;
+  --pomich-section: rgba(226, 234, 230, 0.88);
+  --pomich-section-alt: rgba(216, 226, 221, 0.90);
+  --pomich-glass-card: rgba(236, 241, 238, 0.82);
+  --pomich-glass-border: rgba(28, 42, 36, 0.10);
+  --pomich-role-card-bg: rgba(236, 241, 238, 0.88);
+  --pomich-role-card-border: rgba(28, 42, 36, 0.10);
+  --pomich-role-card-muted: #4A5A68;
+  --pomich-selected-bg: rgba(22, 163, 106, 0.14);
+  --pomich-card-bg: rgba(236, 241, 238, 0.88);
+  --pomich-map-bg: #D0DDD7;
+  --pomich-service-tone-default: rgba(220, 230, 226, 0.95);
+  --pomich-service-pastel-ink: #1A2332;
+  --pomich-sheet-handle: rgba(120, 140, 150, 0.55);
+  --pomich-warn-bg: rgba(254, 243, 199, 0.88);
+  --pomich-warn-text: #B45309;
+  --pomich-info-bg: rgba(219, 234, 254, 0.88);
+  --pomich-info-text: #1D4ED8;
+  --pomich-accent-panel-bg: rgba(17, 19, 21, 0.88);
+  --pomich-toggle-track: #D2DBD7;
+  --pomich-toggle-border: rgba(120, 140, 150, 0.40);
+  --pomich-toggle-knob: #F4F7F6;
+  --pomich-toggle-icon: #5F7385;
+  --pomich-toggle-icon-active: #1A2332;
+  --pomich-toggle-shadow: none;
+  --pomich-hero-gradient-text: linear-gradient(90deg, #0B7A4D 0%, #1D6FD4 52%, #B8860B 100%);
+  --tg-theme-bg-color: var(--pomich-bg);
+  --tg-theme-text-color: var(--pomich-text);
+  --tg-theme-hint-color: var(--pomich-muted);
+  --tg-theme-link-color: #2F80ED;
+  --tg-theme-button-color: var(--pomich-brand);
+  --tg-theme-button-text-color: #FFFFFF;
+  --tg-theme-secondary-bg-color: var(--pomich-surface);
+  --tg-theme-header-bg-color: var(--pomich-surface);
+  --tg-theme-accent-text-color: var(--pomich-brand);
+  --tg-theme-section-bg-color: var(--pomich-surface);
+  --tg-theme-section-header-text-color: var(--pomich-text);
+  --tg-theme-subtitle-text-color: var(--pomich-muted);
+  --tg-theme-destructive-text-color: #EF4444;
+}
+[data-pomich-theme="dark"] {
+  --pomich-bg: rgba(9, 11, 14, 0.55);
+  --pomich-surface: rgba(15, 23, 42, 0.68);
+  --pomich-text: #FFFFFF;
+  --pomich-border: rgba(255, 255, 255, 0.16);
+  --pomich-brand: #16A36A;
+  --pomich-muted: #CBD5E1;
+  --pomich-label: #E2E8F0;
+  --pomich-subtle: #94A3B8;
+  --pomich-accent: #8EF0BE;
+  --pomich-accent-blue: #69A7FF;
+  --pomich-badge-text: #8EF0BE;
+  --pomich-ghost-bg: rgba(255, 255, 255, 0.08);
+  --pomich-ghost-border: rgba(255, 255, 255, 0.16);
+  --pomich-card-shadow: 0 20px 70px rgba(0, 0, 0, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.15);
+  --pomich-error-bg: rgba(190, 18, 60, 0.22);
+  --pomich-error-text: #FDA4AF;
+  --pomich-error-border: rgba(253, 164, 175, 0.3);
+  --pomich-input-bg: rgba(30, 41, 59, 0.60);
+  --pomich-input-disabled-bg: rgba(15, 23, 42, 0.50);
+  --pomich-prefix-bg: rgba(30, 41, 59, 0.70);
+  --pomich-footer-bg: rgba(15, 23, 42, 0.68);
+  --pomich-nav: rgba(15, 23, 42, 0.68);
+  --pomich-nav-border: rgba(255, 255, 255, 0.14);
+  --pomich-nav-text: #F1F5F9;
+  --pomich-section: rgba(9, 11, 14, 0.50);
+  --pomich-section-alt: rgba(13, 16, 21, 0.55);
+  /* Frosted glass cards — map shines through with blur */
+  --pomich-glass-card: rgba(30, 41, 59, 0.65);
+  --pomich-glass-border: rgba(255, 255, 255, 0.16);
+  --pomich-role-card-bg: rgba(30, 41, 59, 0.65);
+  --pomich-role-card-border: rgba(255, 255, 255, 0.16);
+  --pomich-role-card-muted: #CBD5E1;
+  --pomich-selected-bg: rgba(22, 163, 106, 0.22);
+  --pomich-card-bg: rgba(15, 23, 42, 0.68);
+  --pomich-map-bg: #0A0D12;
+  --pomich-service-tone-default: rgba(255, 255, 255, 0.08);
+  --pomich-service-pastel-ink: #F1F5F9;
+  --pomich-sheet-handle: rgba(255, 255, 255, 0.22);
+  --pomich-warn-bg: rgba(245, 158, 11, 0.14);
+  --pomich-warn-text: #FBBF24;
+  --pomich-info-bg: rgba(59, 130, 246, 0.14);
+  --pomich-info-text: #93C5FD;
+  --pomich-accent-panel-bg: #0D1015;
+  --pomich-toggle-track: rgba(255, 255, 255, 0.08);
+  --pomich-toggle-border: rgba(255, 255, 255, 0.14);
+  --pomich-toggle-knob: #FFFFFF;
+  --pomich-toggle-icon: rgba(255, 255, 255, 0.38);
+  --pomich-toggle-icon-active: #0F172A;
+  --pomich-toggle-shadow: none;
+  --pomich-hero-gradient-text: linear-gradient(90deg, #8EF0BE 0%, #69A7FF 52%, #FACC15 100%);
+  --tg-theme-bg-color: var(--pomich-bg);
+  --tg-theme-text-color: var(--pomich-text);
+  --tg-theme-hint-color: var(--pomich-muted);
+  --tg-theme-secondary-bg-color: var(--pomich-surface);
+  --tg-theme-header-bg-color: rgba(9, 11, 14, 0.92);
+  --tg-theme-section-bg-color: rgba(15, 18, 22, 0.96);
+  --tg-theme-section-header-text-color: var(--pomich-text);
+  --tg-theme-subtitle-text-color: var(--pomich-muted);
+}
+:root {
+  --tg-viewport-stable-height: 100dvh;
+  /* Telegram WebApp insets (JS sync may override); keep 0px defaults for max()/calc() */
+  --tg-safe-area-inset-top: 0px;
+  --tg-safe-area-inset-right: 0px;
+  --tg-safe-area-inset-bottom: 0px;
+  --tg-safe-area-inset-left: 0px;
+  --tg-content-safe-area-inset-top: 0px;
+  --tg-content-safe-area-inset-right: 0px;
+  --tg-content-safe-area-inset-bottom: 0px;
+  --tg-content-safe-area-inset-left: 0px;
+  /* System inset: prefer the larger of CSS env() vs Telegram-reported safe area */
+  --pomich-system-inset-top: max(env(safe-area-inset-top, 0px), var(--tg-safe-area-inset-top));
+  --pomich-system-inset-right: max(env(safe-area-inset-right, 0px), var(--tg-safe-area-inset-right));
+  --pomich-system-inset-bottom: max(env(safe-area-inset-bottom, 0px), var(--tg-safe-area-inset-bottom));
+  --pomich-system-inset-left: max(env(safe-area-inset-left, 0px), var(--tg-safe-area-inset-left));
+  /* Full chrome inset: system + Telegram UI (Close / menu row) */
+  --pomich-chrome-inset-top: calc(var(--pomich-system-inset-top) + var(--tg-content-safe-area-inset-top));
+  --pomich-chrome-inset-right: calc(var(--pomich-system-inset-right) + var(--tg-content-safe-area-inset-right));
+  --pomich-chrome-inset-bottom: calc(var(--pomich-system-inset-bottom) + var(--tg-content-safe-area-inset-bottom));
+  --pomich-chrome-inset-left: calc(var(--pomich-system-inset-left) + var(--tg-content-safe-area-inset-left));
+  --pomich-safe-top: var(--pomich-chrome-inset-top);
+  --pomich-safe-right: var(--pomich-chrome-inset-right);
+  --pomich-safe-bottom: var(--pomich-chrome-inset-bottom);
+  --pomich-safe-left: var(--pomich-chrome-inset-left);
+  /* Map chrome: system safe-area + Telegram content inset (WebApp) */
+  --pomich-map-chrome-top: calc(12px + var(--pomich-chrome-inset-top));
+  --pomich-map-chrome-left: calc(10px + var(--pomich-chrome-inset-left));
+  --pomich-map-chrome-right: calc(10px + var(--pomich-chrome-inset-right));
+  --pomich-touch-min: 44px;
+  /* Fluid mobile scale — overridden tighter on phone breakpoints */
+  --pomich-text-xs: 0.75rem;
+  --pomich-text-sm: 0.8125rem;
+  --pomich-text-base: 0.9375rem;
+  --pomich-text-lg: 1.0625rem;
+  --pomich-text-xl: 1.25rem;
+  --pomich-text-2xl: 1.375rem;
+  --pomich-space-1: 0.25rem;
+  --pomich-space-2: 0.5rem;
+  --pomich-space-3: 0.75rem;
+  --pomich-space-4: 1rem;
+  --pomich-btn-height: 2.5rem;
+  --pomich-btn-height-sm: 2.25rem;
+  --pomich-input-height: 2.5rem;
+  --pomich-app-header-height: 3.875rem;
+  /* Cabinet fixed header: compact title row + chip actions */
+  --pomich-cabinet-header-block: calc(3.35rem + 8px);
+  --pomich-cabinet-chrome-top: calc(var(--pomich-chrome-inset-top) + var(--pomich-cabinet-header-block));
+  --pomich-header-stack-height: calc(var(--pomich-app-header-height) + var(--pomich-chrome-inset-top));
+  --pomich-safe-pad-bottom: calc(
+    var(--pomich-space-3) + var(--pomich-chrome-inset-bottom)
+  );
+  --pomich-card-radius: 1.125rem;
+  --pomich-card-padding: 0.875rem;
+  /* % of ride-screen — taller half so primary CTAs stay above Safari/Chrome toolbars */
+  --pomich-sheet-peek: 24%;
+  --pomich-sheet-half: 48%;
+  --pomich-sheet-expanded: 72%;
+  --pomich-sheet-min: 20%;
+  --pomich-sheet-max: 80%;
+  --pomich-service-row-height: 4rem;
+  --pomich-service-icon: 3rem;
+}
+@media (max-width: 430px) {
+  :root {
+    --pomich-text-xs: clamp(0.625rem, 0.6rem + 0.12vw, 0.6875rem);
+    --pomich-text-sm: clamp(0.6875rem, 0.66rem + 0.14vw, 0.75rem);
+    --pomich-text-base: clamp(0.8125rem, 0.78rem + 0.16vw, 0.875rem);
+    --pomich-text-lg: clamp(0.875rem, 0.84rem + 0.18vw, 0.9375rem);
+    --pomich-text-xl: clamp(1rem, 0.95rem + 0.22vw, 1.0625rem);
+    --pomich-text-2xl: clamp(1.0625rem, 1rem + 0.28vw, 1.1875rem);
+    --pomich-space-2: clamp(0.375rem, 0.34rem + 0.18vw, 0.5rem);
+    --pomich-space-3: clamp(0.5rem, 0.46rem + 0.2vw, 0.625rem);
+    --pomich-space-4: clamp(0.625rem, 0.58rem + 0.22vw, 0.75rem);
+    --pomich-btn-height: clamp(2.4rem, 2.28rem + 0.45vw, 2.55rem);
+    --pomich-btn-height-sm: clamp(2.2rem, 2.1rem + 0.4vw, 2.4rem);
+    --pomich-input-height: clamp(2.625rem, 2.5rem + 0.5vw, 2.75rem);
+    --pomich-app-header-height: clamp(2.625rem, 2.5rem + 0.5vw, 2.75rem);
+    --pomich-card-radius: clamp(0.875rem, 0.82rem + 0.28vw, 1rem);
+    --pomich-card-padding: clamp(0.625rem, 0.58rem + 0.22vw, 0.75rem);
+    --pomich-sheet-peek: 24%;
+    --pomich-sheet-half: 48%;
+    --pomich-sheet-expanded: 72%;
+    --pomich-sheet-min: 22%;
+    --pomich-sheet-max: 82%;
+    --pomich-service-row-height: clamp(3rem, 2.85rem + 0.65vw, 3.25rem);
+    --pomich-service-icon: clamp(2.25rem, 2.12rem + 0.55vw, 2.5rem);
+  }
+}
+@media (max-width: 389px) {
+  :root {
+    --pomich-text-xs: 0.625rem;
+    --pomich-text-sm: 0.6875rem;
+    --pomich-text-base: 0.8125rem;
+    --pomich-text-lg: 0.875rem;
+    --pomich-text-xl: 0.9375rem;
+    --pomich-text-2xl: 1rem;
+    --pomich-space-2: 0.375rem;
+    --pomich-space-3: 0.5rem;
+    --pomich-space-4: 0.625rem;
+    --pomich-btn-height: 2.4rem;
+    --pomich-btn-height-sm: 2.2rem;
+    --pomich-input-height: 2.625rem;
+    --pomich-app-header-height: 2.625rem;
+    --pomich-card-radius: 0.875rem;
+    --pomich-card-padding: 0.625rem;
+    --pomich-sheet-peek: 26%;
+    --pomich-sheet-half: 50%;
+    --pomich-sheet-expanded: 74%;
+    --pomich-sheet-min: 24%;
+    --pomich-sheet-max: 84%;
+    --pomich-service-row-height: 3.125rem;
+    --pomich-service-icon: 2.125rem;
+  }
+}
+@theme inline {
+  --font-sans: "Sora", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Outfit", "Sora", system-ui, sans-serif;
+  --color-brand: var(--pomich-brand);
+  --color-brand-dark: #0f7a4e;
+  --color-brand-light: #d1f5e7;
+  --color-surface: var(--pomich-surface);
+  --color-bg: var(--pomich-bg);
+  --color-dark: var(--pomich-text);
+  --color-dark-2: #1e2124;
+  --color-muted: var(--pomich-muted);
+  --color-danger: var(--tg-theme-destructive-text-color);
+  --color-amber: #F59E0B;
+  --color-border: var(--pomich-border);
+  --color-tg-button: var(--tg-theme-button-color);
+  --color-tg-button-text: var(--tg-theme-button-text-color);
+  --color-tg-accent: var(--tg-theme-accent-text-color);
+}
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+html,
+body,
+#root {
+  margin: 0;
+  min-height: 100%;
+  min-height: 100dvh;
+}
+html:not(.tg-compact),
+html:not(.tg-compact) body,
+html:not(.tg-compact) #root {
+  height: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+body {
+  font-family: var(--font-sans);
+  background: var(--pomich-bg);
+  color: var(--pomich-text);
+  margin: 0;
+  padding: 0;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+html[data-pomich-theme="light"] {
+  color-scheme: light;
+}
+html[data-pomich-theme="dark"] {
+  color-scheme: dark;
+}
+.pomich-brand-gradient-text {
+  display: inline-block;
+  background-image: var(--pomich-hero-gradient-text);
+  background-repeat: no-repeat;
+  background-size: 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  transition: none;
+}
+.pomich-theme-toggle {
+  --toggle-width: 64px;
+  --toggle-height: 32px;
+  --toggle-pad: 3px;
+  --toggle-knob: 26px;
+  --toggle-icon-size: 15px;
+  /* inner track = width − borders − horizontal padding */
+  --toggle-travel: calc(var(--toggle-width) - var(--toggle-pad) * 2 - var(--toggle-knob) - 2px);
+  position: relative;
+  box-sizing: border-box;
+  width: var(--toggle-width);
+  height: var(--toggle-height);
+  min-width: var(--pomich-touch-min);
+  min-height: var(--pomich-touch-min);
+  padding: var(--toggle-pad);
+  border: 1px solid var(--pomich-toggle-border);
+  border-radius: 999px;
+  background: var(--pomich-toggle-track);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0;
+  overflow: visible;
+  flex-shrink: 0;
+  cursor: pointer;
+  font-family: inherit;
+  box-shadow: var(--pomich-toggle-shadow);
+  transition: border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+}
+.pomich-theme-toggle--compact {
+  --toggle-width: 44px;
+  --toggle-height: 24px;
+  --toggle-pad: 2px;
+  --toggle-knob: 18px;
+  --toggle-icon-size: 11px;
+  min-width: 44px;
+  min-height: 28px;
+}
+.pomich-theme-toggle__knob {
+  position: absolute;
+  top: 50%;
+  left: var(--toggle-pad);
+  width: var(--toggle-knob);
+  height: var(--toggle-knob);
+  margin: 0;
+  border-radius: 999px;
+  background: var(--pomich-toggle-knob);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+  transform: translateY(-50%);
+  transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: none;
+  z-index: 1;
+}
+.pomich-theme-toggle[data-active="dark"] .pomich-theme-toggle__knob {
+  transform: translateY(-50%) translateX(var(--toggle-travel));
+}
+.pomich-theme-toggle__icon {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 var(--toggle-knob);
+  width: var(--toggle-knob);
+  height: var(--toggle-knob);
+  color: var(--pomich-toggle-icon);
+  pointer-events: none;
+  transition: color 0.2s ease;
+}
+.pomich-theme-toggle__icon svg {
+  display: block;
+  width: var(--toggle-icon-size);
+  height: var(--toggle-icon-size);
+  flex-shrink: 0;
+}
+.pomich-theme-toggle__icon.is-active {
+  color: var(--pomich-toggle-icon-active);
+}
+.pomich-theme-toggle:focus-visible {
+  outline: 2px solid var(--pomich-brand);
+  outline-offset: 2px;
+}
+.pomich-theme-toggle:active {
+  opacity: 0.88;
+}
+.pomich-themed-shell {
+  min-height: 100dvh;
+  background: transparent;
+  color: var(--pomich-text);
+  display: flex;
+  flex-direction: column;
+}
+.pomich-themed-shell .pomich-form-header,
+.pomich-themed-shell .pomich-form-container,
+.pomich-themed-shell .pomich-form-footer-inner {
+  max-width: 480px;
+}
+.pomich-tg-app {
+  width: 100%;
+  max-width: 100vw;
+  min-height: 0;
+  height: 100%;
+  max-height: var(--tg-viewport-stable-height, 100dvh);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: transparent;
+  color: var(--pomich-text);
+  padding:
+    0
+    var(--pomich-safe-right)
+    0
+    var(--pomich-safe-left);
+  box-sizing: border-box;
+}
+/* App chrome: denser frosted glass so labels stay readable over pale map tiles */
+.pomich-tg-header {
+  /* !important beats Tailwind / Telegram theme so chrome stays fixed + translucent */
+  position: fixed !important;
+  top: 0;
+  left: 0;
+  right: 0;
+  width: 100% !important;
+  max-width: none !important;
+  box-sizing: border-box;
+  z-index: 3200 !important;
+  pointer-events: auto !important;
+  height: auto !important;
+  overflow: visible !important;
+  min-height: var(--pomich-header-stack-height, calc(var(--pomich-app-header-height) + var(--pomich-chrome-inset-top)));
+  padding-top: var(--pomich-chrome-inset-top);
+  padding-bottom: 6px;
+  padding-left: max(12px, var(--pomich-chrome-inset-left));
+  padding-right: max(12px, var(--pomich-chrome-inset-right));
+  /* Opaque-enough scrim — map still peeks through blur, text stays crisp */
+  background: rgba(10, 14, 18, 0.82) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(22px) saturate(1.35);
+  -webkit-backdrop-filter: blur(22px) saturate(1.35);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.28);
+  color: #ffffff !important;
+  border-radius: 0 !important;
+  margin: 0 !important;
+  animation: pomichHeaderFadeIn 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+[data-pomich-theme="dark"] .pomich-tg-header {
+  background: rgba(10, 14, 18, 0.86) !important;
+  border-bottom-color: rgba(255, 255, 255, 0.14);
+  color: #ffffff !important;
+}
+[data-pomich-theme="light"] .pomich-tg-header,
+html:not([data-pomich-theme]) .pomich-tg-header {
+  /* Soft sage frosted glass — map peeks through, text stays crisp */
+  background: rgba(228, 235, 231, 0.72) !important;
+  border-bottom-color: rgba(28, 42, 36, 0.12);
+  box-shadow: 0 4px 18px rgba(28, 42, 36, 0.06);
+  color: #1a2332 !important;
+}
+.pomich-tg-header .pomich-app-header-chip {
+  background: color-mix(in srgb, var(--pomich-ghost-bg) 72%, transparent);
+  border-color: color-mix(in srgb, var(--pomich-ghost-border) 85%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: inherit;
+  position: relative;
+  z-index: 2;
+  pointer-events: auto;
+  touch-action: manipulation;
+}
+[data-pomich-theme="dark"] .pomich-tg-header .pomich-app-header-chip {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.22);
+  color: #ffffff;
+}
+[data-pomich-theme="light"] .pomich-tg-header .pomich-app-header-chip,
+html:not([data-pomich-theme]) .pomich-tg-header .pomich-app-header-chip {
+  background: rgba(28, 42, 36, 0.06);
+  border-color: rgba(28, 42, 36, 0.14);
+  color: #1a2332;
+}
+.pomich-tg-header .pomich-app-header-brand {
+  color: inherit !important;
+  text-shadow: none;
+}
+.pomich-app-header-session {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px 3px 6px;
+  border-radius: 9999px;
+  background: var(--pomich-selected-bg, rgba(34, 197, 94, 0.12));
+  border: 1px solid var(--pomich-border, rgba(34, 197, 94, 0.25));
+  color: var(--pomich-text) !important;
+  font-size: 12px;
+  font-weight: 800;
+  font-family: inherit;
+  line-height: 1.15;
+  white-space: nowrap;
+  /* Hug the name — never stretch across the header */
+  width: max-content;
+  max-width: min(46vw, 12rem);
+  min-width: 0;
+  flex: 0 1 auto;
+  height: 28px;
+  opacity: 1;
+  text-shadow: none;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition: background 0.2s ease, border-color 0.2s ease;
+  box-shadow: none;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+button.pomich-app-header-session {
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  text-align: left;
+}
+.pomich-app-header-session__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pomich-app-header-session:hover {
+  background: rgba(34, 197, 94, 0.18);
+  border-color: rgba(34, 197, 94, 0.45);
+  box-shadow: none;
+}
+.pomich-app-header-session::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 9999px;
+  flex-shrink: 0;
+  background: #22c55e;
+  box-shadow: 0 0 6px #22c55e;
+}
+@keyframes pomichGlowPulse {
+  0% {
+    box-shadow: 0 0 6px #22c55e, 0 0 0 0 rgba(34, 197, 94, 0.6);
+    transform: scale(0.95);
+  }
+  50% {
+    box-shadow: 0 0 14px #22c55e, 0 0 0 6px rgba(34, 197, 94, 0);
+    transform: scale(1.08);
+  }
+  100% {
+    box-shadow: 0 0 6px #22c55e, 0 0 0 0 rgba(34, 197, 94, 0);
+    transform: scale(0.95);
+  }
+}
+.pomich-app-header-brand {
+  font-weight: 800;
+  color: inherit;
+  text-decoration: none;
+}
+.pomich-app-header-brand:hover {
+  color: inherit;
+}
+.pomich-app-header-menu-btn {
+  border: none;
+  background: transparent;
+  font-weight: 800;
+  color: var(--pomich-brand);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.pomich-app-header-role-label {
+  font-weight: 850;
+  color: inherit !important;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: min(42vw, 220px);
+  flex-shrink: 1;
+  min-width: 0;
+  opacity: 1;
+  text-shadow: none;
+}
+@keyframes pomichHeaderFadeIn {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.pomich-app-header-chip {
+  flex-shrink: 0;
+  border-radius: 999px;
+  border: 1px solid var(--pomich-border);
+  background: var(--pomich-surface);
+  color: var(--pomich-text);
+  font-family: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+.pomich-app-header-chip--compact {
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 750;
+  line-height: 1.1;
+  height: 24px;
+  min-height: 24px;
+  min-width: 0;
+  max-width: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-radius: 8px;
+}
+.pomich-app-header-chip--regular {
+  padding: 6px 10px;
+  font-size: 13px;
+}
+.pomich-app-header-chip.is-active {
+  border: 1.5px solid var(--pomich-brand);
+  background: var(--pomich-selected-bg);
+  color: var(--pomich-brand);
+}
+.pomich-app-header-chip--muted {
+  color: inherit;
+  opacity: 0.92;
+  border-color: var(--pomich-ghost-border);
+  background: var(--pomich-ghost-bg);
+}
+.pomich-app-header-actions {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  overflow-y: visible;
+  min-height: 32px;
+  flex-shrink: 0;
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.pomich-app-header-actions::-webkit-scrollbar {
+  display: none;
+}
+.pomich-tg-header .pomich-app-header-session {
+  flex: 0 1 auto;
+  width: max-content;
+  min-width: 0;
+  max-width: min(46vw, 12rem);
+  justify-content: flex-start;
+  font-size: 12px;
+  font-weight: 800;
+  color: inherit !important;
+}
+[data-pomich-theme="dark"] .pomich-tg-header .pomich-app-header-session,
+[data-pomich-theme="dark"] .pomich-tg-header .pomich-app-header-role-label,
+[data-pomich-theme="dark"] .pomich-tg-header .pomich-app-header-brand {
+  color: #ffffff !important;
+}
+[data-pomich-theme="light"] .pomich-tg-header .pomich-app-header-session,
+[data-pomich-theme="light"] .pomich-tg-header .pomich-app-header-role-label,
+[data-pomich-theme="light"] .pomich-tg-header .pomich-app-header-brand,
+html:not([data-pomich-theme]) .pomich-tg-header .pomich-app-header-session,
+html:not([data-pomich-theme]) .pomich-tg-header .pomich-app-header-role-label,
+html:not([data-pomich-theme]) .pomich-tg-header .pomich-app-header-brand {
+  color: #0f172a !important;
+}
+.pomich-session-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--pomich-border);
+  background: var(--pomich-selected-bg);
+  font-size: 13px;
+  font-weight: 750;
+  color: var(--pomich-text);
+}
+.pomich-session-indicator__logout {
+  border: 1px solid var(--pomich-ghost-border);
+  background: var(--pomich-ghost-bg);
+  color: var(--pomich-muted);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 850;
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+}
+.pomich-landing-nav-link {
+  /* Fallback; header-scoped rules below force high-contrast on glass. */
+  color: #f8fafc;
+  text-decoration: none;
+  font-weight: 850;
+  font-size: 14px;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+}
+.pomich-landing-nav-link:hover,
+.pomich-landing-nav-link:focus-visible {
+  color: #ffffff;
+}
+.pomich-landing-nav-link:active {
+  color: #e2e8f0;
+}
+.pomich-sheet-panel {
+  background: var(--pomich-glass-card);
+  color: var(--pomich-text);
+  backdrop-filter: blur(24px) saturate(185%);
+  -webkit-backdrop-filter: blur(24px) saturate(185%);
+  border: 1px solid var(--pomich-glass-border);
+  box-shadow: var(--pomich-card-shadow);
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+}
+[data-pomich-theme="light"] .pomich-sheet-panel,
+html:not([data-pomich-theme]) .pomich-sheet-panel {
+  background: rgba(232, 238, 235, 0.9);
+  border-color: rgba(28, 42, 36, 0.12);
+  box-shadow: 0 8px 28px rgba(28, 42, 36, 0.08);
+}
+/* Chip row styles — header chrome is fixed glass (see .pomich-tg-header above) */
+.pomich-app-header-brand {
+  font-family: var(--font-sans);
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  color: var(--pomich-text);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+.pomich-app-header-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 800;
+  border: 1px solid var(--pomich-border);
+  background: var(--pomich-ghost-bg);
+  color: var(--pomich-text);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.pomich-app-header-chip:hover {
+  background: var(--pomich-glass-card);
+  border-color: var(--pomich-brand);
+}
+.pomich-app-header-chip.is-active {
+  background: rgba(22, 163, 106, 0.22);
+  border-color: var(--pomich-brand);
+  color: var(--pomich-brand);
+}
+.pomich-app-header-chip--muted {
+  color: var(--pomich-muted);
+}
+.pomich-glass-service-btn {
+  min-height: 64px;
+  display: grid;
+  grid-template-columns: 44px 1fr auto;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--pomich-glass-border);
+  border-radius: 18px;
+  padding: 11px 12px;
+  background: var(--pomich-glass-card);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  box-shadow: var(--pomich-card-shadow);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.pomich-glass-service-btn:hover {
+  transform: translateY(-2px);
+  border-color: rgba(22, 163, 106, 0.4);
+  box-shadow: 0 12px 30px rgba(22, 163, 106, 0.15), inset 0 1px 1px rgba(255, 255, 255, 0.9);
+}
+.pomich-sheet-heading__title {
+  font-size: 24px;
+  line-height: 1.08;
+  font-weight: 950;
+  color: var(--pomich-text);
+}
+.pomich-sheet-heading__subtitle {
+  margin-top: 7px;
+  color: var(--pomich-muted);
+  font-size: 14px;
+  line-height: 1.35;
+  font-weight: 750;
+}
+.pomich-ride-map-bg {
+  /* Match OSM tile wash — never a solid black void beside/under panels */
+  background: #EAF4EE;
+}
+[data-pomich-theme="dark"] .pomich-ride-map-bg {
+  background: #1a2228;
+}
+.pomich-map-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  max-width: min(46vw, 168px);
+  border-radius: 999px;
+  border: 1px solid var(--pomich-border);
+  background: color-mix(in srgb, var(--pomich-card-bg) 94%, transparent);
+  color: var(--pomich-text);
+  box-shadow: var(--pomich-card-shadow);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  pointer-events: auto;
+  text-wrap: balance;
+  line-height: 1.2;
+  font-size: var(--pomich-text-xs);
+}
+.pomich-map-chip--muted {
+  color: var(--pomich-muted);
+  font-size: var(--pomich-text-xs);
+  font-weight: 800;
+}
+.pomich-map-chip--brand {
+  font-size: var(--pomich-text-sm);
+  font-weight: 800;
+}
+/* Light map tiles: soft sage chips, readable without glare */
+[data-pomich-theme="light"] .pomich-map-chip,
+html:not([data-pomich-theme]) .pomich-map-chip {
+  background: rgba(232, 238, 235, 0.9);
+  border-color: rgba(28, 42, 36, 0.16);
+  box-shadow: 0 2px 10px rgba(28, 42, 36, 0.08);
+  color: #1A2332;
+}
+[data-pomich-theme="light"] .pomich-map-chip--muted,
+html:not([data-pomich-theme]) .pomich-map-chip--muted {
+  color: #2F3F4F;
+  border-color: rgba(28, 42, 36, 0.18);
+}
+[data-pomich-theme="light"] .pomich-map-chip--brand,
+html:not([data-pomich-theme]) .pomich-map-chip--brand {
+  border-color: #0B7A4D;
+  color: #0B7A4D;
+}
+.pomich-route-map .leaflet-top.leaflet-left {
+  top: var(--pomich-map-chrome-top, 78px) !important;
+  left: var(--pomich-map-chrome-left, 12px) !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+/* Compact vertical +/− — must match --pomich-map-zoom-cluster used by .pomich-map-chrome-row */
+.pomich-route-map {
+  --pomich-map-zoom-btn: 34px;
+  --pomich-map-zoom-cluster: var(--pomich-map-zoom-btn);
+}
+.pomich-route-map .leaflet-control-zoom {
+  margin: 0 !important;
+  border: 1px solid var(--pomich-glass-border) !important;
+  border-radius: 12px !important;
+  background: var(--pomich-glass-card) !important;
+  backdrop-filter: blur(14px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(14px) saturate(180%) !important;
+  box-shadow: var(--pomich-card-shadow) !important;
+  display: flex !important;
+  flex-direction: column !important;
+  flex-wrap: nowrap !important;
+  align-items: stretch !important;
+  width: var(--pomich-map-zoom-cluster) !important;
+  min-width: var(--pomich-map-zoom-cluster) !important;
+  max-width: var(--pomich-map-zoom-cluster) !important;
+  height: auto !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+}
+.pomich-route-map .leaflet-container.leaflet-touch .leaflet-control-zoom,
+.pomich-route-map .leaflet-touch .leaflet-control-zoom {
+  flex-direction: column !important;
+  width: var(--pomich-map-zoom-cluster) !important;
+  min-width: var(--pomich-map-zoom-cluster) !important;
+  max-width: var(--pomich-map-zoom-cluster) !important;
+  height: auto !important;
+}
+.pomich-route-map .leaflet-touch .leaflet-control-zoom a,
+.pomich-route-map .leaflet-control-zoom a {
+  width: var(--pomich-map-zoom-btn) !important;
+  height: var(--pomich-map-zoom-btn) !important;
+  min-width: var(--pomich-map-zoom-btn) !important;
+  min-height: var(--pomich-map-zoom-btn) !important;
+  max-width: var(--pomich-map-zoom-btn) !important;
+  max-height: var(--pomich-map-zoom-btn) !important;
+  line-height: var(--pomich-map-zoom-btn) !important;
+  font-size: 16px !important;
+  font-weight: 800 !important;
+  color: var(--pomich-text) !important;
+  background: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 0 !important;
+  box-sizing: border-box !important;
+}
+.pomich-route-map .leaflet-control-zoom a.leaflet-control-zoom-in {
+  border-right: none !important;
+  border-bottom: 1px solid var(--pomich-border) !important;
+}
+.pomich-route-map .leaflet-control-zoom a:hover {
+  background: var(--pomich-ghost-bg) !important;
+  color: var(--pomich-brand) !important;
+}
+/* Map chrome row: geo sits clear of the vertical zoom cluster */
+.pomich-map-chrome-row {
+  position: absolute;
+  z-index: 1200;
+  left: calc(var(--pomich-map-chrome-left, 12px) + var(--pomich-map-zoom-cluster, 34px) + 8px);
+  right: var(--pomich-map-chrome-right, 12px);
+  top: var(--pomich-map-chrome-top, 78px);
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 !important;
+  min-width: 0;
+  pointer-events: none;
+}
+.pomich-map-chrome-row__brand {
+  flex-shrink: 0;
+  max-width: none;
+  pointer-events: auto;
+}
+.pomich-map-speed {
+  position: absolute;
+  z-index: 1300;
+  top: var(--pomich-map-chrome-top, 78px);
+  right: var(--pomich-map-chrome-right, 12px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  padding: 0;
+  border-radius: 999px;
+  border: 2px solid color-mix(in srgb, var(--pomich-brand) 55%, var(--pomich-glass-border));
+  background: color-mix(in srgb, var(--pomich-glass-card) 92%, #fff);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  box-shadow: var(--pomich-card-shadow);
+  color: var(--pomich-text);
+  pointer-events: none;
+  line-height: 1;
+}
+.pomich-map-speed__value {
+  font-size: 22px;
+  font-weight: 950;
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
+}
+.pomich-map-speed__unit {
+  margin-top: 2px;
+  font-size: 9px;
+  font-weight: 800;
+  opacity: 0.7;
+  text-transform: lowercase;
+}
+.pomich-route-map--live-speed .pomich-map-legend-box,
+.pomich-route-map--live-speed .pomich-map-legend-fab,
+.pomich-route-map--live-speed .pomich-map-tools-toggle,
+.pomich-route-map--live-speed .pomich-map-tools-panel {
+  top: calc(var(--pomich-map-chrome-top, 78px) + 80px);
+}
+[data-pomich-theme="dark"] .pomich-map-speed {
+  background: color-mix(in srgb, var(--pomich-glass-card) 94%, #0b1220);
+  border-color: color-mix(in srgb, var(--pomich-brand) 45%, var(--pomich-glass-border));
+}
+.pomich-map-locate__btn {
+  pointer-events: auto;
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid var(--pomich-glass-border);
+  background: var(--pomich-glass-card);
+  backdrop-filter: blur(14px) saturate(180%);
+  -webkit-backdrop-filter: blur(14px) saturate(180%);
+  color: var(--pomich-text);
+  box-shadow: var(--pomich-card-shadow);
+  cursor: pointer;
+  padding: 0;
+  font-family: inherit;
+  touch-action: manipulation;
+  transition: all 0.2s ease;
+}
+.pomich-map-locate__btn:hover:not(:disabled) {
+  border-color: var(--pomich-brand);
+  color: var(--pomich-brand);
+  transform: translateY(-1px);
+}
+.pomich-map-locate__btn:disabled,
+.pomich-map-locate__btn.is-loading {
+  cursor: wait;
+  color: var(--pomich-muted);
+  background: var(--pomich-ghost-bg);
+}
+.pomich-map-locate__btn.is-error {
+  color: #B45309;
+  border-color: #F59E0B;
+}
+.pomich-map-locate__hint {
+  pointer-events: none;
+  flex: 0 1 auto;
+  width: auto;
+  min-width: 0;
+  max-width: min(220px, calc(100% - 8px));
+  margin-left: 0;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(255, 247, 237, 0.97);
+  color: #B45309;
+  border: 1px solid #FDBA74;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.35;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pomich-map-locate__hint-short {
+  display: none;
+}
+@media (max-width: 520px) {
+  .pomich-map-locate__hint {
+    max-width: min(160px, calc(100% - 8px));
+    padding: 5px 8px;
+    font-size: 10px;
+  }
+  .pomich-map-locate__hint-full {
+    display: none;
+  }
+  .pomich-map-locate__hint-short {
+    display: inline;
+  }
+}
+.pomich-map-locate__hint--muted {
+  background: rgba(232, 238, 235, 0.94);
+  color: #4A5A68;
+  border-color: #B8C9C0;
+}
+@keyframes pomich-locate-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Google Maps–style soft pulsing blue user location (gentle ~2.4s) */
+.pomich-user-location-marker.leaflet-div-icon,
+.pomich-user-location-marker,
+.leaflet-marker-icon.pomich-user-location-marker {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  overflow: visible !important;
+}
+.pomich-user-loc {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  pointer-events: none;
+  overflow: visible;
+}
+.pomich-user-loc__pulse {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 72px;
+  height: 72px;
+  margin: -36px 0 0 -36px;
+  border-radius: 50%;
+  background: rgba(66, 133, 244, 0.28);
+  border: 1.5px solid rgba(66, 133, 244, 0.45);
+  box-shadow: 0 0 12px rgba(66, 133, 244, 0.22);
+  transform: scale(0.22);
+  opacity: 0.75;
+  will-change: transform, opacity;
+  animation: pomich-user-loc-pulse 2.4s cubic-bezier(0.22, 0.61, 0.36, 1) infinite;
+}
+.pomich-user-loc__pulse--delayed {
+  animation-delay: 1.2s;
+}
+.pomich-user-loc__dot {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  margin: -8px 0 0 -8px;
+  border-radius: 50%;
+  background: #4285F4;
+  border: 3px solid #FFFFFF;
+  box-shadow:
+    0 0 0 1px rgba(66, 133, 244, 0.35),
+    0 2px 8px rgba(15, 23, 42, 0.28);
+  z-index: 2;
+}
+/* Visible on pale OSM tiles — slightly stronger fill + blue rim */
+[data-pomich-theme="light"] .pomich-user-loc__pulse,
+html:not([data-pomich-theme]) .pomich-user-loc__pulse {
+  background: rgba(66, 133, 244, 0.34);
+  border-color: rgba(37, 99, 235, 0.55);
+}
+@keyframes pomich-user-loc-pulse {
+  0% {
+    transform: scale(0.22);
+    opacity: 0.72;
+  }
+  55% {
+    transform: scale(1);
+    opacity: 0.18;
+  }
+  100% {
+    transform: scale(1.08);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pomich-user-loc__pulse,
+  .pomich-user-loc__pulse--delayed {
+    animation: pomich-user-loc-pulse 6s ease-out infinite;
+    opacity: 0.4;
+  }
+}
+
+/* Soft breathe on single ride markers — not directory POIs (thousands on map) */
+.pomich-partner-marker > div,
+.pomich-live-provider-marker > div,
+.pomich-pickup-marker > div {
+  animation: pomichMarkerBreathe 4.8s ease-in-out infinite;
+}
+@keyframes pomichMarkerBreathe {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.86; transform: scale(0.96); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pomich-partner-marker > div,
+  .pomich-live-provider-marker > div,
+  .pomich-pickup-marker > div {
+    animation: pomichMarkerBreathe 10s ease-in-out infinite;
+  }
+}
+.pomich-pickup-marker.leaflet-div-icon,
+.pomich-destination-marker.leaflet-div-icon,
+.pomich-partner-marker.leaflet-div-icon,
+.pomich-live-provider-marker.leaflet-div-icon,
+.pomich-request-marker.leaflet-div-icon,
+.leaflet-marker-icon.pomich-pickup-marker,
+.leaflet-marker-icon.pomich-destination-marker,
+.leaflet-marker-icon.pomich-partner-marker,
+.leaflet-marker-icon.pomich-live-provider-marker,
+.leaflet-marker-icon.pomich-request-marker {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  overflow: visible !important;
+}
+.pomich-directory-marker.leaflet-div-icon,
+.leaflet-marker-icon.pomich-directory-marker {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+[data-pomich-theme="dark"] .pomich-map-locate__btn {
+  background: color-mix(in srgb, var(--pomich-card-bg) 96%, transparent);
+  border-color: var(--pomich-border);
+  color: var(--pomich-text);
+  box-shadow: var(--pomich-card-shadow);
+}
+
+[data-pomich-theme="dark"] .pomich-map-locate__hint {
+  background: rgba(24, 28, 36, 0.96);
+  color: #FBBF24;
+  border-color: rgba(251, 191, 36, 0.35);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+[data-pomich-theme="dark"] .pomich-map-locate__hint--muted {
+  background: rgba(24, 28, 36, 0.94);
+  color: var(--pomich-muted);
+  border-color: var(--pomich-border);
+}
+[data-pomich-theme="dark"] .pomich-route-map .leaflet-control-attribution {
+  background: rgba(24, 28, 36, 0.88) !important;
+  color: rgba(226, 232, 240, 0.88) !important;
+}
+[data-pomich-theme="dark"] .pomich-route-map .leaflet-control-attribution a {
+  color: #8EF0BE !important;
+}
+
+[data-pomich-theme="light"] .pomich-map-tools-toggle,
+html:not([data-pomich-theme]) .pomich-map-tools-toggle,
+[data-pomich-theme="light"] .pomich-map-tools-panel,
+html:not([data-pomich-theme]) .pomich-map-tools-panel {
+  background: rgba(232, 238, 235, 0.92);
+  border-color: rgba(28, 42, 36, 0.16);
+  color: #1A2332;
+  box-shadow: 0 2px 12px rgba(28, 42, 36, 0.08);
+}
+[data-pomich-theme="light"] .pomich-map-tools-panel__brand,
+html:not([data-pomich-theme]) .pomich-map-tools-panel__brand,
+[data-pomich-theme="light"] .pomich-map-tools-filter-btn,
+html:not([data-pomich-theme]) .pomich-map-tools-filter-btn,
+[data-pomich-theme="light"] .pomich-map-tools-scope-btn,
+html:not([data-pomich-theme]) .pomich-map-tools-scope-btn {
+  color: #0F172A;
+}
+[data-pomich-theme="light"] .pomich-map-tools-panel__title,
+html:not([data-pomich-theme]) .pomich-map-tools-panel__title {
+  color: #475569;
+}
+[data-pomich-theme="light"] .pomich-map-tools-filter-btn,
+html:not([data-pomich-theme]) .pomich-map-tools-filter-btn,
+[data-pomich-theme="light"] .pomich-map-tools-scope-btn,
+html:not([data-pomich-theme]) .pomich-map-tools-scope-btn,
+[data-pomich-theme="light"] .pomich-map-tools-panel__close,
+html:not([data-pomich-theme]) .pomich-map-tools-panel__close {
+  background: #E4EBE7;
+  border-color: #A8BBB2;
+}
+[data-pomich-theme="dark"] .pomich-map-tools-toggle,
+[data-pomich-theme="dark"] .pomich-map-tools-panel {
+  background: rgba(24, 28, 36, 0.96);
+  border-color: rgba(255, 255, 255, 0.18);
+  color: #FFFFFF;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+[data-pomich-theme="dark"] .pomich-map-tools-filter-btn,
+[data-pomich-theme="dark"] .pomich-map-tools-scope-btn,
+[data-pomich-theme="dark"] .pomich-map-tools-panel__close {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.16);
+  color: #FFFFFF;
+}
+[data-pomich-theme="dark"] .pomich-map-tools-scope-btn.is-active {
+  background: rgba(22, 163, 106, 0.22);
+  border-color: rgba(142, 240, 190, 0.55);
+  color: #F8FAFC;
+}
+[data-pomich-theme="dark"] .pomich-map-tools-scope-hint {
+  color: #B9C2D0;
+}
+[data-pomich-theme="dark"] .pomich-map-tools-scope-error {
+  background: rgba(239, 68, 68, 0.16);
+  color: #FCA5A5;
+}
+.pomich-field-feedback {
+  display: grid;
+  gap: 4px;
+}
+.pomich-field-error {
+  color: var(--pomich-error-text);
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1.35;
+}
+.pomich-field-hint {
+  color: var(--pomich-muted);
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1.35;
+}
+.pomich-form-input.is-error,
+.pomich-city-select.is-error {
+  border-color: var(--pomich-error-border) !important;
+}
+.pomich-city-select {
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--pomich-muted) 50%),
+    linear-gradient(135deg, var(--pomich-muted) 50%, transparent 50%);
+  background-position: calc(100% - 18px) calc(50% - 3px), calc(100% - 12px) calc(50% - 3px);
+  background-size: 6px 6px, 6px 6px;
+  background-repeat: no-repeat;
+  padding-right: 36px;
+  color-scheme: light dark;
+}
+.pomich-sheet-handle {
+  margin-left: auto;
+  margin-right: auto;
+  background: transparent;
+}
+.pomich-inline-card {
+  background: var(--pomich-card-bg);
+  border: 1px solid var(--pomich-border);
+  border-radius: var(--pomich-card-radius);
+  padding: var(--pomich-card-padding);
+  color: var(--pomich-text);
+  box-shadow: var(--pomich-card-shadow);
+}
+.pomich-muted-panel {
+  border: 1px solid var(--pomich-border);
+  border-radius: 18px;
+  background: var(--pomich-service-tone-default);
+  color: var(--pomich-text);
+}
+.pomich-back-chip {
+  border: none;
+  background: var(--pomich-ghost-bg);
+  color: var(--pomich-text);
+  border-radius: 999px;
+  padding: 8px 11px;
+  font-weight: 900;
+  cursor: pointer;
+  font-family: inherit;
+}
+.pomich-ride-screen {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  isolation: isolate;
+}
+.pomich-ride-screen__map {
+  position: relative;
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: visible;
+  contain: layout;
+}
+.pomich-ride-screen__map .pomich-route-map,
+.pomich-ride-screen__map .pomich-route-map .leaflet-container {
+  height: 100% !important;
+  width: 100% !important;
+}
+.pomich-ride-screen__map .pomich-route-map .leaflet-container {
+  overflow: hidden;
+  border-radius: inherit;
+}
+.pomich-route-map--full .leaflet-container {
+  border-radius: 0;
+  overflow: hidden;
+}
+.pomich-route-map {
+  background: var(--pomich-map-bg);
+  transition: background-color 0.25s ease;
+}
+.pomich-route-map--ukraine-wide {
+  background: var(--pomich-map-bg);
+}
+.pomich-route-map--ukraine-wide .leaflet-container {
+  background: var(--pomich-map-bg);
+}
+.pomich-route-map--ukraine-wide .leaflet-control-attribution {
+  background: rgba(255, 255, 255, 0.82);
+  color: rgba(26, 35, 50, 0.78);
+  font-size: 10px;
+  border-radius: 6px 0 0 0;
+}
+.pomich-route-map--ukraine-wide .leaflet-control-attribution a {
+  color: rgba(26, 35, 50, 0.88);
+}
+[data-pomich-theme="dark"] .pomich-route-map--ukraine-wide .leaflet-control-attribution {
+  background: rgba(8, 12, 14, 0.72);
+  color: rgba(255, 255, 255, 0.78);
+}
+[data-pomich-theme="dark"] .pomich-route-map--ukraine-wide .leaflet-control-attribution a {
+  color: rgba(255, 255, 255, 0.88);
+}
+.pomich-route-map .leaflet-container {
+  /* Avoid translateZ/GPU layer hacks — they open hairline tile seams on iOS Safari. */
+  transform: none;
+  backface-visibility: visible;
+  -webkit-font-smoothing: antialiased;
+}
+/* Kill Leaflet's default tile opacity fade (blinks a square grid on load/pan) */
+.pomich-route-map.leaflet-fade-anim .leaflet-tile,
+.pomich-route-map .leaflet-fade-anim .leaflet-tile,
+.pomich-ride-screen__map .leaflet-fade-anim .leaflet-tile,
+.pomich-map-shell .leaflet-fade-anim .leaflet-tile,
+.landing-hero-map-clip .leaflet-fade-anim .leaflet-tile,
+.pomich-route-map .leaflet-tile,
+.pomich-ride-screen__map .leaflet-tile,
+.pomich-map-shell .leaflet-tile,
+.landing-hero-map-clip .leaflet-tile {
+  opacity: 1 !important;
+  transition: none !important;
+}
+/* Hide 1px gaps between raster tiles (retina / subpixel rounding / Tailwind img max-width).
+   Do NOT zero transforms on .leaflet-tile-pane / .leaflet-tile-container — Leaflet
+   positions the grid with translate3d on those nodes. */
+.pomich-route-map .leaflet-tile,
+.pomich-ride-screen__map .leaflet-tile,
+.pomich-map-shell .leaflet-tile,
+.landing-hero-map-clip .leaflet-tile {
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  /* Tailwind preflight: img { max-width:100%; height:auto } opens tile seams */
+  max-width: none !important;
+  max-height: none !important;
+}
+.pomich-route-map .leaflet-container img.leaflet-tile,
+.pomich-ride-screen__map .leaflet-container img.leaflet-tile,
+.pomich-map-shell .leaflet-container img.leaflet-tile,
+.landing-hero-map-clip .leaflet-container img.leaflet-tile,
+.pomich-route-map .leaflet-tile-container img,
+.pomich-ride-screen__map .leaflet-tile-container img,
+.pomich-map-shell .leaflet-tile-container img,
+.landing-hero-map-clip .leaflet-tile-container img {
+  /*
+   Leaflet ships mix-blend-mode: plus-lighter to hide Chrome seams
+   (chromium#600120). On iOS Safari / Telegram WebView that blend paints
+   bright WHITE hairlines at every tile edge — the flickering squares.
+  */
+  mix-blend-mode: normal !important;
+  /* iOS subpixel gaps: 1px oversize closes them without plus-lighter */
+  width: 257px !important;
+  height: 257px !important;
+  max-width: none !important;
+  max-height: none !important;
+  padding: 0 !important;
+  image-rendering: auto !important;
+}
+/* Canvas basemap already paints 1px overlap inside 256×256 — do not CSS-oversize */
+.pomich-route-map canvas.leaflet-tile,
+.pomich-ride-screen__map canvas.leaflet-tile,
+.pomich-map-shell canvas.leaflet-tile {
+  mix-blend-mode: normal !important;
+  width: 256px !important;
+  height: 256px !important;
+  max-width: none !important;
+  max-height: none !important;
+  opacity: 1 !important;
+}
+/* Fill under loading tiles so gaps never flash white (looks like blinking grid) */
+.pomich-route-map .leaflet-container,
+.pomich-ride-screen__map .leaflet-container,
+.pomich-ride-map-bg {
+  background: #e8e0d8 !important;
+}
+[data-pomich-theme="dark"] .pomich-route-map .leaflet-container,
+[data-pomich-theme="dark"] .pomich-ride-screen__map .leaflet-container,
+[data-pomich-theme="dark"] .pomich-ride-map-bg {
+  background: #1a2228 !important;
+}
+/* Leaflet Safari hw-layer hack (1600px tile-container) worsens seams in TG WebView */
+.pomich-route-map .leaflet-safari .leaflet-tile-container,
+.pomich-ride-screen__map .leaflet-safari .leaflet-tile-container {
+  width: auto !important;
+  height: auto !important;
+  -webkit-transform-origin: 0 0;
+}
+/* Do NOT filter/blur .leaflet-tile-pane — tiles use translate3d layers; blur
+   composites per-tile and paints a soft square grid (worse on iOS WebApp). */
+/* Seamless decorative basemap (landing / atmosphere) — single image, no Leaflet tiles */
+.pomich-decorative-basemap {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: #e8e0d8;
+}
+.pomich-decorative-basemap--css {
+  background-color: #d7e2db;
+  background-image:
+    linear-gradient(165deg, rgba(226, 233, 230, 0.42) 0%, rgba(208, 221, 215, 0.28) 48%, rgba(190, 208, 198, 0.5) 100%),
+    repeating-linear-gradient(
+      90deg,
+      transparent 0,
+      transparent 36px,
+      rgba(90, 110, 100, 0.045) 36px,
+      rgba(90, 110, 100, 0.045) 37px
+    ),
+    repeating-linear-gradient(
+      0deg,
+      transparent 0,
+      transparent 36px,
+      rgba(90, 110, 100, 0.04) 36px,
+      rgba(90, 110, 100, 0.04) 37px
+    ),
+    radial-gradient(ellipse at 42% 48%, #b9cfc0 0%, #d5e2da 42%, #c2d3c8 72%, #aebfb4 100%);
+  background-size: cover, 72px 72px, 72px 72px, cover;
+  background-position: center;
+}
+.pomich-decorative-basemap__img {
+  position: absolute;
+  inset: -2%;
+  width: 104%;
+  height: 104%;
+  max-width: none !important;
+  max-height: none !important;
+  object-fit: cover;
+  object-position: 48% 42%;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+  /* Keep roads/cities sharp — soft blur made the map look like a blank wash on iOS */
+  filter: none;
+  -webkit-filter: none;
+  transform: translateZ(0);
+  opacity: 0.92;
+}
+/* Atmosphere / hero map: never animate transform — Ken Burns = square tile grid on PC */
+.pomich-map-shell__map--static {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  transform: none !important;
+  animation: none !important;
+  will-change: auto;
+  filter: none !important;
+}
+/* Ukraine mask / occupied overlay — below markers (600), above tiles (200) */
+.pomich-route-map .leaflet-pane.pomich-ukraine-pane,
+.pomich-ride-screen__map .leaflet-pane.pomich-ukraine-pane {
+  z-index: 350;
+}
+.pomich-map-occupied-hint {
+  position: absolute;
+  left: var(--pomich-map-chrome-left, 12px);
+  right: var(--pomich-map-chrome-right, 12px);
+  bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  z-index: 650;
+  background: rgba(127, 29, 29, 0.92);
+  color: #fee2e2;
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.35;
+  pointer-events: none;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+}
+.pomich-map-occupied-hint--overlay {
+  bottom: calc(var(--pomich-sheet-height, 42vh) + 12px + env(safe-area-inset-bottom, 0px));
+}
+html.tg-compact .pomich-map-occupied-hint,
+html.mobile-compact .pomich-map-occupied-hint {
+  font-size: 11px;
+  padding: 9px 10px;
+}
+/* Tiles low; markers/routes above Ukraine mask (350), below bottom sheet (450) */
+.pomich-ride-screen__map .leaflet-pane.leaflet-tile-pane,
+.pomich-route-map .leaflet-pane.leaflet-tile-pane {
+  z-index: 200;
+}
+.pomich-ride-screen__map .leaflet-pane.leaflet-shadow-pane,
+.pomich-route-map .leaflet-pane.leaflet-shadow-pane,
+.pomich-ride-screen__map .leaflet-pane.leaflet-overlay-pane,
+.pomich-route-map .leaflet-pane.leaflet-overlay-pane,
+.pomich-ride-screen__map .leaflet-pane.leaflet-marker-pane,
+.pomich-route-map .leaflet-pane.leaflet-marker-pane {
+  z-index: 400;
+}
+.pomich-ride-screen__map .leaflet-pane.leaflet-tooltip-pane,
+.pomich-route-map .leaflet-pane.leaflet-tooltip-pane {
+  z-index: 420;
+}
+.pomich-ride-screen__map .leaflet-pane.leaflet-popup-pane,
+.pomich-route-map .leaflet-pane.leaflet-popup-pane {
+  z-index: 430;
+}
+/* Zoom / locate clear the sticky glass header on every map, not only ride wrappers */
+.pomich-route-map .leaflet-top,
+.pomich-route-map .leaflet-bottom,
+.pomich-ride-screen__map .leaflet-top,
+.pomich-ride-screen__map .leaflet-bottom {
+  z-index: 400;
+}
+.pomich-route-map .leaflet-top.leaflet-left,
+.pomich-ride-screen__map .leaflet-top.leaflet-left {
+  top: var(--pomich-map-chrome-top) !important;
+  left: var(--pomich-map-chrome-left) !important;
+  margin-top: 0 !important;
+  margin-left: 0 !important;
+}
+/* Desktop split: MUST be row — base .pomich-ride-screen is column.
+   Column + side panel h-full collapses the map to 0 and leaves a blank #EAF4EE void. */
+.pomich-ride-screen--split {
+  flex-direction: row;
+  align-items: stretch;
+  background: #EAF4EE;
+}
+[data-pomich-theme="dark"] .pomich-ride-screen--split {
+  background: #1a2228;
+}
+.pomich-ride-screen--split > .pomich-ride-screen__map {
+  flex: 1 1 0;
+  align-self: stretch;
+  min-width: 0;
+  min-height: 0;
+  height: auto !important;
+}
+.pomich-ride-screen--split > .pomich-ride-screen__map .pomich-route-map,
+.pomich-ride-screen--split > .pomich-ride-screen__map .pomich-route-map .leaflet-container {
+  height: 100% !important;
+  width: 100% !important;
+  min-height: 0;
+}
+.pomich-ride-screen--split > .pomich-sheet-panel--side {
+  align-self: stretch;
+  background: var(--pomich-glass-card);
+  /* Absolute overlay: top matches left map chrome (+/− / geo). No margin-top —
+     stacking margin on top: would double-count the header and leave a map gap. */
+  margin-top: 0;
+  top: var(--pomich-map-chrome-top);
+  bottom: 16px;
+  height: auto;
+  max-height: none;
+  padding-top: 0;
+  box-sizing: border-box;
+  z-index: 5;
+}
+/* Map chrome (geo hint, tools) must not extend under the side panel */
+.pomich-ride-screen--split > .pomich-ride-screen__map {
+  --pomich-map-panel-width: min(380px, 36vw);
+  --pomich-map-panel-gap: 12px;
+}
+.pomich-ride-screen--split > .pomich-ride-screen__map .pomich-map-chrome-row,
+.pomich-ride-screen--split > .pomich-ride-screen__map .pomich-map-tools-toggle,
+.pomich-ride-screen--split > .pomich-ride-screen__map .pomich-map-tools-panel {
+  right: calc(
+    var(--pomich-map-chrome-right, 12px) + var(--pomich-map-panel-width) + var(--pomich-map-panel-gap)
+  );
+}
+@media (max-width: 1024px) {
+  .pomich-ride-screen--split > .pomich-ride-screen__map {
+    --pomich-map-panel-width: min(340px, 42vw);
+  }
+}
+/* Desktop split: brand chip lives in .pomich-map-chrome-row (RouteMap) — legacy slot unused */
+.pomich-ride-screen__chrome {
+  display: none;
+}
+.pomich-ride-screen__chrome--desktop {
+  display: none;
+}
+.pomich-ride-screen .pomich-sheet-panel--bottom {
+  position: relative;
+  flex-shrink: 0;
+  z-index: 3;
+  border-top: 1px solid var(--pomich-border);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+/* sheet snap heights inherit from :root — tuned per breakpoint */
+.pomich-ride-screen--overlay .pomich-ride-screen__map {
+  position: absolute;
+  inset: 0;
+  flex: none;
+  z-index: 1;
+}
+.pomich-ride-screen--overlay .pomich-ride-screen__chrome {
+  display: none !important;
+}
+.pomich-ride-screen--overlay .pomich-sheet-panel--bottom {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  margin-top: 0;
+  /* Above Leaflet panes (1–400) so duty/offer panels stay tappable on TG mobile */
+  z-index: 450;
+  /* Cap against parent ride-screen so content stays above browser/TG chrome */
+  max-height: min(var(--pomich-sheet-max, 78%), 100%) !important;
+  min-height: min(var(--pomich-sheet-min, 18%), 8.5rem);
+  height: var(--pomich-sheet-height, var(--pomich-sheet-half));
+  transition: height 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+  will-change: height;
+  border-top-left-radius: 20px;
+  border-top-right-radius: 20px;
+  box-shadow: 0 -10px 40px rgba(17, 19, 21, 0.14);
+  box-sizing: border-box;
+  padding-bottom: calc(
+    var(--pomich-space-3, 12px) + env(safe-area-inset-bottom, 0px) + var(--tg-content-safe-area-inset-bottom, 0px)
+  ) !important;
+}
+.pomich-ride-screen--overlay .pomich-sheet-panel--bottom[data-dragging="true"] {
+  transition: none;
+}
+.pomich-ride-screen--overlay .pomich-sheet-panel--bottom[data-snap="collapsed"] {
+  height: var(--pomich-sheet-height, var(--pomich-sheet-peek));
+  /* Single safe-area owner on peek — body padding would double-count and clip content */
+  padding-bottom: calc(
+    6px + env(safe-area-inset-bottom, 0px) + var(--tg-content-safe-area-inset-bottom, 0px)
+  ) !important;
+}
+.pomich-ride-screen--overlay .pomich-sheet-panel--bottom[data-snap="collapsed"] .pomich-sheet-panel__body,
+.tg-sheet-compact[data-snap="collapsed"] .pomich-sheet-panel__body {
+  padding-bottom: 4px;
+}
+.pomich-ride-screen--overlay .pomich-sheet-panel--bottom[data-snap="half"] {
+  height: var(--pomich-sheet-height, var(--pomich-sheet-half));
+}
+.pomich-ride-screen--overlay .pomich-sheet-panel--bottom[data-snap="expanded"] {
+  height: var(--pomich-sheet-height, var(--pomich-sheet-expanded));
+}
+/* Content-fit sheet: height follows panel content — no empty gap under CTAs */
+.pomich-ride-screen--overlay .pomich-sheet-panel--bottom[data-fit-content="true"],
+.pomich-ride-screen--overlay .pomich-sheet-panel--bottom[data-snap="fit"] {
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: min(72%, 100%) !important;
+  padding-bottom: calc(
+    8px + env(safe-area-inset-bottom, 0px) + var(--tg-content-safe-area-inset-bottom, 0px)
+  ) !important;
+}
+.pomich-ride-screen--overlay .pomich-sheet-panel--bottom[data-fit-content="true"] .pomich-sheet-panel__scroll--bottom,
+.pomich-ride-screen--overlay .pomich-sheet-panel--bottom[data-snap="fit"] .pomich-sheet-panel__scroll--bottom {
+  flex: 0 0 auto;
+  overflow: visible;
+  min-height: 0;
+}
+.pomich-ride-screen--overlay .pomich-sheet-panel--bottom[data-fit-content="true"] .pomich-sheet-panel__body,
+.pomich-ride-screen--overlay .pomich-sheet-panel--bottom[data-snap="fit"] .pomich-sheet-panel__body {
+  padding-bottom: 4px;
+}
+.pomich-ride-screen--overlay .pomich-sheet-panel--bottom[data-fit-content="true"] .pomich-sheet-handle,
+.pomich-ride-screen--overlay .pomich-sheet-panel--bottom[data-snap="fit"] .pomich-sheet-handle {
+  min-height: 22px;
+  padding: 8px 16px 2px;
+  cursor: default;
+}
+.pomich-sheet-handle {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  /* Invisible hit area larger than the thin bar */
+  min-height: 28px;
+  padding: 10px 16px 6px;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  background: transparent;
+  border-radius: 0;
+}
+.pomich-sheet-handle:active {
+  cursor: grabbing;
+}
+.pomich-sheet-handle__bar {
+  display: block;
+  width: 40px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--pomich-sheet-handle);
+  opacity: 0.72;
+  transform-origin: center;
+  animation: pomich-sheet-handle-pulse 2.8s ease-in-out infinite;
+}
+.pomich-sheet-handle__expand {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  border: 0;
+  padding: 4px 10px 2px;
+  background: transparent;
+  color: var(--pomich-brand);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 850;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.pomich-sheet-panel--bottom[data-snap="collapsed"] .pomich-sheet-handle__expand {
+  display: inline-flex;
+  animation: pomichSheetExpandHint 1.6s ease-in-out infinite;
+}
+.pomich-sheet-handle__expand-chevron {
+  display: inline-flex;
+  animation: pomichSheetChevronBob 1.6s ease-in-out infinite;
+}
+@keyframes pomichSheetExpandHint {
+  0%,
+  100% {
+    opacity: 0.72;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+@keyframes pomichSheetChevronBob {
+  0%,
+  100% {
+    transform: translateY(2px);
+  }
+  50% {
+    transform: translateY(-2px);
+  }
+}
+@keyframes pomich-sheet-handle-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scaleX(0.92);
+  }
+  50% {
+    opacity: 0.9;
+    transform: scaleX(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pomich-sheet-handle__bar,
+  .pomich-sheet-handle__expand,
+  .pomich-sheet-handle__expand-chevron {
+    animation: none;
+    opacity: 0.85;
+    transform: none;
+  }
+}
+.pomich-sheet-panel__scroll--bottom {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  scroll-padding-bottom: 120px;
+}
+.pomich-ride-screen--overlay .pomich-sheet-panel--bottom .pomich-sheet-panel__scroll--bottom {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
+  overflow-y: auto;
+}
+.pomich-sheet-panel__body {
+  padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px) + var(--tg-content-safe-area-inset-bottom, 0px));
+}

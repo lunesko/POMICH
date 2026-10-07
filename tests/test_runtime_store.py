@@ -105,6 +105,7 @@ def test_sql_runtime_store_persists_orders_without_json_file(sql_runtime):
         "2026082001",
         "2026092701",
         "2026092702",
+        "2026100701",
     ]
 
 
@@ -415,3 +416,122 @@ def _table_names():
 def _table_count(table):
     with runtime_store.get_engine().begin() as connection:
         return connection.scalar(select(func.count()).select_from(table))
+
+
+def test_order_versions_reject_stale_update_and_keep_columns_consistent(sql_runtime):
+    from bot.runtime_store import SqlDispatchConflict
+    original = runtime_store.sql_upsert_order({"id": "PM-VERSION", "status": "searching", "service": "tow"})
+    assert original["version"] == 1
+    updated = runtime_store.sql_upsert_order({**original, "status": "accepted", "assignedProviderId": "p2",
+        "customerId": "c2", "customerCoordinates": {"lat": 48.1, "lng": 22.2}})
+    assert updated["version"] == 2
+    with pytest.raises(SqlDispatchConflict):
+        runtime_store.sql_upsert_order({**original, "status": "cancelled"})
+    assert not runtime_store.sql_commit_order_snapshot(original, {**original, "status": "cancelled"})
+    with runtime_store.get_engine().connect() as connection:
+        row = connection.execute(select(runtime_store.orders).where(runtime_store.orders.c.id == original["id"])).mappings().one()
+    assert row["version"] == row["payload"]["version"] == 2
+    assert row["status"] == row["payload"]["status"] == "accepted"
+    assert row["assigned_provider_id"] == row["payload"]["assignedProviderId"] == "p2"
+    assert row["customer_id"] == row["payload"]["customerId"] == "c2"
+    assert row["customer_lat"] == row["payload"]["customerCoordinates"]["lat"]
+
+
+def test_otp_state_is_shared_across_independent_processes(sql_runtime):
+    import subprocess
+    import sys
+    from bot import otp_repository
+    with otp_repository.transaction():
+        otp_repository.save({"c1": {"failedAttempts": 0, "codeHash": "hashed", "expiresAt": "2099-01-01T00:00:00Z"}})
+    worker = '''
+from bot import otp_repository
+for _ in range(5):
+    with otp_repository.transaction():
+        data = otp_repository.load()
+        data["c1"]["failedAttempts"] += 1
+        otp_repository.save(data)
+'''
+    workers = [subprocess.Popen([sys.executable, "-c", worker]) for _ in range(2)]
+    assert [process.wait(timeout=15) for process in workers] == [0, 0]
+    with otp_repository.transaction():
+        assert otp_repository.load()["c1"]["failedAttempts"] == 10
+
+
+def test_sql_otp_send_confirm_and_failed_attempts_are_persisted(sql_runtime, monkeypatch):
+    from bot import otp_verification as otp, otp_repository
+    from bot.order_store import update_customer_profile
+    monkeypatch.setenv("POMICH_OTP_SECRET", "test-shared-otp-secret")
+    monkeypatch.setattr(otp, "_run_in_background", lambda fn: None)
+    update_customer_profile("tg-123", {"name": "Test", "phone": "+380991111234"})
+    monkeypatch.setattr(otp, "_generate_otp_code", lambda: "123456")
+    assert otp.send_customer_verification_code("tg-123", "telegram")["sent"]
+    with pytest.raises(otp.OtpVerificationError, match="verification code is invalid"):
+        otp.confirm_customer_verification_code("tg-123", "999999")
+    with otp_repository.transaction():
+        assert otp_repository.load()["tg-123"]["failedAttempts"] == 1
+    assert otp.confirm_customer_verification_code("tg-123", "123456")["verificationStatus"] == "verified"
+    with otp_repository.transaction():
+        assert "tg-123" not in otp_repository.load()
+
+
+def test_realtime_delivers_events_from_an_independent_process(sql_runtime):
+    import asyncio
+    import subprocess
+    import sys
+    from bot import realtime
+    runtime_store.get_engine()
+    async def run():
+        queue = realtime.subscribe("order:cross-process")
+        try:
+            worker = await asyncio.create_subprocess_exec(sys.executable, "-c", '''
+from bot import realtime
+realtime.publish("order:cross-process", "order.updated", {"id": "cross-process"})
+''')
+            assert await worker.wait() == 0
+            message = await asyncio.wait_for(queue.get(), timeout=5)
+            assert message["payload"]["id"] == "cross-process"
+        finally:
+            realtime.unsubscribe("order:cross-process", queue)
+            await asyncio.sleep(0)
+    asyncio.run(run())
+
+
+def test_rate_limit_counters_are_shared_across_processes(sql_runtime):
+    import subprocess
+    import sys
+    import time
+    from bot.rate_limits import _take
+    runtime_store.get_engine()
+    expires = int(time.time()) + 60
+    assert _take("shared-rate-test", expires) == 1
+    process = subprocess.run([sys.executable, "-c", f'''from bot.rate_limits import _take
+assert _take("shared-rate-test", {expires}) == 2
+'''], check=True, timeout=10)
+    assert _take("shared-rate-test", expires) == 3
+
+
+def test_existing_orders_gain_version_without_losing_payload(sql_runtime):
+    from sqlalchemy import text
+    engine = runtime_store.get_engine()
+    order = save_order({'service': 'tow', 'customerLocation': 'Kyiv'})
+    with engine.begin() as connection:
+        connection.execute(text('DELETE FROM pomich_schema_migrations WHERE version = :version'), {'version': '2026100701'})
+        connection.execute(text('ALTER TABLE orders DROP COLUMN version'))
+    runtime_store._run_schema_migrations(engine)
+    migrated = runtime_store.sql_get_order(order['id'])
+    assert migrated['version'] == 1
+    assert migrated['customerLocation'] == 'Kyiv'
+    assert runtime_store.sql_upsert_order({**migrated, 'status': 'cancelled'})['version'] == 2
+
+
+def test_expiring_multiple_offers_keeps_every_order_event(sql_runtime):
+    save_providers([_provider('p1', 50.4501, 30.5234), _provider('p2', 50.4503, 30.5236)])
+    order = save_order({'service': 'tow', 'customerCoordinates': {'lat': 50.4502, 'lng': 30.5235}})
+    dispatch_order(order['id'])
+    pending = [offer for offer in load_offers() if offer['status'] == 'pending']
+    assert len(pending) == 2
+    changed = runtime_store.sql_expire_pending_offers(order_id=order['id'], now=datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=1))
+    assert len(changed) == 2
+    payload = runtime_store.sql_get_order(order['id'])
+    expired_ids = {event['offerId'] for event in payload['dispatchEvents'] if event['type'] == 'OFFER_EXPIRED'}
+    assert expired_ids == {offer['id'] for offer in pending}

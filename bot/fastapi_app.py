@@ -10,9 +10,14 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.gzip import GZipMiddleware
+
+from bot.telegram_config import load_local_env
+
+# Load local development configuration once, before runtime validation.
+load_local_env()
 
 from bot.api_deps import (
     AuthPrincipal,
@@ -23,6 +28,8 @@ from bot.api_deps import (
 )
 from bot.routers import admin, auth, customers, events, health, internal, orders, providers, telegram, telemetry, ws
 from bot.security_headers import SecurityHeadersMiddleware
+from bot.field_encryption import FieldEncryptionError
+from bot.rate_limits import ApiRateLimitMiddleware
 from bot.telegram_bot import notify_dispatch_offers, notify_order_accepted, notify_order_cancelled, notify_order_created
 from bot.runtime_store import get_engine, sql_storage_enabled
 from bot.telegram_outbound import ensure_telegram_workers
@@ -68,7 +75,14 @@ async def _lifespan(_app: FastAPI):
 app = FastAPI(title="POMICH MVP", version="0.1.0", lifespan=_lifespan)
 
 
+@app.exception_handler(FieldEncryptionError)
+async def field_encryption_unavailable(_request, _error):
+    # Do not expose ciphertext, key details, or silently write empty profile fields.
+    return JSONResponse(status_code=503, content={"detail": "profile_storage_unavailable"})
+
+
 app.add_middleware(GZipMiddleware, minimum_size=400)
+app.add_middleware(ApiRateLimitMiddleware)
 
 _cors_origins = get_cors_origins()
 _cors_kwargs: dict = {
@@ -79,6 +93,8 @@ _cors_kwargs: dict = {
         "Authorization",
         "Content-Type",
         "X-Requested-With",
+        "X-Telegram-Init-Data",
+        "X-POMICH-Telegram-Bot",
         "X-POMICH-Admin-Token",
         "X-POMICH-Provider-Token",
         "X-POMICH-Health-Token",
