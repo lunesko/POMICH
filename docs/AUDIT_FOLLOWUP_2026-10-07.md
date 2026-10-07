@@ -48,8 +48,8 @@ Reviewed both supplied audit files against main at `1a2df96303218c5cdc197852a9f6
 | Check | Result |
 |---|---|
 | Baseline backend / frontend | 250 / 375 tests passed |
-| Final backend | 272 passed; one dependency deprecation warning |
-| Final frontend | 383 passed across 53 files |
+| Final backend | 275 passed; one dependency deprecation warning |
+| Final frontend | 386 passed across 58 files |
 | TypeScript | npx tsc --noEmit passed |
 | Production build | npm run build passed |
 | Production dependency audit | Zero vulnerabilities reported |
@@ -57,7 +57,7 @@ Reviewed both supplied audit files against main at `1a2df96303218c5cdc197852a9f6
 | Existing-database migration | SQLite order version backfill and subsequent update passed |
 | Multiple independent processes | OTP state, realtime delivery and rate-limit counter passed against shared SQLite |
 
-Chromium installation failed with a corrupt/truncated archive; Playwright was not run locally. No live nginx syntax validation, PostGIS database or VPS/bot verification was available. CI retains Playwright and the PostGIS service job; its smoke script now checks the new migration, version conflict, OTP, realtime and rate-limit SQL paths. Do not treat unexecuted CI checks as passed.
+Chromium installation failed locally with a corrupt/truncated archive. GitHub CI for commit `1c7e988c0bc09bab8761aec50617d401a9dd991b` subsequently passed unit tests/build, Playwright UX/accessibility checks, PostGIS runtime smoke and backup/restore round trip (run `37573350861`). The follow-up changes require another CI run. A new nginx -t step validates the edge files using disposable TLS fixtures; nginx is not installed in this local environment, so that check must run in CI. No live VPS/bot verification or deployment was performed. Do not treat pending follow-up CI checks as passed.
 
 ## Deployment and remaining architectural work
 
@@ -65,6 +65,16 @@ Chromium installation failed with a corrupt/truncated archive; Playwright was no
 - Keep the existing POMICH_ENCRYPTION_KEY during deployment. SQL startup creates the new tables and migrates order versions; take the usual database backup before rollout. Old file-backed pending OTP codes are not imported and users may need a new code. Browser realtime clients hydrate current state after reconnect; the event log is not a durable message broker.
 - Confirm trusted proxy IP resolution before relying on IP-based limits. Defaults are deliberately broad and should be tuned with operational traffic evidence.
 - Polling introduces up to roughly 0.5 seconds delivery latency plus database work per subscription. External monitoring dashboards/alert rules and retention require deployment configuration. Anonymous crash counters are aggregate visibility, not source-map crash diagnostics.
-- Deeper extraction of order lifecycle/matching/profile services, smaller controller hooks, test-module decomposition and removal of duplicate/obsolete CSS remain architectural debt. Those recommendations are not fully closed by moving pure rules/screens/schema. No destructive binary/history cleanup or speculative business-flow rewrite was performed.
+- Core domain operations are now separated into lifecycle, matching, customer/provider profiles, order queries and review services with explicit dependency records. The original order_store imports/signatures remain as a compatibility facade; the service modules do not import that facade. Further narrowing of large dependency records/controllers is possible but is not required for the fixed behavior. Two exact CSS duplicates were removed; removal of other historical override rules requires visual review. No destructive binary/history cleanup was performed.
 
-This PR is ready for code review, not a claim that every optional architectural recommendation has been completed. Merge after required CI checks; this task does not authorize production rollout.
+## Structural and review follow-up
+
+- Moved 119 order/profile/dispatch operations into six service modules. Injection is explicit and evaluated at call time, preserving existing patch/instrumentation boundaries and locks without globals copying or circular service imports.
+- SQL lifecycle and dispatch responses now use the saved payload, including the advanced version. Stale lifecycle writes surface a domain conflict before offer/provider side effects; regression tests cover both paths.
+- Captured the SQL realtime cursor before exposing a subscription. A deterministic regression publishes during registration and verifies delivery.
+- Back/Forward now synchronizes or clears the persisted role; reload and landing-restoration regressions cover both storage locations.
+- Extracted provider geolocation/offer-feed hooks and customer nearby-provider/order-tracking hooks. A polling regression covers clock ticks, equal specialty arrays and subscription cleanup.
+- Split the original backend order/API tests into eleven feature modules with shared non-test support; split 54 frontend flow declarations into five feature modules with shared mocks/setup. Existing test counts are retained, plus the new regressions.
+- Added actual nginx syntax validation to CI, generating temporary certificates and DH parameters without touching deployment certificates or changing routing/header directives.
+
+Merge after required CI checks. Server credential installation, monitoring account configuration and production rollout remain deployment operations outside the available access.

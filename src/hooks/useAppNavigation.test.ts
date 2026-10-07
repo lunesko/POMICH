@@ -1,3 +1,4 @@
+import { persistActiveAppRole, readActiveAppRole } from '../lib/appRole'
 import { act, renderHook } from '@testing-library/react'
 import { beforeEach, expect, it } from 'vitest'
 import { useAppNavigation, type AppNavigationState } from './useAppNavigation'
@@ -9,7 +10,11 @@ const initial: AppNavigationState = {
   forceRolePicker: false, rolePickerKey: 0, onboardingSessionKey: 0, entryScreen: null,
   cabinetFocus: 'profile', providerEntryScreen: undefined,
 }
-beforeEach(() => window.history.replaceState({}, '', '/'))
+beforeEach(() => {
+  window.history.replaceState({}, '', '/')
+  window.localStorage.clear()
+  window.sessionStorage.clear()
+})
 
 it('back restores the complete screen instead of only the stored role', () => {
   const { result } = renderHook(() => useAppNavigation(initial))
@@ -35,4 +40,32 @@ it('URL cleanup preserves navigation state and stable setter identities', () => 
   expect(window.history.state.pomichNavigationV1.role).toBe('customer')
   rerender()
   expect(result.current.setShowCabinet).toBe(setter)
+})
+
+
+it('Back synchronizes the role used after a refresh', () => {
+  const { result, unmount } = renderHook(() => useAppNavigation(initial))
+  const customerSnapshot = window.history.state
+  act(() => {
+    result.current.setRole('provider')
+    persistActiveAppRole('provider')
+  })
+  act(() => window.dispatchEvent(new PopStateEvent('popstate', { state: customerSnapshot })))
+  expect(readActiveAppRole()).toBe('customer')
+  unmount()
+  const reopened = renderHook(() => useAppNavigation({ ...initial, role: readActiveAppRole() }))
+  expect(reopened.result.current.role).toBe('customer')
+})
+
+it('Back to role selection clears the role from both storage locations', () => {
+  const { result } = renderHook(() => useAppNavigation({ ...initial, role: null }))
+  const landingSnapshot = window.history.state
+  act(() => {
+    result.current.setRole('provider')
+    persistActiveAppRole('provider')
+  })
+  act(() => window.dispatchEvent(new PopStateEvent('popstate', { state: landingSnapshot })))
+  expect(result.current.role).toBeNull()
+  expect(window.sessionStorage.getItem('pomichActiveAppRole')).toBeNull()
+  expect(window.localStorage.getItem('pomichActiveAppRole')).toBeNull()
 })

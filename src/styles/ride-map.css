@@ -1136,19 +1136,6 @@ html.mobile-compact .pomich-onboarding-page {
   font-size: 15px;
   line-height: 1;
 }
-.pomich-cabinet-field {
-  display: grid;
-  gap: var(--pomich-space-2);
-}
-.pomich-cabinet-shell .pomich-form-input,
-.pomich-cabinet-shell .pomich-phone-input .pomich-phone-field,
-.pomich-cabinet-shell .pomich-radius-wrap .pomich-form-input {
-  height: var(--pomich-input-height);
-  min-height: var(--pomich-input-height);
-  font-size: var(--pomich-text-base);
-  border-radius: 12px;
-  padding: 0 var(--pomich-space-3);
-}
 [data-pomich-theme="dark"] .pomich-form-input {
   background: #1a1f28;
   border-color: rgba(255, 255, 255, 0.28);

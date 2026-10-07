@@ -1,11 +1,13 @@
+import useProviderOfferFeed from "./useProviderOfferFeed"
+import useProviderGeolocation from "./useProviderGeolocation"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { acceptProviderOffer, createProviderAccountSession, createProviderSession, createSelfProviderSession, restoreBrowserSession, declineProviderOffer, getCustomerProfile, getOrder, getProviderOffers, getProviderOrders, getProviderProfile, getNearbyMapOrders, messageFromFetchError, retryDispatch, setUserPreferredRole, submitOrderReview, updateProviderOrderStatus, updateProviderPresence, updateProviderProfile, ApiRequestError, type AuthSession, type CustomerProfile, type DispatchOffer, type MapRequestPin, type OrderResponse, type ProviderAvailability } from "../../../api/client"
-import { DEFAULT_SERVICE_RADIUS_KM, PROVIDER_START, services, getActiveProviderId, getServiceEmoji, toServiceKeys, composePartnerVehicle, emptyPartnerRegistrationForm, hydratePartnerVehicleFromProfile, isProviderPhoneVerified, partnerVehicleSelectionIsComplete, resolvePartnerVehicleMake, type PartnerRegistrationForm, type Point, type OrderStatus } from "../../../lib/constants"
+import { acceptProviderOffer, createProviderAccountSession, createProviderSession, createSelfProviderSession, restoreBrowserSession, declineProviderOffer, getCustomerProfile, getOrder, getProviderOffers, getProviderOrders, getProviderProfile, messageFromFetchError, retryDispatch, setUserPreferredRole, submitOrderReview, updateProviderOrderStatus, updateProviderPresence, updateProviderProfile, ApiRequestError, type AuthSession, type CustomerProfile, type DispatchOffer, type MapRequestPin, type OrderResponse, type ProviderAvailability } from "../../../api/client"
+import { DEFAULT_SERVICE_RADIUS_KM, PROVIDER_START, getActiveProviderId, toServiceKeys, composePartnerVehicle, emptyPartnerRegistrationForm, hydratePartnerVehicleFromProfile, isProviderPhoneVerified, partnerVehicleSelectionIsComplete, resolvePartnerVehicleMake, type PartnerRegistrationForm, type OrderStatus } from "../../../lib/constants"
 import { readBootstrapProfile, resolveProviderIdForCustomer, storeLinkedProviderId } from "../../../lib/userAccount"
 import { readCachedProviderProfile, writeCachedProviderProfile } from "../../../lib/providerProfileCache"
 import { clearActiveOrder, persistActiveOrder, pickLatestActiveOrder, readActiveOrder } from "../../../lib/customerSession"
 import { clearPendingPartnerReview, persistPendingPartnerReview, readPendingPartnerReview } from "../../../lib/appRole"
-import { canRequestGeoSilently, isTelegramMiniApp, readCachedGeoPosition, requestCurrentPosition, resolveGroundSpeedMps, shouldAcceptGeoUpdate, smoothSpeedMps, writeCachedGeoPosition } from "../../../lib/mapGeo"
+import { requestCurrentPosition } from "../../../lib/mapGeo"
 import { validateUkraineMobilePhone } from "../../../lib/ukrainePhone"
 import { validateUkrainePlate } from "../../../lib/ukrainePlate"
 import { isPartnerProfileComplete } from "../../../lib/partnerProfileComplete"
@@ -15,11 +17,11 @@ import { writeCityUserPicked, writePreferredCity } from "../../../lib/preferredC
 import { authSessionStorageKey, isAuthSessionToken, readAuthSessionSubject, readPersistedCustomerId, readStoredAuthSession, readStoredCustomerAuthSession, storeAuthSession } from "../../../lib/auth"
 import { isCustomerVerified } from "../../../lib/customerProfile"
 import { presenceErrorMessage } from "../../ui/DutyStatusToggle"
-import { filterActiveMapRequestPins, filterActiveOffers, filterVisibleOffers, isPresentableOffer, mergeRequestPins, offerActionErrorMessage, offerSecondsLeft, parseOfferPrice, pinFromOffer, readPersistedOfferDismissals, writePersistedOfferDismissals } from "../../../lib/dispatchOffer"
-import { subscribeProviderEvents } from "../../../lib/realtime"
+import { isPresentableOffer, offerActionErrorMessage, offerSecondsLeft, parseOfferPrice, pinFromOffer, readPersistedOfferDismissals, writePersistedOfferDismissals } from "../../../lib/dispatchOffer"
+
 import { getTelegramContext } from "../../../telegram"
 import { useScreenWakeLock } from "../../../hooks/useScreenWakeLock"
-import { alertPartnerNewRequest, diffNewIds, ensurePartnerAlertPermission } from "../../../lib/partnerDutyAlerts"
+import { ensurePartnerAlertPermission } from "../../../lib/partnerDutyAlerts"
 import { normalizeOrderStatus } from "../../../lib/orderStatus"
 import type { ServiceKey } from "../../../lib/pomichDomain"
 import type { MapTileTheme } from "../../../lib/theme"
@@ -100,9 +102,6 @@ export default function useProviderFlowController({
   const [presenceToast, setPresenceToast] = useState<string | undefined>()
   const [registrationSaving, setRegistrationSaving] = useState(false)
   const [registrationError, setRegistrationError] = useState<string | undefined>()
-  const [incomingOffers, setIncomingOffers] = useState<DispatchOffer[]>([])
-  const [nearbyRequestPins, setNearbyRequestPins] = useState<MapRequestPin[]>([])
-  const [mapRequestPins, setMapRequestPins] = useState<MapRequestPin[]>([])
   const [selectedRequestPin, setSelectedRequestPin] = useState<MapRequestPin | undefined>()
   const [activeOrder, setActiveOrder] = useState<OrderResponse | undefined>(() => {
     if (!persistedActiveOrder?.orderId) return undefined
@@ -116,16 +115,10 @@ export default function useProviderFlowController({
   const [orderAdvancing, setOrderAdvancing] = useState(false)
   const [proposedPrice, setProposedPrice] = useState("")
   const [priceNote, setPriceNote] = useState("")
-  const [offerClock, setOfferClock] = useState(Date.now())
-  const [providerLocation, setProviderLocation] = useState<Point>(() => readCachedGeoPosition() ?? PROVIDER_START)
+  const { providerLocation, setProviderLocation, providerGeoLoading, providerGeoError, setProviderGeoError, providerRecenterTrigger, providerSpeedMps, setProviderGeoWatchEpoch, providerLocationRef, retryProviderGeolocation } = useProviderGeolocation(onDuty || ["duty", "navigation", "arrived", "awaiting_price", "offer"].includes(step))
   const [partnerReviewSaving, setPartnerReviewSaving] = useState(false)
   const [partnerReviewError, setPartnerReviewError] = useState<string | undefined>()
   const [partnerReviewSubmitted, setPartnerReviewSubmitted] = useState(false)
-  const [providerGeoLoading, setProviderGeoLoading] = useState(false)
-  const [providerGeoError, setProviderGeoError] = useState<string | undefined>()
-  const [providerRecenterTrigger, setProviderRecenterTrigger] = useState(0)
-  const [providerSpeedMps, setProviderSpeedMps] = useState<number | null>(null)
-  const [providerGeoWatchEpoch, setProviderGeoWatchEpoch] = useState(0)
   const [providerProfile, setProviderProfile] = useState<ProviderAvailability>({
     id: providerId,
     name: "",
@@ -175,9 +168,13 @@ export default function useProviderFlowController({
     providerKind: "dispatch",
   }
   const telegramContext = useMemo(() => getTelegramContext(), [])
+  const { incomingOffers, setIncomingOffers, setNearbyRequestPins, mapRequestPins, setMapRequestPins, offerClock, seenDutyAlertIdsRef, dutyAlertsSeededRef } = useProviderOfferFeed({
+    activeOrder, onDuty, providerAuthToken, providerId, step,
+    radiusKm: providerProfile.serviceRadiusKm ?? registrationForm.serviceRadiusKm ?? DEFAULT_SERVICE_RADIUS_KM,
+    providerSpecialties, providerLocationRef, dismissedOfferIdsRef, dismissedOrderIdsRef,
+    setOfferError, webApp: telegramContext.webApp,
+  })
   useScreenWakeLock(onDuty)
-  const seenDutyAlertIdsRef = useRef<Set<string>>(new Set())
-  const dutyAlertsSeededRef = useRef(false)
   const otpBotUsername = telegramContext.botKind === "provider" ? "pomich_help_bot" : "pomich_ua_bot"
   const customerAuthSession = useMemo(
     () => (typeof window !== "undefined" ? readStoredCustomerAuthSession({ telegramChatId: telegramContext.chatId }) : undefined),
@@ -514,114 +511,6 @@ export default function useProviderFlowController({
     providerProfile.serviceRadiusKm,
   ])
 
-  const providerLocationRef = useRef(providerLocation)
-  const providerMotionSampleRef = useRef<{ point: Point; at: number } | null>(null)
-  const providerSpeedSmoothRef = useRef<number | null>(null)
-  useEffect(() => {
-    providerLocationRef.current = providerLocation
-  }, [providerLocation])
-
-  // Live GPS + speed HUD on the duty map even before «Вийти на лінію» — partners
-  // need the dial while parked/offline, same as clients on the home map.
-  const providerLiveNav =
-    onDuty ||
-    step === "duty" ||
-    step === "navigation" ||
-    step === "arrived" ||
-    step === "awaiting_price" ||
-    step === "offer"
-
-  useEffect(() => {
-    if (!providerLiveNav || typeof navigator === "undefined" || !("geolocation" in navigator)) return
-
-    let cancelled = false
-    let watchId: number | undefined
-
-    const startWatch = () => {
-      if (cancelled || typeof watchId === "number") return
-      watchId = navigator.geolocation.watchPosition(
-        (position) => {
-          const point = { lat: position.coords.latitude, lng: position.coords.longitude }
-          const rawSpeed = resolveGroundSpeedMps(position, providerMotionSampleRef.current)
-          const smoothed = smoothSpeedMps(providerSpeedSmoothRef.current, rawSpeed)
-          providerSpeedSmoothRef.current = smoothed
-          setProviderSpeedMps(smoothed)
-          providerMotionSampleRef.current = {
-            point,
-            at: typeof position.timestamp === "number" ? position.timestamp : Date.now(),
-          }
-          if (!shouldAcceptGeoUpdate(providerLocationRef.current, point, position.coords.accuracy)) return
-          writeCachedGeoPosition(point)
-          setProviderLocation(point)
-        },
-        (error) => {
-          setProviderSpeedMps(null)
-          providerSpeedSmoothRef.current = null
-          if (error.code === error.PERMISSION_DENIED && !isTelegramMiniApp()) {
-            setProviderGeoError(
-              "Дозвольте доступ до геолокації в браузері або Telegram, потім натисніть «Оновити».",
-            )
-          }
-        },
-        { enableHighAccuracy: true, maximumAge: 1000, timeout: 15000 },
-      )
-      if (cancelled) {
-        navigator.geolocation.clearWatch(watchId)
-        watchId = undefined
-      }
-    }
-
-    const maybeStartWatch = () => {
-      // Never start watchPosition without a silent browser grant — Telegram Mini App
-      // alone used to re-prompt the OS geolocation dialog on every duty-map open.
-      void canRequestGeoSilently().then((ok) => {
-        if (cancelled || !ok) return
-        startWatch()
-      })
-    }
-
-    // Seed from auto cache; live watch only with a silent browser grant or Mini App WebView.
-    requestCurrentPosition(
-      (point) => {
-        if (cancelled) return
-        setProviderLocation(point)
-        maybeStartWatch()
-      },
-      () => {
-        if (cancelled) return
-        if (providerLocationRef.current) maybeStartWatch()
-      },
-      { mode: "auto" },
-    )
-
-    return () => {
-      cancelled = true
-      if (typeof watchId === "number") navigator.geolocation.clearWatch(watchId)
-      setProviderSpeedMps(null)
-      providerSpeedSmoothRef.current = null
-      providerMotionSampleRef.current = null
-    }
-    // Keep one watch across navigation/arrived/offer while providerLiveNav stays true.
-  }, [providerLiveNav, providerGeoWatchEpoch])
-
-  const retryProviderGeolocation = () => {
-    setProviderGeoLoading(true)
-    setProviderGeoError(undefined)
-    requestCurrentPosition(
-      (point) => {
-        setProviderLocation(point)
-        setProviderGeoLoading(false)
-        setProviderRecenterTrigger((value) => value + 1)
-        if (providerLiveNav) setProviderGeoWatchEpoch((value) => value + 1)
-      },
-      (message) => {
-        setProviderGeoLoading(false)
-        setProviderGeoError(message)
-      },
-      { mode: "explicit" },
-    )
-  }
-
   useEffect(() => {
     if (!onDuty || !providerAuthToken) return
 
@@ -641,216 +530,6 @@ export default function useProviderFlowController({
     const interval = window.setInterval(heartbeat, 12000)
     return () => window.clearInterval(interval)
   }, [onDuty, providerAuthToken, providerId, providerProfile.etaMinutes, providerProfile.assignedOrderId, activeOrder?.id])
-
-  useEffect(() => {
-    const interval = window.setInterval(() => setOfferClock(Date.now()), 1000)
-    return () => window.clearInterval(interval)
-  }, [])
-
-  useEffect(() => {
-    if (!onDuty || !providerAuthToken || activeOrder || (step !== "duty" && step !== "offer")) return
-    let cancelled = false
-    const subjectId = readAuthSessionSubject(providerAuthToken) || providerId
-
-    const refreshOffers = () => {
-      // Poll while backgrounded so we can fire local notifications; Telegram bot
-      // messages still cover fully suspended Mini Apps (esp. iOS).
-      getProviderOffers(subjectId, providerAuthToken)
-        .then((offers) => {
-          if (!cancelled) {
-            const activeOffers = filterVisibleOffers(Array.isArray(offers) ? offers : [], {
-              dismissedOfferIds: dismissedOfferIdsRef.current,
-              dismissedOrderIds: dismissedOrderIdsRef.current,
-            })
-            setIncomingOffers((prev) => {
-              if (
-                prev.length === activeOffers.length &&
-                prev.every((item, i) => item.id === activeOffers[i]?.id && item.status === activeOffers[i]?.status)
-              ) {
-                return prev
-              }
-              return activeOffers
-            })
-            if (activeOffers.length > 0) setOfferError(undefined)
-          }
-        })
-        .catch(() => {
-          if (!cancelled) setIncomingOffers((prev) => (prev.length === 0 ? prev : []))
-        })
-    }
-
-    refreshOffers()
-    let pollMs = 4000
-    let interval = window.setInterval(refreshOffers, pollMs)
-    const setPollInterval = (ms: number) => {
-      pollMs = ms
-      window.clearInterval(interval)
-      interval = window.setInterval(refreshOffers, pollMs)
-    }
-    const stopRealtime = subscribeProviderEvents(
-      subjectId,
-      providerAuthToken,
-      () => {
-        if (!cancelled) refreshOffers()
-      },
-      {
-        onConnected: () => {
-          if (!cancelled) setPollInterval(20000)
-        },
-        onDisconnected: () => {
-          if (!cancelled) setPollInterval(4000)
-        },
-      },
-    )
-    return () => {
-      cancelled = true
-      window.clearInterval(interval)
-      stopRealtime()
-    }
-  }, [activeOrder, onDuty, providerAuthToken, providerId, step])
-
-  useEffect(() => {
-    if (!onDuty || !providerAuthToken || activeOrder || (step !== "duty" && step !== "offer")) {
-      setNearbyRequestPins((pins) => (pins.length === 0 ? pins : []))
-      return
-    }
-    let cancelled = false
-    const radiusKm = providerProfile.serviceRadiusKm ?? registrationForm.serviceRadiusKm ?? DEFAULT_SERVICE_RADIUS_KM
-
-    const refreshNearby = () => {
-      const loc = providerLocationRef.current
-      getNearbyMapOrders(loc.lat, loc.lng, radiusKm, undefined, providerAuthToken)
-        .then((orders) => {
-          if (cancelled) return
-          const visible = filterActiveMapRequestPins(Array.isArray(orders) ? orders : []).filter((pin) => {
-            if (dismissedOrderIdsRef.current.has(pin.id)) return false
-            if (pin.service && providerSpecialties.length > 0 && !providerSpecialties.includes(pin.service as ServiceKey)) {
-              return false
-            }
-            return true
-          })
-          setNearbyRequestPins((prev) => {
-            if (prev.length === visible.length && prev.every((item, i) => item.id === visible[i]?.id)) {
-              return prev
-            }
-            return visible
-          })
-        })
-        .catch(() => {
-          if (!cancelled) setNearbyRequestPins([])
-        })
-    }
-
-    refreshNearby()
-    const interval = window.setInterval(refreshNearby, 8000)
-    return () => {
-      cancelled = true
-      window.clearInterval(interval)
-    }
-  }, [
-    activeOrder,
-    onDuty,
-    providerAuthToken,
-    providerProfile.serviceRadiusKm,
-    providerSpecialties,
-    registrationForm.serviceRadiusKm,
-    step,
-  ])
-
-  /* Duty map: pins = active offers + nearby searching orders. Expired/closed never stay on the map. */
-  useEffect(() => {
-    if (!onDuty || (step !== "duty" && step !== "offer")) {
-      setMapRequestPins((pins) => (pins.length === 0 ? pins : []))
-      return
-    }
-    const active = filterActiveOffers(incomingOffers, offerClock)
-    if (active.length !== incomingOffers.length) {
-      setIncomingOffers(active)
-      return
-    }
-    setMapRequestPins((prev) => {
-      const next = mergeRequestPins(
-        incomingOffers,
-        nearbyRequestPins,
-        {
-          dismissedOfferIds: dismissedOfferIdsRef.current,
-          dismissedOrderIds: dismissedOrderIdsRef.current,
-        },
-        offerClock,
-      ).map((pin) => {
-        // Ensure every active offer is visible on the duty map even if the backend
-        // omitted customerCoordinates (sheet still has the full offer details).
-        if (pin.customerCoordinates) return pin
-        if (!pin.offerId) return pin
-        return {
-          ...pin,
-          customerCoordinates: {
-            lat: providerLocationRef.current.lat,
-            lng: providerLocationRef.current.lng,
-          },
-          customerLocation: pin.customerLocation || "Поруч із вами",
-        }
-      })
-      if (prev.length === next.length && prev.every((p, i) => p.id === next[i]?.id && p.offerId === next[i]?.offerId)) {
-        return prev
-      }
-      return next
-    })
-  }, [incomingOffers, nearbyRequestPins, offerClock, onDuty, step])
-
-  /* Alert on newly seen offers / nearby requests while on duty (Web Notification + haptic). */
-  useEffect(() => {
-    if (!onDuty) {
-      seenDutyAlertIdsRef.current = new Set()
-      dutyAlertsSeededRef.current = false
-      return
-    }
-    // Dedupe by order id so nearby pin + personal offer don't double-fire.
-    const nextOrderIds: string[] = []
-    const seenNext = new Set<string>()
-    const pushOrder = (orderId?: string) => {
-      const id = String(orderId || "").trim()
-      if (!id || seenNext.has(id)) return
-      seenNext.add(id)
-      nextOrderIds.push(id)
-    }
-    for (const offer of incomingOffers) pushOrder(offer.orderId || offer.id)
-    for (const pin of nearbyRequestPins) pushOrder(pin.id)
-
-    // Do not lock the seed on the empty post-go-online clear — otherwise the first
-    // poll marks every already-open request as "fresh" and spams notifications.
-    if (!dutyAlertsSeededRef.current) {
-      if (nextOrderIds.length === 0) return
-      for (const id of nextOrderIds) seenDutyAlertIdsRef.current.add(id)
-      dutyAlertsSeededRef.current = true
-      return
-    }
-
-    const fresh = diffNewIds(seenDutyAlertIdsRef.current, nextOrderIds)
-    for (const orderId of fresh) {
-      seenDutyAlertIdsRef.current.add(orderId)
-      const offer = incomingOffers.find((item) => item.orderId === orderId || item.id === orderId)
-      const pin = nearbyRequestPins.find((item) => item.id === orderId)
-      const service = offer?.service || pin?.service
-      const serviceMeta = services.find((item) => item.key === service)
-      const serviceLabel = service
-        ? `${getServiceEmoji(service)} ${serviceMeta?.label || service}`
-        : undefined
-      const distanceKm = offer?.distanceKm ?? pin?.distanceKm
-      alertPartnerNewRequest({
-        orderId,
-        serviceLabel,
-        distanceLabel: typeof distanceKm === "number" ? `${distanceKm.toFixed(1)} км` : undefined,
-        webApp: telegramContext.webApp,
-      })
-    }
-  }, [incomingOffers, nearbyRequestPins, onDuty, telegramContext.webApp])
-
-  useEffect(() => {
-    if (!onDuty) return
-    // Hydrate-online / restore session: ask once when duty becomes true.
-    void ensurePartnerAlertPermission()
-  }, [onDuty])
 
   useEffect(() => {
     if (!selectedRequestPin) return

@@ -535,3 +535,54 @@ def test_expiring_multiple_offers_keeps_every_order_event(sql_runtime):
     payload = runtime_store.sql_get_order(order['id'])
     expired_ids = {event['offerId'] for event in payload['dispatchEvents'] if event['type'] == 'OFFER_EXPIRED'}
     assert expired_ids == {offer['id'] for offer in pending}
+
+
+def test_sql_lifecycle_returns_the_persisted_version(sql_runtime):
+    from bot.order_store import update_order_status
+    order = save_order({'service': 'tow'})
+    accepted = update_order_status(order['id'], 'accepted')
+    assert accepted['version'] == runtime_store.sql_get_order(order['id'])['version'] == 2
+    cancelled = update_order_status(order['id'], 'cancelled')
+    assert cancelled['version'] == runtime_store.sql_get_order(order['id'])['version'] == 3
+
+
+def test_sql_lifecycle_stale_write_is_domain_conflict_before_side_effects(sql_runtime, monkeypatch):
+    from bot import order_store
+    from unittest.mock import Mock
+    order = save_order({'service': 'tow'})
+    persist = runtime_store.sql_upsert_order
+    def concurrent_update(payload):
+        persist({**runtime_store.sql_get_order(order['id']), 'source': 'another-worker'})
+        return persist(payload)
+    monkeypatch.setattr(order_store, 'sql_upsert_order', concurrent_update)
+    invalidate = Mock()
+    monkeypatch.setattr(order_store, 'invalidate_order_offers', invalidate)
+    with pytest.raises(DispatchConflict) as error:
+        order_store.update_order_status(order['id'], 'cancelled')
+    assert error.value.code == 'ORDER_VERSION_CONFLICT'
+    assert runtime_store.sql_get_order(order['id'])['status'] == 'searching'
+    invalidate.assert_not_called()
+
+
+def test_realtime_registration_cannot_skip_an_event_committed_during_subscription(sql_runtime, monkeypatch):
+    import asyncio
+    from bot import realtime
+    from bot.storage import realtime_events
+    runtime_store.get_engine()
+    channel = 'order:registration-race'
+    cursor = realtime_events.cursor
+    def publish_during_registration():
+        after = cursor()
+        assert channel not in realtime._CHANNELS
+        realtime_events.publish(channel, {'type': 'order.updated', 'payload': {'id': 'new-event'}})
+        return after
+    monkeypatch.setattr(realtime_events, 'cursor', publish_during_registration)
+    async def run():
+        queue = realtime.subscribe(channel)
+        try:
+            event = await asyncio.wait_for(queue.get(), timeout=2)
+            assert event['payload']['id'] == 'new-event'
+        finally:
+            realtime.unsubscribe(channel, queue)
+            await asyncio.sleep(0)
+    asyncio.run(run())

@@ -102,14 +102,17 @@ def publish_provider_event(provider_id: str, event_type: str, payload: dict[str,
 
 def subscribe(channel: str, *, maxsize: int = 32) -> asyncio.Queue:
     loop = asyncio.get_running_loop()
+    from bot.runtime_store import sql_storage_enabled
+    after = None
+    if sql_storage_enabled():
+        from bot.storage import realtime_events
+        # Capture the start cursor before exposing the subscription. Publications
+        # committed during registration are then included in the first poll.
+        after = realtime_events.cursor()
     queue: asyncio.Queue = asyncio.Queue(maxsize=maxsize)
     with _LOCK:
         _CHANNELS[channel].append((queue, loop))
-    from bot.runtime_store import sql_storage_enabled
-    if sql_storage_enabled():
-        from bot.storage import realtime_events
-        after = realtime_events.cursor()
-        with _LOCK:
+        if after is not None:
             _POLLERS[queue] = loop.create_task(_poll_sql(channel, queue, after))
     return queue
 

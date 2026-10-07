@@ -1,3 +1,5 @@
+import useCustomerOrderTracking from "./hooks/useCustomerOrderTracking"
+import useCustomerNearbyProviders from "./hooks/useCustomerNearbyProviders"
 import HomeStep from "./steps/HomeStep"
 import LocationStep from "./steps/LocationStep"
 import DestinationStep from "./steps/DestinationStep"
@@ -12,7 +14,7 @@ import InProgressStep from "./steps/InProgressStep"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import "./CustomerFlowUx.css"
 
-import { cancelOrder as cancelOrderRequest, confirmOrderPrice, createGuestCustomerSession, createOrder, getCustomerOrders, getMapProviders, getOrder, getTelegramSession, messageFromFetchError, retryDispatch, submitOrderReview, updateCustomerProfile, type AuthSession, type CustomerProfile, type OrderResponse, type ProviderAvailability } from "../../api/client"
+import { cancelOrder as cancelOrderRequest, confirmOrderPrice, createGuestCustomerSession, createOrder, getOrder, getTelegramSession, messageFromFetchError, retryDispatch, submitOrderReview, updateCustomerProfile, type AuthSession, type CustomerProfile, type OrderResponse } from "../../api/client"
 
 import { calculateDistanceKm, calculatePrice, isWithinUkraineServiceArea, ON_SITE_DESTINATION_LABEL, sanitizeLocation, serviceRequiresDestination, validateCustomerOrderInput, type CustomerOrderInput, type ServiceKey } from "../../lib/pomichDomain"
 import { getTelegramContext, openTelegramLocationSettings } from "../../telegram"
@@ -20,7 +22,7 @@ import { isCustomerProfileComplete, isCustomerReadyForOrder, mergeCustomerProfil
 import { PICKUP, services, type Point, type OrderStatus, type Screen, type GeoState } from "../../lib/constants"
 import { createServiceDetails, serviceDetailsComplete, summarizeServiceDetails, type ServiceDetails } from "../../lib/serviceDetails"
 import { authSessionStorageKey, guestSessionCustomerIdForRestore, isExplicitLogout, purgeStaleCustomerSessions, readPersistedCustomerId, readStoredAuthSession, storeAuthSession } from "../../lib/auth"
-import { clearActiveOrder, enrichProfileWithTelegram, isActiveOrderStatus, isTerminalOrderStatus, persistActiveOrder, pickLatestActiveOrder, readActiveOrder, readBootstrapProfileForCustomer, resolveCustomerAuthSession } from "../../lib/customerSession"
+import { clearActiveOrder, enrichProfileWithTelegram, persistActiveOrder, readActiveOrder, readBootstrapProfileForCustomer, resolveCustomerAuthSession } from "../../lib/customerSession"
 import { reverseGeocodeAddress } from "../../lib/reverseGeocode"
 import { MAP_GEO_DEBOUNCE_MS, MAP_GEO_WATCH_DEBOUNCE_MS, MAP_RECENTER_THRESHOLD_M, canRequestGeoSilently, isTelegramMiniApp, readCachedGeoPosition, readRememberedGeoPermission, requestCurrentPosition, resolveGroundSpeedMps, shouldAcceptGeoUpdate, shouldRecenterMap, smoothSpeedMps, writeCachedGeoPosition, writeRememberedGeoPermission } from "../../lib/mapGeo"
 import { syncProfileCityFromGeo } from "../../lib/syncProfileCityFromGeo"
@@ -33,7 +35,6 @@ import { validateUkraineMobilePhone } from "../../lib/ukrainePhone"
 import { useConfirmDialog } from "../ui/ConfirmDialog"
 import { normalizeServiceCity, nearestServiceCity, resolveServiceCityFromGeo } from "../../lib/ukraineCities"
 import { resolveDisplayedServiceCity, writeCityUserPicked, writePreferredCity } from "../../lib/preferredCity"
-import { subscribeOrderEvents } from "../../lib/realtime"
 
 function resolveServiceDestination(service: ServiceKey, pickup: Point): { destination: string; destinationPoint: Point } {
   // On-site services stay at pickup. Tow/destination services must be chosen by the user —
@@ -115,8 +116,6 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
   const lastGeocodedPickupRef = useRef<Point | null>(null)
   const lastCitySyncPickupRef = useRef<Point | null>(null)
   const [destinationPoint, setDestinationPoint] = useState<Point>(PICKUP)
-  const [liveNearbyProviders, setLiveNearbyProviders] = useState<ProviderAvailability[]>([])
-  const [liveNearbyLoading, setLiveNearbyLoading] = useState(false)
   const [customerReviewSaving, setCustomerReviewSaving] = useState(false)
   const [customerReviewError, setCustomerReviewError] = useState<string | undefined>()
   const [customerReviewSubmitted, setCustomerReviewSubmitted] = useState(false)
@@ -132,6 +131,8 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
   const [customerVerificationError, setCustomerVerificationError] = useState<string | undefined>()
   const userInitiatedCancelRef = useRef(false)
 
+  const { liveNearbyProviders, liveNearbyLoading } = useCustomerNearbyProviders(screen, pickup)
+
   const serviceCity = useMemo(
     () =>
       resolveDisplayedServiceCity({
@@ -140,12 +141,6 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
       }),
     [customerProfile.city, pickup.lat, pickup.lng],
   )
-
-  // A 0.001° cell is roughly 75–111 m in Ukraine/central Europe. Nearby providers
-  // use a 35 km radius, so re-querying for every 2–10 m GPS wobble adds traffic but
-  // cannot materially change the result.
-  const nearbyQueryLat = Math.round(pickup.lat * 1000) / 1000
-  const nearbyQueryLng = Math.round(pickup.lng * 1000) / 1000
 
   const applyServiceCity = useCallback(
     (nextCity: string) => {
@@ -162,33 +157,6 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
     },
     [serviceCity, customerId, customerAuthToken],
   )
-
-  useEffect(() => {
-    if (screen !== "home") return
-    let cancelled = false
-    setLiveNearbyLoading(true)
-    getMapProviders({
-      lat: nearbyQueryLat,
-      lng: nearbyQueryLng,
-      radiusKm: 35,
-      kind: "dispatch",
-      status: "online",
-      verificationStatus: "verified",
-    })
-      .then((items) => {
-        if (cancelled) return
-        setLiveNearbyProviders(Array.isArray(items) ? items : [])
-      })
-      .catch(() => {
-        if (!cancelled) setLiveNearbyProviders([])
-      })
-      .finally(() => {
-        if (!cancelled) setLiveNearbyLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [screen, nearbyQueryLat, nearbyQueryLng])
 
   const orderInput: CustomerOrderInput = {
     service: selectedService,
@@ -571,174 +539,8 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
       ? (geoMessage || "Не вдалося визначити геолокацію. Натисніть «Оновити» або оберіть точку на карті.")
       : undefined
 
-  /* Restore in-progress order after Telegram WebApp reopen (sessionStorage often wiped). */
-  useEffect(() => {
-    let cancelled = false
-
-    const resetToHome = () => {
-      setOrderId(undefined)
-      setCurrentOrder(undefined)
-      setStatus("draft")
-      setScreen("home")
-      clearActiveOrder()
-    }
-
-    const restore = async () => {
-      try {
-        const session = await ensureCustomerSession()
-        if (cancelled || !session.customerId || !session.token) return
-        const orders = await getCustomerOrders(session.customerId, session.token, 20)
-        if (cancelled) return
-
-        const stored = readActiveOrder()
-        const active = pickLatestActiveOrder(orders)
-
-        if (!active) {
-          if (stored?.orderId) {
-            try {
-              const snapshot = await getOrder(stored.orderId, session.token)
-              if (cancelled) return
-              const snapshotStatus = normalizeOrderStatus(snapshot?.status)
-              if (isActiveOrderStatus(snapshotStatus) && snapshot?.id) {
-                setOrderId(snapshot.id)
-                setCurrentOrder(snapshot)
-                setStatus(snapshotStatus)
-                persistActiveOrder(snapshot.id, snapshotStatus)
-                if (snapshot.customerCoordinates) setPickup(snapshot.customerCoordinates)
-                if (snapshot.destinationCoordinates) setDestinationPoint(snapshot.destinationCoordinates)
-                setScreen((current) => {
-                  if (current === "cancelled" || current === "completed") return current
-                  return screenForOrderStatus(snapshotStatus)
-                })
-                return
-              }
-            } catch {
-              // fall through to reset
-            }
-            resetToHome()
-            return
-          }
-          clearActiveOrder()
-          return
-        }
-
-        const full = orders.find((item) => item.id === active.orderId) ?? (await getOrder(active.orderId, session.token))
-        if (cancelled || !full?.id) return
-        const nextStatus = normalizeOrderStatus(full.status)
-        if (!isActiveOrderStatus(nextStatus)) {
-          resetToHome()
-          return
-        }
-        setOrderId(full.id)
-        setCurrentOrder(full)
-        setStatus(nextStatus)
-        persistActiveOrder(full.id, nextStatus)
-        if (full.customerCoordinates) setPickup(full.customerCoordinates)
-        if (full.destinationCoordinates) setDestinationPoint(full.destinationCoordinates)
-        setScreen((current) => {
-          if (current === "cancelled" || current === "completed") return current
-          if (current !== "home" && orderId) return current
-          return screenForOrderStatus(nextStatus)
-        })
-      } catch {
-        const stored = readActiveOrder()
-        if (stored?.orderId) resetToHome()
-      }
-    }
-    void restore()
-    return () => {
-      cancelled = true
-    }
-    // Intentionally once per customer identity / mount — not on every orderId change.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [customerId, customerAuthToken])
-
-  useEffect(() => {
-    if (!orderId) return
-    if (screen === "cancelled" || screen === "completed") return
-
-    let cancelled = false
-
-    const applyPolledOrder = (order: OrderResponse) => {
-      if (cancelled) return
-      const resolvedOrderId = order.id ?? orderId
-      const nextStatus = normalizeOrderStatus(order.status)
-      if (userInitiatedCancelRef.current && nextStatus !== "cancelled") {
-        return
-      }
-      if (nextStatus === "cancelled") {
-        userInitiatedCancelRef.current = false
-      }
-      if (isTerminalOrderStatus(nextStatus)) {
-        if (nextStatus === "cancelled" || nextStatus === "completed") {
-          clearActiveOrder()
-        }
-      }
-      setCurrentOrder(order)
-      setStatus(nextStatus)
-      if (resolvedOrderId) setOrderId(resolvedOrderId)
-      persistActiveOrder(resolvedOrderId, nextStatus)
-      setScreen((currentScreen) => {
-        if (currentScreen === "cancelled" || currentScreen === "completed") {
-          return currentScreen
-        }
-        const targetScreen = screenForOrderStatus(nextStatus)
-        if (currentScreen === "tracking" && nextStatus !== "en_route" && nextStatus !== "arrived" && nextStatus !== "in_progress" && nextStatus !== "completed" && nextStatus !== "cancelled") {
-          return currentScreen
-        }
-        if (nextStatus === "accepted") {
-          return "accepted"
-        }
-        return targetScreen
-      })
-    }
-
-    const refreshOrder = () => {
-      if (document.visibilityState !== "visible") return
-      getOrder(orderId, customerAuthToken)
-        .then(applyPolledOrder)
-        .catch(() => undefined)
-    }
-
-    refreshOrder()
-    let pollMs = 2500
-    let interval = window.setInterval(refreshOrder, pollMs)
-
-    const setPollInterval = (ms: number) => {
-      pollMs = ms
-      window.clearInterval(interval)
-      interval = window.setInterval(refreshOrder, pollMs)
-    }
-
-    const stopRealtime = subscribeOrderEvents(
-      orderId,
-      () => {
-        if (!cancelled) refreshOrder()
-      },
-      {
-        accessToken: customerAuthToken,
-        onConnected: () => {
-          if (!cancelled) setPollInterval(20000)
-        },
-        onDisconnected: () => {
-          if (!cancelled) setPollInterval(2500)
-        },
-      },
-    )
-
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") refreshOrder()
-    }
-    document.addEventListener("visibilitychange", onVisibility)
-    window.addEventListener("focus", refreshOrder)
-    return () => {
-      cancelled = true
-      window.clearInterval(interval)
-      stopRealtime()
-      document.removeEventListener("visibilitychange", onVisibility)
-      window.removeEventListener("focus", refreshOrder)
-    }
-  }, [orderId, screen, customerAuthToken])
+  useCustomerOrderTracking({ customerId, customerAuthToken, orderId, screen, ensureCustomerSession,
+    setOrderId, setCurrentOrder, setStatus, setScreen, setPickup, setDestinationPoint, userInitiatedCancelRef })
 
   const serviceLabel = useMemo(() => services.find((item) => item.key === selectedService)?.label ?? "Евакуатор", [selectedService])
   const orderDistanceKm = useMemo(() => resolveOrderDistanceKm(selectedService, pickup, destinationPoint), [pickup, destinationPoint, selectedService])

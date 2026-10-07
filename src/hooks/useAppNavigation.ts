@@ -1,3 +1,4 @@
+import { persistActiveAppRole, clearActiveAppRole } from "../lib/appRole"
 import { useEffect, useMemo, useReducer, useRef, type Dispatch, type SetStateAction } from 'react'
 import type { Role } from '../lib/constants'
 import type { PomichEntryScreen } from '../telegram'
@@ -45,6 +46,12 @@ export function useAppNavigation(initial: InitialState): AppNavigationState & Se
       const snapshot = event.state?.[HISTORY_KEY] as AppNavigationState | undefined
       if (!snapshot || ![null, 'customer', 'provider', 'admin'].includes(snapshot.role)) return
       restoring.current = true
+      try {
+        if (snapshot.role === 'customer' || snapshot.role === 'provider') persistActiveAppRole(snapshot.role)
+        else clearActiveAppRole()
+      } catch {
+        // Storage restrictions must not prevent Back/Forward restoration.
+      }
       dispatch(() => snapshot)
     }
     window.addEventListener('popstate', restore)
