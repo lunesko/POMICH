@@ -52,12 +52,12 @@ Reviewed both supplied audit files against main at `1a2df96303218c5cdc197852a9f6
 | Final frontend | 390 passed across 58 files |
 | TypeScript | npx tsc --noEmit passed |
 | Production build | npm run build passed |
-| Production dependency audit | Zero vulnerabilities reported |
+| Full dependency audit, including development tools | Zero vulnerabilities reported after compatible lockfile updates |
 | Credential scanner / whitespace | Passed |
 | Existing-database migration | SQLite order version backfill and subsequent update passed |
 | Multiple independent processes | OTP state, realtime delivery and rate-limit counter passed against shared SQLite |
 
-Chromium installation failed locally with a corrupt/truncated archive. GitHub CI for commit `1c7e988c0bc09bab8761aec50617d401a9dd991b` subsequently passed unit tests/build, Playwright UX/accessibility checks, PostGIS runtime smoke and backup/restore round trip (run `37573350861`). The follow-up changes and integration of main at `98cdd804f5564d11029dc0444595b28add182c5e` require another CI run. A new nginx -t step validates the edge files using disposable TLS fixtures; nginx is not installed in this local environment, so that check must run in CI. No live VPS/bot verification or deployment was performed. Do not treat pending follow-up CI checks as passed.
+Chromium installation failed locally with a corrupt/truncated archive. GitHub CI for commit `1c7e988c0bc09bab8761aec50617d401a9dd991b` subsequently passed unit tests/build, Playwright UX/accessibility checks, PostGIS runtime smoke and backup/restore round trip (run `37573350861`). CI for the integrated code at `47b055a165a5a7084cdae4ca496339864bbd5bef` also passed all checks, including nginx -t with disposable TLS fixtures, 276 backend tests, 390 frontend tests and six browser tests (run `37575354814`). The final development-dependency lockfile update requires a fresh CI run; nginx is not installed in this local environment. No live VPS/bot verification or deployment was performed. Do not treat pending follow-up CI checks as passed.
 
 ## Deployment and remaining architectural work
 
@@ -79,3 +79,8 @@ Chromium installation failed locally with a corrupt/truncated archive. GitHub CI
 - Added actual nginx syntax validation to CI, generating temporary certificates and DH parameters without touching deployment certificates or changing routing/header directives.
 
 Merge after required CI checks. Server credential installation, monitoring account configuration and production rollout remain deployment operations outside the available access.
+
+## Dependency audit follow-up
+
+- Full npm audit identified four vulnerable development packages that the production-only check excluded. Compatible lockfile updates install Vitest/@vitest/mocker 4.1.11, source-map-js 1.2.2 and undici 7.30.0; the full audit now reports zero vulnerabilities.
+- CI audits development dependencies too and fails at moderate severity. No forced major upgrade was needed.
