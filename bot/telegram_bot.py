@@ -16,6 +16,7 @@ from bot.order_store import (
     get_order,
     get_provider_offers,
     get_provider_profile,
+    is_provider_verified,
     load_orders,
     normalize_order_status,
     resolve_linked_provider_id,
@@ -106,16 +107,26 @@ def _check_customer_registered(tg_user_id: str) -> bool:
     return bool(name and phone)
 
 
-def _check_provider_registered(tg_user_id: str) -> bool:
+def _provider_profile_for_telegram_user(tg_user_id: str) -> dict[str, Any] | None:
     if not tg_user_id:
-        return False
+        return None
     customer_id = f"tg-{tg_user_id}"
     profile = get_customer_profile(customer_id)
     provider_id = resolve_linked_provider_id(customer_id, profile)
     if not provider_id:
-        return False
+        return None
     provider = get_provider_profile(provider_id)
+    return provider if isinstance(provider, dict) else None
+
+
+def _check_provider_registered(tg_user_id: str) -> bool:
+    provider = _provider_profile_for_telegram_user(tg_user_id)
     return bool(provider and provider.get("registeredAt"))
+
+
+def _check_provider_verified(tg_user_id: str) -> bool:
+    provider = _provider_profile_for_telegram_user(tg_user_id)
+    return bool(provider and is_provider_verified(provider))
 
 
 class TelegramApiError(RuntimeError):
@@ -299,13 +310,17 @@ def _build_customer_start_keyboard() -> dict[str, Any]:
     return {"inline_keyboard": rows}
 
 
-def _build_provider_start_keyboard() -> dict[str, Any]:
+def _build_provider_start_keyboard(*, show_verify: bool = True) -> dict[str, Any]:
     rows: list[list[dict[str, Any]]] = []
     # «Кабінет партнера» must open cabinet — not the generic duty map.
     open_btn = _webapp_button(PROVIDER_MENU_TEXT, _screen_url("provider", "cabinet"))
     duty_btn = _webapp_button("Вийти на лінію", _screen_url("provider", "duty"))
     offers_btn = _webapp_button("Активні офери", _screen_url("provider", "offers"))
-    verify_btn = _webapp_button("Підтвердити профіль", _screen_url("provider", "verify"))
+    verify_btn = (
+        _webapp_button("Підтвердити профіль", _screen_url("provider", "verify"))
+        if show_verify
+        else None
+    )
     if open_btn:
         rows.append([open_btn])
     duty_row = [btn for btn in (duty_btn, offers_btn) if btn]
@@ -487,9 +502,20 @@ def _handle_provider_command(
 
     if command == "/start":
         registered = _check_provider_registered(tg_user_id)
+        verified = _check_provider_verified(tg_user_id)
         greeting = PROVIDER_WELCOME_BACK_TEXT if registered else PROVIDER_WELCOME_TEXT
-        bot.send_message(chat_id, greeting, reply_markup=_build_provider_start_keyboard())
-        return {"handled": True, "type": "start", "botKind": "provider", "registered": registered}
+        bot.send_message(
+            chat_id,
+            greeting,
+            reply_markup=_build_provider_start_keyboard(show_verify=not verified),
+        )
+        return {
+            "handled": True,
+            "type": "start",
+            "botKind": "provider",
+            "registered": registered,
+            "verified": verified,
+        }
 
     if command in {"/app", "/dashboard"}:
         bot.send_message(chat_id, "Кабінет партнера:", reply_markup=keyboard)

@@ -201,3 +201,59 @@ def test_notify_order_cancelled_sends_partner_message():
     assert client.messages[0]["chat_id"] == "445566"
     assert client.messages[0]["text"] == "Заявку #PM-123456 скасовано клієнтом"
     assert ctor.call_args_list[0].kwargs.get("kind") == "provider"
+
+
+def _provider_start_button_labels(markup: dict) -> list[str]:
+    return [button["text"] for row in markup["inline_keyboard"] for button in row]
+
+
+def test_provider_start_hides_verify_when_profile_verified():
+    client = FakeTelegramClient(kind="provider")
+
+    with patch.dict(os.environ, {"WEB_APP_URL": WEB_APP_BASE, "TELEGRAM_BOT_TOKEN": "1:x"}, clear=False):
+        with patch("bot.telegram_bot.upsert_telegram_customer_profile", return_value={}):
+            with patch("bot.telegram_bot._check_provider_registered", return_value=True):
+                with patch("bot.telegram_bot._check_provider_verified", return_value=True):
+                    result = handle_update(
+                        {
+                            "update_id": 10,
+                            "message": {
+                                "chat": {"id": 77},
+                                "from": {"id": 77, "first_name": "Партнер"},
+                                "text": "/start",
+                            },
+                        },
+                        client,
+                        bot_kind="provider",
+                    )
+
+    assert result["registered"] is True
+    assert result["verified"] is True
+    labels = _provider_start_button_labels(client.messages[0]["reply_markup"])
+    assert "Кабінет партнера" in labels
+    assert "Підтвердити профіль" not in labels
+
+
+def test_provider_start_shows_verify_when_profile_unverified():
+    client = FakeTelegramClient(kind="provider")
+
+    with patch.dict(os.environ, {"WEB_APP_URL": WEB_APP_BASE, "TELEGRAM_BOT_TOKEN": "1:x"}, clear=False):
+        with patch("bot.telegram_bot.upsert_telegram_customer_profile", return_value={}):
+            with patch("bot.telegram_bot._check_provider_registered", return_value=True):
+                with patch("bot.telegram_bot._check_provider_verified", return_value=False):
+                    result = handle_update(
+                        {
+                            "update_id": 11,
+                            "message": {
+                                "chat": {"id": 77},
+                                "from": {"id": 77, "first_name": "Партнер"},
+                                "text": "/start",
+                            },
+                        },
+                        client,
+                        bot_kind="provider",
+                    )
+
+    assert result["verified"] is False
+    labels = _provider_start_button_labels(client.messages[0]["reply_markup"])
+    assert "Підтвердити профіль" in labels
