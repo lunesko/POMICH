@@ -8,6 +8,7 @@ import {
   sendCustomerPhoneLoginCode,
   type AuthSession,
 } from "../../api/client"
+import RememberSessionField from "../ui/RememberSessionField"
 import { validateUkraineMobilePhone } from "../../lib/ukrainePhone"
 import { OnboardingFormShell } from "../layout/OnboardingFormShell"
 import { PhoneInput } from "../ui/PhoneInput"
@@ -55,6 +56,7 @@ function isOtpSendLimitError(error: unknown): boolean {
 }
 
 export default function ClientLoginScreen({ saving, error: externalError, onSubmit, onRegister, onBack }: ClientLoginScreenProps) {
+  const [rememberMe, setRememberMe] = useState(false)
   const [phone, setPhone] = useState("")
   const [code, setCode] = useState("")
   const [phoneError, setPhoneError] = useState<string>()
@@ -168,7 +170,7 @@ export default function ClientLoginScreen({ saving, error: externalError, onSubm
     setError(undefined)
     setConfirming(true)
     try {
-      const session = await confirmCustomerPhoneLoginCode({ phone: validation.e164, code: code.trim() })
+      const session = await confirmCustomerPhoneLoginCode({ phone: validation.e164, code: code.trim(), rememberMe })
       onSubmit(session)
     } catch (err) {
       setError(messageFromFetchError(err, "Код не підтверджено. Перевірте та спробуйте ще раз."))
@@ -271,6 +273,8 @@ export default function ClientLoginScreen({ saving, error: externalError, onSubm
               : "Надіслати код повторно"}
         </button>
       ) : null}
+
+      <RememberSessionField checked={rememberMe} onChange={setRememberMe} disabled={busy} />
 
       {displayError ? <div className="pomich-form-error">{displayError}</div> : null}
 

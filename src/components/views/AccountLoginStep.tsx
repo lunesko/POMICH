@@ -1,3 +1,4 @@
+import RememberSessionField from "../ui/RememberSessionField"
 import { FormContainer } from "../layout/FormContainer"
 import { Header } from "../layout/Header"
 import { ScreenLayout } from "../layout/ScreenLayout"
@@ -13,6 +14,8 @@ interface AccountLoginStepProps {
   onLoginChange: (value: string) => void
   onPasswordChange: (value: string) => void
   onSubmit: () => void
+  rememberMe?: boolean
+  onRememberMeChange?: (value: boolean) => void
   onRegister?: () => void
   /** Hide theme toggle when AppShell already shows one */
   showThemeToggle?: boolean
@@ -30,6 +33,8 @@ export function AccountLoginStep({
   onSubmit,
   onRegister,
   showThemeToggle = true,
+  rememberMe = false,
+  onRememberMeChange,
 }: AccountLoginStepProps) {
   return (
     <ScreenLayout footer={<PrimaryButton label={saving ? "Входимо…" : "Увійти"} onClick={onSubmit} disabled={!login.trim() || !password.trim() || saving} />}>
@@ -45,6 +50,7 @@ export function AccountLoginStep({
             <input value={password} onChange={(event) => onPasswordChange(event.target.value)} type="password" autoComplete="current-password" className="pomich-form-input" />
           </label>
         </div>
+        {onRememberMeChange ? <RememberSessionField checked={rememberMe} onChange={onRememberMeChange} disabled={saving} /> : null}
         {onRegister ? (
           <button type="button" onClick={onRegister} className="pomich-ghost-btn" style={{ width: "100%", color: "var(--pomich-accent)" }}>
             Новий партнер? Зареєструватись

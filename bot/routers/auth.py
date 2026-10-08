@@ -11,7 +11,6 @@ from bot.api_deps import (
     configured_provider_secret,
     find_admin_account,
     find_provider_account,
-    issue_role_session,
     otp_http_detail,
     otp_http_status,
     require_customer_auth,
@@ -32,7 +31,7 @@ from bot.order_store import (
 )
 from bot.otp_verification import OtpVerificationError, confirm_customer_verification_code, send_customer_verification_code
 from bot.telegram_config import normalize_telegram_bot_kind
-from bot.browser_sessions import clear_browser_sessions, require_same_origin, restore_browser_session, set_browser_session
+from bot.browser_sessions import clear_browser_sessions, require_same_origin, restore_browser_session, set_browser_session, issue_browser_login
 
 router = APIRouter(tags=["auth"])
 
@@ -63,7 +62,7 @@ def create_admin_session(response: Response, x_pomich_admin_token: str | None = 
     secret = configured_admin_secret()
     if not _secrets_match(x_pomich_admin_token, secret):
         raise HTTPException(status_code=401, detail="admin_token_invalid")
-    session = issue_role_session("admin", "admin", secret)
+    session = issue_browser_login("admin", "admin", secret)
     set_browser_session(response, session)
     return session
 
@@ -74,7 +73,7 @@ def create_admin_account_session(payload: dict, response: Response) -> dict:
     if account is None:
         raise HTTPException(status_code=401, detail="admin_credentials_invalid")
     subject_id = str(account.get("id") or account.get("username") or "admin").strip()
-    session = issue_role_session("admin", subject_id, configured_admin_secret())
+    session = issue_browser_login("admin", subject_id, configured_admin_secret())
     session["username"] = str(account.get("username") or subject_id)
     set_browser_session(response, session)
     return session
@@ -92,7 +91,7 @@ def create_provider_session(payload: dict, response: Response, x_pomich_provider
     # Day-to-day partner auth: /auth/provider/login or /auth/provider/self/session.
     if get_provider_profile(provider_id) is None:
         raise HTTPException(status_code=404, detail="provider_not_found")
-    session = issue_role_session("provider", provider_id, secret)
+    session = issue_browser_login("provider", provider_id, secret)
     session["providerId"] = provider_id
     set_browser_session(response, session)
     return session
@@ -103,7 +102,7 @@ def create_self_provider_session(payload: dict, response: Response, authorizatio
     customer_id = str(payload.get("customerId") or "").strip()
     if not customer_id:
         raise HTTPException(status_code=400, detail="customerId missing")
-    require_customer_auth(customer_id, authorization)
+    principal = require_customer_auth(customer_id, authorization)
     provider_id = resolve_linked_provider_id(customer_id)
     if not provider_id:
         raise HTTPException(status_code=400, detail="provider_not_linked")
@@ -113,7 +112,8 @@ def create_self_provider_session(payload: dict, response: Response, authorizatio
     # Missing SQL provider rows otherwise force blank registration / empty map in Mini App.
     ensure_linked_provider_profile(customer_id)
     sync_linked_provider_phone_verification_from_customer(provider_id)
-    session = issue_role_session("provider", provider_id, configured_provider_secret())
+    session = issue_browser_login("provider", provider_id, configured_provider_secret(),
+                                  remember_me=principal.remember_me, deadline=principal.browser_expires_at)
     session["providerId"] = provider_id
     set_browser_session(response, session)
     return session
@@ -126,7 +126,7 @@ def create_provider_account_session(payload: dict, response: Response) -> dict:
     account = find_provider_account(login, str(payload.get("password") or ""), provider_id)
     if account is None or not account.get("providerId"):
         raise HTTPException(status_code=401, detail="provider_credentials_invalid")
-    session = issue_role_session("provider", str(account["providerId"]), configured_provider_secret())
+    session = issue_browser_login("provider", str(account["providerId"]), configured_provider_secret(), remember_me=payload.get("rememberMe") is True)
     session["providerId"] = str(account["providerId"])
     session["username"] = str(account.get("username") or login)
     set_browser_session(response, session)
@@ -158,7 +158,7 @@ def create_guest_customer_session(response: Response, payload: dict | None = Non
     else:
         profile = get_customer_profile(customer_id)
 
-    session = issue_role_session("customer", customer_id, configured_customer_secret())
+    session = issue_browser_login("customer", customer_id, configured_customer_secret())
     session["customerId"] = customer_id
     session["profile"] = profile
     session["account"] = build_user_account_status(customer_id)
@@ -194,7 +194,7 @@ def create_telegram_customer_session(
     preferred_role = bot_kind
 
     # Customer bearer only — never issue provider permissions from Telegram identity alone.
-    session = issue_role_session("customer", customer_id, configured_customer_secret())
+    session = issue_browser_login("customer", customer_id, configured_customer_secret())
     session["customerId"] = customer_id
     session["profile"] = profile
     session["customerIdentity"] = profile.get("customerIdentity")
@@ -278,7 +278,7 @@ def customer_phone_login_confirm(payload: dict, response: Response) -> dict:
         confirmed_profile = confirm_customer_verification_code(customer_id, code)
     except OtpVerificationError:
         raise HTTPException(status_code=401, detail="login_failed") from None
-    session = issue_role_session("customer", customer_id, configured_customer_secret())
+    session = issue_browser_login("customer", customer_id, configured_customer_secret(), remember_me=payload.get("rememberMe") is True)
     session["customerId"] = customer_id
     session["profile"] = confirmed_profile
     session["account"] = build_user_account_status(customer_id)

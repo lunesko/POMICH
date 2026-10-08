@@ -53,6 +53,8 @@ class AuthPrincipal:
     role: str
     subject_id: str
     auth_type: str
+    browser_expires_at: int = 0
+    remember_me: bool = False
 
 
 def is_production_runtime() -> bool:
@@ -360,15 +362,17 @@ def session_ttl_seconds() -> int:
         return _DEFAULT_SESSION_TTL_SECONDS
 
 
-def issue_role_session(role: str, subject_id: str, secret: str) -> dict:
+def issue_role_session(role: str, subject_id: str, secret: str, *, ttl_seconds: int | None = None, browser_expires_at: int | None = None, remember_me: bool = False) -> dict:
     issued_at = int(time.time())
-    expires_at = issued_at + session_ttl_seconds()
+    expires_at = issued_at + (session_ttl_seconds() if ttl_seconds is None else ttl_seconds)
     payload = {
         "role": role,
         "sub": str(subject_id),
         "iat": issued_at,
         "exp": expires_at,
     }
+    if browser_expires_at is not None:
+        payload.update(browserExp=browser_expires_at, rememberMe=remember_me)
     body = b64_encode(json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8"))
     signature = b64_encode(hmac.new(secret.encode("utf-8"), body.encode("ascii"), hashlib.sha256).digest())
     return {
@@ -377,6 +381,7 @@ def issue_role_session(role: str, subject_id: str, secret: str) -> dict:
         "tokenType": "Bearer",
         "accessToken": f"{_AUTH_SESSION_PREFIX}.{body}.{signature}",
         "expiresAt": expires_at,
+        **({"sessionExpiresAt": browser_expires_at, "rememberMe": remember_me} if browser_expires_at is not None else {}),
     }
 
 
@@ -398,12 +403,14 @@ def verify_role_session(token: str, expected_role: str, secret: str) -> AuthPrin
 
     if payload.get("role") != expected_role:
         raise HTTPException(status_code=403, detail="role_forbidden")
-    if expires_at < int(time.time()):
+    if expires_at <= int(time.time()):
         raise HTTPException(status_code=401, detail=f"{expected_role}_session_expired")
     subject_id = str(payload.get("sub") or "").strip()
     if not subject_id:
         raise HTTPException(status_code=401, detail=f"{expected_role}_session_invalid")
-    return AuthPrincipal(role=expected_role, subject_id=subject_id, auth_type="session")
+    return AuthPrincipal(role=expected_role, subject_id=subject_id, auth_type="session",
+                         browser_expires_at=int(payload.get("browserExp") or expires_at),
+                         remember_me=payload.get("rememberMe") is True)
 
 
 def require_admin_auth(

@@ -8562,3 +8562,11 @@ html.tg-compact .pomich-ride-screen__map .leaflet-top.leaflet-left {
     transform: none !important;
   }
 }
+
+.pomich-remember-session label { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+.pomich-remember-session input { width: 20px; height: 20px; accent-color: var(--pomich-accent); flex-shrink: 0; }
+.pomich-remember-session p { margin: 8px 0 0; }
+.pomich-cookie-notice { position: fixed; top: max(12px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); z-index: 10000; width: min(460px, calc(100% - 24px)); padding: 16px; border-radius: 16px; background: var(--pomich-surface, #fff); color: var(--pomich-text, #182b49); border: 1px solid var(--pomich-border, #ccd4de); box-shadow: 0 8px 32px #0003; font-size: 14px; }
+.pomich-cookie-notice p { margin: 0 0 10px; }
+.pomich-cookie-notice > div { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.pomich-cookie-notice a { color: var(--pomich-accent); text-decoration: underline; }

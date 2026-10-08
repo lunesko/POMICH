@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import CookieNotice from './components/ui/CookieNotice'
 import CustomerApp from './CustomerApp'
 import AppErrorBoundary from './components/AppErrorBoundary'
 import { PomichThemeProvider } from './context/PomichThemeProvider'
@@ -19,6 +20,7 @@ export default function App() {
           <TelegramRoot>
             <MapAtmosphereProvider>
               <CustomerApp />
+              <CookieNotice />
             </MapAtmosphereProvider>
           </TelegramRoot>
         </ConfirmDialogProvider>

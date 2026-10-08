@@ -362,6 +362,7 @@ export default function ProviderFlow({
     return resolvedId || providerId
   }
   const [accountLogin, setAccountLogin] = useState(providerId)
+  const [rememberMe, setRememberMe] = useState(false)
   const [accountPassword, setAccountPassword] = useState("")
   const [authSaving, setAuthSaving] = useState(false)
   const [loginView, setLoginView] = useState<"login" | "register">("register")
@@ -1826,7 +1827,7 @@ export default function ProviderFlow({
     setAuthSaving(true)
     setAuthError(undefined)
     try {
-      const session = await createProviderAccountSession(providerId, accountLogin, accountPassword)
+      const session = await createProviderAccountSession(providerId, accountLogin, accountPassword, rememberMe)
       applyProviderSession(session)
       setAccountPassword("")
     } catch (error) {
@@ -2050,6 +2051,8 @@ export default function ProviderFlow({
         subtitle="Увійдіть у свій акаунт POMICH, щоб бачити заявки та оновлювати статуси."
         login={accountLogin}
         password={accountPassword}
+        rememberMe={rememberMe}
+        onRememberMeChange={setRememberMe}
         saving={authSaving}
         error={authError}
         onLoginChange={setAccountLogin}

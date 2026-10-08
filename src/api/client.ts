@@ -281,6 +281,8 @@ export interface AuthSession {
   tokenType: 'Bearer'
   accessToken: string
   expiresAt: number
+  sessionExpiresAt?: number
+  rememberMe?: boolean
   profile?: CustomerProfile
   customerIdentity?: CustomerIdentity
   account?: UserAccountStatus
@@ -578,11 +580,11 @@ export async function createProviderSession(providerId: string, providerToken: s
   return response.json() as Promise<AuthSession>
 }
 
-export async function createProviderAccountSession(providerId: string, login: string, password: string) {
+export async function createProviderAccountSession(providerId: string, login: string, password: string, rememberMe = false) {
   const response = await fetch(`${getBaseUrl()}/auth/provider/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ providerId, login, password }),
+    body: JSON.stringify({ providerId, login, password, rememberMe }),
   })
 
   if (!response.ok) {
@@ -1006,7 +1008,7 @@ export async function sendCustomerPhoneLoginCode(phone: string) {
   return response.json() as Promise<CustomerVerifySendResponse>
 }
 
-export async function confirmCustomerPhoneLoginCode(payload: { phone: string; code: string }) {
+export async function confirmCustomerPhoneLoginCode(payload: { phone: string; code: string; rememberMe?: boolean }) {
   const response = await fetch(`${getBaseUrl()}/auth/customer/phone/login/confirm`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
