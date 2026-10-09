@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 
 import { validatePersonName } from "../../lib/personName"
-import { DEFAULT_SERVICE_CITY, validateServiceCity } from "../../lib/ukraineCities"
+import { validateServiceCity } from "../../lib/ukraineCities"
 import { validateUkraineMobilePhone } from "../../lib/ukrainePhone"
 import { requestTelegramContact, type TelegramWebApp } from "../../telegram"
 import { OnboardingFormShell } from "../layout/OnboardingFormShell"

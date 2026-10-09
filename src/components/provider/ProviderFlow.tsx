@@ -64,7 +64,7 @@ import { validateUkraineMobilePhone } from "../../lib/ukrainePhone"
 import { validateUkrainePlate } from "../../lib/ukrainePlate"
 import { isPartnerProfileComplete } from "../../lib/partnerProfileComplete"
 import { validatePersonName } from "../../lib/personName"
-import { DEFAULT_SERVICE_CITY, validateServiceCity } from "../../lib/ukraineCities"
+import { validateServiceCity } from "../../lib/ukraineCities"
 import { writeCityUserPicked, writePreferredCity } from "../../lib/preferredCity"
 import { PhoneInput } from "../ui/PhoneInput"
 import { UkrainePlateInput } from "../ui/UkrainePlateInput"
@@ -1582,7 +1582,7 @@ export default function ProviderFlow({
     const nameValidation = validatePersonName(registrationForm.name)
     const phoneValidation = validateUkraineMobilePhone(registrationForm.phone)
     const plateValidation = validateUkrainePlate(registrationForm.plate)
-    const cityValidation = validateServiceCity(registrationForm.city || DEFAULT_SERVICE_CITY)
+    const cityValidation = validateServiceCity(registrationForm.city)
     const vehicleMake = resolvePartnerVehicleMake(registrationForm.vehicleMake, registrationForm.vehicleMakeOther)
     const vehicle = composePartnerVehicle(registrationForm.vehicleMake, registrationForm.vehicleModel, registrationForm.vehicleMakeOther)
     if (!nameValidation.valid || !phoneValidation.valid || !plateValidation.valid || !cityValidation.valid || !partnerVehicleSelectionIsComplete(registrationForm.vehicleMake, registrationForm.vehicleMakeOther, registrationForm.vehicleModel) || !vehicle.trim() || registrationForm.specialties.length === 0) {
