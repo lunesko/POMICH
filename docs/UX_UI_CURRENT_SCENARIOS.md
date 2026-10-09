@@ -123,8 +123,8 @@ What the customer sees:
   - `Акумулятор`
   - `Шиномонтаж`
   - `Пальне`
-  - `Замок`
-  - `Інше`
+  - `Відкрити авто`
+  - `Механік на дорозі`
 - Partner profile sheet when a provider/directory card is selected.
 
 Current gating:
