@@ -595,6 +595,7 @@ export default function CustomerApp() {
         return
       }
       // Clean address bar: keep persisted role instead of dumping to landing on back/forward.
+      if (window.location.hash && !isHiddenAdminHash()) return
       const stored = readActiveAppRole()
       if (stored) {
         setRole(stored)
@@ -865,7 +866,10 @@ export default function CustomerApp() {
           // Transition immediately — do not await session restore on the landing page
           // (slow/hung network looked like dead CTAs with no boot screen).
           if (nextRole === "customer") {
-            beginOnboarding("customer", false, false)
+            clearExplicitLogout()
+            setShowOnboarding(false)
+            setShowLanding(false)
+            applyRoleToUrl("customer")
             return
           }
           beginOnboarding("provider", false, true)

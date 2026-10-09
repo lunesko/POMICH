@@ -9,8 +9,8 @@ SERVICE_DETAIL_RULES: Dict[str, Dict[str, set[str]]] = {
         "mobility": {"rolls", "locked", "unknown"},
     },
     "battery": {
-        "symptom": {"silent", "clicks", "cranks", "electric"},
-        "help": {"jump", "replace", "diagnose"},
+        "symptom": {"silent", "clicks", "cranks", "electric", "unknown"},
+        "help": {"jump", "replace", "diagnose", "unknown"},
     },
     "wheel": {
         "damage": {"one", "multiple", "unknown"},
@@ -56,6 +56,13 @@ def validate_service_details(service: str, value: Any) -> dict:
     for field, allowed in required.items():
         if answers.get(field) not in allowed:
             raise ServiceDetailsValidationError(f"service_detail_invalid:{field}")
+
+    if service == "tow":
+        for field, allowed in {"vehicleType": {"car", "suv", "van", "unknown"}, "vehicleWeight": {"under2", "2to3", "over3", "unknown"}}.items():
+            if field in answers:
+                if answers[field] not in allowed:
+                    raise ServiceDetailsValidationError(f"service_detail_invalid:{field}")
+                required[field] = allowed
 
     return {
         "version": 1,

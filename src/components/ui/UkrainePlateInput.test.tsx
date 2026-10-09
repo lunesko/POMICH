@@ -52,9 +52,9 @@ describe("UkrainePlateInput", () => {
     expect(input).toHaveValue("AO 3422 TE")
   })
 
-  it("shows bilingual letter hint", () => {
+  it("shows concise automatic letter conversion hint", () => {
     render(<UkrainePlateInput value="" onChange={vi.fn()} />)
-    expect(screen.getByText(/Літери латиницею або кирилицею/i)).toBeInTheDocument()
+    expect(screen.getByText(/кириличні літери перетворюються автоматично/i)).toBeInTheDocument()
   })
 
   it("shows validation error", () => {

@@ -13,6 +13,7 @@ const project = vi.fn((coords: [number, number]) => ({ x: coords[0] * 1000, y: c
 vi.mock("react-leaflet", () => ({
   MapContainer: ({ children }: { children: React.ReactNode }) => <div data-testid="map">{children}</div>,
   TileLayer: () => null,
+  Circle: () => <div />,
   Polyline: () => null,
   Marker: () => null,
   Popup: () => null,

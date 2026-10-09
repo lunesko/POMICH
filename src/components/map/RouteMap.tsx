@@ -4,7 +4,7 @@ import type { LatLngTuple } from "leaflet"
 
 import L from "leaflet"
 
-import { MapContainer, Marker, Polyline, Popup, useMap } from "react-leaflet"
+import { MapContainer, Marker, Polyline, Circle, Popup, useMap } from "react-leaflet"
 
 import "leaflet/dist/leaflet.css"
 
@@ -427,6 +427,8 @@ function DirectoryProviderMarkers({
             key={item.id}
             position={toTuple(point)}
             icon={directoryProviderIcon(item)}
+            title={`${item.name} · ${item.address || item.city || "Довідник сервісів"}`}
+            alt={`${item.name} · ${item.address || item.city || "Довідник сервісів"}`}
             eventHandlers={
               onProviderSelect
                 ? {
@@ -1200,6 +1202,7 @@ interface RouteMapProps {
   ukraineMapFitCountry?: boolean
 
   /** Override map zoom (defaults to 6 for all-ukraine directory, else 13). */
+  serviceRadiusKm?: number
   mapZoom?: number
 
   /** Directory scope selector — «Вся Україна» vs «Моє місто». */
@@ -1281,6 +1284,7 @@ export function RouteMap({
   ukraineMapFitCountry,
 
   mapZoom,
+  serviceRadiusKm,
 
   directoryScope,
 
@@ -1791,6 +1795,7 @@ export function RouteMap({
           fitCountry={ukraineMapFitCountry ?? (decorative || directoryScope === "all-ukraine")}
         />
 
+        {serviceRadiusKm ? <Circle center={toTuple(pickup)} radius={serviceRadiusKm * 1000} pathOptions={{ color: BRAND, weight: 1, fillOpacity: 0.04 }} /> : null}
         {mapInteractive ? <ClickToPick onPick={handleMapPick} /> : null}
 
         {navRouteCoords ? (

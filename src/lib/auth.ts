@@ -281,7 +281,7 @@ export function clearAllAuthStorage() {
   const keysToRemove: string[] = []
   for (let index = 0; index < window.sessionStorage.length; index += 1) {
     const key = window.sessionStorage.key(index)
-    if (key?.startsWith("pomichAuthSession:")) keysToRemove.push(key)
+    if (key?.startsWith("pomichAuthSession:") || key?.startsWith("pomichDraft:")) keysToRemove.push(key)
   }
   keysToRemove.forEach((key) => window.sessionStorage.removeItem(key))
 

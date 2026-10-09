@@ -29,6 +29,7 @@ import {
   type ProviderAvailability,
   type VerificationStatus,
 } from "../../api/client"
+import { isWithinUkraineServiceArea } from "../../lib/pomichDomain"
 import LazyRouteMap from "../map/LazyRouteMap"
 import { RideScreen } from "../layout/RideScreen"
 import {
@@ -539,7 +540,7 @@ export default function ProviderFlow({
         const cityIsPlaceholder = !currentCity
         next = {
           ...next,
-          name: pick(next.name, String(source.name || "")),
+          name: pick(next.name, /^(Клієнт|Партнер) POMICH$/.test(String(source.name || "")) ? "" : String(source.name || "")),
           phone: pick(next.phone, String(source.phone || "")),
           telegram: pick(next.telegram, String((source as ProviderAvailability).telegram || "")),
           vehicleMake: pick(next.vehicleMake, vehicleFields.vehicleMake || ""),
@@ -1496,6 +1497,8 @@ export default function ProviderFlow({
       return { token: session.accessToken, providerId: resolvedId }
     }
 
+    const restored = await restoreBrowserSession("provider")
+    if (restored) return { token: restored.accessToken, providerId: applyProviderSession(restored) }
     throw Object.assign(new Error("provider_session_missing"), { detail: "provider_session_missing" })
   }
 
@@ -1674,7 +1677,7 @@ export default function ProviderFlow({
                 }
                 finish(null)
               },
-              { mode: "explicit" },
+              { mode: "explicit", requireFresh: true },
             )
           })
         : Promise.resolve(null)
@@ -1733,12 +1736,18 @@ export default function ProviderFlow({
           providerLocationRef.current = freshPoint
           setProviderGeoError(undefined)
           setProviderGeoWatchEpoch((value) => value + 1)
-        } else if (!providerLocationRef.current) {
+        } else {
           const message =
             "Не вдалося визначити геолокацію. Дозвольте доступ і натисніть «Оновити», потім знову «На лінії»."
           setOfferError(message)
           setPresenceToast(message)
           setProviderGeoError(message)
+          return
+        }
+        if (!isWithinUkraineServiceArea(freshPoint)) {
+          const message = "GPS-точка поза Україною. Перевірте геолокацію — вихід на лінію недоступний."
+          setProviderGeoError(message)
+          setPresenceToast(message)
           return
         }
         seenDutyAlertIdsRef.current = new Set()
@@ -2014,11 +2023,7 @@ export default function ProviderFlow({
   ])
 
   const openPartnerRestoreOrLogin = () => {
-    // Prefer phone OTP restore (linked provider) over password login dead-end.
-    if (onRestoreAccount) {
-      onRestoreAccount()
-      return
-    }
+    if (onRestoreAccount && /phone_already_registered|зареєстровано/i.test(registrationError || "")) { onRestoreAccount(); return }
     setRegistrationError(undefined)
     setLoginView("login")
   }
@@ -2029,8 +2034,8 @@ export default function ProviderFlow({
     if (providerRegistered && customerIdForOtp && customerTokenForOtp) {
       return <div className="pomich-boot-screen">Завантажуємо кабінет партнера…</div>
     }
-    // Phone OTP restore / registration first — password login is a Mini App dead-end.
-    if (loginView === "register" || onRestoreAccount) {
+    // Registration first; returning partners can choose password login with remember-me.
+    if (loginView === "register") {
       return (
         <ProviderRegistrationStep
           form={registrationForm}
@@ -2191,9 +2196,10 @@ export default function ProviderFlow({
       <>
       <RideScreen
         pickup={providerLocation}
+        serviceRadiusKm={providerProfile.serviceRadiusKm ?? registrationForm.serviceRadiusKm ?? DEFAULT_SERVICE_RADIUS_KM}
         providers={onDuty ? [providerPresence] : []}
         requestPins={mapRequestPins}
-        mapSubtitle={onDuty ? `На лінії · ${mapRequestPins.length} заявок поруч` : "Україна · партнер"}
+        mapSubtitle={onDuty ? `На лінії · ${mapRequestPins.length} заявок поруч` : `Поза лінією · робоче місто: ${providerProfile.city || "не обрано"} · точку GPS перевірте`}
         showAllProviders={false}
         showDirectoryProviders={false}
         expandedSheet={dutySheetSnap === "expanded"}
@@ -2500,9 +2506,10 @@ export default function ProviderFlow({
       <>
         <RideScreen
           pickup={providerLocation}
+          serviceRadiusKm={providerProfile.serviceRadiusKm ?? registrationForm.serviceRadiusKm ?? DEFAULT_SERVICE_RADIUS_KM}
           providers={onDuty ? [providerPresence] : []}
           requestPins={mapRequestPins}
-          mapSubtitle={onDuty ? `На лінії · ${mapRequestPins.length} заявок поруч` : "Україна · партнер"}
+          mapSubtitle={onDuty ? `На лінії · ${mapRequestPins.length} заявок поруч` : `Поза лінією · робоче місто: ${providerProfile.city || "не обрано"} · точку GPS перевірте`}
           showAllProviders={false}
           showDirectoryProviders={false}
           expandedSheet={dutySheetSnap === "expanded"}

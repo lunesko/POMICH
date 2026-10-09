@@ -78,10 +78,34 @@ describe('customerSession', () => {
     ).toEqual(expect.objectContaining({ orderId: 'PM-LIVE', status: 'accepted' }))
   })
 
+  it('restores a remembered web customer before attempting a guest identity', async () => {
+    window.localStorage.setItem('pomichCustomerId', 'remembered-client')
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/auth/browser/restore')) return { ok: true, json: async () => ({ role: 'customer', subjectId: 'remembered-client', customerId: 'remembered-client', accessToken: 'pomich_auth_v1.remembered', expiresAt: Date.now() / 1000 + 3600 }) }
+      if (url.includes('/account')) return { ok: true, json: async () => ({ customerId: 'remembered-client', clientRegistered: true, profile: { id: 'remembered-client', name: 'Roman', phone: '+380671112233', verificationStatus: 'verified' } }) }
+      throw new Error(`unexpected ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const result = await resolveCustomerAuthSession({})
+    expect(result.customerId).toBe('remembered-client')
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/guest/session'))).toBe(false)
+  })
+
+  it('keeps the customer identity when cookie restoration fails over the network', async () => {
+    window.localStorage.setItem('pomichCustomerId', 'offline-client')
+    const fetchMock = vi.fn(async () => { throw new Error('Failed to fetch') })
+    vi.stubGlobal('fetch', fetchMock)
+    await expect(resolveCustomerAuthSession({})).rejects.toThrow()
+    expect(window.localStorage.getItem('pomichCustomerId')).toBe('offline-client')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
   it('creates fresh guest session when only customer-web default remains', async () => {
     const guestSessionCalls: Array<string | undefined> = []
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
+      if (url.includes('/auth/browser/restore')) return { ok: false, status: 401, json: async () => ({}) }
       if (url.includes('/auth/customer/guest/session')) {
         const body = init?.body ? JSON.parse(String(init.body)) as { customerId?: string } : {}
         guestSessionCalls.push(body.customerId)

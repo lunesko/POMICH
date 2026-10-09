@@ -8566,7 +8566,24 @@ html.tg-compact .pomich-ride-screen__map .leaflet-top.leaflet-left {
 .pomich-remember-session label { display: flex; align-items: center; gap: 10px; cursor: pointer; }
 .pomich-remember-session input { width: 20px; height: 20px; accent-color: var(--pomich-accent); flex-shrink: 0; }
 .pomich-remember-session p { margin: 8px 0 0; }
-.pomich-cookie-notice { position: fixed; top: max(12px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); z-index: 10000; width: min(460px, calc(100% - 24px)); padding: 16px; border-radius: 16px; background: var(--pomich-surface, #fff); color: var(--pomich-text, #182b49); border: 1px solid var(--pomich-border, #ccd4de); box-shadow: 0 8px 32px #0003; font-size: 14px; }
+.pomich-cookie-notice { position: fixed; bottom: max(12px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); z-index: 10000; width: min(460px, calc(100% - 24px)); padding: 16px; border-radius: 16px; background: #fff; color: var(--pomich-text, #182b49); border: 1px solid var(--pomich-border, #ccd4de); box-shadow: 0 8px 32px #0003; font-size: 14px; }
 .pomich-cookie-notice p { margin: 0 0 10px; }
 .pomich-cookie-notice > div { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .pomich-cookie-notice a { color: var(--pomich-accent); text-decoration: underline; }
+
+/* Audit: opaque reading surfaces and a keyboard-accessible alternative to map markers. */
+.pomich-directory-list {
+  margin: 16px auto;
+  max-width: 1000px;
+  padding: 16px;
+  border-radius: 16px;
+  background: var(--pomich-surface);
+  color: var(--pomich-text);
+}
+.pomich-directory-list summary { cursor: pointer; font-weight: 800; min-height: 44px; }
+.pomich-directory-list input { display: block; width: 100%; min-height: 44px; background: var(--pomich-input-bg); color: var(--pomich-text); border: 1px solid var(--pomich-border); border-radius: 8px; padding: 8px; }
+.pomich-directory-list li { padding: 8px 0; }
+.pomich-map-shell--root .pomich-form-card,
+.pomich-map-shell--root .pomich-onboarding-card { background: var(--pomich-surface) !important; backdrop-filter: none; }
+
+[data-pomich-theme="dark"] .pomich-cookie-notice { background: #182b49; }

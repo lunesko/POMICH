@@ -88,7 +88,7 @@ export function emptyPartnerRegistrationForm(): PartnerRegistrationForm {
     vehicleMakeOther: "",
     vehicleModel: "",
     plate: "",
-    city: DEFAULT_SERVICE_CITY,
+    city: "",
     specialties: [],
     serviceRadiusKm: DEFAULT_SERVICE_RADIUS_KM,
     identityDocumentRef: "",

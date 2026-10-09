@@ -7,7 +7,7 @@ export const UA_PLATE_VALIDATION_ERROR =
   "Введіть коректний номер авто (формат: AA 0000 AA). Можна латиницею або кирилицею."
 
 export const UA_PLATE_INPUT_HINT =
-  "Літери латиницею або кирилицею: A/А B/В C/С E/Е H/Н I/І K/К M/М O/О P/Р T/Т X/Х"
+  "Наприклад: AA 1234 BB. Схожі кириличні літери перетворюються автоматично."
 
 /**
  * Cyrillic plate lookalikes → canonical Latin plate alphabet.

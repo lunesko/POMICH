@@ -45,7 +45,7 @@ function RegistrationScreenHeader({ onBack }: { onBack?: () => void }) {
 export default function ClientRegistrationScreen({
   initialName = "",
   initialPhone = "",
-  initialCity = DEFAULT_SERVICE_CITY,
+  initialCity = "",
   loggedInAs,
   isTelegram = false,
   webApp,
@@ -57,7 +57,7 @@ export default function ClientRegistrationScreen({
 }: ClientRegistrationScreenProps) {
   const [name, setName] = useState(initialName)
   const [phone, setPhone] = useState(initialPhone)
-  const [city, setCity] = useState(initialCity || DEFAULT_SERVICE_CITY)
+  const [city, setCity] = useState(initialCity || "")
   const [nameError, setNameError] = useState<string>()
   const [nameHint, setNameHint] = useState<string>()
   const [phoneError, setPhoneError] = useState<string>()
@@ -75,7 +75,7 @@ export default function ClientRegistrationScreen({
   }, [initialPhone])
 
   useEffect(() => {
-    setCity(initialCity || DEFAULT_SERVICE_CITY)
+    setCity(initialCity || "")
   }, [initialCity])
 
   useEffect(() => {
@@ -89,7 +89,7 @@ export default function ClientRegistrationScreen({
   const phoneValidation = validateUkraineMobilePhone(phone)
   const nameValidation = validatePersonName(name)
   const cityValidation = validateServiceCity(city)
-  const canSubmit = nameValidation.valid && phoneValidation.valid && cityValidation.valid
+  const canSubmit = nameValidation.valid && phoneValidation.valid && (!city || cityValidation.valid)
   const canRequestContact = isTelegram && Boolean(webApp?.requestContact) && !phoneValidation.valid
 
   const handleRequestContact = async () => {
@@ -124,10 +124,10 @@ export default function ClientRegistrationScreen({
     setNameHint(nextName.hint)
     setPhoneError(nextPhone.valid ? undefined : nextPhone.error)
     setPhoneHint(nextPhone.valid ? undefined : "Мобільний номер України: 9 цифр після +380")
-    setCityError(nextCity.error)
+    setCityError(city ? nextCity.error : undefined)
     setCityHint(nextCity.hint)
-    if (!nextName.valid || !nextPhone.valid || !nextCity.valid) return
-    onSubmit({ name: nextName.value, phone: nextPhone.e164, city: nextCity.value })
+    if (!nextName.valid || !nextPhone.valid || (Boolean(city) && !nextCity.valid)) return
+    onSubmit({ name: nextName.value, phone: nextPhone.e164, city: city ? nextCity.value : "" })
   }
 
   return (
@@ -162,6 +162,8 @@ export default function ClientRegistrationScreen({
         <FieldError error={nameError} hint={nameHint} />
       </label>
       <CitySelect
+        label="Місто профілю (не місце поломки)"
+        required={false}
         value={city}
         onChange={(next) => {
           setCity(next)

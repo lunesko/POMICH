@@ -24,3 +24,10 @@ The cookie notice is informational and links `/privacy`; acknowledging it is sto
 localStorage. This is not an optional analytics consent mechanism.
 
 OTP lifetime remains 10 minutes; resend cooldown remains 45 seconds.
+
+Protected browser API requests inspect bearer expiry and restore it before sending,
+including history polling and partner heartbeat. Concurrent requests share one restore;
+mutations are never replayed automatically. A cookie for another account cannot replace
+the identity embedded in the original request. Transport failures during customer restore
+keep the existing identity instead of silently creating a guest. Drafts live only in the
+current tab's sessionStorage for up to 12 hours and are removed on logout.

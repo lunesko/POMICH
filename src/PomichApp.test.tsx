@@ -18,6 +18,7 @@ function renderApp() {
 vi.mock('react-leaflet', () => ({
   MapContainer: ({ children }: { children: React.ReactNode }) => <div data-testid="map">{children}</div>,
   TileLayer: () => <div />,
+  Circle: () => <div />,
   Polyline: () => <div />,
   GeoJSON: () => <div />,
   Marker: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
@@ -97,6 +98,7 @@ const verifiedTestProfile = {
 function mockRegisteredCustomerFetch(extra?: (url: string, init?: RequestInit) => Promise<{ ok: boolean; json: () => Promise<unknown> }> | undefined) {
   return vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
+    if (url.includes("/auth/browser/restore")) return Promise.resolve({ ok: false, status: 401, json: async () => ({}) })
     const fromExtra = extra?.(url, init)
     if (fromExtra) return fromExtra
     if (url.includes('nominatim.openstreetmap.org/search')) {
@@ -192,12 +194,35 @@ describe('POMICH role-based flows', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
+    Object.defineProperty(navigator, 'geolocation', { configurable: true, value: {
+      getCurrentPosition: (success: PositionCallback) => success({ coords: { latitude: 48.62, longitude: 22.28, accuracy: 10 }, timestamp: Date.now() } as GeolocationPosition),
+      watchPosition: () => 1, clearWatch: () => undefined,
+    } })
     window.history.pushState({}, '', '/')
     window.localStorage.clear()
     window.sessionStorage.clear()
     delete (window as Window & { Telegram?: unknown }).Telegram
     vi.stubGlobal('fetch', mockRegisteredCustomerFetch())
   })
+
+  it('lets a new visitor choose a problem before registration and restores the draft after remount', async () => {
+    const user = userEvent.setup()
+    const first = renderApp()
+    const help = await screen.findAllByRole('button', { name: /Потрібна допомога/i })
+    await user.click(help[0])
+    expect(await screen.findByText('Що сталося?')).toBeInTheDocument()
+    expect(screen.queryByText('Реєстрація клієнта')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /Не заводиться/i }))
+    await user.click(screen.getByRole('button', { name: /Підтвердити місце/i }))
+    await user.click(screen.getByRole('radio', { name: /Стартер мовчить/i }))
+    await user.click(screen.getByRole('radio', { name: /Запустити від іншого АКБ/i }))
+    await user.click(screen.getByRole('button', { name: /^Далі$/i }))
+    expect(screen.getByText('Перевірте заявку')).toBeInTheDocument()
+    first.unmount()
+    renderApp()
+    expect(await screen.findByText('Перевірте заявку')).toBeInTheDocument()
+    expect(screen.getByText('Стартер мовчить')).toBeInTheDocument()
+  }, 15000)
 
   async function openCustomerHome(user: ReturnType<typeof userEvent.setup>) {
     renderApp()
@@ -870,7 +895,7 @@ describe('POMICH role-based flows', () => {
 
     await openCustomerHome(user)
 
-    expect(await screen.findByText('Поточне місце')).toBeInTheDocument()
+    expect(await screen.findByText('Точка допомоги — перевірте на карті')).toBeInTheDocument()
     const refreshButton = screen.getByRole('button', { name: /Оновити геолокацію/i })
     expect(refreshButton).toBeInTheDocument()
 
@@ -1604,7 +1629,7 @@ describe('POMICH role-based flows', () => {
     expect(screen.queryByText(/Реєстрація партнера/i)).not.toBeInTheDocument()
   })
 
-  it('partner registration login CTA opens phone restore, not password dead-end', async () => {
+  it('partner registration exposes password login and remember option', async () => {
     const user = userEvent.setup()
     window.history.pushState({}, '', '/?role=provider')
     renderApp()
@@ -1612,11 +1637,8 @@ describe('POMICH role-based flows', () => {
     expect(await screen.findByText('Реєстрація партнера')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /Вже маєте акаунт\? Увійти/i }))
 
-    expect(await screen.findByText('Увійти')).toBeInTheDocument()
-    expect(screen.getByText(/Код надійде у Telegram/i)).toBeInTheDocument()
-    expect(document.querySelector('input[type="tel"]')).toBeTruthy()
-    expect(screen.queryByText('Вхід партнера')).not.toBeInTheDocument()
-    expect(screen.queryByLabelText('Логін')).not.toBeInTheDocument()
+    expect(await screen.findByText('Вхід партнера')).toBeInTheDocument()
+    expect(screen.getByLabelText(/Залишатися в системі/i)).not.toBeChecked()
   })
 
   it('phone_already_registered shows restore CTA and opens phone login', async () => {
@@ -1683,6 +1705,7 @@ describe('POMICH role-based flows', () => {
     const phoneInput = document.querySelector('input[type="tel"]') as HTMLInputElement
     await user.clear(phoneInput)
     await user.type(phoneInput, '661007434')
+    await user.selectOptions(screen.getByRole('combobox', { name: /Оберіть місто/i }), 'Ужгород')
     await user.selectOptions(screen.getByRole('combobox', { name: /Марка авто/i }), 'Volkswagen')
     await user.selectOptions(screen.getByRole('combobox', { name: /^Модель$/i }), 'Crafter')
 
@@ -2021,6 +2044,10 @@ describe('POMICH role-based flows', () => {
   })
 
   it('lets a provider go on duty before seeing offers', async () => {
+    Object.defineProperty(navigator, 'geolocation', { configurable: true, value: {
+      getCurrentPosition: (success: PositionCallback) => success({ coords: { latitude: 48.62, longitude: 22.28, accuracy: 10 }, timestamp: Date.now() } as GeolocationPosition),
+      watchPosition: () => 1, clearWatch: () => undefined,
+    } })
     const user = userEvent.setup()
     const providerSessionToken = 'pomich_auth_v1.provider-session'
     const completedProvider = {
@@ -2559,6 +2586,9 @@ describe('POMICH role-based flows', () => {
 
     await user.type(screen.getByPlaceholderText(/Київ/i), 'Ужгород, СТО «Авторемонт»')
     await user.click(screen.getByRole('button', { name: /Знайти адресу/i }))
+    expect(await screen.findByText(/Адресу знайдено:/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Далі$/i })).toBeDisabled()
+    await user.click(screen.getByRole('button', { name: /Підтверджую цю точку доставки/i }))
     expect(await screen.findByText(/Точку доставки підтверджено/i)).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /^Далі$/i }))
     expect(screen.getByText('Підготуємо евакуатор')).toBeInTheDocument()
@@ -2582,7 +2612,7 @@ describe('POMICH role-based flows', () => {
     await user.click(screen.getByRole('radio', { name: /Запустити від іншого АКБ/i }))
     await user.click(screen.getByRole('button', { name: /^Далі$/i }))
     expect(screen.getByText('Перевірте заявку')).toBeInTheDocument()
-    expect(screen.getByText(/По місцю, нікуди їхати не потрібно/i)).toBeInTheDocument()
+    expect(screen.getByText(/Бажана допомога на місці/i)).toBeInTheDocument()
   })
 
   it.each([

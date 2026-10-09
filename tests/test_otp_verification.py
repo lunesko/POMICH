@@ -732,3 +732,32 @@ def test_telegram_otp_send_uses_short_timeout(monkeypatch) -> None:
 
     assert sent_messages[0]["timeout"] == otp_verification.OTP_TELEGRAM_TIMEOUT_SECONDS
     assert sent_messages[0]["timeout"] <= 5
+
+
+def test_transient_telegram_delivery_retries_same_code_in_background(otp_env, monkeypatch):
+    _, path = otp_env
+    customer_id, code = 'guest-retry', '123456'
+    otp_verification._save_otp_store({customer_id: {'codeHash': otp_verification._hash_otp_code(customer_id, 'telegram', code)}}, path)
+    calls = []
+    def deliver(chat_id, value, **kwargs):
+        calls.append(value)
+        if len(calls) == 1:
+            raise otp_verification.OtpVerificationError('telegram_send_failed', 'timed out')
+        return 42, 'customer'
+    monkeypatch.setattr(otp_verification, '_deliver_telegram_otp', deliver)
+    monkeypatch.setattr(otp_verification, '_schedule_otp_message_deletion', lambda *args, **kwargs: None)
+    otp_verification._deliver_telegram_otp_and_record(customer_id, '42', code, store_path=path)
+    assert calls == [code, code]
+    assert otp_verification._load_otp_store(path)[customer_id]['telegramMessageId'] == 42
+
+
+def test_old_delivery_failure_does_not_invalidate_newer_otp(otp_env, monkeypatch):
+    _, path = otp_env
+    customer_id = 'guest-overlap'
+    next_hash = otp_verification._hash_otp_code(customer_id, 'telegram', '654321')
+    otp_verification._save_otp_store({customer_id: {'codeHash': next_hash}}, path)
+    def fail(*args, **kwargs):
+        raise otp_verification.OtpVerificationError('telegram_send_failed', 'forbidden')
+    monkeypatch.setattr(otp_verification, '_deliver_telegram_otp', fail)
+    otp_verification._deliver_telegram_otp_and_record(customer_id, '42', '123456', store_path=path)
+    assert otp_verification._load_otp_store(path)[customer_id]['codeHash'] == next_hash

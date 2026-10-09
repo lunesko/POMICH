@@ -45,7 +45,7 @@ export function CitySelect({
         </option>
         {OPTIONS.map((city) => (
           <option key={city} value={city}>
-            {city === DEFAULT_SERVICE_CITY ? `${city} (за замовчуванням)` : city}
+            {city}
           </option>
         ))}
       </select>

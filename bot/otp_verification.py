@@ -318,7 +318,7 @@ def _deliver_telegram_otp_and_record(
             otp_path = store_path or _default_otp_store_path()
             store = _load_otp_store(otp_path)
             record = store.get(customer_id)
-            if not isinstance(record, dict) or not record.get("codeHash"):
+            if not isinstance(record, dict) or record.get("codeHash") != _hash_otp_code(customer_id, "telegram", code):
                 return
             # Keep rate-limit history; only remove the live code.
             record.pop("codeHash", None)
@@ -339,7 +339,13 @@ def _deliver_telegram_otp_and_record(
         _invalidate_undelivered_code("chat_guard")
         return
     try:
-        message_id, bot_kind = _deliver_telegram_otp(chat_id, code, preferred_kind=preferred_kind)
+        try:
+            message_id, bot_kind = _deliver_telegram_otp(chat_id, code, preferred_kind=preferred_kind)
+        except OtpVerificationError as exc:
+            if not any(word in str(exc.message).lower() for word in ("timeout", "timed out", "reset by peer", "temporarily unavailable")):
+                raise
+            # One background retry with the same code. Never require the user to press resend.
+            message_id, bot_kind = _deliver_telegram_otp(chat_id, code, preferred_kind=preferred_kind)
     except Exception as exc:
         print(
             f"[POMICH OTP] telegram send failed customer_id={customer_id} chat_id={chat_id} error={exc}",
@@ -352,7 +358,7 @@ def _deliver_telegram_otp_and_record(
         otp_path = store_path or _default_otp_store_path()
         store = _load_otp_store(otp_path)
         record = store.get(customer_id)
-        if not isinstance(record, dict) or not record.get("codeHash"):
+        if not isinstance(record, dict) or record.get("codeHash") != _hash_otp_code(customer_id, "telegram", code):
             return
         record["telegramChatId"] = str(chat_id)
         record["telegramMessageId"] = message_id

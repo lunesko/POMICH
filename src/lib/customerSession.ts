@@ -243,8 +243,9 @@ export async function resolveCustomerAuthSession(
         customerId = applyCustomerAuthSession(browserSession)
         token = browserSession.accessToken
       }
-    } catch {
-      // Network failures still use the existing guest/phone login flow.
+    } catch (error) {
+      // A transport failure is not proof that the cookie expired. Keep identity intact.
+      throw error
     }
   }
 

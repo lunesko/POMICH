@@ -55,7 +55,7 @@ export function ProviderRegistrationStep({
   const composedVehicle = composePartnerVehicle(form.vehicleMake, form.vehicleModel, form.vehicleMakeOther)
   const nameValidation = validatePersonName(form.name)
   const phoneValidation = validateUkraineMobilePhone(form.phone)
-  const cityValidation = validateServiceCity(form.city || DEFAULT_SERVICE_CITY)
+  const cityValidation = validateServiceCity(form.city)
   const canSubmit = Boolean(
     nameValidation.valid &&
     phoneValidation.valid &&
@@ -77,7 +77,7 @@ export function ProviderRegistrationStep({
   const handleSubmit = () => {
     const nextName = validatePersonName(form.name)
     const nextPhone = validateUkraineMobilePhone(form.phone)
-    const nextCity = validateServiceCity(form.city || DEFAULT_SERVICE_CITY)
+    const nextCity = validateServiceCity(form.city)
     const nextPlate = validateUkrainePlate(form.plate)
     setNameError(nextName.error)
     setNameHint(nextName.hint)
@@ -90,9 +90,10 @@ export function ProviderRegistrationStep({
     onSubmit()
   }
 
+  const missing = [!nameValidation.valid && "ім’я", !phoneValidation.valid && "телефон", !cityValidation.valid && "робоче місто", !partnerVehicleSelectionIsComplete(form.vehicleMake, form.vehicleMakeOther, form.vehicleModel) && "авто", !isValidUkrainePlate(form.plate) && "номер авто", !form.specialties.length && "послуги"].filter(Boolean)
   const title = completingProfile ? "Профіль партнера" : "Реєстрація партнера"
   const subtitle = completingProfile
-    ? "Підтвердіть дані з акаунту клієнта та додайте авто й послуги"
+    ? "Заповніть контактні дані, робоче місто, авто й послуги для виходу на лінію"
     : "Заповніть профіль і оберіть послуги, які надаєте"
   const submitLabel = saving
     ? "Зберігаємо профіль…"
@@ -109,7 +110,7 @@ export function ProviderRegistrationStep({
       <FormContainer>
         <div className="pomich-form-card">
           <label className="pomich-form-field">
-            <span className="pomich-form-label">Ім'я</span>
+            <span className="pomich-form-label">Ім'я *</span>
             <input
               value={form.name}
               onChange={(event) => {
@@ -123,7 +124,7 @@ export function ProviderRegistrationStep({
             <FieldError error={nameError} hint={nameHint} />
           </label>
           <label className="pomich-form-field">
-            <span className="pomich-form-label">Телефон</span>
+            <span className="pomich-form-label">Телефон *</span>
             <PhoneInput
               value={form.phone}
               onChange={(phone) => {
@@ -136,7 +137,7 @@ export function ProviderRegistrationStep({
             <FieldError hint={phoneHint} />
           </label>
           <CitySelect
-            value={form.city || DEFAULT_SERVICE_CITY}
+            value={form.city}
             onChange={(city) => {
               onChange({ city })
               if (cityError) setCityError(undefined)
@@ -150,7 +151,7 @@ export function ProviderRegistrationStep({
         <div className="pomich-form-card">
           <PartnerVehicleFields form={form} onChange={onChange} />
           <label className="pomich-form-field">
-            <span className="pomich-form-label">Номер</span>
+            <span className="pomich-form-label">Номер *</span>
             <UkrainePlateInput
               value={form.plate}
               onChange={(plate) => {
@@ -180,6 +181,7 @@ export function ProviderRegistrationStep({
                 <button
                   key={service.key}
                   type="button"
+                  aria-pressed={selected}
                   onClick={() => onToggleSpecialty(service.key)}
                   className={`pomich-service-card${selected ? " is-selected" : " pomich-service-card--pastel"}`}
                   data-pastel={selected ? undefined : "true"}
@@ -197,6 +199,7 @@ export function ProviderRegistrationStep({
           </div>
         </div>
 
+        {!canSubmit ? <p role="status" className="pomich-disabled-reason">Для збереження заповніть: {missing.join(", ")}.</p> : null}
         {onLogin ? (
           <button type="button" onClick={onLogin} className="pomich-link-btn" style={{ width: "100%" }}>
             {error && /phone_already_registered|вже зареєстровано|уже зареєстровано/i.test(error)

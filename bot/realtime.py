@@ -17,6 +17,7 @@ from typing import Any, AsyncIterator, Protocol
 _LOCK = threading.Lock()
 _SEQ = 0
 _CHANNELS: dict[str, list[asyncio.Queue]] = defaultdict(list)
+_LOOPS: dict[asyncio.Queue, asyncio.AbstractEventLoop | None] = {}
 
 
 def _next_seq() -> int:
@@ -48,19 +49,26 @@ def publish(channel: str, event_type: str, payload: dict[str, Any] | None = None
         "payload": payload or {},
     }
     with _LOCK:
-        queues = list(_CHANNELS.get(channel, []))
-    for queue in queues:
+        listeners = [(queue, _LOOPS.get(queue)) for queue in _CHANNELS.get(channel, [])]
+    for queue, loop in listeners:
+        if loop is None:
+            _enqueue(queue, message)  # Synchronous test/local queue; no waiting event loop.
+        else:
+            try:
+                loop.call_soon_threadsafe(_enqueue, queue, message)
+            except RuntimeError:
+                unsubscribe(channel, queue)  # Loop closed during subscriber cleanup.
+
+
+def _enqueue(queue: asyncio.Queue, message: dict) -> None:
+    try:
+        queue.put_nowait(message)
+    except asyncio.QueueFull:
         try:
-            queue.put_nowait(message)
-        except asyncio.QueueFull:
-            try:
-                queue.get_nowait()
-            except asyncio.QueueEmpty:
-                pass
-            try:
-                queue.put_nowait(message)
-            except asyncio.QueueFull:
-                pass
+            queue.get_nowait()
+        except asyncio.QueueEmpty:
+            pass
+        queue.put_nowait(message)
 
 
 def publish_order_event(order: dict[str, Any] | None, event_type: str = "order.updated") -> None:
@@ -96,13 +104,19 @@ def publish_provider_event(provider_id: str, event_type: str, payload: dict[str,
 
 def subscribe(channel: str, *, maxsize: int = 32) -> asyncio.Queue:
     queue: asyncio.Queue = asyncio.Queue(maxsize=maxsize)
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
     with _LOCK:
+        _LOOPS[queue] = loop
         _CHANNELS[channel].append(queue)
     return queue
 
 
 def unsubscribe(channel: str, queue: asyncio.Queue) -> None:
     with _LOCK:
+        _LOOPS.pop(queue, None)
         listeners = _CHANNELS.get(channel) or []
         if queue in listeners:
             listeners.remove(queue)
@@ -168,6 +182,7 @@ def _sse(data: dict[str, Any]) -> str:
 def reset_realtime_for_tests() -> None:
     with _LOCK:
         _CHANNELS.clear()
+        _LOOPS.clear()
 
 
 def realtime_stats() -> dict[str, int]:

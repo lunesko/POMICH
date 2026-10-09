@@ -398,7 +398,7 @@ function CurrentLocationCard({
     <div style={{ marginTop: 0, border: `1px solid ${BORDER}`, borderRadius: 14, padding: "2px 10px 8px", background: SURFACE_TONE }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <LocationRow icon="●" title="Поточне місце" subtitle={geoLoading ? "Визначаємо адресу…" : locationLabel} active />
+          <LocationRow icon="●" title="Точка допомоги — перевірте на карті" subtitle={geoLoading ? "Визначаємо адресу…" : locationLabel} active />
         </div>
         <GeoRefreshButton loading={geoLoading} onClick={onRefreshGeo} />
       </div>
@@ -428,7 +428,7 @@ function CurrentLocationCard({
                 touchAction: "manipulation",
               }}
             >
-              Налаштування гео
+              Як увімкнути геолокацію
             </button>
           ) : null}
         </div>
@@ -666,7 +666,6 @@ function HomeStep({
   const [showOtherProblems, setShowOtherProblems] = useState(false)
 
   const handleSelect = (service: ServiceKey) => {
-    if (!profileReady) return
     onSelect(service)
   }
 
@@ -677,9 +676,8 @@ function HomeStep({
           key={card.key}
           type="button"
           onClick={() => handleSelect(card.key)}
-          disabled={!profileReady}
-          className="pomich-problem-card"
-          style={{ animationDelay: `${index * 50}ms`, opacity: profileReady ? 1 : 0.72 }}
+                    className="pomich-problem-card"
+          style={{ animationDelay: `${index * 50}ms`, opacity: 1 }}
         >
           <span className="pomich-problem-card__emoji" aria-hidden="true">
             {card.emoji}
@@ -737,9 +735,8 @@ function HomeStep({
                   key={card.key}
                   type="button"
                   onClick={() => handleSelect(card.key)}
-                  disabled={!profileReady}
-                  className="pomich-service-row"
-                  style={{ background: profileReady ? CARD : GHOST, opacity: profileReady ? 1 : 0.7 }}
+                                    className="pomich-service-row"
+                  style={{ background: CARD, opacity: 1 }}
                 >
                   <span className="pomich-service-row__icon" style={{ background: SURFACE_TONE }}>
                     <span aria-hidden="true">{card.emoji}</span>
@@ -754,28 +751,6 @@ function HomeStep({
             </div>
           ) : null}
         </div>
-
-        {!profileReady ? (
-          <div style={{ background: "var(--pomich-info-bg)", color: "var(--pomich-info-text)", borderRadius: 12, padding: "10px 12px", fontSize: 12, fontWeight: 800 }}>
-            {isCustomerProfileComplete(customerProfile)
-              ? "Підтвердіть телефон кодом, щоб викликати допомогу."
-              : "Вкажіть ім'я та телефон нижче — потім можна викликати допомогу."}
-          </div>
-        ) : null}
-
-        {!profileReady ? (
-          isCustomerProfileComplete(customerProfile) ? (
-            <OtpVerificationPanel
-              profile={customerProfile}
-              customerToken={customerToken}
-              isTelegram={isTelegram}
-              compact
-              onVerified={onProfileVerified}
-            />
-          ) : (
-            <CustomerTrustPanel profile={customerProfile} saving={customerVerificationSaving} error={customerVerificationError} customerToken={customerToken} isTelegram={isTelegram} onChange={onProfileChange} onVerify={onVerifyCustomer} onVerified={onProfileVerified} />
-          )
-        ) : null}
 
         <div className="pomich-home-sheet__meta">
           <CurrentLocationCard
@@ -815,9 +790,8 @@ function HomeStep({
               key={card.key}
               type="button"
               onClick={() => handleSelect(card.key)}
-              disabled={!profileReady}
-              className="pomich-problem-card pomich-problem-card--peek"
-              style={{ opacity: profileReady ? 1 : 0.72 }}
+                            className="pomich-problem-card pomich-problem-card--peek"
+              style={{ opacity: 1 }}
             >
               <span className="pomich-problem-card__emoji" aria-hidden="true">{card.emoji}</span>
               <span className="pomich-problem-card__label">{card.label}</span>
@@ -919,6 +893,8 @@ function DestinationStep({
   onResolvedAddress,
   onChange,
   destinationResolved,
+  destinationCandidate,
+  onConfirmDestination,
   onNext,
   onBack,
   onSkipOnSite
@@ -933,6 +909,8 @@ function DestinationStep({
   onResolvedAddress: (point: Point, label: string) => void
   onChange: (value: string) => void
   destinationResolved: boolean
+  destinationCandidate: boolean
+  onConfirmDestination: () => void
   onNext: () => void
   onBack: () => void
   onSkipOnSite?: () => void
@@ -1014,6 +992,8 @@ function DestinationStep({
               </ul>
             </div>
           ) : null}
+          {!destinationResolved && destinationCandidate ? <SecondaryButton label="Підтверджую цю точку доставки" onClick={onConfirmDestination} disabled={addressResolving} /> : null}
+          {resolvedAddressLabel && !destinationResolved ? <div role="status">Адресу знайдено: {resolvedAddressLabel}. Перевірте маркер і підтвердьте точку.</div> : null}
           {destinationResolved ? (
             <div className="pomich-address-resolved" role="status">
               <strong>✓ Точку доставки підтверджено на карті</strong>
@@ -1049,7 +1029,7 @@ function DetailsStep({ pickup, destination, details, isTelegram, onChange, onNex
   const currentStep = serviceRequiresDestination(details.service) ? 4 : 3
 
   return (
-    <RideScreen pickup={pickup} destination={destination} mapSubtitle="Підбір виконавця">
+    <RideScreen pickup={pickup} mapSubtitle="Чернетка заявки">
       <StepBadge step={currentStep} total={totalSteps} label="Деталі допомоги" />
       <StepBack onBack={onBack} hide={isTelegram} />
       <SheetHeading title={heading.title} subtitle={heading.subtitle} />
@@ -1131,6 +1111,8 @@ function ReviewStep({
   loading,
   isTelegram,
   onConfirm,
+  canSubmit,
+  contactForm,
   onBack
 }: {
   serviceLabel: string
@@ -1145,6 +1127,8 @@ function ReviewStep({
   loading: boolean
   isTelegram?: boolean
   onConfirm: () => void
+  canSubmit: boolean
+  contactForm?: ReactNode
   onBack: () => void
 }) {
   const showDestination = serviceRequiresDestination(serviceKey) && Boolean(destination.trim())
@@ -1155,12 +1139,11 @@ function ReviewStep({
   return (
     <RideScreen
       pickup={pickup}
-      destination={onSiteLabel ? pickup : destinationPoint}
-      mapSubtitle="Перевірка заявки"
+      mapSubtitle="Чернетка — перевірка заявки"
     >
       <StepBadge step={totalSteps} total={totalSteps} label="Перевірте заявку" />
       <StepBack onBack={onBack} hide={isTelegram} />
-      <SheetHeading title="Перевірте заявку" subtitle="Ціну та час прибуття побачите після того, як партнер прийме заявку." />
+      <SheetHeading title="Перевірте заявку" subtitle="Партнер запропонує ціну. Ви окремо підтвердите її перед виїздом; до цього можете відмовитися." />
 
       <div style={{ marginTop: 16, border: `1px solid ${BORDER}`, borderRadius: 18, padding: "4px 14px", background: SURFACE_TONE }}>
         <LocationRow icon="🛠️" title="Послуга" subtitle={serviceLabel} active />
@@ -1187,7 +1170,7 @@ function ReviewStep({
       </div>
 
       <label className="pomich-form-field" style={{ marginTop: 14 }}>
-        <span style={{ color: MUTED, fontSize: "var(--pomich-text-xs)", fontWeight: 850 }}>Коментар до заявки (необов&apos;язково)</span>
+        <span style={{ color: MUTED, fontSize: "var(--pomich-text-xs)", fontWeight: 850 }}>{serviceKey === "mechanic" && serviceDetails.answers.issue === "other" ? "Опис несправності * (щонайменше 5 символів)" : "Коментар до заявки (необов’язково)"}</span>
         <textarea
           value={customerComment}
           onChange={(event) => onCustomerCommentChange(event.target.value.slice(0, 500))}
@@ -1207,8 +1190,10 @@ function ReviewStep({
         Після надсилання заявки перевірені партнери побачать ваше місцезнаходження, відстань і зможуть прийняти її.
       </div>
 
+      {serviceKey === "fuel" ? <p role="status">{serviceDetails.answers.fuelType === "unknown" ? "Тип пального потрібно уточнити з партнером до доставки. " : ""}Вартість пального оплачується окремо від доставки.</p> : null}
+      {contactForm}
       <div style={{ marginTop: 16 }}>
-        {isTelegram ? null : <PrimaryButton label="Надіслати заявку" onClick={onConfirm} loading={loading} disabled={loading} />}
+        {isTelegram ? null : <PrimaryButton label="Надіслати заявку" onClick={onConfirm} loading={loading} disabled={loading || !canSubmit || (serviceKey === "mechanic" && serviceDetails.answers.issue === "other" && customerComment.trim().length < 5)} />}
       </div>
     </RideScreen>
   )
@@ -1529,18 +1514,26 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
   const [customerId, setCustomerId] = useState(initialCustomerId)
   const [customerAccessToken, setCustomerAccessToken] = useState<string | undefined>(() => readStoredAuthSession(authSessionStorageKey("customer", initialCustomerId), "customer", initialCustomerId))
   const customerAuthToken = customerAccessToken
+  const restoredDraft = useMemo(() => {
+    try {
+      const value = JSON.parse(window.sessionStorage.getItem(`pomichDraft:${initialCustomerId}`) || "null")
+      if (value && Date.now() - value.savedAt < 12 * 60 * 60 * 1000 && ["home", "location", "destination", "details", "review"].includes(value.screen) && ["tow", "battery", "wheel", "fuel", "lockout", "mechanic"].includes(value.selectedService)) return value
+    } catch { /* Invalid or old drafts are ignored. */ }
+    return undefined
+  }, [initialCustomerId])
   const restoredActiveOrder = useMemo(() => readActiveOrder(), [])
   const [screen, setScreen] = useState<Screen>(() => {
     const restoredStatus = restoredActiveOrder?.status
-    if (!restoredStatus) return "home"
+    if (!restoredStatus) return restoredDraft?.screen || "home"
     const normalized = normalizeOrderStatus(restoredStatus)
     return normalized === "draft" ? "home" : screenForOrderStatus(normalized)
   })
-  const [selectedService, setSelectedService] = useState<ServiceKey>("tow")
-  const [destination, setDestination] = useState("")
-  const [destinationResolved, setDestinationResolved] = useState(false)
-  const [serviceDetails, setServiceDetails] = useState<ServiceDetails>(() => createServiceDetails("tow"))
-  const [customerComment, setCustomerComment] = useState("")
+  const [selectedService, setSelectedService] = useState<ServiceKey>(restoredDraft?.selectedService || "tow")
+  const [destination, setDestination] = useState<string>(restoredDraft?.destination || "")
+  const [destinationCandidate, setDestinationCandidate] = useState(Boolean(restoredDraft?.destinationCandidate))
+  const [destinationResolved, setDestinationResolved] = useState(Boolean(restoredDraft?.destinationResolved))
+  const [serviceDetails, setServiceDetails] = useState<ServiceDetails>(() => restoredDraft?.serviceDetails || createServiceDetails("tow"))
+  const [customerComment, setCustomerComment] = useState<string>(restoredDraft?.customerComment || "")
   const [loading, setLoading] = useState(false)
   const [priceConfirming, setPriceConfirming] = useState(false)
   const [priceConfirmError, setPriceConfirmError] = useState<string | undefined>()
@@ -1554,7 +1547,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
   })
   const [geoState, setGeoState] = useState<GeoState>(() => {
     if (typeof window === "undefined") return "requesting"
-    if (readCachedGeoPosition()) return "success"
+    if (readCachedGeoPosition()) return "unavailable"
     if (readRememberedGeoPermission() === "denied") return "permission-denied"
     // No sticky grant and no cache — wait for «Оновити»; do not auto-prompt the OS.
     if (readRememberedGeoPermission() === "granted") return "requesting"
@@ -1564,17 +1557,17 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
     if (typeof window === "undefined") return "Визначаємо ваше місцезнаходження…"
     if (readCachedGeoPosition()) return "Місцезнаходження з попереднього сеансу."
     if (readRememberedGeoPermission() === "denied") {
-      return "Доступ до геолокації заборонено. Натисніть «Оновити», щоб дозволити знову."
+      return "Доступ до геолокації заборонено. Дозвольте геолокацію у налаштуваннях браузера; або виберіть точку вручну на карті."
     }
     if (readRememberedGeoPermission() === "granted") {
       return "Визначаємо ваше місцезнаходження…"
     }
     return "Натисніть «Оновити», щоб дозволити геолокацію."
   })
-  const [addressLabel, setAddressLabel] = useState("Визначаємо адресу…")
+  const [addressLabel, setAddressLabel] = useState<string>(restoredDraft?.addressLabel || "Визначаємо адресу…")
   const [geoRecenterTrigger, setGeoRecenterTrigger] = useState(0)
   const [geoSpeedMps, setGeoSpeedMps] = useState<number | null>(null)
-  const [pickup, setPickup] = useState<Point>(() => readCachedGeoPosition() ?? PICKUP)
+  const [pickup, setPickup] = useState<Point>(() => restoredDraft?.pickup || readCachedGeoPosition() || PICKUP)
   const explicitGeoRecenterRef = useRef(false)
   const skipNextAutoGeoRef = useRef(false)
   /** True while an explicit «Оновити» request is in flight — blocks StrictMode auto re-entry. */
@@ -1587,7 +1580,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
   const geoSpeedSmoothRef = useRef<number | null>(null)
   const lastGeocodedPickupRef = useRef<Point | null>(null)
   const lastCitySyncPickupRef = useRef<Point | null>(null)
-  const [destinationPoint, setDestinationPoint] = useState<Point>(PICKUP)
+  const [destinationPoint, setDestinationPoint] = useState<Point>(restoredDraft?.destinationPoint || PICKUP)
   const [liveNearbyProviders, setLiveNearbyProviders] = useState<ProviderAvailability[]>([])
   const [liveNearbyLoading, setLiveNearbyLoading] = useState(false)
   const [customerReviewSaving, setCustomerReviewSaving] = useState(false)
@@ -1604,6 +1597,14 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
   const [customerVerificationSaving, setCustomerVerificationSaving] = useState(false)
   const [customerVerificationError, setCustomerVerificationError] = useState<string | undefined>()
   const userInitiatedCancelRef = useRef(false)
+
+  useEffect(() => {
+    const key = `pomichDraft:${customerId}`
+    if (!["home", "location", "destination", "details", "review"].includes(screen)) { window.sessionStorage.removeItem(key); return }
+    try {
+      window.sessionStorage.setItem(key, JSON.stringify({ savedAt: Date.now(), screen, selectedService, destination, destinationCandidate, destinationResolved, serviceDetails, customerComment, pickup, destinationPoint, addressLabel }))
+    } catch { /* Storage may be disabled; the live form still works. */ }
+  }, [customerId, screen, selectedService, destination, destinationCandidate, destinationResolved, serviceDetails, customerComment, pickup, destinationPoint, addressLabel])
 
   const serviceCity = useMemo(
     () =>
@@ -1688,10 +1689,11 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
       if (resolved.profile) setCustomerProfile(resolved.profile)
       return { customerId: resolved.customerId, token: resolved.token }
     }
-    if (customerAuthToken) return { customerId, token: customerAuthToken }
-    const session = await createGuestCustomerSession(guestSessionCustomerIdForRestore(customerId))
-    applyCustomerSession(session)
-    return { customerId: session.customerId ?? session.subjectId, token: session.accessToken }
+    const resolved = await resolveCustomerAuthSession(telegramContext)
+    setCustomerId(resolved.customerId)
+    setCustomerAccessToken(resolved.token)
+    if (resolved.profile) setCustomerProfile(resolved.profile)
+    return { customerId: resolved.customerId, token: resolved.token }
   }
 
   useEffect(() => {
@@ -2251,19 +2253,23 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
   }
 
   const setDestinationFromMap = (point: Point) => {
+    setDestinationCandidate(true)
     setDestinationPoint(point)
     setDestination(`Точка на карті ${point.lat.toFixed(4)}, ${point.lng.toFixed(4)}`)
-    setDestinationResolved(true)
+    setDestinationResolved(false)
   }
 
   const setDestinationFromAddress = (point: Point, label: string) => {
+    setDestinationCandidate(true)
     setDestinationPoint(point)
     setDestination(label)
-    setDestinationResolved(true)
+    setDestinationResolved(false)
   }
 
   const submitOrder = async () => {
     if (loading) return
+    if (!isCustomerReadyForOrder(customerProfile)) { setCustomerVerificationError("Заповніть контактні дані та підтвердьте телефон перед надсиланням."); return }
+    if (selectedService === "mechanic" && serviceDetails.answers.issue === "other" && customerComment.trim().length < 5) return
     if (!serviceDetailsComplete(serviceDetails)) {
       setScreen("details")
       return
@@ -2585,7 +2591,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
     screen === "location" ? isWithinUkraineServiceArea(pickup) :
     screen === "destination" ? (serviceRequiresDestination(selectedService) ? destinationResolved : true) :
     screen === "details" ? serviceDetailsComplete(serviceDetails) :
-    screen === "review" ? !loading :
+    screen === "review" ? !loading && isCustomerReadyForOrder(customerProfile) && !(selectedService === "mechanic" && serviceDetails.answers.issue === "other" && customerComment.trim().length < 5) :
     mainButtonVisible
 
   useTelegramMainButton({
@@ -2632,8 +2638,10 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
           isTelegram={isTelegram}
           onPick={setDestinationFromMap}
           onResolvedAddress={setDestinationFromAddress}
-          onChange={(value) => { setDestination(value); setDestinationResolved(false) }}
+          onChange={(value) => { setDestination(value); setDestinationCandidate(false); setDestinationResolved(false) }}
           destinationResolved={destinationResolved}
+          destinationCandidate={destinationCandidate}
+          onConfirmDestination={() => { if (destinationCandidate) setDestinationResolved(true) }}
           onBack={() => setScreen("location")}
           onNext={() => setScreen("details")}
           onSkipOnSite={applyOnSiteDestination}
@@ -2655,6 +2663,8 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
           onCustomerCommentChange={setCustomerComment}
           loading={loading}
           isTelegram={isTelegram}
+          canSubmit={isCustomerReadyForOrder(customerProfile)}
+          contactForm={!isCustomerReadyForOrder(customerProfile) ? <CustomerTrustPanel profile={customerProfile} saving={customerVerificationSaving} error={customerVerificationError} customerToken={customerAuthToken} isTelegram={isTelegram} onChange={(patch) => setCustomerProfile((profile) => ({ ...profile, ...patch }))} onVerify={verifyCustomerProfile} onVerified={(saved) => setCustomerProfile((profile) => ({ ...profile, ...saved }))} /> : undefined}
           onConfirm={submitOrder}
           onBack={() => setScreen("details")}
         />
@@ -2694,7 +2704,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
       return <OrderErrorStep pickup={pickup} destination={destinationPoint} onRetry={() => setScreen("review")} showAction={!isTelegram} />
     case "home":
     default:
-      return <HomeStep pickup={pickup} locationLabel={addressLabel || geoMessage} serviceCity={serviceCity} providers={liveNearbyProviders} providersLoading={liveNearbyLoading} customerProfile={customerProfile} customerVerificationSaving={customerVerificationSaving} customerVerificationError={customerVerificationError} customerToken={customerAuthToken} isTelegram={isTelegram} geoLoading={geoLoading} geoError={geoError} recenterTrigger={geoRecenterTrigger} geoSpeedMps={geoSpeedMps} onProfileChange={(patch) => setCustomerProfile((profile) => ({ ...profile, ...patch }))} onVerifyCustomer={verifyCustomerProfile} onProfileVerified={(saved) => setCustomerProfile((profile) => ({ ...profile, ...saved }))} onRetryGeo={retryGeolocation} onOpenGeoSettings={openGeoSettings} onServiceCityChange={applyServiceCity} onSelect={(service) => { if (!isCustomerReadyForOrder(customerProfile)) return; setSelectedService(service); setServiceDetails(createServiceDetails(service)); setCustomerComment(""); setDestination(""); setDestinationResolved(false); setDestinationPoint(pickup); setScreen("location") }} />
+      return <HomeStep pickup={pickup} locationLabel={`${geoState === "telegram" ? "Точка з Telegram — перевірте актуальність" : "Точка з пристрою або збережена — перевірте актуальність"}: ${addressLabel || geoMessage}`} serviceCity={serviceCity} providers={liveNearbyProviders} providersLoading={liveNearbyLoading} customerProfile={customerProfile} customerVerificationSaving={customerVerificationSaving} customerVerificationError={customerVerificationError} customerToken={customerAuthToken} isTelegram={isTelegram} geoLoading={geoLoading} geoError={geoError} recenterTrigger={geoRecenterTrigger} geoSpeedMps={geoSpeedMps} onProfileChange={(patch) => setCustomerProfile((profile) => ({ ...profile, ...patch }))} onVerifyCustomer={verifyCustomerProfile} onProfileVerified={(saved) => setCustomerProfile((profile) => ({ ...profile, ...saved }))} onRetryGeo={retryGeolocation} onOpenGeoSettings={openGeoSettings} onServiceCityChange={applyServiceCity} onSelect={(service) => { if (service !== selectedService) { setServiceDetails(createServiceDetails(service)); setCustomerComment(""); setDestination(""); setDestinationResolved(false); setDestinationPoint(pickup) }; setSelectedService(service); setScreen("location") }} />
   }
   })()
 

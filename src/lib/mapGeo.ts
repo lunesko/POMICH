@@ -419,7 +419,7 @@ function finishGeoSuccess(
 export function requestCurrentPosition(
   onSuccess: (point: GeoPoint) => void,
   onError: (message: string, kind?: GeoRequestErrorKind) => void,
-  options: { mode?: GeoRequestMode } = {},
+  options: { mode?: GeoRequestMode; requireFresh?: boolean } = {},
 ): void {
   const mode: GeoRequestMode = options.mode ?? "explicit"
   if (typeof navigator === "undefined" || !("geolocation" in navigator)) {
@@ -524,12 +524,12 @@ export function requestCurrentPosition(
             (point) => finishGeoSuccess(point, onSuccess, { rememberGrant: false }),
             () =>
               onError(
-                "Натисніть «Оновити», щоб дозволити геолокацію в Telegram.",
+                "Повторіть визначення місця, щоб дозволити геолокацію в Telegram.",
                 "unavailable",
               ),
             () =>
               onError(
-                "Натисніть «Оновити», щоб дозволити геолокацію в Telegram.",
+                "Повторіть визначення місця, щоб дозволити геолокацію в Telegram.",
                 "unavailable",
               ),
           )
@@ -538,7 +538,7 @@ export function requestCurrentPosition(
       }
 
       onError(
-        "Натисніть «Оновити», щоб дозволити геолокацію в браузері.",
+        "Повторіть визначення місця, щоб дозволити геолокацію в браузері.",
         "unavailable",
       )
     })
@@ -624,7 +624,7 @@ export function requestCurrentPosition(
         if (firstError.code === firstError.PERMISSION_DENIED) {
           markBrowserDone({
             message:
-              "Доступ до геолокації заборонено. Натисніть «Налаштування гео», дозвольте доступ, потім «Оновити» ще раз.",
+              "Доступ до геолокації заборонено. Дозвольте доступ у налаштуваннях браузера або Telegram; повторіть визначення місця чи виберіть точку вручну.",
             kind: "permission-denied",
           })
           return
@@ -640,7 +640,7 @@ export function requestCurrentPosition(
           (retryError) => {
             const classified = classifyGeolocationError(retryError)
             const cachedFallback = readCachedGeoPosition()
-            if (cachedFallback && classified.kind !== "permission-denied") {
+            if (cachedFallback && !options.requireFresh && classified.kind !== "permission-denied") {
               settleSuccess(cachedFallback, false)
               markBrowserDone()
               return
@@ -648,7 +648,7 @@ export function requestCurrentPosition(
             markBrowserDone({
               message:
                 classified.kind === "permission-denied"
-                  ? "Доступ до геолокації заборонено. Натисніть «Налаштування гео», дозвольте доступ, потім «Оновити» ще раз."
+                  ? "Доступ до геолокації заборонено. Дозвольте доступ у налаштуваннях браузера або Telegram; повторіть визначення місця чи виберіть точку вручну."
                   : classified.message,
               kind: classified.kind,
             })

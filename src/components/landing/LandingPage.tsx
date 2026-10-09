@@ -1,3 +1,4 @@
+import DirectoryList from "./DirectoryList"
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 
 import { type ProviderAvailability } from "../../api/client"
@@ -74,7 +75,7 @@ const landingFaq = [
   ],
   [
     "Скільки це коштує?",
-    "На сайті показана орієнтовна база. Точну ціну бачите після того, як партнер прийме заявку — без прихованих дзвінків і торгу.",
+    "На сайті показана орієнтовна база. Для евакуатора +90 ₴/км — орієнтовна перевозка від місця поломки до доставки: 10 км додають 900 ₴ до бази. Подачу, матеріали та пальне партнер уточнює окремо. Ви підтверджуєте його остаточну пропозицію перед виїздом або відмовляєтеся.",
   ],
   [
     "Чи потрібен Telegram?",
@@ -597,7 +598,7 @@ export default function LandingPage({
         </section>
 
         <section id="services" className="pomich-landing-section" style={{ padding: layoutCompact ? "20px 12px" : "48px 24px 64px" }}>
-          <LandingSectionTitle theme={theme} eyebrow="Послуги" title="Що викликаємо" subtitle="Орієнтовна база без реєстрації. Точна ціна — після прийняття заявки." compact={layoutCompact} />
+          <LandingSectionTitle theme={theme} eyebrow="Послуги" title="Що викликаємо" subtitle="Орієнтовна база без реєстрації. Партнер пропонує ціну, клієнт підтверджує її перед виїздом." compact={layoutCompact} />
           <div className="landing-services-list pomich-landing-inner" style={{ display: "grid", gap: layoutCompact ? 6 : 8 }}>
             {services.map((service) => {
               const basePrice = calculatePrice(service.key, 0).price
@@ -630,7 +631,7 @@ export default function LandingPage({
                   </span>
                   <span>
                     <span style={{ display: "block", fontSize: layoutCompact ? 14 : 15, fontWeight: 900, lineHeight: 1.15 }}>{service.label}</span>
-                    <span style={{ display: "block", marginTop: 2, color: theme.muted, fontSize: 12, fontWeight: 700 }}>від {basePrice} ₴ · +90 ₴/км</span>
+                    <span style={{ display: "block", marginTop: 2, color: theme.muted, fontSize: 12, fontWeight: 700 }}>від {basePrice} ₴{service.key === "tow" ? " · +90 ₴/км перевезення" : " · виїзд і матеріали узгоджуються"}</span>
                   </span>
                   <span aria-hidden style={{ color: theme.subtle, fontWeight: 900, fontSize: 18 }}>›</span>
                 </button>
@@ -688,8 +689,8 @@ export default function LandingPage({
             eyebrow="Карта"
             title={
               directoryScope === "my-city" && directoryScopeCity
-                ? `Партнери в місті ${directoryScopeCity}`
-                : "Партнери по Україні"
+                ? `Довідник сервісів · ${directoryScopeCity}`
+                : "Довідник сервісів України"
             }
             subtitle={
               mapProvidersLoading || (directoryScope === "my-city" && !directoryScopeCity)
@@ -748,8 +749,9 @@ export default function LandingPage({
               {mapGeoStatus === "requesting" ? "Визначаємо…" : mapGeoStatus === "success" ? "Моє місце ✓" : "Моє місце"}
             </button>
           </div>
+          <DirectoryList providers={mapProviders} />
           <p className="pomich-landing-inner" style={{ margin: layoutCompact ? "12px auto 0" : "18px auto 0", textAlign: "center", color: theme.subtle, fontSize: layoutCompact ? 12 : 13, fontWeight: 700 }}>
-            Карта лише для перегляду. Щоб викликати допомогу — зареєструйтесь як клієнт.
+            Довідник не показує кількість партнерів на лінії. Оберіть проблему та точку; контактні дані потрібні перед надсиланням заявки.
             {mapGeoStatus === "error" ? " · Не вдалося визначити місце — спробуйте ще раз." : null}
           </p>
         </section>

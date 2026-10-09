@@ -1,4 +1,5 @@
 import type { ServiceDetails } from '../lib/serviceDetails'
+import { refreshBrowserAuthorization } from '../lib/browserAuthorization'
 
 const defaultBaseUrl = '/api'
 
@@ -67,9 +68,10 @@ export class ApiRequestError extends Error {
   code?: string
   retryAfterSeconds?: number
 
-  constructor(message: string, options?: { status?: number; code?: string; retryAfterSeconds?: number }) {
+  constructor(message: string, options?: { status?: number; code?: string; retryAfterSeconds?: number; cause?: unknown }) {
     super(message)
     this.name = 'ApiRequestError'
+    if (options?.cause !== undefined) Object.defineProperty(this, 'cause', { value: options.cause })
     this.status = options?.status ?? 0
     this.code = options?.code
     this.retryAfterSeconds = options?.retryAfterSeconds
@@ -173,12 +175,14 @@ async function fetchApi(input: RequestInfo | URL, init?: RequestInit, timeoutMs 
   const controller = new AbortController()
   const upstreamSignal = init?.signal
   const onUpstreamAbort = () => controller.abort(upstreamSignal?.reason)
-  upstreamSignal?.addEventListener('abort', onUpstreamAbort, { once: true })
+  if (upstreamSignal?.aborted) onUpstreamAbort()
+  else upstreamSignal?.addEventListener('abort', onUpstreamAbort, { once: true })
   const timeoutId = window.setTimeout(() => controller.abort(new DOMException('timeout', 'AbortError')), timeoutMs)
   try {
-    return await fetch(input, { ...init, signal: controller.signal })
+    const headers = await refreshBrowserAuthorization(init?.headers)
+    return await fetch(input, { ...init, headers, signal: controller.signal })
   } catch (error) {
-    throw new Error(messageFromFetchError(error))
+    throw new ApiRequestError(messageFromFetchError(error), { cause: error, code: controller.signal.aborted ? "request_aborted" : "network_error" })
   } finally {
     window.clearTimeout(timeoutId)
     upstreamSignal?.removeEventListener('abort', onUpstreamAbort)
@@ -482,7 +486,7 @@ function getBaseUrl() {
 }
 
 export async function createOrder(payload: Record<string, unknown>, customerToken?: string) {
-  const response = await fetch(`${getBaseUrl()}/orders`, {
+  const response = await fetchApi(`${getBaseUrl()}/orders`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(authHeaders(customerToken) ?? {}) },
     body: JSON.stringify(payload),
@@ -513,7 +517,7 @@ function providerJsonHeaders(providerToken?: string): Record<string, string> {
 }
 
 export async function createAdminSession(adminToken: string) {
-  const response = await fetch(`${getBaseUrl()}/auth/admin/session`, {
+  const response = await fetchApi(`${getBaseUrl()}/auth/admin/session`, {
     method: 'POST',
     headers: { 'X-POMICH-Admin-Token': adminToken },
   })
@@ -526,7 +530,7 @@ export async function createAdminSession(adminToken: string) {
 }
 
 export async function restoreBrowserSession(role: 'customer' | 'provider' | 'admin'): Promise<AuthSession | undefined> {
-  const response = await fetch(`${getBaseUrl()}/auth/browser/restore`, {
+  const response = await fetchApi(`${getBaseUrl()}/auth/browser/restore`, {
     method: 'POST',
     credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json' },
@@ -544,7 +548,7 @@ export async function restoreBrowserSession(role: 'customer' | 'provider' | 'adm
 }
 
 export async function logoutBrowserSessions(): Promise<void> {
-  const response = await fetch(`${getBaseUrl()}/auth/browser/logout`, {
+  const response = await fetchApi(`${getBaseUrl()}/auth/browser/logout`, {
     method: 'POST',
     credentials: 'same-origin',
     keepalive: true,
@@ -553,7 +557,7 @@ export async function logoutBrowserSessions(): Promise<void> {
 }
 
 export async function createAdminAccountSession(username: string, password: string) {
-  const response = await fetch(`${getBaseUrl()}/auth/admin/login`, {
+  const response = await fetchApi(`${getBaseUrl()}/auth/admin/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username, password }),
@@ -567,7 +571,7 @@ export async function createAdminAccountSession(username: string, password: stri
 }
 
 export async function createProviderSession(providerId: string, providerToken: string) {
-  const response = await fetch(`${getBaseUrl()}/auth/provider/session`, {
+  const response = await fetchApi(`${getBaseUrl()}/auth/provider/session`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-POMICH-Provider-Token': providerToken },
     body: JSON.stringify({ providerId }),
@@ -581,7 +585,7 @@ export async function createProviderSession(providerId: string, providerToken: s
 }
 
 export async function createProviderAccountSession(providerId: string, login: string, password: string, rememberMe = false) {
-  const response = await fetch(`${getBaseUrl()}/auth/provider/login`, {
+  const response = await fetchApi(`${getBaseUrl()}/auth/provider/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ providerId, login, password, rememberMe }),
@@ -643,7 +647,7 @@ export async function getOrder(orderId: string, accessToken?: string) {
 }
 
 export async function getCustomerOrders(customerId: string, customerToken?: string, limit = 50) {
-  const response = await fetch(
+  const response = await fetchApi(
     `${getBaseUrl()}/customers/${encodeURIComponent(customerId)}/orders?limit=${encodeURIComponent(String(limit))}`,
     {
       cache: 'no-store',
@@ -659,7 +663,7 @@ export async function getCustomerOrders(customerId: string, customerToken?: stri
 }
 
 export async function getProviderOrders(providerId: string, providerToken?: string, limit = 50) {
-  const response = await fetch(
+  const response = await fetchApi(
     `${getBaseUrl()}/providers/${encodeURIComponent(providerId)}/orders?limit=${encodeURIComponent(String(limit))}`,
     {
       cache: 'no-store',
@@ -697,7 +701,7 @@ export async function submitOrderReview(
 }
 
 export async function cancelOrder(orderId: string, authToken?: string) {
-  const response = await fetch(`${getBaseUrl()}/orders/${encodeURIComponent(orderId)}/cancel`, {
+  const response = await fetchApi(`${getBaseUrl()}/orders/${encodeURIComponent(orderId)}/cancel`, {
     method: 'POST',
     headers: authHeaders(authToken) ?? {},
   })
@@ -710,7 +714,7 @@ export async function cancelOrder(orderId: string, authToken?: string) {
 }
 
 export async function confirmOrderPrice(orderId: string, customerToken?: string) {
-  const response = await fetch(`${getBaseUrl()}/orders/${encodeURIComponent(orderId)}/confirm-price`, {
+  const response = await fetchApi(`${getBaseUrl()}/orders/${encodeURIComponent(orderId)}/confirm-price`, {
     method: 'POST',
     headers: authHeaders(customerToken) ?? {},
   })
@@ -724,7 +728,7 @@ export async function confirmOrderPrice(orderId: string, customerToken?: string)
 }
 
 export async function retryDispatch(orderId: string, authToken?: string) {
-  const response = await fetch(`${getBaseUrl()}/orders/${encodeURIComponent(orderId)}/dispatch/retry`, {
+  const response = await fetchApi(`${getBaseUrl()}/orders/${encodeURIComponent(orderId)}/dispatch/retry`, {
     method: 'POST',
     headers: authHeaders(authToken) ?? {},
   })
@@ -763,7 +767,7 @@ export async function getMapProviders(options?: {
   if (options?.zoom != null) params.set("zoom", String(Math.round(options.zoom)))
   if (options?.service) params.set("service", options.service)
   const query = params.toString()
-  const response = await fetch(`${getBaseUrl()}/map/providers${query ? `?${query}` : ""}`)
+  const response = await fetchApi(`${getBaseUrl()}/map/providers${query ? `?${query}` : ""}`)
 
   if (!response.ok) {
     throw new Error(`Map providers request failed with ${response.status}`)
@@ -822,7 +826,7 @@ export async function getMapSettlements() {
   if (settlementsInflight) return settlementsInflight
 
   settlementsInflight = (async () => {
-    const response = await fetch(`${getBaseUrl()}/map/settlements`)
+    const response = await fetchApi(`${getBaseUrl()}/map/settlements`)
     if (!response.ok) {
       throw new Error(`Map settlements request failed with ${response.status}`)
     }
@@ -844,7 +848,7 @@ export async function getNearestMapSettlement(lat: number, lng: number, maxKm = 
     lng: String(lng),
     max_km: String(maxKm),
   })
-  const response = await fetch(`${getBaseUrl()}/map/settlements/nearest?${params.toString()}`)
+  const response = await fetchApi(`${getBaseUrl()}/map/settlements/nearest?${params.toString()}`)
 
   if (response.status === 404) {
     return null
@@ -879,7 +883,7 @@ export async function getNearbyMapOrders(
   })
   if (service) params.set('service', service)
 
-  const response = await fetch(`${getBaseUrl()}/map/orders/nearby?${params.toString()}`, {
+  const response = await fetchApi(`${getBaseUrl()}/map/orders/nearby?${params.toString()}`, {
     headers: authHeaders(providerToken) ?? {},
   })
 
@@ -891,7 +895,7 @@ export async function getNearbyMapOrders(
 }
 
 export async function importUzhgorodProviders(adminToken?: string, options?: { seedOnly?: boolean; preferOsm?: boolean }) {
-  const response = await fetch(`${getBaseUrl()}/admin/providers/import/uzhgorod`, {
+  const response = await fetchApi(`${getBaseUrl()}/admin/providers/import/uzhgorod`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(adminHeaders(adminToken) ?? {}) },
     body: JSON.stringify(options ?? {}),
@@ -922,7 +926,7 @@ export async function getCustomerProfile(customerId: string, customerToken?: str
 }
 
 export async function updateCustomerProfile(customerId: string, payload: Partial<CustomerProfile>, customerToken?: string) {
-  const response = await fetch(`${getBaseUrl()}/customers/${encodeURIComponent(customerId)}/profile`, {
+  const response = await fetchApi(`${getBaseUrl()}/customers/${encodeURIComponent(customerId)}/profile`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', ...(authHeaders(customerToken) ?? {}) },
     body: JSON.stringify(payload),
@@ -957,7 +961,7 @@ export async function sendCustomerVerificationCode(
   payload: { channel: 'telegram' | 'email'; phone?: string; email?: string; telegramBotKind?: 'customer' | 'provider' },
   customerToken?: string,
 ) {
-  const response = await fetch(`${getBaseUrl()}/auth/customer/verify/send`, {
+  const response = await fetchApi(`${getBaseUrl()}/auth/customer/verify/send`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(authHeaders(customerToken) ?? {}) },
     body: JSON.stringify(payload),
@@ -976,7 +980,7 @@ export async function sendCustomerVerificationCode(
 }
 
 export async function confirmCustomerVerificationCode(payload: { code: string }, customerToken?: string) {
-  const response = await fetch(`${getBaseUrl()}/auth/customer/verify/confirm`, {
+  const response = await fetchApi(`${getBaseUrl()}/auth/customer/verify/confirm`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(authHeaders(customerToken) ?? {}) },
     body: JSON.stringify(payload),
@@ -990,7 +994,7 @@ export async function confirmCustomerVerificationCode(payload: { code: string },
 }
 
 export async function sendCustomerPhoneLoginCode(phone: string) {
-  const response = await fetch(`${getBaseUrl()}/auth/customer/phone/login/send`, {
+  const response = await fetchApi(`${getBaseUrl()}/auth/customer/phone/login/send`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ phone }),
@@ -1009,7 +1013,7 @@ export async function sendCustomerPhoneLoginCode(phone: string) {
 }
 
 export async function confirmCustomerPhoneLoginCode(payload: { phone: string; code: string; rememberMe?: boolean }) {
-  const response = await fetch(`${getBaseUrl()}/auth/customer/phone/login/confirm`, {
+  const response = await fetchApi(`${getBaseUrl()}/auth/customer/phone/login/confirm`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -1037,7 +1041,7 @@ export async function getProviderProfile(providerId: string, providerToken?: str
 }
 
 export async function getProviderPublicProfile(providerId: string, limit = 20, signal?: AbortSignal) {
-  const response = await fetch(
+  const response = await fetchApi(
     `${getBaseUrl()}/providers/${encodeURIComponent(providerId)}/public?limit=${encodeURIComponent(String(limit))}`,
     signal ? { signal } : undefined,
   )
@@ -1050,7 +1054,7 @@ export async function getProviderPublicProfile(providerId: string, limit = 20, s
 }
 
 export async function reviewProviderVerification(providerId: string, payload: { status: 'verified' | 'rejected'; reviewNote?: string }, adminToken?: string) {
-  const response = await fetch(`${getBaseUrl()}/providers/${encodeURIComponent(providerId)}/verification/review`, {
+  const response = await fetchApi(`${getBaseUrl()}/providers/${encodeURIComponent(providerId)}/verification/review`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', ...(adminHeaders(adminToken) ?? {}) },
     body: JSON.stringify(payload),
@@ -1064,7 +1068,7 @@ export async function reviewProviderVerification(providerId: string, payload: { 
 }
 
 export async function getProviderOffers(providerId: string, providerToken?: string) {
-  const response = await fetch(`${getBaseUrl()}/providers/${encodeURIComponent(providerId)}/offers`, {
+  const response = await fetchApi(`${getBaseUrl()}/providers/${encodeURIComponent(providerId)}/offers`, {
     headers: providerHeaders(providerToken),
   })
 
@@ -1113,7 +1117,7 @@ export async function declineProviderOffer(providerId: string, offerId: string, 
 }
 
 export async function updateProviderPresence(providerId: string, payload: { status: ProviderStatus; location?: { lat: number; lng: number }; etaMinutes?: number }, providerToken?: string) {
-  const response = await fetch(`${getBaseUrl()}/providers/${encodeURIComponent(providerId)}/presence`, {
+  const response = await fetchApi(`${getBaseUrl()}/providers/${encodeURIComponent(providerId)}/presence`, {
     method: 'PATCH',
     headers: providerJsonHeaders(providerToken),
     body: JSON.stringify(payload),
@@ -1189,7 +1193,7 @@ export async function updateProviderProfile(providerId: string, payload: {
 }
 
 export async function updateOrderStatus(orderId: string, status: string, adminToken?: string) {
-  const response = await fetch(`${getBaseUrl()}/orders/${orderId}/status`, {
+  const response = await fetchApi(`${getBaseUrl()}/orders/${orderId}/status`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', ...(adminHeaders(adminToken) ?? {}) },
     body: JSON.stringify({ status }),
@@ -1211,7 +1215,7 @@ export async function getTelegramSession(
   if (initData) headers['X-Telegram-Init-Data'] = initData
   if (botKind === 'customer' || botKind === 'provider') headers['X-POMICH-Telegram-Bot'] = botKind
 
-  const response = await fetch(`${getBaseUrl()}/telegram/session/${encodeURIComponent(chatId)}`, {
+  const response = await fetchApi(`${getBaseUrl()}/telegram/session/${encodeURIComponent(chatId)}`, {
     headers,
   })
 
@@ -1345,7 +1349,7 @@ export interface AdminSettings {
 }
 
 export async function getAdminStats(adminToken?: string) {
-  const response = await fetch(`${getBaseUrl()}/admin/stats`, { headers: adminHeaders(adminToken) })
+  const response = await fetchApi(`${getBaseUrl()}/admin/stats`, { headers: adminHeaders(adminToken) })
   if (!response.ok) throw new Error(`Admin stats request failed with ${response.status}`)
   return response.json() as Promise<AdminStats>
 }
@@ -1359,7 +1363,7 @@ export async function getAdminOpsLog(
   if (options?.severity && options.severity !== 'all') params.set('severity', options.severity)
   if (options?.orderId?.trim()) params.set('orderId', options.orderId.trim())
   const suffix = params.toString() ? `?${params.toString()}` : ''
-  const response = await fetch(`${getBaseUrl()}/admin/ops-log${suffix}`, { headers: adminHeaders(adminToken) })
+  const response = await fetchApi(`${getBaseUrl()}/admin/ops-log${suffix}`, { headers: adminHeaders(adminToken) })
   if (!response.ok) throw new Error(`Admin ops log request failed with ${response.status}`)
   const payload = (await response.json()) as Partial<AdminOpsLog> | null
   const events = Array.isArray(payload?.events) ? payload.events : []
@@ -1381,13 +1385,13 @@ export async function getAdminClients(adminToken?: string, query?: string, inclu
   if (query?.trim()) params.set('q', query.trim())
   if (includeGuests) params.set('includeGuests', 'true')
   const suffix = params.toString() ? `?${params.toString()}` : ''
-  const response = await fetch(`${getBaseUrl()}/admin/clients${suffix}`, { headers: adminHeaders(adminToken) })
+  const response = await fetchApi(`${getBaseUrl()}/admin/clients${suffix}`, { headers: adminHeaders(adminToken) })
   if (!response.ok) throw new Error(`Admin clients request failed with ${response.status}`)
   return response.json() as Promise<CustomerProfile[]>
 }
 
 export async function purgeStaleGuestClients(adminToken?: string, days = 7) {
-  const response = await fetch(`${getBaseUrl()}/admin/clients/purge-guests?days=${encodeURIComponent(String(days))}`, {
+  const response = await fetchApi(`${getBaseUrl()}/admin/clients/purge-guests?days=${encodeURIComponent(String(days))}`, {
     method: 'POST',
     headers: adminHeaders(adminToken),
   })
@@ -1400,26 +1404,26 @@ export async function getAdminProviders(adminToken?: string, query?: string, kin
   if (query?.trim()) params.set('q', query.trim())
   if (kind?.trim()) params.set('kind', kind.trim())
   const suffix = params.toString() ? `?${params.toString()}` : ''
-  const response = await fetch(`${getBaseUrl()}/admin/providers${suffix}`, { headers: adminHeaders(adminToken) })
+  const response = await fetchApi(`${getBaseUrl()}/admin/providers${suffix}`, { headers: adminHeaders(adminToken) })
   if (!response.ok) throw new Error(`Admin providers request failed with ${response.status}`)
   return response.json() as Promise<ProviderAvailability[]>
 }
 
 export async function getAdminOrders(adminToken?: string, status?: string) {
   const params = status && status !== 'all' ? `?status=${encodeURIComponent(status)}` : ''
-  const response = await fetch(`${getBaseUrl()}/admin/orders${params}`, { headers: adminHeaders(adminToken) })
+  const response = await fetchApi(`${getBaseUrl()}/admin/orders${params}`, { headers: adminHeaders(adminToken) })
   if (!response.ok) throw new Error(`Admin orders request failed with ${response.status}`)
   return response.json() as Promise<OrderResponse[]>
 }
 
 export async function getAdminSettings(adminToken?: string) {
-  const response = await fetch(`${getBaseUrl()}/admin/settings`, { headers: adminHeaders(adminToken) })
+  const response = await fetchApi(`${getBaseUrl()}/admin/settings`, { headers: adminHeaders(adminToken) })
   if (!response.ok) throw new Error(`Admin settings request failed with ${response.status}`)
   return response.json() as Promise<AdminSettings>
 }
 
 export async function adminUpdateClient(customerId: string, payload: Partial<CustomerProfile> & { accountStatus?: string }, adminToken?: string) {
-  const response = await fetch(`${getBaseUrl()}/admin/clients/${encodeURIComponent(customerId)}`, {
+  const response = await fetchApi(`${getBaseUrl()}/admin/clients/${encodeURIComponent(customerId)}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', ...(adminHeaders(adminToken) ?? {}) },
     body: JSON.stringify(payload),
@@ -1429,7 +1433,7 @@ export async function adminUpdateClient(customerId: string, payload: Partial<Cus
 }
 
 export async function adminUpdateProvider(providerId: string, payload: Partial<ProviderAvailability> & { accountStatus?: string }, adminToken?: string) {
-  const response = await fetch(`${getBaseUrl()}/admin/providers/${encodeURIComponent(providerId)}`, {
+  const response = await fetchApi(`${getBaseUrl()}/admin/providers/${encodeURIComponent(providerId)}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', ...(adminHeaders(adminToken) ?? {}) },
     body: JSON.stringify(payload),
@@ -1439,7 +1443,7 @@ export async function adminUpdateProvider(providerId: string, payload: Partial<P
 }
 
 export async function adminDeleteProvider(providerId: string, adminToken?: string) {
-  const response = await fetch(`${getBaseUrl()}/admin/providers/${encodeURIComponent(providerId)}`, {
+  const response = await fetchApi(`${getBaseUrl()}/admin/providers/${encodeURIComponent(providerId)}`, {
     method: 'DELETE',
     headers: adminHeaders(adminToken),
   })

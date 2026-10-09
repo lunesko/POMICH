@@ -19,6 +19,7 @@ export interface ServiceDetailQuestion {
   label: string
   hint?: string
   options: readonly ServiceDetailOption[]
+  optional?: boolean
   when?: (answers: ServiceDetailAnswers) => boolean
 }
 
@@ -52,6 +53,14 @@ const QUESTIONS: Record<ServiceKey, readonly ServiceDetailQuestion[]> = {
         { value: "unknown", label: "Не знаю" },
       ],
     },
+    { id: "vehicleType", label: "Тип авто (якщо відомо)", optional: true, options: [
+      { value: "car", label: "Легкове авто" }, { value: "suv", label: "Позашляховик" },
+      { value: "van", label: "Мікроавтобус або фургон" }, { value: "unknown", label: "Тип не знаю" },
+    ] },
+    { id: "vehicleWeight", label: "Приблизна маса авто (якщо відомо)", optional: true, options: [
+      { value: "under2", label: "До 2 тонн" }, { value: "2to3", label: "2–3 тонни" },
+      { value: "over3", label: "Понад 3 тонни" }, { value: "unknown", label: "Масу не знаю" },
+    ] },
   ],
   battery: [
     {
@@ -61,7 +70,8 @@ const QUESTIONS: Record<ServiceKey, readonly ServiceDetailQuestion[]> = {
         { value: "silent", label: "Стартер мовчить" },
         { value: "clicks", label: "Чути клацання" },
         { value: "cranks", label: "Стартер крутить, двигун не запускається" },
-        { value: "electric", label: "Електромобіль або гібрид" },
+        { value: "electric", label: "Проблема із запуском електромобіля або гібрида" },
+        { value: "unknown", label: "Не знаю" },
       ],
     },
     {
@@ -71,6 +81,7 @@ const QUESTIONS: Record<ServiceKey, readonly ServiceDetailQuestion[]> = {
         { value: "jump", label: "Запустити від іншого АКБ" },
         { value: "replace", label: "Замінити акумулятор" },
         { value: "diagnose", label: "Потрібна діагностика" },
+        { value: "unknown", label: "Не знаю — узгодити з партнером" },
       ],
     },
   ],
@@ -164,7 +175,7 @@ export const serviceDetailsHeadings: Record<ServiceKey, { title: string; subtitl
   tow: { title: "Підготуємо евакуатор", subtitle: "Уточніть стан авто, щоб партнер взяв потрібну техніку." },
   battery: { title: "Чому авто не заводиться?", subtitle: "Це допоможе взяти правильний пусковий пристрій або акумулятор." },
   wheel: { title: "Що з колесом?", subtitle: "Партнер зрозуміє, чи потрібна запаска або виїзний шиномонтаж." },
-  fuel: { title: "Яке пальне потрібно?", subtitle: "Тип пального обов’язковий — помилка тут може пошкодити авто." },
+  fuel: { title: "Яке пальне потрібно?", subtitle: "Якщо не знаєте тип пального, партнер уточнить його до доставки — помилка може пошкодити авто." },
   lockout: { title: "Як відкрити авто?", subtitle: "Уточніть ситуацію з ключами та чи є хтось усередині." },
   mechanic: { title: "Що потрібно полагодити?", subtitle: "Опишіть тип несправності та чи може авто рухатися." },
 }
@@ -178,7 +189,7 @@ export function serviceDetailQuestions(service: ServiceKey, answers: ServiceDeta
 }
 
 export function serviceDetailsComplete(details: ServiceDetails): boolean {
-  return serviceDetailQuestions(details.service, details.answers).every((question) => Boolean(details.answers[question.id]))
+  return serviceDetailQuestions(details.service, details.answers).every((question) => question.optional || Boolean(details.answers[question.id]))
 }
 
 export function serviceDetailsEmergency(details: ServiceDetails): string | undefined {

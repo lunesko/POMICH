@@ -73,7 +73,7 @@ export function serviceRequiresDestination(service: ServiceKey | ''): boolean {
   return service === 'tow'
 }
 
-export const ON_SITE_DESTINATION_LABEL = 'По місцю, нікуди їхати не потрібно'
+export const ON_SITE_DESTINATION_LABEL = 'Бажана допомога на місці — можливість ремонту підтвердить партнер'
 
 export function validateCustomerOrderInput(input: CustomerOrderInput): string[] {
   const errors: string[] = []

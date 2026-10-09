@@ -725,6 +725,7 @@ export default function ProviderCabinet({
                             <button
                               key={service.key}
                               type="button"
+                              aria-pressed={selected}
                               onClick={() => toggleSpecialty(service.key)}
                               className={`pomich-cabinet-service-chip${selected ? " is-selected" : ""}`}
                             >

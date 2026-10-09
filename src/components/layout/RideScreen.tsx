@@ -65,6 +65,7 @@ interface RideScreenProps {
   directoryScopeRecenterTrigger?: number
   directoryScopeCityCenter?: Point
   showUkraineMask?: boolean
+  serviceRadiusKm?: number
   mapZoom?: number
   children: ReactNode
 }
@@ -104,6 +105,7 @@ export function RideScreen({
   directoryScopeCityCenter,
   showUkraineMask = false,
   mapZoom,
+  serviceRadiusKm,
   children,
 }: RideScreenProps) {
   /* Interactive ride map owns the viewport — don't stack decorative shell map underneath. */
@@ -226,6 +228,7 @@ export function RideScreen({
     directoryScopeCityCenter,
     showUkraineMask,
     mapZoom,
+    serviceRadiusKm,
     full: true as const,
     mapTileTheme,
     overlayMode: mobileSheet,
@@ -262,6 +265,7 @@ export function RideScreen({
     directoryScopeCityCenter,
     showUkraineMask,
     mapZoom,
+    serviceRadiusKm,
     mobileSheet,
     snap,
     fitSheetToContent,

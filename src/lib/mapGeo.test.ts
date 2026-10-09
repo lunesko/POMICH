@@ -405,7 +405,7 @@ describe("mapGeo", () => {
     requestCurrentPosition(vi.fn(), onError, { mode: "auto" })
     await vi.waitFor(() => expect(onError).toHaveBeenCalled())
     expect(getCurrentPosition).not.toHaveBeenCalled()
-    expect(onError).toHaveBeenCalledWith(expect.stringMatching(/Оновити/i), "unavailable")
+    expect(onError).toHaveBeenCalledWith(expect.stringMatching(/Повторіть визначення місця/i), "unavailable")
   })
 
   it("auto mode does not call getCurrentPosition inside Telegram Mini App when permission is unknown", async () => {
@@ -428,7 +428,7 @@ describe("mapGeo", () => {
     requestCurrentPosition(vi.fn(), onError, { mode: "auto" })
     await vi.waitFor(() => expect(onError).toHaveBeenCalled())
     expect(getCurrentPosition).not.toHaveBeenCalled()
-    expect(onError).toHaveBeenCalledWith(expect.stringMatching(/Оновити/i), "unavailable")
+    expect(onError).toHaveBeenCalledWith(expect.stringMatching(/Повторіть визначення місця/i), "unavailable")
   })
 
   it("auto mode uses Telegram LocationManager when access is already granted there", async () => {

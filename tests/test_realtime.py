@@ -100,3 +100,16 @@ def test_pump_websocket_unsubscribes_on_send_failure():
     listeners = asyncio.run(_run())
     assert listeners == []
     realtime.reset_realtime_for_tests()
+
+
+def test_publish_from_worker_wakes_waiting_async_subscriber():
+    async def run():
+        queue = realtime.subscribe('threaded-order', maxsize=1)
+        try:
+            reader = asyncio.create_task(queue.get())
+            await asyncio.sleep(0)
+            await asyncio.to_thread(realtime.publish, 'threaded-order', 'order.updated', {'id': 'threaded'})
+            assert (await asyncio.wait_for(reader, timeout=1))['payload']['id'] == 'threaded'
+        finally:
+            realtime.unsubscribe('threaded-order', queue)
+    asyncio.run(run(), debug=True)
