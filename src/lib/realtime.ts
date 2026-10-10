@@ -32,23 +32,54 @@ function wsOriginFromApiBase(): string {
   return url.origin + url.pathname.replace(/\/$/, "")
 }
 
-function buildEventsUrl(path: string, accessToken?: string): string {
+function buildEventsUrl(path: string, ticket?: string): string {
   const base = apiBaseUrl().replace(/\/$/, "")
   const normalizedPath = path.startsWith("/") ? path : `/${path}`
   const url = new URL(`${base}${normalizedPath}`, window.location.origin)
-  if (accessToken) {
-    url.searchParams.set("access_token", accessToken)
+  if (ticket) {
+    url.searchParams.set("ticket", ticket)
   }
   return url.toString()
 }
 
-function buildWsUrl(path: string, accessToken?: string): string {
+function buildWsUrl(path: string, ticket?: string): string {
   const normalizedPath = path.startsWith("/") ? path : `/${path}`
   const url = new URL(`${wsOriginFromApiBase()}${normalizedPath}`)
-  if (accessToken) {
-    url.searchParams.set("access_token", accessToken)
+  if (ticket) {
+    url.searchParams.set("ticket", ticket)
   }
   return url.toString()
+}
+
+function scopeFromRealtimePath(path: string): string | null {
+  const normalized = path.startsWith("/") ? path : `/${path}`
+  const match = normalized.match(/^\/(?:ws|events)\/(orders|customers|providers)\/([^/?#]+)/)
+  if (!match) return null
+  const kind = match[1] === "orders" ? "order" : match[1] === "customers" ? "customer" : "provider"
+  try {
+    return `${kind}:${decodeURIComponent(match[2])}`
+  } catch {
+    return `${kind}:${match[2]}`
+  }
+}
+
+async function mintRealtimeTicket(scope: string, accessToken: string): Promise<string> {
+  const base = apiBaseUrl().replace(/\/$/, "")
+  const response = await fetch(`${base}/auth/realtime/ticket`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ scope }),
+  })
+  if (!response.ok) {
+    throw new Error(`realtime_ticket_${response.status}`)
+  }
+  const payload = (await response.json()) as { ticket?: string }
+  const ticket = String(payload.ticket || "").trim()
+  if (!ticket) throw new Error("realtime_ticket_missing")
+  return ticket
 }
 
 function handleRealtimePayload(
@@ -57,6 +88,10 @@ function handleRealtimePayload(
   onEvent: (eventType: string, data: unknown) => void,
 ): void {
   if (eventType === "connected" || eventType === "heartbeat") return
+  if (eventType === "session.expired") {
+    onEvent(eventType, data)
+    return
+  }
   onEvent(eventType, data)
 }
 
@@ -67,7 +102,7 @@ function handleRealtimePayload(
 export function subscribeSse(
   path: string,
   onEvent: (eventType: string, data: unknown) => void,
-  options: RealtimeSubscriptionOptions = {},
+  options: RealtimeSubscriptionOptions & { ticket?: string } = {},
 ): () => void {
   if (typeof window === "undefined" || typeof window.EventSource === "undefined") {
     options.onDisconnected?.()
@@ -91,7 +126,7 @@ export function subscribeSse(
       return
     }
     source?.close()
-    source = new EventSource(buildEventsUrl(path, options.accessToken))
+    source = new EventSource(buildEventsUrl(path, options.ticket))
 
     source.onopen = () => {
       if (closed) return
@@ -100,46 +135,43 @@ export function subscribeSse(
       options.onConnected?.()
     }
 
-    source.onerror = () => {
-      if (closed) return
-      options.onDisconnected?.()
-      source?.close()
-      source = null
-      if (reconnectTimer) window.clearTimeout(reconnectTimer)
-      const base = sawOpen ? 2000 : 4000
-      const delay = Math.min(30000, Math.round(base * Math.pow(1.6, reconnectAttempt)))
-      reconnectAttempt += 1
-      reconnectTimer = window.setTimeout(connect, delay)
-    }
-
-    const handleMessage = (event: MessageEvent) => {
+    source.onmessage = (event) => {
       if (closed) return
       let data: unknown = event.data
       try {
         data = JSON.parse(String(event.data))
       } catch {
-        // keep raw string
+        return
       }
-      const eventType =
-        event.type && event.type !== "message" ? event.type : (data as { type?: string })?.type || "message"
+      const eventType = (data as { type?: string })?.type || "message"
       handleRealtimePayload(eventType, data, onEvent)
     }
 
-    source.onmessage = handleMessage
-    REALTIME_EVENT_NAMES.forEach((name) => {
-      source?.addEventListener(name, handleMessage as EventListener)
-    })
-  }
-
-  const onVisibility = () => {
-    if (closed) return
-    if (document.visibilityState === "visible" && !source) {
-      if (reconnectTimer) window.clearTimeout(reconnectTimer)
-      connect()
+    for (const name of REALTIME_EVENT_NAMES) {
+      source.addEventListener(name, ((event: MessageEvent) => {
+        if (closed) return
+        let data: unknown = event.data
+        try {
+          data = JSON.parse(String(event.data))
+        } catch {
+          return
+        }
+        handleRealtimePayload(name, data, onEvent)
+      }) as EventListener)
     }
-  }
-  if (typeof document !== "undefined") {
-    document.addEventListener("visibilitychange", onVisibility)
+
+    source.onerror = () => {
+      if (closed) return
+      source?.close()
+      source = null
+      if (!sawOpen && reconnectAttempt >= 2) {
+        options.onDisconnected?.()
+        return
+      }
+      reconnectAttempt += 1
+      const delay = Math.min(1000 * 2 ** Math.min(reconnectAttempt, 4), 15000)
+      reconnectTimer = window.setTimeout(connect, delay)
+    }
   }
 
   connect()
@@ -147,33 +179,23 @@ export function subscribeSse(
   return () => {
     closed = true
     if (reconnectTimer) window.clearTimeout(reconnectTimer)
-    if (typeof document !== "undefined") {
-      document.removeEventListener("visibilitychange", onVisibility)
-    }
     source?.close()
     source = null
   }
 }
 
-const WS_CONNECT_TIMEOUT_MS = 3000
-const WS_RECONNECT_MS = 2000
+const WS_CONNECT_TIMEOUT_MS = 4_000
+const WS_RECONNECT_MS = 1_200
 const MAX_WS_RECONNECT_FAILURES = 3
 /** Server heartbeats every 15s — miss ~3 and treat the socket as a dead cat. */
 const WS_HEARTBEAT_TIMEOUT_MS = 45_000
 const WS_WATCHDOG_TICK_MS = 5_000
 
-/**
- * Prefer WebSocket, fall back to SSE on handshake/connect failure or repeated disconnects.
- *
- * Dead-cat detection: after open, if no frame (including server `heartbeat`) arrives for
- * WS_HEARTBEAT_TIMEOUT_MS, force-close and reconnect. Without this, mobile / Telegram
- * WebViews keep readyState=OPEN on half-open sockets while callers slow polling to 20s.
- */
-export function subscribeRealtime(
+function subscribeRealtimeWithTicket(
   wsPath: string,
   ssePath: string,
   onEvent: (eventType: string, data: unknown) => void,
-  options: RealtimeSubscriptionOptions = {},
+  options: RealtimeSubscriptionOptions & { ticket?: string },
 ): () => void {
   if (typeof window === "undefined") {
     options.onDisconnected?.()
@@ -231,7 +253,6 @@ export function subscribeRealtime(
         return
       }
       if (Date.now() - lastFrameAt < WS_HEARTBEAT_TIMEOUT_MS) return
-      // Half-open / NAT-dead socket: onclose may never fire until we close().
       forceDeadSocket(socket)
     }, WS_WATCHDOG_TICK_MS)
   }
@@ -257,7 +278,7 @@ export function subscribeRealtime(
       ws = null
     }
 
-    const socket = new WebSocket(buildWsUrl(wsPath, options.accessToken))
+    const socket = new WebSocket(buildWsUrl(wsPath, options.ticket))
     ws = socket
     let opened = false
 
@@ -288,13 +309,17 @@ export function subscribeRealtime(
         return
       }
       const eventType = (data as { type?: string })?.type || "message"
+      if (eventType === "session.expired") {
+        options.onDisconnected?.()
+        forceDeadSocket(socket)
+        return
+      }
       handleRealtimePayload(eventType, data, onEvent)
     }
 
     socket.onerror = () => {
       if (closed || usingSse || ws !== socket) return
       if (connectTimer) window.clearTimeout(connectTimer)
-      // Always close so onclose runs cleanup; don't leave a zombie OPEN socket.
       if (!opened) {
         forceDeadSocket(socket)
         ws = null
@@ -344,6 +369,48 @@ export function subscribeRealtime(
   }
 }
 
+/**
+ * Prefer WebSocket, fall back to SSE on handshake/connect failure or repeated disconnects.
+ * Uses a short-lived realtime ticket in the URL instead of the bearer access token (F05).
+ */
+export function subscribeRealtime(
+  wsPath: string,
+  ssePath: string,
+  onEvent: (eventType: string, data: unknown) => void,
+  options: RealtimeSubscriptionOptions = {},
+): () => void {
+  if (typeof window === "undefined") {
+    options.onDisconnected?.()
+    return () => undefined
+  }
+
+  let closed = false
+  let stopInner: (() => void) | null = null
+
+  const start = async () => {
+    const scope = scopeFromRealtimePath(wsPath) || scopeFromRealtimePath(ssePath)
+    let ticket: string | undefined
+    if (options.accessToken && scope) {
+      try {
+        ticket = await mintRealtimeTicket(scope, options.accessToken)
+      } catch {
+        if (!closed) options.onDisconnected?.()
+        return
+      }
+    }
+    if (closed) return
+    stopInner = subscribeRealtimeWithTicket(wsPath, ssePath, onEvent, { ...options, ticket })
+  }
+
+  void start()
+
+  return () => {
+    closed = true
+    stopInner?.()
+    stopInner = null
+  }
+}
+
 export function subscribeOrderEvents(
   orderId: string,
   onEvent: () => void,
@@ -377,6 +444,8 @@ export function subscribeProviderEvents(
 export const __realtimeTestHooks = {
   buildEventsUrl,
   buildWsUrl,
+  scopeFromRealtimePath,
+  mintRealtimeTicket,
   subscribeRealtime,
   subscribeSse,
   WS_CONNECT_TIMEOUT_MS,

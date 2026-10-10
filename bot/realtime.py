@@ -12,7 +12,7 @@ import json
 import threading
 import time
 from collections import defaultdict
-from typing import Any, AsyncIterator, Protocol
+from typing import Any, AsyncIterator, Callable, Protocol
 
 _LOCK = threading.Lock()
 _SEQ = 0
@@ -133,11 +133,13 @@ async def pump_websocket(
     channel: str,
     *,
     heartbeat_seconds: float = 15.0,
+    auth_check: Callable[[], bool] | None = None,
 ) -> None:
     """Stream channel events to a WebSocket until disconnect.
 
     Heartbeats keep nginx/proxy idle timeouts from killing the socket and let
     clients detect half-open ("dead cat") connections when frames stop.
+    auth_check closes the stream when the session expires or is revoked (F06).
     """
     from starlette.websockets import WebSocketDisconnect
 
@@ -145,6 +147,14 @@ async def pump_websocket(
     try:
         await websocket.send_json({"type": "connected", "channel": channel, "ts": int(time.time())})
         while True:
+            if auth_check is not None and not auth_check():
+                close = getattr(websocket, "close", None)
+                if callable(close):
+                    try:
+                        await close(code=4401)
+                    except Exception:
+                        pass
+                break
             try:
                 message = await asyncio.wait_for(queue.get(), timeout=heartbeat_seconds)
                 await websocket.send_json(message)
@@ -159,11 +169,19 @@ async def pump_websocket(
         unsubscribe(channel, queue)
 
 
-async def event_stream(channel: str, *, heartbeat_seconds: float = 15.0) -> AsyncIterator[str]:
+async def event_stream(
+    channel: str,
+    *,
+    heartbeat_seconds: float = 15.0,
+    auth_check: Callable[[], bool] | None = None,
+) -> AsyncIterator[str]:
     queue = subscribe(channel)
     try:
         yield _sse({"type": "connected", "channel": channel, "ts": int(time.time())})
         while True:
+            if auth_check is not None and not auth_check():
+                yield _sse({"type": "session.expired", "ts": int(time.time())})
+                break
             try:
                 message = await asyncio.wait_for(queue.get(), timeout=heartbeat_seconds)
                 yield _sse(message)

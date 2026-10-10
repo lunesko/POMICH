@@ -11,10 +11,12 @@ import json
 import os
 import time
 import urllib.parse
+import uuid
 from dataclasses import dataclass
 
 from fastapi import HTTPException
 
+from bot.auth_sessions import is_session_revoked, new_session_id
 from bot.field_encryption import FieldEncryptionError, encryption_enabled, require_valid_fernet_key
 from bot.order_store import DispatchConflict
 from bot.otp_verification import OtpVerificationError
@@ -55,6 +57,8 @@ class AuthPrincipal:
     auth_type: str
     browser_expires_at: int = 0
     remember_me: bool = False
+    session_id: str = ""
+    expires_at: int = 0
 
 
 def is_production_runtime() -> bool:
@@ -367,14 +371,26 @@ def session_ttl_seconds() -> int:
         return _DEFAULT_SESSION_TTL_SECONDS
 
 
-def issue_role_session(role: str, subject_id: str, secret: str, *, ttl_seconds: int | None = None, browser_expires_at: int | None = None, remember_me: bool = False) -> dict:
+def issue_role_session(
+    role: str,
+    subject_id: str,
+    secret: str,
+    *,
+    ttl_seconds: int | None = None,
+    browser_expires_at: int | None = None,
+    remember_me: bool = False,
+    session_id: str | None = None,
+) -> dict:
     issued_at = int(time.time())
     expires_at = issued_at + (session_ttl_seconds() if ttl_seconds is None else ttl_seconds)
+    family_id = str(session_id or "").strip() or new_session_id()
     payload = {
         "role": role,
         "sub": str(subject_id),
         "iat": issued_at,
         "exp": expires_at,
+        "sid": family_id,
+        "jti": uuid.uuid4().hex,
     }
     if browser_expires_at is not None:
         payload.update(browserExp=browser_expires_at, rememberMe=remember_me)
@@ -383,6 +399,7 @@ def issue_role_session(role: str, subject_id: str, secret: str, *, ttl_seconds: 
     return {
         "role": role,
         "subjectId": str(subject_id),
+        "sessionId": family_id,
         "tokenType": "Bearer",
         "accessToken": f"{_AUTH_SESSION_PREFIX}.{body}.{signature}",
         "expiresAt": expires_at,
@@ -413,9 +430,18 @@ def verify_role_session(token: str, expected_role: str, secret: str) -> AuthPrin
     subject_id = str(payload.get("sub") or "").strip()
     if not subject_id:
         raise HTTPException(status_code=401, detail=f"{expected_role}_session_invalid")
-    return AuthPrincipal(role=expected_role, subject_id=subject_id, auth_type="session",
-                         browser_expires_at=int(payload.get("browserExp") or expires_at),
-                         remember_me=payload.get("rememberMe") is True)
+    session_id = str(payload.get("sid") or "").strip()
+    if session_id and is_session_revoked(session_id):
+        raise HTTPException(status_code=401, detail="session_revoked")
+    return AuthPrincipal(
+        role=expected_role,
+        subject_id=subject_id,
+        auth_type="session",
+        browser_expires_at=int(payload.get("browserExp") or expires_at),
+        remember_me=payload.get("rememberMe") is True,
+        session_id=session_id,
+        expires_at=expires_at,
+    )
 
 
 def require_admin_auth(

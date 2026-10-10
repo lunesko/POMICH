@@ -547,11 +547,15 @@ export async function restoreBrowserSession(role: 'customer' | 'provider' | 'adm
   return session as AuthSession
 }
 
-export async function logoutBrowserSessions(): Promise<void> {
+export async function logoutBrowserSessions(accessToken?: string): Promise<void> {
+  const headers: Record<string, string> = {}
+  const token = String(accessToken || '').trim()
+  if (token) headers.Authorization = `Bearer ${token}`
   const response = await fetchApi(`${getBaseUrl()}/auth/browser/logout`, {
     method: 'POST',
     credentials: 'same-origin',
     keepalive: true,
+    headers,
   })
   if (!response.ok) throw new Error(`Browser logout failed with ${response.status}`)
 }

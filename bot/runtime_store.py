@@ -112,6 +112,13 @@ sessions = Table(
     Column("payload", JSON, nullable=False),
 )
 
+auth_revocations = Table(
+    "auth_revocations",
+    _METADATA,
+    Column("session_id", String(64), primary_key=True),
+    Column("expires_at", String(40), nullable=False),
+)
+
 order_events = Table(
     "order_events",
     _METADATA,
@@ -228,6 +235,7 @@ def _run_schema_migrations(engine: Engine) -> None:
         ("2026082001", "phone lookup indexes for OTP/login", _migration_phone_lookup_indexes),
         ("2026092701", "provider kind and public map indexes", _migration_provider_map_indexes),
         ("2026092702", "active dispatch offer uniqueness", _migration_active_offer_uniqueness),
+        ("2026101001", "auth session revocation table", _migration_auth_revocations),
     )
 
     with engine.begin() as connection:
@@ -258,6 +266,7 @@ def _migration_runtime_schema_baseline(connection, engine: Engine) -> None:
         "dispatch_offers",
         "sessions",
         "order_events",
+        "auth_revocations",
         "pomich_schema_migrations",
         "pomich_runtime_collections",
     }
@@ -422,6 +431,41 @@ def _migration_active_offer_uniqueness(connection, engine: Engine) -> None:
         ON dispatch_offers (order_id, provider_id)
         WHERE status <> 'expired'
     """))
+
+
+def _migration_auth_revocations(connection, engine: Engine) -> None:
+    existing_tables = set(inspect(connection).get_table_names())
+    if "auth_revocations" not in existing_tables:
+        auth_revocations.create(bind=connection)
+
+
+def sql_load_auth_revocations() -> dict[str, int]:
+    engine = get_engine()
+    with engine.begin() as connection:
+        rows = connection.execute(select(auth_revocations.c.session_id, auth_revocations.c.expires_at)).all()
+    result: dict[str, int] = {}
+    for session_id, expires_at in rows:
+        try:
+            result[str(session_id)] = int(expires_at)
+        except (TypeError, ValueError):
+            continue
+    return result
+
+
+def sql_replace_auth_revocations(revoked: dict[str, int]) -> None:
+    engine = get_engine()
+    with engine.begin() as connection:
+        connection.execute(delete(auth_revocations))
+        for session_id, expires_at in revoked.items():
+            sid = str(session_id or "").strip()
+            if not sid:
+                continue
+            connection.execute(
+                insert(auth_revocations).values(
+                    session_id=sid[:64],
+                    expires_at=str(int(expires_at)),
+                )
+            )
 
 
 def applied_schema_migrations() -> list[dict[str, Any]]:

@@ -5,6 +5,8 @@ import { __realtimeTestHooks } from "./realtime"
 const {
   buildEventsUrl,
   buildWsUrl,
+  mintRealtimeTicket,
+  scopeFromRealtimePath,
   subscribeRealtime,
   subscribeSse,
   WS_CONNECT_TIMEOUT_MS,
@@ -47,6 +49,12 @@ class MockWebSocket {
   }
 }
 
+async function flushMicrotasks(times = 3) {
+  for (let i = 0; i < times; i += 1) {
+    await Promise.resolve()
+  }
+}
+
 describe("realtime transport preference", () => {
   beforeEach(() => {
     vi.stubEnv("VITE_API_BASE_URL", "/api")
@@ -65,22 +73,51 @@ describe("realtime transport preference", () => {
       value: { origin: "https://toll-icons-apollo-emission.trycloudflare.com" },
       configurable: true,
     })
-    expect(buildWsUrl("/ws/orders/o1", "tok")).toBe(
-      "wss://toll-icons-apollo-emission.trycloudflare.com/api/ws/orders/o1?access_token=tok",
+    expect(buildWsUrl("/ws/orders/o1", "rt-ticket")).toBe(
+      "wss://toll-icons-apollo-emission.trycloudflare.com/api/ws/orders/o1?ticket=rt-ticket",
     )
   })
 
-  it("builds sse url with access_token query param", () => {
+  it("builds sse url with short-lived ticket query param", () => {
     Object.defineProperty(window, "location", {
       value: { origin: "https://example.com" },
       configurable: true,
     })
-    expect(buildEventsUrl("/events/providers/p1", "tok")).toBe(
-      "https://example.com/api/events/providers/p1?access_token=tok",
+    expect(buildEventsUrl("/events/providers/p1", "rt-ticket")).toBe(
+      "https://example.com/api/events/providers/p1?ticket=rt-ticket",
     )
   })
 
-  it("prefers websocket and delivers events", () => {
+  it("derives realtime scope from ws/sse paths", () => {
+    expect(scopeFromRealtimePath("/ws/orders/o1")).toBe("order:o1")
+    expect(scopeFromRealtimePath("/events/customers/c%2F1")).toBe("customer:c/1")
+    expect(scopeFromRealtimePath("/ws/providers/p1")).toBe("provider:p1")
+  })
+
+  it("mints a short-lived realtime ticket via bearer auth", async () => {
+    Object.defineProperty(window, "location", {
+      value: { origin: "https://example.com" },
+      configurable: true,
+    })
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ ticket: "pomich_rt_v1.ticketbody.sig" }),
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    const ticket = await mintRealtimeTicket("order:o1", "access-token")
+    expect(ticket).toBe("pomich_rt_v1.ticketbody.sig")
+    expect(fetchMock).toHaveBeenCalledWith("/api/auth/realtime/ticket", {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer access-token",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ scope: "order:o1" }),
+    })
+  })
+
+  it("prefers websocket and delivers events", async () => {
     ;(globalThis as unknown as { WebSocket: typeof MockWebSocket }).WebSocket = MockWebSocket
 
     const events: string[] = []
@@ -90,9 +127,11 @@ describe("realtime transport preference", () => {
       (eventType) => events.push(eventType),
       { onConnected: () => events.push("connected-cb") },
     )
+    await flushMicrotasks()
 
     const socket = MockWebSocket.instances[0]
     expect(socket.url).toContain("/api/ws/orders/o1")
+    expect(socket.url).not.toContain("access_token=")
     socket.emitOpen()
     socket.emitMessage({ type: "connected", channel: "order:o1" })
     socket.emitMessage({ type: "order.accepted", payload: { id: "o1" } })
@@ -101,7 +140,34 @@ describe("realtime transport preference", () => {
     stop()
   })
 
-  it("falls back to sse when websocket handshake times out", () => {
+  it("puts minted ticket in websocket url instead of bearer", async () => {
+    Object.defineProperty(window, "location", {
+      value: { origin: "https://example.com" },
+      configurable: true,
+    })
+    ;(globalThis as unknown as { WebSocket: typeof MockWebSocket }).WebSocket = MockWebSocket
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ ticket: "rt-ticket-abc" }),
+      }),
+    )
+
+    const stop = subscribeRealtime("/ws/orders/o9", "/events/orders/o9", () => undefined, {
+      accessToken: "bearer-secret",
+    })
+    await flushMicrotasks(5)
+
+    expect(MockWebSocket.instances).toHaveLength(1)
+    expect(MockWebSocket.instances[0].url).toBe(
+      "wss://example.com/api/ws/orders/o9?ticket=rt-ticket-abc",
+    )
+    expect(MockWebSocket.instances[0].url).not.toContain("access_token=")
+    stop()
+  })
+
+  it("falls back to sse when websocket handshake times out", async () => {
     Object.defineProperty(window, "location", {
       value: { origin: "https://example.com" },
       configurable: true,
@@ -125,6 +191,7 @@ describe("realtime transport preference", () => {
     ;(window as { EventSource: typeof EventSource }).EventSource = MockEventSource as unknown as typeof EventSource
 
     const stop = subscribeRealtime("/ws/orders/o2", "/events/orders/o2", () => undefined)
+    await flushMicrotasks()
     expect(MockWebSocket.instances).toHaveLength(1)
 
     vi.advanceTimersByTime(WS_CONNECT_TIMEOUT_MS + 1)
@@ -158,13 +225,14 @@ describe("realtime transport preference", () => {
     ;(globalThis as { WebSocket?: unknown }).WebSocket = prev
   })
 
-  it("force-closes a dead-cat websocket when heartbeats stop", () => {
+  it("force-closes a dead-cat websocket when heartbeats stop", async () => {
     ;(globalThis as unknown as { WebSocket: typeof MockWebSocket }).WebSocket = MockWebSocket
 
     const disconnected = vi.fn()
     const stop = subscribeRealtime("/ws/orders/dead", "/events/orders/dead", () => undefined, {
       onDisconnected: disconnected,
     })
+    await flushMicrotasks()
 
     const socket = MockWebSocket.instances[0]
     const closeSpy = vi.spyOn(socket, "close")

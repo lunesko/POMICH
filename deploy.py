@@ -323,22 +323,24 @@ def main():
         timeout=300,
     )
 
-    print("\n7) Waiting for app health...")
+    print("\n7) Waiting for app readiness (health + DB)...")
     healthy = False
     for attempt in range(18):
         out, _, rc = run(ssh, "curl -sf http://127.0.0.1:8000/api/health", check=False)
-        if rc == 0 and out:
+        ready_out, _, ready_rc = run(ssh, "curl -sf http://127.0.0.1:8000/internal/ready", check=False)
+        if rc == 0 and out and ready_rc == 0 and ready_out:
             healthy = True
             break
         time.sleep(5)
     if not healthy:
-        print("  [WARN] health check did not pass within 90s")
+        raise SystemExit("Deploy aborted: /api/health or /internal/ready did not pass within 90s")
 
     print("\n8) Checking container status...")
     run(ssh, "docker ps --filter name=pomich --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'")
 
-    print("\n9) Checking app health...")
+    print("\n9) Checking app readiness...")
     run(ssh, "curl -sf http://127.0.0.1:8000/api/health || echo 'HEALTH_CHECK_FAILED'", check=False)
+    run(ssh, "curl -sf http://127.0.0.1:8000/internal/ready || echo 'READY_CHECK_FAILED'", check=False)
 
     print("\n10) Importing Ukraine directory providers (inside container -> PostgreSQL)...")
     if os.environ.get("POMICH_SKIP_IMPORT") == "1":
@@ -354,6 +356,9 @@ def main():
 
     print("\n11) Post-deploy verification...")
     run(ssh, "curl -sf http://127.0.0.1:8000/api/health || echo 'HEALTH_CHECK_FAILED'", check=False)
+    ready_out, _, ready_rc = run(ssh, "curl -sf http://127.0.0.1:8000/internal/ready", check=False)
+    if ready_rc != 0 or not ready_out:
+        raise SystemExit("Deploy aborted: /internal/ready failed after import step")
     run(
         ssh,
         "curl -sf http://127.0.0.1:8000/geo/ukraine-border.geojson | python3 -c "
@@ -377,15 +382,18 @@ def main():
         "curl -sf https://pomich.help/api/health || echo 'PUBLIC_HEALTH_FAILED'",
         check=False,
     )
-    run(
+    asset_out, _, asset_rc = run(
         ssh,
         "ASSET=$(ls /var/www/pomich/dist/assets/index-*.js 2>/dev/null | head -1); "
-        "if [ -n \"$ASSET\" ]; then "
-        "curl -sI -H 'Accept-Encoding: gzip' \"https://pomich.help/assets/$(basename \"$ASSET\")\" "
-        "| tr -d '\\r' | grep -Ei 'HTTP/|content-encoding|content-length|cache-control' | head -6; "
-        "else echo 'NO_ASSET_YET'; fi",
+        "if [ -z \"$ASSET\" ]; then echo 'NO_ASSET'; exit 1; fi; "
+        "CODE=$(curl -s -o /dev/null -w '%{http_code}' -H 'Accept-Encoding: gzip' "
+        "\"https://pomich.help/assets/$(basename \"$ASSET\")\"); "
+        "echo \"asset=$(basename \"$ASSET\") http=$CODE\"; "
+        "test \"$CODE\" = \"200\"",
         check=False,
     )
+    if asset_rc != 0:
+        raise SystemExit(f"Deploy aborted: frontend assets gate failed ({asset_out.strip()})")
 
     ssh.close()
 

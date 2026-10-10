@@ -37,6 +37,14 @@ jobs:
       - name: Check production dependency vulnerabilities
         run: npm audit --omit=dev --audit-level=high
 
+      - name: Check Python dependency vulnerabilities
+        run: |
+          python -m pip install pip-audit
+          # Prefer an isolated audit of requirements.txt; fall back to the
+          # installed environment when ensurepip/venv is unavailable.
+          python -m pip_audit -r requirements.txt --strict \
+            || python -m pip_audit --local --strict
+
       - name: Run backend tests
         run: python -m pytest
 

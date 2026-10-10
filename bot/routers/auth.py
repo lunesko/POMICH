@@ -6,16 +6,30 @@ import uuid
 from fastapi import APIRouter, Header, HTTPException, Request, Response
 
 from bot.api_deps import (
+    AuthPrincipal,
     configured_admin_secret,
     configured_customer_secret,
     configured_provider_secret,
+    extract_bearer_token,
     find_admin_account,
     find_provider_account,
     otp_http_detail,
     otp_http_status,
+    require_admin_auth,
+    require_any_provider_auth,
     require_customer_auth,
     require_customer_auth_from_bearer,
     verify_init_data_or_raise,
+    verify_role_session,
+)
+from bot.auth_sessions import issue_realtime_ticket
+from bot.browser_sessions import (
+    clear_browser_sessions,
+    issue_browser_login,
+    require_same_origin,
+    restore_browser_session,
+    revoke_request_sessions,
+    set_browser_session,
 )
 from bot.order_store import (
     build_user_account_status,
@@ -31,7 +45,6 @@ from bot.order_store import (
 )
 from bot.otp_verification import OtpVerificationError, confirm_customer_verification_code, send_customer_verification_code
 from bot.telegram_config import normalize_telegram_bot_kind
-from bot.browser_sessions import clear_browser_sessions, require_same_origin, restore_browser_session, set_browser_session, issue_browser_login
 
 router = APIRouter(tags=["auth"])
 
@@ -293,8 +306,72 @@ def browser_restore(payload: dict, request: Request, response: Response) -> dict
 
 
 @router.post("/auth/browser/logout", status_code=204)
-def browser_logout(request: Request) -> Response:
+def browser_logout(request: Request, authorization: str | None = Header(default=None)) -> Response:
     require_same_origin(request)
+    revoke_request_sessions(request, authorization)
     response = Response(status_code=204)
     clear_browser_sessions(response)
     return response
+
+
+def _principal_from_any_bearer(authorization: str | None) -> AuthPrincipal:
+    bearer = extract_bearer_token(authorization)
+    if not bearer:
+        raise HTTPException(status_code=401, detail="auth_session_required")
+    role_hint = None
+    try:
+        from bot.api_deps import _session_role_hint
+
+        role_hint = _session_role_hint(bearer)
+    except Exception:
+        role_hint = None
+    if role_hint == "admin":
+        return require_admin_auth(authorization=authorization)
+    if role_hint == "provider":
+        return require_any_provider_auth(authorization=authorization)
+    if role_hint == "customer":
+        return require_customer_auth_from_bearer(authorization)
+    # Fallback try customer → provider → admin
+    for role, secret_fn in (
+        ("customer", configured_customer_secret),
+        ("provider", configured_provider_secret),
+        ("admin", configured_admin_secret),
+    ):
+        try:
+            return verify_role_session(bearer, role, secret_fn())
+        except HTTPException:
+            continue
+    raise HTTPException(status_code=401, detail="auth_session_required")
+
+
+@router.post("/auth/realtime/ticket")
+def mint_realtime_ticket(payload: dict, authorization: str | None = Header(default=None)) -> dict:
+    """Short-lived channel ticket for EventSource/WebSocket query auth (F05)."""
+    principal = _principal_from_any_bearer(authorization)
+    scope = str((payload or {}).get("scope") or "").strip()
+    if not scope or ":" not in scope:
+        raise HTTPException(status_code=400, detail="realtime_scope_required")
+    kind, _, target = scope.partition(":")
+    kind = kind.strip().lower()
+    target = target.strip()
+    if kind not in {"order", "customer", "provider"} or not target:
+        raise HTTPException(status_code=400, detail="realtime_scope_invalid")
+    if kind == "customer" and principal.role == "customer" and principal.subject_id != target:
+        raise HTTPException(status_code=403, detail="customer_identity_mismatch")
+    if kind == "provider" and principal.role == "provider" and principal.subject_id != target:
+        raise HTTPException(status_code=403, detail="provider_identity_mismatch")
+    if kind == "order":
+        from bot.order_store import get_order
+        from bot.api_deps import require_order_participant_auth
+
+        order = get_order(target)
+        if order is None:
+            raise HTTPException(status_code=404, detail="order not found")
+        require_order_participant_auth(order, authorization)
+    return issue_realtime_ticket(
+        role=principal.role,
+        subject_id=principal.subject_id,
+        scope=f"{kind}:{target}",
+        session_id=principal.session_id,
+        stream_expires_at=principal.expires_at or principal.browser_expires_at or None,
+    )

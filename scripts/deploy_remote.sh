@@ -48,7 +48,8 @@ docker compose -f "$compose_file" --env-file "$env_file" up -d --no-deps pomich-
 
 healthy=false
 for _ in $(seq 1 24); do
-  if curl --fail --silent --show-error --max-time 5 http://127.0.0.1:8000/api/health >/dev/null; then
+  if curl --fail --silent --show-error --max-time 5 http://127.0.0.1:8000/api/health >/dev/null \
+    && curl --fail --silent --show-error --max-time 5 http://127.0.0.1:8000/internal/ready >/dev/null; then
     healthy=true
     break
   fi
@@ -56,7 +57,7 @@ for _ in $(seq 1 24); do
 done
 
 if [[ "$healthy" != true ]]; then
-  echo "ERROR: new application failed its local health check" >&2
+  echo "ERROR: new application failed local health/readiness checks" >&2
   docker logs --tail 150 pomich-app >&2 || true
   if [[ -n "$previous_image" ]]; then
     echo "Restoring previous image: $previous_image"
@@ -70,6 +71,17 @@ dist_next="/var/www/pomich/dist.next.$deploy_sha"
 dist_previous="/var/www/pomich/dist.previous"
 mkdir -p /var/www/pomich "$dist_next"
 docker cp pomich-app:/app/dist/. "$dist_next/"
+
+if [[ ! -f "$dist_next/index.html" ]] || ! ls "$dist_next"/assets/index-*.js >/dev/null 2>&1; then
+  echo "ERROR: frontend assets missing from container dist" >&2
+  rm -rf "$dist_next"
+  if [[ -n "$previous_image" ]]; then
+    echo "Restoring previous image: $previous_image"
+    export POMICH_IMAGE="$previous_image"
+    docker compose -f "$compose_file" --env-file "$env_file" up -d --no-deps pomich-app
+  fi
+  exit 1
+fi
 
 rm -rf "$dist_previous"
 if [[ -d /var/www/pomich/dist ]]; then
@@ -95,6 +107,21 @@ if ! curl --fail --silent --show-error --max-time 15 "$public_url/api/health" >/
     echo "Restoring previous image: $previous_image"
     export POMICH_IMAGE="$previous_image"
     docker compose -f "$compose_file" --env-file "$env_file" up -d --no-deps pomich-app
+  fi
+  exit 1
+fi
+
+asset_js="$(ls /var/www/pomich/dist/assets/index-*.js 2>/dev/null | head -1 || true)"
+if [[ -z "$asset_js" ]]; then
+  echo "ERROR: published frontend assets missing" >&2
+  exit 1
+fi
+asset_code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 -H 'Accept-Encoding: gzip' "$public_url/assets/$(basename "$asset_js")")"
+if [[ "$asset_code" != "200" ]]; then
+  echo "ERROR: public frontend asset check failed (HTTP $asset_code)" >&2
+  if [[ -d "$dist_previous" ]]; then
+    rm -rf /var/www/pomich/dist
+    mv "$dist_previous" /var/www/pomich/dist
   fi
   exit 1
 fi

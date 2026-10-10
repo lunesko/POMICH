@@ -451,6 +451,7 @@ export default function CustomerApp() {
   const handleLogout = async () => {
     // Block Telegram auto-relogin AND web session restore after explicit logout.
     markExplicitLogout(telegramContext.isTelegram ? telegramContext.chatId : undefined)
+    const bearerToRevoke = customerToken
     // Always leave the ride first — logout must work from completion/review screens.
     clearActiveOrder()
     clearPendingPartnerReview()
@@ -468,7 +469,7 @@ export default function CustomerApp() {
     setRole(null)
 
     try {
-      await logoutBrowserSessions()
+      await logoutBrowserSessions(bearerToRevoke)
     } catch {
       // Local logout still completes if the network is unavailable.
     }

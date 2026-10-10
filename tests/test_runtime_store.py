@@ -94,6 +94,7 @@ def test_sql_runtime_store_persists_orders_without_json_file(sql_runtime):
         "dispatch_offers",
         "sessions",
         "order_events",
+        "auth_revocations",
         "pomich_schema_migrations",
     }
     assert [migration["version"] for migration in runtime_store.applied_schema_migrations()] == [
@@ -105,6 +106,7 @@ def test_sql_runtime_store_persists_orders_without_json_file(sql_runtime):
         "2026082001",
         "2026092701",
         "2026092702",
+        "2026101001",
     ]
 
 
