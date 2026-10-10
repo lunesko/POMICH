@@ -5,7 +5,6 @@ import {
   partnerVehicleMakes,
 } from "./partnerVehicleCatalog"
 import { calculateDistanceKm, type ServiceKey } from "./pomichDomain"
-import { DEFAULT_SERVICE_CITY } from "./ukraineCities"
 import { resolveProviderIdForCustomer, storeLinkedProviderId } from "./userAccount"
 
 export { PARTNER_VEHICLE_MAKE_OTHER, partnerVehicleMakes } from "./partnerVehicleCatalog"
@@ -191,10 +190,10 @@ export const PROVIDER_START: Point = { lat: 48.632, lng: 22.271 }
 export const services = [
   { key: "tow", emoji: "🚛", label: "Евакуатор", tone: "#E8F8F1" },
   { key: "battery", emoji: "🔋", label: "Акумулятор", tone: "#EFF6FF" },
-  { key: "wheel", emoji: "🛞", label: "Колесо", tone: "#FFF7ED" },
+  { key: "wheel", emoji: "🛞", label: "Шиномонтаж", tone: "#FFF7ED" },
   { key: "fuel", emoji: "⛽", label: "Пальне", tone: "#F5F3FF" },
-  { key: "lockout", emoji: "🔑", label: "Замок", tone: "#FCE7F3" },
-  { key: "mechanic", emoji: "🔧", label: "Інше", tone: "#ECFCCB" },
+  { key: "lockout", emoji: "🔑", label: "Відкрити авто", tone: "#FCE7F3" },
+  { key: "mechanic", emoji: "🔧", label: "Механік на дорозі", tone: "#ECFCCB" },
 ] as const satisfies ReadonlyArray<{
   key: ServiceKey
   emoji: string

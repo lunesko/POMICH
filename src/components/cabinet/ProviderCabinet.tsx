@@ -32,7 +32,7 @@ import { roleLabel, readBootstrapProfile, resolveProviderIdForCustomer, storeLin
 import { validateUkraineMobilePhone } from "../../lib/ukrainePhone"
 import { validateUkrainePlate } from "../../lib/ukrainePlate"
 import { isPartnerProfileIncomplete } from "../../lib/partnerProfileComplete"
-import { DEFAULT_SERVICE_CITY, validateServiceCity } from "../../lib/ukraineCities"
+import { validateServiceCity } from "../../lib/ukraineCities"
 import { writeCityUserPicked, writePreferredCity } from "../../lib/preferredCity"
 import { validatePersonName } from "../../lib/personName"
 import { authSessionStorageKey, isAuthSessionToken, readAuthSessionSubject, readStoredAuthSession, readStoredCustomerAuthSession, storeAuthSession } from "../../lib/auth"
@@ -516,7 +516,7 @@ export default function ProviderCabinet({
   const handleSave = async () => {
     const nameValidation = validatePersonName(form.name)
     const phoneValidation = validateUkraineMobilePhone(form.phone)
-    const cityValidation = validateServiceCity(form.city || DEFAULT_SERVICE_CITY)
+    const cityValidation = validateServiceCity(form.city)
     if (!nameValidation.valid) {
       setSaveSuccess(undefined)
       setSaveError(nameValidation.error || "Введіть ім'я")
@@ -696,7 +696,7 @@ export default function ProviderCabinet({
                       />
                     </label>
                     <CitySelect
-                      value={form.city || DEFAULT_SERVICE_CITY}
+                      value={form.city || ""}
                       onChange={(city) => setForm((prev) => ({ ...prev, city }))}
                       label="Оберіть місто"
                     />

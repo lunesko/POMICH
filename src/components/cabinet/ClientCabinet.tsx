@@ -14,7 +14,7 @@ import { getServiceLabel } from "../../lib/constants"
 import { roleLabel, type UserRole } from "../../lib/userAccount"
 import { validateUkraineMobilePhone } from "../../lib/ukrainePhone"
 import { validatePersonName } from "../../lib/personName"
-import { DEFAULT_SERVICE_CITY, validateServiceCity } from "../../lib/ukraineCities"
+import { validateServiceCity } from "../../lib/ukraineCities"
 import { writeCityUserPicked, writePreferredCity } from "../../lib/preferredCity"
 import { verificationHelpText, verificationSteps } from "../../lib/verificationHelp"
 import { getTelegramContext } from "../../telegram"
@@ -178,7 +178,7 @@ export default function ClientCabinet({
   const handleSave = async () => {
     const nameValidation = validatePersonName(form.name)
     const phoneValidation = validateUkraineMobilePhone(form.phone)
-    const cityValidation = validateServiceCity(form.city || DEFAULT_SERVICE_CITY)
+    const cityValidation = validateServiceCity(form.city)
     if (!nameValidation.valid) {
       setSaveError(nameValidation.error || "Введіть ім'я")
       setNameHint(nameValidation.hint)
@@ -345,7 +345,7 @@ export default function ClientCabinet({
                   />
                 </label>
                 <CitySelect
-                  value={form.city || DEFAULT_SERVICE_CITY}
+                  value={form.city || ""}
                   onChange={(city) => {
                     setForm((prev) => ({ ...prev, city }))
                     if (cityHint) setCityHint(undefined)

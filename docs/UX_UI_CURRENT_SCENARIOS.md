@@ -121,10 +121,10 @@ What the customer sees:
 - Service list:
   - `Евакуатор`
   - `Акумулятор`
-  - `Колесо`
+  - `Шиномонтаж`
   - `Пальне`
-  - `Замок`
-  - `Інше`
+  - `Відкрити авто`
+  - `Механік на дорозі`
 - Partner profile sheet when a provider/directory card is selected.
 
 Current gating:
