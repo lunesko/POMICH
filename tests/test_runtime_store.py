@@ -272,6 +272,23 @@ def test_sql_save_order_is_row_level_not_full_rewrite(sql_runtime):
     assert runtime_store.sql_get_order(first["id"])["customerLocation"] == "A2"
 
 
+def test_sql_upsert_and_insert_refuse_owner_takeover(sql_runtime):
+    first = save_order(
+        {
+            "id": "PM-SQL-OWNER",
+            "service": "tow",
+            "customerId": "customer-a",
+            "customerCoordinates": {"lat": 50.45, "lng": 30.52},
+        }
+    )
+    assert first["customerId"] == "customer-a"
+    with pytest.raises(runtime_store.OrderIdConflict):
+        runtime_store.sql_upsert_order({**first, "customerId": "customer-b", "status": "completed"})
+    with pytest.raises(runtime_store.OrderIdConflict):
+        runtime_store.sql_insert_order({**first, "customerId": "customer-b"})
+    assert runtime_store.sql_get_order("PM-SQL-OWNER")["customerId"] == "customer-a"
+
+
 def test_sql_decline_offer_is_row_level(sql_runtime):
     from bot.order_store import decline_offer, load_offers
 

@@ -15,7 +15,7 @@ from dataclasses import dataclass
 
 from fastapi import HTTPException
 
-from bot.field_encryption import encryption_enabled
+from bot.field_encryption import FieldEncryptionError, encryption_enabled, require_valid_fernet_key
 from bot.order_store import DispatchConflict
 from bot.otp_verification import OtpVerificationError
 from bot.runtime_store import sql_storage_enabled
@@ -143,6 +143,11 @@ def runtime_config_errors() -> list[str]:
     encryption_key = (os.getenv("POMICH_ENCRYPTION_KEY") or "").strip()
     if not encryption_key or encryption_key in _INSECURE_SECRET_VALUES or "replace-with-generated" in encryption_key.lower():
         errors.append("POMICH_ENCRYPTION_KEY must be set to a generated Fernet key in production")
+    else:
+        try:
+            require_valid_fernet_key(encryption_key)
+        except FieldEncryptionError:
+            errors.append("POMICH_ENCRYPTION_KEY must be a valid Fernet key (url-safe base64, 32 bytes)")
 
     database_url = (os.getenv("DATABASE_URL") or "").strip()
     allow_json = os.getenv("POMICH_ALLOW_JSON_STORE_IN_PRODUCTION") == "true"

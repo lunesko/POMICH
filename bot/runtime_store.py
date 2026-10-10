@@ -606,16 +606,21 @@ def sql_get_order(order_id: str) -> dict[str, Any] | None:
     return _json_safe_copy(row[0])
 
 
-def sql_upsert_order(order: dict[str, Any]) -> dict[str, Any]:
-    """Insert or update one order row without rewriting the whole orders table."""
-    payload = _json_safe_copy(order)
+class OrderIdConflict(ValueError):
+    """Raised when INSERT-only create would overwrite an existing order id."""
+
+    def __init__(self, order_id: str) -> None:
+        self.order_id = order_id
+        super().__init__(f"order_id_conflict:{order_id}")
+
+
+def _order_row_values(payload: dict[str, Any]) -> dict[str, Any]:
     order_id = str(payload.get("id") or "").strip()
     if not order_id:
         raise ValueError("order id is required")
-
     customer_lat, customer_lng = _point(payload.get("customerCoordinates"))
     destination_lat, destination_lng = _point(payload.get("destinationCoordinates"))
-    values = {
+    return {
         "id": order_id,
         "status": str(payload.get("status") or "searching"),
         "service": str(payload.get("service") or "") or None,
@@ -632,9 +637,62 @@ def sql_upsert_order(order: dict[str, Any]) -> dict[str, Any]:
         "payload": payload,
     }
 
+
+def _replace_order_events(connection, order_id: str, payload: dict[str, Any]) -> None:
+    connection.execute(delete(order_events).where(order_events.c.order_id == order_id))
+    for index, event in enumerate(payload.get("dispatchEvents") if isinstance(payload.get("dispatchEvents"), list) else []):
+        if not isinstance(event, dict):
+            continue
+        event_id = f"{order_id}:{index}:{event.get('type')}:{event.get('at')}"
+        connection.execute(
+            insert(order_events).values(
+                id=event_id[:240],
+                order_id=order_id,
+                event_type=str(event.get("type") or "") or None,
+                event_at=str(event.get("at") or "") or None,
+                provider_id=str(event.get("providerId") or "") or None,
+                offer_id=str(event.get("offerId") or "") or None,
+                payload=event,
+            )
+        )
+
+
+def sql_insert_order(order: dict[str, Any]) -> dict[str, Any]:
+    """Insert a new order row. Refuses to overwrite an existing id (F01)."""
+    payload = _json_safe_copy(order)
+    values = _order_row_values(payload)
+    order_id = values["id"]
+
     with get_engine().begin() as connection:
         existing = connection.execute(select(orders.c.id).where(orders.c.id == order_id)).first()
         if existing:
+            raise OrderIdConflict(order_id)
+        connection.execute(insert(orders).values(**values))
+        _replace_order_events(connection, order_id, payload)
+
+    return payload
+
+
+def sql_upsert_order(order: dict[str, Any]) -> dict[str, Any]:
+    """Insert or update one order row without rewriting the whole orders table.
+
+    Customer create must use sql_insert_order / save_order(create_only=True). This
+    upsert remains for trusted internal lifecycle writes that already hold the row.
+    """
+    payload = _json_safe_copy(order)
+    values = _order_row_values(payload)
+    order_id = values["id"]
+
+    with get_engine().begin() as connection:
+        existing = connection.execute(
+            select(orders.c.id, orders.c.customer_id).where(orders.c.id == order_id)
+        ).first()
+        if existing:
+            previous_owner = str(existing[1] or "").strip()
+            next_owner = str(values.get("customer_id") or "").strip()
+            # Refuse silent ownership takeover through the generic upsert path.
+            if previous_owner and next_owner and previous_owner != next_owner:
+                raise OrderIdConflict(order_id)
             connection.execute(
                 update(orders)
                 .where(orders.c.id == order_id)
@@ -643,22 +701,7 @@ def sql_upsert_order(order: dict[str, Any]) -> dict[str, Any]:
         else:
             connection.execute(insert(orders).values(**values))
 
-        connection.execute(delete(order_events).where(order_events.c.order_id == order_id))
-        for index, event in enumerate(payload.get("dispatchEvents") if isinstance(payload.get("dispatchEvents"), list) else []):
-            if not isinstance(event, dict):
-                continue
-            event_id = f"{order_id}:{index}:{event.get('type')}:{event.get('at')}"
-            connection.execute(
-                insert(order_events).values(
-                    id=event_id[:240],
-                    order_id=order_id,
-                    event_type=str(event.get("type") or "") or None,
-                    event_at=str(event.get("at") or "") or None,
-                    provider_id=str(event.get("providerId") or "") or None,
-                    offer_id=str(event.get("offerId") or "") or None,
-                    payload=event,
-                )
-            )
+        _replace_order_events(connection, order_id, payload)
 
     return payload
 

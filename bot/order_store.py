@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 
 from bot.field_encryption import decrypt_customer_profile, decrypt_field, encrypt_customer_profile, is_encrypted_value
 from bot.runtime_store import (
+    OrderIdConflict,
     SqlDispatchConflict,
     load_collection,
     save_collection,
@@ -21,6 +22,7 @@ from bot.runtime_store import (
     sql_get_customer,
     sql_upsert_customer,
     sql_get_order,
+    sql_insert_order,
     sql_upsert_order,
     sql_get_provider,
     sql_commit_dispatch_wave,
@@ -684,7 +686,22 @@ def _normalize_customer_comment(order: Dict[str, Any]) -> Optional[str]:
     return text[:500]
 
 
-def save_order(order: Dict[str, Any], store_path: Optional[Path] = None) -> Dict[str, Any]:
+def _new_order_id() -> str:
+    stamp = datetime.now(timezone.utc).replace(tzinfo=None).strftime("%Y%m%d%H%M%S%f")
+    return f"PM-{stamp}-{uuid.uuid4().hex[:8]}"
+
+
+def save_order(
+    order: Dict[str, Any],
+    store_path: Optional[Path] = None,
+    *,
+    create_only: bool = False,
+) -> Dict[str, Any]:
+    """Persist an order.
+
+    create_only=True is required for customer POST /orders: server generates the id,
+    forces initial status searching, and never overwrites an existing row (F01).
+    """
     with STORE_LOCK:
         path = store_path or _default_store_path()
         payload = dict(order)
@@ -694,7 +711,19 @@ def save_order(order: Dict[str, Any], store_path: Optional[Path] = None) -> Dict
         else:
             payload.pop("customerComment", None)
         payload.pop("comment", None)
-        payload["id"] = payload.get("id") or f"PM-{datetime.now(timezone.utc).replace(tzinfo=None).strftime('%Y%m%d%H%M%S%f')}"
+        if create_only:
+            # Never accept a client-supplied id / lifecycle fields on create.
+            payload.pop("id", None)
+            payload["id"] = _new_order_id()
+            payload["status"] = "searching"
+            payload.pop("statusHistory", None)
+            payload.pop("dispatchEvents", None)
+            payload.pop("assignedProviderId", None)
+            payload.pop("partnerId", None)
+            payload.pop("createdAt", None)
+            payload.pop("updatedAt", None)
+        else:
+            payload["id"] = payload.get("id") or _new_order_id()
         payload["createdAt"] = payload.get("createdAt") or _now_iso()
         payload["updatedAt"] = payload.get("updatedAt") or payload["createdAt"]
         payload["status"] = normalize_order_status(payload.get("status") or "searching")
@@ -705,9 +734,30 @@ def save_order(order: Dict[str, Any], store_path: Optional[Path] = None) -> Dict
             {"type": "ORDER_CREATED", "at": payload["createdAt"]}
         ]
         if _should_use_sql_store(path, _default_store_path):
+            if create_only:
+                return sql_insert_order(payload)
             return sql_upsert_order(payload)
         orders = load_orders(path)
-        orders.append(payload)
+        if create_only and any(str(item.get("id") or "") == str(payload["id"]) for item in orders):
+            raise OrderIdConflict(str(payload["id"]))
+        if not create_only:
+            # JSON store previously appended duplicates; replace same-id rows instead,
+            # but refuse ownership takeover (mirrors SQL upsert guard).
+            next_owner = str(payload.get("customerId") or "").strip()
+            replaced = False
+            for index, item in enumerate(orders):
+                if str(item.get("id") or "") != str(payload["id"]):
+                    continue
+                previous_owner = str(item.get("customerId") or "").strip()
+                if previous_owner and next_owner and previous_owner != next_owner:
+                    raise OrderIdConflict(str(payload["id"]))
+                orders[index] = payload
+                replaced = True
+                break
+            if not replaced:
+                orders.append(payload)
+        else:
+            orders.append(payload)
         _write_json_atomic(path, orders)
         return payload
 

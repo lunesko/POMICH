@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from bot.fastapi_app import app
 from bot.order_store import save_order
-from tests.helpers import use_temp_store
+from tests.helpers import use_temp_store, valid_customer_order_payload
 
 
 def test_read_order_requires_participant(monkeypatch, tmp_path) -> None:
@@ -47,16 +47,17 @@ def test_create_order_requires_session(monkeypatch, tmp_path) -> None:
     client = TestClient(app)
     bare = client.post(
         "/api/orders",
-        json={"service": "tow", "customerCoordinates": {"lat": 48.62, "lng": 22.28}},
+        json=valid_customer_order_payload("tow"),
     )
     assert bare.status_code == 401
     guest = client.post("/api/auth/customer/guest/session", json={}).json()
     created = client.post(
         "/api/orders",
         headers={"Authorization": f"Bearer {guest['accessToken']}"},
-        json={"service": "tow", "customerCoordinates": {"lat": 48.62, "lng": 22.28}},
+        json=valid_customer_order_payload("tow"),
     )
     assert created.status_code == 201
+    assert created.json()["status"] == "searching"
 
 
 def test_nearby_orders_require_provider_session(monkeypatch, tmp_path) -> None:

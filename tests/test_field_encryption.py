@@ -1,6 +1,15 @@
 import pytest
 
-from bot.field_encryption import decrypt_customer_profile, decrypt_field, encrypt_customer_profile, encrypt_field, generate_encryption_key
+from bot.api_deps import runtime_config_errors
+from bot.field_encryption import (
+    FieldEncryptionError,
+    decrypt_customer_profile,
+    decrypt_field,
+    encrypt_customer_profile,
+    encrypt_field,
+    generate_encryption_key,
+    require_valid_fernet_key,
+)
 
 
 @pytest.fixture()
@@ -11,6 +20,7 @@ def encryption_env(monkeypatch):
 
     module._fernet = None
     module._fernet_checked = False
+    module._fernet_key = None
     return key
 
 
@@ -46,7 +56,33 @@ def test_decrypt_failure_preserves_ciphertext(encryption_env, monkeypatch):
 
     module._fernet = None
     module._fernet_checked = False
+    module._fernet_key = None
     assert decrypt_field(encrypted) == encrypted
     # Re-encrypt must not wipe the ciphertext with an empty value.
     stored = encrypt_customer_profile({"id": "tg-1", "phone": encrypted})
     assert stored["phone"] == encrypted
+
+
+def test_invalid_fernet_key_fails_closed(monkeypatch):
+    import bot.field_encryption as module
+
+    monkeypatch.setenv("POMICH_ENCRYPTION_KEY", "not-a-valid-fernet-key")
+    module._fernet = None
+    module._fernet_checked = False
+    module._fernet_key = None
+    with pytest.raises(FieldEncryptionError):
+        require_valid_fernet_key()
+    with pytest.raises(FieldEncryptionError):
+        encrypt_field("+380671112233")
+
+
+def test_production_rejects_invalid_encryption_key(monkeypatch):
+    monkeypatch.setenv("POMICH_RUNTIME", "production")
+    monkeypatch.setenv("POMICH_ADMIN_TOKEN", "prod-admin-token-value-xxxxxxxx")
+    monkeypatch.setenv("POMICH_PROVIDER_TOKEN", "prod-provider-token-value-xxxx")
+    monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", "prod-customer-session-secret-xx")
+    monkeypatch.setenv("POMICH_ENCRYPTION_KEY", "not-a-valid-fernet-key")
+    monkeypatch.setenv("POMICH_ALLOW_JSON_STORE_IN_PRODUCTION", "true")
+    monkeypatch.setenv("POMICH_CORS_ORIGINS", "https://pomich.help")
+    errors = runtime_config_errors()
+    assert any("valid Fernet key" in item for item in errors)

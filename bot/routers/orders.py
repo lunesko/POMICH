@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 from fastapi import APIRouter, Body, Header, HTTPException
 
 from bot.api_deps import (
@@ -35,11 +37,57 @@ from bot.order_store import (
     update_provider_order_status,
 )
 from bot.realtime import publish_order_event, publish_provider_event
+from bot.runtime_store import OrderIdConflict
 from bot.telegram_bot import notify_dispatch_offers, notify_order_cancelled, notify_order_created
 from bot.ops_log import record_ops_event
 from bot.service_details import ServiceDetailsValidationError, validate_service_details
 
 router = APIRouter(tags=["orders"])
+
+# Client must not set lifecycle / ownership / dispatch fields on create (F01/F02).
+_CLIENT_FORBIDDEN_ORDER_FIELDS = frozenset(
+    {
+        "id",
+        "status",
+        "statusHistory",
+        "dispatchEvents",
+        "dispatchState",
+        "dispatchInfo",
+        "assignedProviderId",
+        "partnerId",
+        "partnerProposedPrice",
+        "priceConfirmedAt",
+        "priceConfirmedBy",
+        "acceptedAt",
+        "completedAt",
+        "cancelledAt",
+        "createdAt",
+        "updatedAt",
+        "version",
+        "history",
+        "offers",
+        "etaMinutes",
+        "earnings",
+    }
+)
+_ALLOWED_CREATE_SOURCES = frozenset({"web", "telegram-mini-app"})
+
+
+def _finite_coord(value: object) -> float:
+    try:
+        number = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError) as exc:
+        raise ValueError("invalid") from exc
+    if not math.isfinite(number):
+        raise ValueError("non_finite")
+    return number
+
+
+def _strip_server_owned_order_fields(payload: dict) -> dict:
+    cleaned = dict(payload)
+    for key in _CLIENT_FORBIDDEN_ORDER_FIELDS:
+        cleaned.pop(key, None)
+    return cleaned
 
 
 @router.get("/orders")
@@ -54,7 +102,8 @@ def list_orders(
 
 @router.post("/orders", status_code=201)
 def create_order(payload: dict, authorization: str | None = Header(default=None)) -> dict:
-    source = payload.get("source")
+    payload = _strip_server_owned_order_fields(dict(payload or {}))
+    source_hint = str(payload.get("source") or "").strip().lower()
     init_data = payload.pop("telegramInitData", None)
     customer_principal = optional_customer_auth(authorization)
     if customer_principal is not None:
@@ -64,7 +113,8 @@ def create_order(payload: dict, authorization: str | None = Header(default=None)
         payload["customerId"] = customer_principal.subject_id
 
     verified_telegram = None
-    if source == "telegram-mini-app":
+    wants_telegram = source_hint == "telegram-mini-app" or bool(init_data)
+    if wants_telegram:
         verified_telegram = verify_init_data_or_raise(init_data)
         # When Telegram bots are not configured, verify_init_data_or_raise returns None
         # without checking initData — require a customer bearer so anonymous clients
@@ -92,33 +142,47 @@ def create_order(payload: dict, authorization: str | None = Header(default=None)
     else:
         payload["customerIdentity"] = {"type": "guest", "customerId": customer_principal.subject_id}
 
+    # Channel source is derived from auth, not used as a validation bypass switch (F02).
+    if verified_telegram is not None:
+        source = "telegram-mini-app"
+    elif source_hint in _ALLOWED_CREATE_SOURCES:
+        source = source_hint
+    else:
+        source = "web"
+    payload["source"] = source
+    payload["status"] = "searching"
+
     service = str(payload.get("service") or "").strip().lower()
-    if source in {"web", "telegram-mini-app"} and str(payload.get("status") or "searching") == "searching":
+    payload["service"] = service
+    try:
+        payload["serviceDetails"] = validate_service_details(service, payload.get("serviceDetails"))
+    except ServiceDetailsValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    pickup_value = payload.get("customerCoordinates")
+    if not isinstance(pickup_value, dict):
+        raise HTTPException(status_code=422, detail="customer_coordinates_required")
+    try:
+        pickup_lat = _finite_coord(pickup_value.get("lat"))
+        pickup_lng = _finite_coord(pickup_value.get("lng"))
+    except ValueError:
+        raise HTTPException(status_code=422, detail="customer_coordinates_invalid")
+    if not (44.0 <= pickup_lat <= 52.5 and 22.0 <= pickup_lng <= 40.5):
+        raise HTTPException(status_code=422, detail="service_area_ukraine_only")
+    payload["customerCoordinates"] = {"lat": pickup_lat, "lng": pickup_lng}
+
+    if service == "tow":
+        destination_value = payload.get("destinationCoordinates")
+        if not isinstance(destination_value, dict):
+            raise HTTPException(status_code=422, detail="destination_coordinates_required")
         try:
-            payload["serviceDetails"] = validate_service_details(service, payload.get("serviceDetails"))
-        except ServiceDetailsValidationError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        pickup_value = payload.get("customerCoordinates")
-        if not isinstance(pickup_value, dict):
-            raise HTTPException(status_code=422, detail="customer_coordinates_required")
-        try:
-            pickup_lat = float(pickup_value.get("lat"))
-            pickup_lng = float(pickup_value.get("lng"))
-        except (TypeError, ValueError):
-            raise HTTPException(status_code=422, detail="customer_coordinates_invalid")
-        if not (44.0 <= pickup_lat <= 52.5 and 22.0 <= pickup_lng <= 40.5):
-            raise HTTPException(status_code=422, detail="service_area_ukraine_only")
-        if service == "tow":
-            destination_value = payload.get("destinationCoordinates")
-            if not isinstance(destination_value, dict):
-                raise HTTPException(status_code=422, detail="destination_coordinates_required")
-            try:
-                destination_lat = float(destination_value.get("lat"))
-                destination_lng = float(destination_value.get("lng"))
-            except (TypeError, ValueError):
-                raise HTTPException(status_code=422, detail="destination_coordinates_invalid")
-            if abs(destination_lat - pickup_lat) < 0.0001 and abs(destination_lng - pickup_lng) < 0.0001:
-                raise HTTPException(status_code=422, detail="destination_must_differ_from_pickup")
+            destination_lat = _finite_coord(destination_value.get("lat"))
+            destination_lng = _finite_coord(destination_value.get("lng"))
+        except ValueError:
+            raise HTTPException(status_code=422, detail="destination_coordinates_invalid")
+        if abs(destination_lat - pickup_lat) < 0.0001 and abs(destination_lng - pickup_lng) < 0.0001:
+            raise HTTPException(status_code=422, detail="destination_must_differ_from_pickup")
+        payload["destinationCoordinates"] = {"lat": destination_lat, "lng": destination_lng}
 
     pickup = payload.get("customerCoordinates")
     if isinstance(pickup, dict):
@@ -150,7 +214,11 @@ def create_order(payload: dict, authorization: str | None = Header(default=None)
             )
             raise HTTPException(status_code=400, detail=f"destination_in_{zone}")
 
-    order = save_order(payload)
+    try:
+        order = save_order(payload, create_only=True)
+    except OrderIdConflict as exc:
+        raise HTTPException(status_code=409, detail="order_id_conflict") from exc
+
     if order.get("status") == "searching":
         dispatched = dispatch_order(str(order.get("id")))
         if dispatched is not None:

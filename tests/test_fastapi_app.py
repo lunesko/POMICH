@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from bot import fastapi_app
 from bot import order_store
+from tests.helpers import valid_customer_order_payload
 
 app = fastapi_app.app
 PROVIDER_TOKEN = "partner-secret"
@@ -168,7 +169,7 @@ def test_production_runtime_config_accepts_release_settings(monkeypatch) -> None
     monkeypatch.setenv("POMICH_ADMIN_TOKEN", "admin-secret-1234567890-release")
     monkeypatch.setenv("POMICH_PROVIDER_TOKEN", "provider-secret-1234567890-release")
     monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", "customer-secret-1234567890-release")
-    monkeypatch.setenv("POMICH_ENCRYPTION_KEY", "0" * 44)
+    monkeypatch.setenv("POMICH_ENCRYPTION_KEY", "v_CKudt5-E31vygdUsYBSmfBROBztvneLQHovpClEUc=")
     monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@localhost:5432/pomich_prod")
     monkeypatch.setenv("POMICH_STORAGE_BACKEND", "sql")
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
@@ -184,7 +185,7 @@ def test_production_runtime_config_rejects_sqlite_and_json_backend(monkeypatch) 
     monkeypatch.setenv("POMICH_ADMIN_TOKEN", "admin-secret-1234567890-release")
     monkeypatch.setenv("POMICH_PROVIDER_TOKEN", "provider-secret-1234567890-release")
     monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", "customer-secret-1234567890-release")
-    monkeypatch.setenv("POMICH_ENCRYPTION_KEY", "0" * 44)
+    monkeypatch.setenv("POMICH_ENCRYPTION_KEY", "v_CKudt5-E31vygdUsYBSmfBROBztvneLQHovpClEUc=")
     monkeypatch.setenv("DATABASE_URL", "sqlite:///release.db")
     monkeypatch.setenv("POMICH_STORAGE_BACKEND", "json")
     monkeypatch.delenv("POMICH_ALLOW_JSON_STORE_IN_PRODUCTION", raising=False)
@@ -201,7 +202,7 @@ def test_production_runtime_config_requires_telegram_public_url(monkeypatch) -> 
     monkeypatch.setenv("POMICH_ADMIN_TOKEN", "admin-secret-1234567890-release")
     monkeypatch.setenv("POMICH_PROVIDER_TOKEN", "provider-secret-1234567890-release")
     monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", "customer-secret-1234567890-release")
-    monkeypatch.setenv("POMICH_ENCRYPTION_KEY", "0" * 44)
+    monkeypatch.setenv("POMICH_ENCRYPTION_KEY", "v_CKudt5-E31vygdUsYBSmfBROBztvneLQHovpClEUc=")
     monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@localhost:5432/pomich_prod")
     monkeypatch.setenv("POMICH_STORAGE_BACKEND", "sql")
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123456:telegram-token")
@@ -597,6 +598,10 @@ def test_fastapi_telegram_mini_app_order_uses_verified_identity(monkeypatch, tmp
             "source": "telegram-mini-app",
             "telegramInitData": init_data,
             "service": "tow",
+            "customerCoordinates": {"lat": 48.6208, "lng": 22.2879},
+            "serviceDetails": {"version": 1, "service": "tow", "answers": {"incident": "breakdown", "mobility": "rolls"}},
+            "destinationCoordinates": {"lat": 48.625, "lng": 22.295},
+            "destination": "СТО",
             "status": "draft",
         },
     )
@@ -622,6 +627,10 @@ def test_fastapi_telegram_mini_app_order_requires_session_when_bots_unset(monkey
         json={
             "source": "telegram-mini-app",
             "service": "tow",
+            "customerCoordinates": {"lat": 48.6208, "lng": 22.2879},
+            "serviceDetails": {"version": 1, "service": "tow", "answers": {"incident": "breakdown", "mobility": "rolls"}},
+            "destinationCoordinates": {"lat": 48.625, "lng": 22.295},
+            "destination": "СТО",
             "status": "draft",
             "customerId": "tg-attacker",
         },
@@ -636,6 +645,10 @@ def test_fastapi_telegram_mini_app_order_requires_session_when_bots_unset(monkey
         json={
             "source": "telegram-mini-app",
             "service": "tow",
+            "customerCoordinates": {"lat": 48.6208, "lng": 22.2879},
+            "serviceDetails": {"version": 1, "service": "tow", "answers": {"incident": "breakdown", "mobility": "rolls"}},
+            "destinationCoordinates": {"lat": 48.625, "lng": 22.295},
+            "destination": "СТО",
             "status": "draft",
         },
     )
@@ -667,6 +680,10 @@ def test_fastapi_create_order_persists_customer_comment(monkeypatch, tmp_path) -
         headers=customer_headers,
         json={
             "service": "tow",
+            "customerCoordinates": {"lat": 48.6208, "lng": 22.2879},
+            "serviceDetails": {"version": 1, "service": "tow", "answers": {"incident": "breakdown", "mobility": "rolls"}},
+            "destinationCoordinates": {"lat": 48.625, "lng": 22.295},
+            "destination": "СТО",
             "status": "searching",
             "customerComment": "Ключі в бардачку",
         },
@@ -684,7 +701,7 @@ def test_fastapi_rejects_invalid_order_transition(monkeypatch) -> None:
     admin_headers = _admin_session_headers(client)
     customer_headers = _customer_session_headers(client)
 
-    created = client.post("/api/orders", headers=customer_headers, json={"service": "tow", "status": "searching"})
+    created = client.post("/api/orders", headers=customer_headers, json=valid_customer_order_payload("tow"))
     response = client.patch(
         f"/api/orders/{created.json()['id']}/status",
         json={"status": "completed"},
@@ -714,6 +731,9 @@ def test_fastapi_dispatches_order_and_first_offer_acceptance_wins(monkeypatch, t
         headers=customer_headers,
         json={
             "service": "tow",
+            "serviceDetails": {"version": 1, "service": "tow", "answers": {"incident": "breakdown", "mobility": "rolls"}},
+            "destinationCoordinates": {"lat": 48.625, "lng": 22.295},
+            "destination": "СТО",
             "status": "searching",
             "customerCoordinates": {"lat": 48.6208, "lng": 22.2879},
             "customerLocation": "Uzhhorod",
@@ -768,6 +788,9 @@ def test_fastapi_cancel_order_notifies_partner(monkeypatch, tmp_path) -> None:
         headers=customer_headers,
         json={
             "service": "tow",
+            "serviceDetails": {"version": 1, "service": "tow", "answers": {"incident": "breakdown", "mobility": "rolls"}},
+            "destinationCoordinates": {"lat": 48.625, "lng": 22.295},
+            "destination": "СТО",
             "status": "searching",
             "customerCoordinates": {"lat": 48.6208, "lng": 22.2879},
         },
@@ -810,6 +833,9 @@ def test_fastapi_provider_can_cancel_assigned_order(monkeypatch, tmp_path) -> No
         headers=customer_headers,
         json={
             "service": "tow",
+            "serviceDetails": {"version": 1, "service": "tow", "answers": {"incident": "breakdown", "mobility": "rolls"}},
+            "destinationCoordinates": {"lat": 48.625, "lng": 22.295},
+            "destination": "СТО",
             "status": "searching",
             "customerCoordinates": {"lat": 48.6208, "lng": 22.2879},
         },
@@ -855,6 +881,9 @@ def test_fastapi_admin_can_cancel_order(monkeypatch, tmp_path) -> None:
         headers=customer_headers,
         json={
             "service": "tow",
+            "serviceDetails": {"version": 1, "service": "tow", "answers": {"incident": "breakdown", "mobility": "rolls"}},
+            "destinationCoordinates": {"lat": 48.625, "lng": 22.295},
+            "destination": "СТО",
             "status": "searching",
             "customerCoordinates": {"lat": 48.6208, "lng": 22.2879},
         },
@@ -879,6 +908,9 @@ def test_fastapi_dispatch_retry_requires_customer_owner_or_admin(monkeypatch, tm
         headers=customer_headers,
         json={
             "service": "tow",
+            "serviceDetails": {"version": 1, "service": "tow", "answers": {"incident": "breakdown", "mobility": "rolls"}},
+            "destinationCoordinates": {"lat": 48.625, "lng": 22.295},
+            "destination": "СТО",
             "status": "searching",
             "customerCoordinates": {"lat": 48.6208, "lng": 22.2879},
         },
@@ -916,6 +948,9 @@ def test_fastapi_confirm_price_requires_customer_owner(monkeypatch, tmp_path) ->
         headers=customer_headers,
         json={
             "service": "tow",
+            "serviceDetails": {"version": 1, "service": "tow", "answers": {"incident": "breakdown", "mobility": "rolls"}},
+            "destinationCoordinates": {"lat": 48.625, "lng": 22.295},
+            "destination": "СТО",
             "status": "searching",
             "customerCoordinates": {"lat": 48.6208, "lng": 22.2879},
         },
@@ -954,6 +989,9 @@ def test_fastapi_assigned_provider_can_drive_lifecycle(monkeypatch, tmp_path) ->
         headers=customer_headers,
         json={
             "service": "tow",
+            "serviceDetails": {"version": 1, "service": "tow", "answers": {"incident": "breakdown", "mobility": "rolls"}},
+            "destinationCoordinates": {"lat": 48.625, "lng": 22.295},
+            "destination": "СТО",
             "status": "searching",
             "customerCoordinates": {"lat": 48.6208, "lng": 22.2879},
         },
@@ -1362,6 +1400,9 @@ def test_ws_order_events_handshake_and_broadcast(monkeypatch, tmp_path) -> None:
         headers=customer_headers,
         json={
             "service": "tow",
+            "serviceDetails": {"version": 1, "service": "tow", "answers": {"incident": "breakdown", "mobility": "rolls"}},
+            "destinationCoordinates": {"lat": 48.625, "lng": 22.295},
+            "destination": "СТО",
             "status": "searching",
             "customerCoordinates": {"lat": 48.6208, "lng": 22.2879},
         },
