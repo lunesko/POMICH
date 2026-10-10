@@ -3,14 +3,36 @@ import { describe, expect, it } from "vitest"
 import {
   PARTNER_VEHICLE_MAKE_OTHER,
   composePartnerVehicle,
+  getServiceLabel,
   hydratePartnerVehicleFromProfile,
   isProviderAvailable,
   normalizeTelegramHref,
   partnerVehicleMakes,
   partnerVehicleSelectionIsComplete,
+  providerCapabilityLabels,
   resolvePartnerVehicleMake,
+  services,
 } from "./constants"
 import type { ProviderAvailability } from "../api/client"
+
+describe("service labels", () => {
+  it("keeps customer catalog and partner capability names aligned", () => {
+    expect(getServiceLabel("wheel")).toBe("Шиномонтаж")
+    expect(getServiceLabel("lockout")).toBe("Відкрити авто")
+    expect(getServiceLabel("mechanic")).toBe("Механік на дорозі")
+    expect(providerCapabilityLabels.wheel).toBe("Шиномонтаж")
+    expect(providerCapabilityLabels.lockout).toBe("Відкрити авто")
+    expect(providerCapabilityLabels.mechanic).toBe("Механік на дорозі")
+    expect(services.map((item) => item.label)).toEqual([
+      "Евакуатор",
+      "Акумулятор",
+      "Шиномонтаж",
+      "Пальне",
+      "Відкрити авто",
+      "Механік на дорозі",
+    ])
+  })
+})
 
 describe("partnerVehicleMakes", () => {
   it("lists common roadside brands alphabetically with Інше last", () => {

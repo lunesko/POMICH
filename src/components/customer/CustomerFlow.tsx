@@ -111,7 +111,7 @@ import { formatLocalPhoneDisplay, nationalDigitsFromPhone, phoneInputValueFromSt
 import { validatePersonName } from "../../lib/personName"
 import { CitySelect } from "../ui/CitySelect"
 import { useConfirmDialog } from "../ui/ConfirmDialog"
-import { DEFAULT_SERVICE_CITY, normalizeServiceCity, nearestServiceCity, resolveServiceCityFromGeo } from "../../lib/ukraineCities"
+import { isUkraineServiceCity, normalizeServiceCity, nearestServiceCity, resolveServiceCityFromGeo } from "../../lib/ukraineCities"
 import {
   resolveDisplayedServiceCity,
   writeCityUserPicked,
@@ -505,7 +505,7 @@ function CustomerTrustPanel({
     name: profile.name || "",
     phone: phoneInputValueFromStored(profile.phone),
     email: profile.email || "",
-    city: normalizeServiceCity(profile.city),
+    city: isUkraineServiceCity(profile.city) ? String(profile.city).trim() : "",
   })
 
   useEffect(() => {
@@ -514,7 +514,7 @@ function CustomerTrustPanel({
         name: profile.name || "",
         phone: phoneInputValueFromStored(profile.phone),
         email: profile.email || "",
-        city: normalizeServiceCity(profile.city),
+        city: isUkraineServiceCity(profile.city) ? String(profile.city).trim() : "",
       }
       const currentPhoneValid = validateUkraineMobilePhone(current.phone).valid
       const nextPhoneValid = validateUkraineMobilePhone(next.phone).valid
@@ -575,7 +575,7 @@ function CustomerTrustPanel({
           <input value={draft.email} onChange={(event) => patchDraft({ email: event.target.value })} inputMode="email" placeholder="email@example.com" className="pomich-form-input" style={{ color: DARK }} />
         </label>
         <CitySelect
-          value={draft.city || profile.city || DEFAULT_SERVICE_CITY}
+          value={draft.city || ""}
           onChange={(city) => {
             patchDraft({ city })
             writePreferredCity(city)
@@ -2704,7 +2704,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
       return <OrderErrorStep pickup={pickup} destination={destinationPoint} onRetry={() => setScreen("review")} showAction={!isTelegram} />
     case "home":
     default:
-      return <HomeStep pickup={pickup} locationLabel={`${geoState === "telegram" ? "Точка з Telegram — перевірте актуальність" : "Точка з пристрою або збережена — перевірте актуальність"}: ${addressLabel || geoMessage}`} serviceCity={serviceCity} providers={liveNearbyProviders} providersLoading={liveNearbyLoading} customerProfile={customerProfile} customerVerificationSaving={customerVerificationSaving} customerVerificationError={customerVerificationError} customerToken={customerAuthToken} isTelegram={isTelegram} geoLoading={geoLoading} geoError={geoError} recenterTrigger={geoRecenterTrigger} geoSpeedMps={geoSpeedMps} onProfileChange={(patch) => setCustomerProfile((profile) => ({ ...profile, ...patch }))} onVerifyCustomer={verifyCustomerProfile} onProfileVerified={(saved) => setCustomerProfile((profile) => ({ ...profile, ...saved }))} onRetryGeo={retryGeolocation} onOpenGeoSettings={openGeoSettings} onServiceCityChange={applyServiceCity} onSelect={(service) => { if (service !== selectedService) { setServiceDetails(createServiceDetails(service)); setCustomerComment(""); setDestination(""); setDestinationResolved(false); setDestinationPoint(pickup) }; setSelectedService(service); setScreen("location") }} />
+      return <HomeStep pickup={pickup} locationLabel={`${geoState === "telegram" ? "Точка з Telegram — перевірте актуальність" : geoState === "success" ? "Точка з пристрою — перевірте актуальність" : readCachedGeoPosition() ? "Збережена точка — перевірте актуальність" : "Карта за замовчуванням — оберіть точку або натисніть «Оновити»"}: ${addressLabel || geoMessage}`} serviceCity={serviceCity} providers={liveNearbyProviders} providersLoading={liveNearbyLoading} customerProfile={customerProfile} customerVerificationSaving={customerVerificationSaving} customerVerificationError={customerVerificationError} customerToken={customerAuthToken} isTelegram={isTelegram} geoLoading={geoLoading} geoError={geoError} recenterTrigger={geoRecenterTrigger} geoSpeedMps={geoSpeedMps} onProfileChange={(patch) => setCustomerProfile((profile) => ({ ...profile, ...patch }))} onVerifyCustomer={verifyCustomerProfile} onProfileVerified={(saved) => setCustomerProfile((profile) => ({ ...profile, ...saved }))} onRetryGeo={retryGeolocation} onOpenGeoSettings={openGeoSettings} onServiceCityChange={applyServiceCity} onSelect={(service) => { if (service !== selectedService) { setServiceDetails(createServiceDetails(service)); setCustomerComment(""); setDestination(""); setDestinationResolved(false); setDestinationPoint(pickup) }; setSelectedService(service); setScreen("location") }} />
   }
   })()
 

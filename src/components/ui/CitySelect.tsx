@@ -1,4 +1,4 @@
-import { ukraineCityOptions, DEFAULT_SERVICE_CITY } from "../../lib/ukraineCities"
+import { ukraineCityOptions } from "../../lib/ukraineCities"
 import { FieldError } from "./FieldError"
 
 interface CitySelectProps {

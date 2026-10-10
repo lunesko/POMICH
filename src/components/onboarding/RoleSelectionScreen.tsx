@@ -71,7 +71,7 @@ const roleCards = [
     key: "customer" as const,
     title: "Я клієнт",
     eyebrow: "Водіям",
-    description: "Евакуатор · АКБ · колесо · пальне",
+    description: "Евакуатор · АКБ · шиномонтаж · пальне",
     accentVar: "--pomich-accent",
     tone: "client" as const,
     Icon: ClientRoleIcon,

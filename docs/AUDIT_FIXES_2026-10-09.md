@@ -37,6 +37,16 @@ Two separate Telegram bots are intentional: customer and provider addresses are
 defined by the dual-bot configuration; a customer link is not blindly replaced
 with the partner bot handle.
 
+## Follow-up polish (audit UX remaining)
+
+| Finding | Result |
+| --- | --- |
+| Light theme surfaces hurt reading | Form/nav/card tokens use opaque sage surfaces (`#E8EEEB` / `#ECF1EE`) instead of translucent glass. |
+| Hero copy contrast over the map | Stronger light-theme wash behind `.landing-hero-content`. |
+| City selects invent Київ | Cabinets, customer profile and partner registration keep an empty «Оберіть місто» until the user picks; empty city fails validation. |
+| Service name mismatch | Catalog labels aligned: Шиномонтаж / Відкрити авто / Механік на дорозі. |
+| Default map point reads as live GPS | Home help-point copy distinguishes Telegram, live device, cached, and illustration-default centers. |
+
 ## Not closed by this commit
 
 The architectural roadmap remains: full decomposition of flow/storage modules,
@@ -49,10 +59,10 @@ Secret revocation and historical Git cleanup are operational actions; this commi
 does not rotate BotFather credentials or rewrite repository history.
 
 Actual Telegram delivery, real GPS, the joint client/partner order lifecycle,
-Android/iOS/WebView, offline recovery, screen-reader behavior and measured visual
-contrast remain to be checked on a controlled test deployment. Browser checks run
-in GitHub CI and locally with official Chromium. The cookie notice is opaque and
-below navigation; E2E covers navigating with the notice visible and dismissing it
+Android/iOS/WebView, offline recovery and full WCAG contrast measurement remain
+to be checked on a controlled test deployment. Browser checks run in GitHub CI
+and locally with official Chromium. The cookie notice is opaque and below
+navigation; E2E covers navigating with the notice visible and dismissing it
 before page snapshots. No production order was created during this work.
 
 ## Validation
