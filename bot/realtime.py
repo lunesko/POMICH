@@ -1,8 +1,7 @@
 """In-process realtime fan-out for order/partner updates (SSE + WebSocket).
 
 JSON file store remains the local/dev fallback; production uses PostGIS via runtime_store.
-This bus is intentionally process-local — sufficient for single-app deploy; multi-worker
-would need Redis/Postgres LISTEN later.
+PostgreSQL LISTEN/NOTIFY relays invalidation hints between production workers.
 """
 
 from __future__ import annotations
@@ -40,7 +39,13 @@ def channel_for_customer(customer_id: str) -> str:
 
 
 def publish(channel: str, event_type: str, payload: dict[str, Any] | None = None) -> None:
-    """Publish to all local subscribers. Safe to call from sync request handlers."""
+    """Publish locally and relay to other PostgreSQL-backed API workers."""
+    _publish_local(channel, event_type, payload)
+    from bot.realtime_broker import broadcast
+    broadcast({"channel": channel, "type": event_type})
+
+
+def _publish_local(channel: str, event_type: str, payload: dict[str, Any] | None = None) -> None:
     message = {
         "seq": _next_seq(),
         "type": event_type,
@@ -133,6 +138,7 @@ async def pump_websocket(
     channel: str,
     *,
     heartbeat_seconds: float = 15.0,
+    authorized=None,
 ) -> None:
     """Stream channel events to a WebSocket until disconnect.
 
@@ -145,8 +151,14 @@ async def pump_websocket(
     try:
         await websocket.send_json({"type": "connected", "channel": channel, "ts": int(time.time())})
         while True:
+            if authorized is not None and not await asyncio.to_thread(authorized):
+                await websocket.close(code=1008)
+                return
             try:
-                message = await asyncio.wait_for(queue.get(), timeout=heartbeat_seconds)
+                message = await asyncio.wait_for(queue.get(), timeout=min(heartbeat_seconds, 1.0) if authorized else heartbeat_seconds)
+                if authorized is not None and not await asyncio.to_thread(authorized):
+                    await websocket.close(code=1008)
+                    return
                 await websocket.send_json(message)
             except asyncio.TimeoutError:
                 await websocket.send_json({"type": "heartbeat", "ts": int(time.time())})
@@ -159,13 +171,17 @@ async def pump_websocket(
         unsubscribe(channel, queue)
 
 
-async def event_stream(channel: str, *, heartbeat_seconds: float = 15.0) -> AsyncIterator[str]:
+async def event_stream(channel: str, *, heartbeat_seconds: float = 15.0, authorized=None) -> AsyncIterator[str]:
     queue = subscribe(channel)
     try:
         yield _sse({"type": "connected", "channel": channel, "ts": int(time.time())})
         while True:
+            if authorized is not None and not await asyncio.to_thread(authorized):
+                return
             try:
-                message = await asyncio.wait_for(queue.get(), timeout=heartbeat_seconds)
+                message = await asyncio.wait_for(queue.get(), timeout=min(heartbeat_seconds, 1.0) if authorized else heartbeat_seconds)
+                if authorized is not None and not await asyncio.to_thread(authorized):
+                    return
                 yield _sse(message)
             except asyncio.TimeoutError:
                 yield ": heartbeat\n\n"

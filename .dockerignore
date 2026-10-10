@@ -16,3 +16,6 @@ data/*
 !data/providers.json
 !data/geo/
 *.log
+test-results
+playwright-report
+CODE_REVIEW.md

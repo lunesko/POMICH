@@ -1,5 +1,6 @@
 import type { ServiceDetails } from '../lib/serviceDetails'
 import { refreshBrowserAuthorization } from '../lib/browserAuthorization'
+import { orderSubmissionKey, completeOrderSubmission } from '../lib/orderSubmission'
 
 const defaultBaseUrl = '/api'
 
@@ -486,9 +487,10 @@ function getBaseUrl() {
 }
 
 export async function createOrder(payload: Record<string, unknown>, customerToken?: string) {
+  const requestKey = await orderSubmissionKey(payload)
   const response = await fetchApi(`${getBaseUrl()}/orders`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...(authHeaders(customerToken) ?? {}) },
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': requestKey, ...(authHeaders(customerToken) ?? {}) },
     body: JSON.stringify(payload),
   })
 
@@ -496,7 +498,9 @@ export async function createOrder(payload: Record<string, unknown>, customerToke
     throw new Error(`Order request failed with ${response.status}`)
   }
 
-  return response.json() as Promise<OrderResponse>
+  const order = await response.json() as OrderResponse
+  completeOrderSubmission(requestKey)
+  return order
 }
 
 function authHeaders(token: string | undefined): Record<string, string> | undefined {
@@ -660,6 +664,26 @@ export async function getCustomerOrders(customerId: string, customerToken?: stri
   }
 
   return response.json() as Promise<OrderResponse[]>
+}
+
+export async function exportCustomerData(customerId: string, token?: string) {
+  const response = await fetchApi(`${getBaseUrl()}/customers/${encodeURIComponent(customerId)}/data-export`, {
+    headers: authHeaders(token), cache: 'no-store',
+  })
+  if (!response.ok) throw new Error('Не вдалося завантажити дані. Спробуйте пізніше.')
+  return response.blob()
+}
+
+export async function eraseCustomerData(customerId: string, token?: string) {
+  const response = await fetchApi(`${getBaseUrl()}/customers/${encodeURIComponent(customerId)}/data`, {
+    method: 'DELETE', headers: authHeaders(token),
+  })
+  if (!response.ok) {
+    const result = await response.json().catch(() => ({})) as { detail?: string }
+    if (result.detail === 'active_orders_prevent_erasure') throw new Error('Спочатку завершіть або скасуйте активну заявку.')
+    if (result.detail === 'linked_provider_requires_support_erasure') throw new Error('Для видалення пов’язаного профілю партнера зверніться до підтримки.')
+    throw new Error('Не вдалося видалити дані. Спробуйте пізніше.')
+  }
 }
 
 export async function getProviderOrders(providerId: string, providerToken?: string, limit = 50) {

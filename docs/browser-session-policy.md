@@ -9,16 +9,25 @@ Client phone OTP and partner password login accept `rememberMe: boolean` (defaul
 
 The checked state defaults to false and is sent only after successful authentication.
 Browser restore never moves the absolute deadline. Bearer tokens remain bounded by
-`POMICH_AUTH_SESSION_TTL_SECONDS` (default 24 hours) and by the session deadline.
+`POMICH_AUTH_SESSION_TTL_SECONDS` (default and maximum 15 minutes) and by the session deadline.
 The persistent credential is only in an HttpOnly cookie; JavaScript does not persist bearer tokens.
 Customer-to-partner role switching inherits the authenticated customer's deadline and preference.
 Admin, guest and Telegram bootstrap sessions use the unchecked policy.
-Existing cookies expire at their previously signed deadline and restore without persistence.
+Tokens issued before the session-registry migration are rejected; users must sign in again once.
 
 Cookies use `/api/auth/browser/`, SameSite=Lax, and Secure in production.
-Restore/logout reject cross-origin requests. Logout deletes all role cookies on this browser.
+Restore/logout reject cross-origin requests. Logout revokes the session families represented
+by this browser's role cookies, then deletes those cookies. Copied cookies and access tokens
+in the same families are rejected, including tokens obtained by earlier restores.
 Browsers that restore tabs can preserve session cookies across restart; the 12-hour server
-limit still applies. Browser logout does not revoke a separately copied stateless bearer token.
+limit still applies. Registry state is stored in PostgreSQL (local JSON mode uses a separate
+SQLite file). Restore credentials have a distinct purpose and cannot authorize API requests.
+Every successful restore rotates its signed generation. A ten-second overlap allows an already
+concurrent request to finish; use of an older generation after that window revokes the entire
+session family. Disabling or deleting a customer/provider account revokes its active families.
+
+Realtime URLs contain only single-use, channel-scoped tickets valid for at most 30 seconds.
+Streams check session expiry/revocation before delivery and at least once per second while idle.
 
 The cookie notice is informational and links `/privacy`; acknowledging it is stored in
 localStorage. This is not an optional analytics consent mechanism.

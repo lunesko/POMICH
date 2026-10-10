@@ -300,6 +300,7 @@ def main():
     print("\n4) Creating .env.production...")
     create_env_production(ssh)
 
+    run(ssh, f"chown -R 10001:10001 {REMOTE_DIR}/data", check=True)
     print("\n5) Making start.sh executable...")
     run(ssh, f"chmod +x {REMOTE_DIR}/start.sh")
 
@@ -318,7 +319,7 @@ def main():
     print("\n6b) Recreating app container...")
     run(
         ssh,
-        f"cd {REMOTE_DIR} && docker compose -f docker-compose.production.yml --env-file .env.production up -d --no-deps --wait pomich-app",
+        f"cd {REMOTE_DIR} && docker compose -f docker-compose.production.yml --env-file .env.production run --rm --no-deps pomich-app python3 -m bot.migrate && docker compose -f docker-compose.production.yml --env-file .env.production up -d --no-deps --wait pomich-app",
         check=False,
         timeout=300,
     )

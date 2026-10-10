@@ -29,13 +29,16 @@ jobs:
           cache: "npm"
 
       - name: Install Python dependencies
-        run: python -m pip install --upgrade pip && python -m pip install -r requirements.txt
+        run: python -m pip install --upgrade pip && python -m pip install -r requirements-dev.txt
 
       - name: Install Node dependencies
         run: npm ci
 
       - name: Check production dependency vulnerabilities
-        run: npm audit --omit=dev --audit-level=high
+        run: npm audit --audit-level=moderate
+
+      - name: Audit Python dependencies
+        run: python -m pip_audit -r requirements.lock
 
       - name: Run backend tests
         run: python -m pytest
@@ -54,6 +57,9 @@ jobs:
 
       - name: Run UX and accessibility checks
         run: npm run test:e2e
+
+      - name: Verify built frontend under production CSP
+        run: npx playwright test --config playwright.production.config.ts
 
       - name: Upload Playwright report on failure
         if: failure()
@@ -94,13 +100,38 @@ jobs:
           python-version: "3.11"
 
       - name: Install Python dependencies
-        run: python -m pip install --upgrade pip && python -m pip install -r requirements.txt
+        run: python -m pip install --upgrade pip && python -m pip install -r requirements-dev.txt
 
       - name: Run PostGIS dispatch smoke
         env:
           POMICH_STORAGE_BACKEND: sql
           DATABASE_URL: postgresql+psycopg://pomich:pomich@127.0.0.1:5432/pomich
         run: python scripts/postgis_smoke.py
+
+      - name: Run adversarial API regressions on PostgreSQL
+        env:
+          POMICH_AUDIT_TEST_DATABASE_URL: postgresql+psycopg://pomich:pomich@127.0.0.1:5432/pomich_audit_test
+          POMICH_SKIP_LOCAL_ENV: "1"
+        run: |
+          python -c "import psycopg; c=psycopg.connect('postgresql://pomich:pomich@127.0.0.1:5432/pomich', autocommit=True); c.execute('CREATE DATABASE pomich_audit_test'); c.close()"
+          python -m pytest tests/test_audit_regressions.py -q
+
+      - name: Set up Node for real browser lifecycle
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Run browser with real API and PostGIS
+        env:
+          POMICH_E2E_DATABASE_URL: postgresql+psycopg://pomich:pomich@127.0.0.1:5432/pomich_e2e_test
+          POMICH_SKIP_LOCAL_ENV: "1"
+        run: |
+          python -c "import psycopg; c=psycopg.connect('postgresql://pomich:pomich@127.0.0.1:5432/pomich', autocommit=True); c.execute('CREATE DATABASE pomich_e2e_test'); c.close()"
+          npm ci
+          npm run build
+          npx playwright install --with-deps chromium
+          npx playwright test --config playwright.backend.config.ts
 
       - name: Verify PostGIS backup restore round trip
         env:
@@ -116,10 +147,30 @@ jobs:
           /usr/lib/postgresql/16/bin/pg_restore -h 127.0.0.1 -U pomich -d pomich_verify --exit-on-error --no-owner --no-acl "$RUNNER_TEMP/pomich-ci.dump"
           test "$(/usr/lib/postgresql/16/bin/psql -h 127.0.0.1 -U pomich -d pomich_verify -Atc "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'")" -gt 0
 
+  container-security:
+    name: Container security and SBOM
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build locked non-root runtime
+        run: docker build --build-arg POMICH_BUILD_SHA=${{ github.sha }} -t pomich-audit:ci .
+      - name: Scan image and generate SBOM
+        run: |
+          mkdir -p security-reports
+          scanner=aquasec/trivy@sha256:af6acf9a6b85dfe389a1941505c0ce9efef52a4719635e1a962f022a3d855daa
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD/security-reports:/reports" "$scanner" image --format cyclonedx --output /reports/sbom.cdx.json pomich-audit:ci
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD/security-reports:/reports" "$scanner" image --scanners vuln --format json --output /reports/vulnerabilities.json --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 pomich-audit:ci
+      - name: Upload security evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: container-security
+          path: security-reports
+
   deploy-production:
     name: Deploy production
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [test, postgis-runtime]
+    needs: [test, postgis-runtime, container-security]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: production

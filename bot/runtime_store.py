@@ -186,6 +186,7 @@ def sql_storage_enabled() -> bool:
 
 
 def get_engine() -> Engine:
+    from bot import delivery_store, order_idempotency  # register transactional tables
     global _ENGINE, _ENGINE_URL
     url = _database_url()
     if not url:
@@ -196,7 +197,10 @@ def get_engine() -> Engine:
             connect_args = {"check_same_thread": False} if url.startswith("sqlite") else {}
             _ENGINE = create_engine(url, future=True, pool_pre_ping=True, connect_args=connect_args)
             _ENGINE_URL = url
-            _install_schema(_ENGINE)
+            runtime = (os.getenv("POMICH_RUNTIME") or os.getenv("VITE_APP_ENV") or "dev").lower()
+            auto_migrate = os.getenv("POMICH_AUTO_MIGRATE", "0" if runtime in {"prod", "production"} else "1")
+            if auto_migrate == "1":
+                _install_schema(_ENGINE)
         return _ENGINE
 
 
@@ -210,6 +214,7 @@ def reset_runtime_store_for_tests() -> None:
 
 
 def _install_schema(engine: Engine) -> None:
+    from bot import delivery_store, order_idempotency
     if engine.dialect.name == "postgresql":
         with engine.begin() as connection:
             connection.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
@@ -606,7 +611,7 @@ def sql_get_order(order_id: str) -> dict[str, Any] | None:
     return _json_safe_copy(row[0])
 
 
-def sql_upsert_order(order: dict[str, Any]) -> dict[str, Any]:
+def sql_upsert_order(order: dict[str, Any], *, insert_only: bool = False, idempotency_key: str | None = None, request_hash: str = "", require_profile: bool = False) -> dict[str, Any]:
     """Insert or update one order row without rewriting the whole orders table."""
     payload = _json_safe_copy(order)
     order_id = str(payload.get("id") or "").strip()
@@ -633,7 +638,22 @@ def sql_upsert_order(order: dict[str, Any]) -> dict[str, Any]:
     }
 
     with get_engine().begin() as connection:
+        if insert_only and require_profile:
+            query = select(customers.c.payload).where(customers.c.id == str(payload.get("customerId") or ""))
+            if connection.dialect.name == "postgresql":
+                query = query.with_for_update()
+            profile = connection.execute(query).scalar()
+            if not profile or profile.get("accountStatus") == "disabled":
+                from bot.order_idempotency import IdempotencyConflict
+                raise IdempotencyConflict("customer_profile_unavailable")
+        if insert_only and idempotency_key:
+            from bot.order_idempotency import claim
+            replay = claim(connection, str(payload.get("customerId") or ""), idempotency_key, request_hash, order_id)
+            if replay is not None:
+                return replay
         existing = connection.execute(select(orders.c.id).where(orders.c.id == order_id)).first()
+        if existing and insert_only:
+            raise ValueError("order_id_already_exists")
         if existing:
             connection.execute(
                 update(orders)
@@ -659,6 +679,9 @@ def sql_upsert_order(order: dict[str, Any]) -> dict[str, Any]:
                     payload=event,
                 )
             )
+
+        from bot.delivery_store import schedule_order_notifications
+        schedule_order_notifications(connection, payload)
 
     return payload
 
@@ -1699,6 +1722,8 @@ def _append_event(order: dict[str, Any], event_type: str, at: str, extra: dict[s
 
 
 def _insert_order_events(connection, order: dict[str, Any]) -> None:
+    from bot.delivery_store import schedule_order_notifications
+    schedule_order_notifications(connection, order)
     events = order.get("dispatchEvents") if isinstance(order.get("dispatchEvents"), list) else []
     for index, event in enumerate(events):
         event_id = f"{order.get('id')}:{index}:{event.get('type')}:{event.get('at')}"[:240]
@@ -1756,6 +1781,8 @@ def _save_orders(connection, order_payloads: list[dict[str, Any]]) -> None:
     connection.execute(delete(order_events))
     connection.execute(delete(orders))
     for order in order_payloads:
+        from bot.delivery_store import schedule_order_notifications
+        schedule_order_notifications(connection, order)
         customer_lat, customer_lng = _point(order.get("customerCoordinates"))
         destination_lat, destination_lng = _point(order.get("destinationCoordinates"))
         connection.execute(

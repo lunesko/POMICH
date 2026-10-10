@@ -17,3 +17,8 @@ def _telegram_queue_inline_by_default(monkeypatch):
 @pytest.fixture
 def temp_store(monkeypatch, tmp_path):
     return use_temp_store(monkeypatch, tmp_path)
+
+
+@pytest.fixture(autouse=True)
+def isolated_auth_registry(monkeypatch, tmp_path):
+    monkeypatch.setenv("POMICH_AUTH_DB_PATH", str(tmp_path / "auth.sqlite3"))

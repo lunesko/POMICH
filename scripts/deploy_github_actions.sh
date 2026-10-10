@@ -49,12 +49,8 @@ mkdir -p "$ssh_dir"
 trap 'rm -rf "$work_dir"' EXIT
 
 known_hosts="$ssh_dir/known_hosts"
-if [[ -n "${POMICH_SSH_KNOWN_HOSTS:-}" ]]; then
-  printf '%s\n' "$POMICH_SSH_KNOWN_HOSTS" > "$known_hosts"
-else
-  echo "WARNING: POMICH_SSH_KNOWN_HOSTS is not configured; scanning the host key at deploy time"
-  ssh-keyscan -p "$POMICH_SSH_PORT" -H "$POMICH_SSH_HOST" > "$known_hosts"
-fi
+require_env POMICH_SSH_KNOWN_HOSTS
+printf '%s\n' "$POMICH_SSH_KNOWN_HOSTS" > "$known_hosts"
 chmod 600 "$known_hosts"
 
 ssh_options=(

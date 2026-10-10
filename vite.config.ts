@@ -69,6 +69,12 @@ export default defineConfig(({ mode }) => {
       // vendor chunks created a cycle that pulled Leaflet into the initial graph.
     },
     plugins: [
+      {
+        name: 'pomich-build-identity',
+        generateBundle() {
+          this.emitFile({ type: 'asset', fileName: 'build.json', source: JSON.stringify({ sha: process.env.POMICH_BUILD_SHA || 'development' }) })
+        },
+      },
       react(),
       tailwindcss(),
       stripLeafletCssFromHtml(),

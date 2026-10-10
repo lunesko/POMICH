@@ -2298,7 +2298,6 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
         telegramUserId: telegramContext.user?.id,
         telegramUsername: telegramContext.user?.username,
         telegramFirstName: telegramContext.user?.first_name,
-        status: "searching",
       }
 
       const errors = validateCustomerOrderInput({

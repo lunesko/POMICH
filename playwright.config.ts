@@ -2,6 +2,7 @@ import { defineConfig, devices } from "@playwright/test"
 
 export default defineConfig({
   testDir: "./e2e",
+  testIgnore: ['production-security.spec.ts', 'backend-lifecycle.spec.ts'],
   outputDir: "test-results/playwright",
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),

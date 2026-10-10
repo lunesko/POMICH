@@ -47,40 +47,42 @@ class MockWebSocket {
   }
 }
 
-describe("realtime transport preference", () => {
+describe("realtime transport preference", async () => {
   beforeEach(() => {
     vi.stubEnv("VITE_API_BASE_URL", "/api")
     MockWebSocket.instances = []
     vi.useFakeTimers()
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ticket: "once" }) }))
   })
 
   afterEach(() => {
     vi.useRealTimers()
     vi.unstubAllEnvs()
     vi.restoreAllMocks()
+    vi.unstubAllGlobals()
   })
 
-  it("builds ws url from api base with wss on https pages", () => {
+  it("builds ws url from api base with wss on https pages", async () => {
     Object.defineProperty(window, "location", {
       value: { origin: "https://toll-icons-apollo-emission.trycloudflare.com" },
       configurable: true,
     })
     expect(buildWsUrl("/ws/orders/o1", "tok")).toBe(
-      "wss://toll-icons-apollo-emission.trycloudflare.com/api/ws/orders/o1?access_token=tok",
+      "wss://toll-icons-apollo-emission.trycloudflare.com/api/ws/orders/o1?ticket=tok",
     )
   })
 
-  it("builds sse url with access_token query param", () => {
+  it("builds sse url with ticket query param", async () => {
     Object.defineProperty(window, "location", {
       value: { origin: "https://example.com" },
       configurable: true,
     })
     expect(buildEventsUrl("/events/providers/p1", "tok")).toBe(
-      "https://example.com/api/events/providers/p1?access_token=tok",
+      "https://example.com/api/events/providers/p1?ticket=tok",
     )
   })
 
-  it("prefers websocket and delivers events", () => {
+  it("prefers websocket and delivers events", async () => {
     ;(globalThis as unknown as { WebSocket: typeof MockWebSocket }).WebSocket = MockWebSocket
 
     const events: string[] = []
@@ -91,6 +93,7 @@ describe("realtime transport preference", () => {
       { onConnected: () => events.push("connected-cb") },
     )
 
+    await vi.advanceTimersByTimeAsync(0)
     const socket = MockWebSocket.instances[0]
     expect(socket.url).toContain("/api/ws/orders/o1")
     socket.emitOpen()
@@ -101,7 +104,7 @@ describe("realtime transport preference", () => {
     stop()
   })
 
-  it("falls back to sse when websocket handshake times out", () => {
+  it("falls back to sse when websocket handshake times out", async () => {
     Object.defineProperty(window, "location", {
       value: { origin: "https://example.com" },
       configurable: true,
@@ -125,16 +128,17 @@ describe("realtime transport preference", () => {
     ;(window as { EventSource: typeof EventSource }).EventSource = MockEventSource as unknown as typeof EventSource
 
     const stop = subscribeRealtime("/ws/orders/o2", "/events/orders/o2", () => undefined)
+    await vi.advanceTimersByTimeAsync(0)
     expect(MockWebSocket.instances).toHaveLength(1)
 
-    vi.advanceTimersByTime(WS_CONNECT_TIMEOUT_MS + 1)
+    await vi.advanceTimersByTimeAsync(WS_CONNECT_TIMEOUT_MS + 1)
 
-    expect(sseConnect).toHaveBeenCalledWith("https://example.com/api/events/orders/o2")
+    expect(sseConnect).toHaveBeenCalledWith("https://example.com/api/events/orders/o2?ticket=once")
     stop()
     ;(window as { EventSource: typeof EventSource }).EventSource = originalEventSource
   })
 
-  it("falls back to sse when websocket is unavailable", () => {
+  it("falls back to sse when websocket is unavailable", async () => {
     const prev = (globalThis as { WebSocket?: unknown }).WebSocket
     ;(globalThis as { WebSocket?: unknown }).WebSocket = undefined
 
@@ -152,13 +156,14 @@ describe("realtime transport preference", () => {
     ;(window as { EventSource: typeof EventSource }).EventSource = MockEventSource as unknown as typeof EventSource
 
     const stop = subscribeSse("/events/orders/o3", () => undefined)
+    await vi.advanceTimersByTimeAsync(0)
     expect(sseConnect).toHaveBeenCalled()
     stop()
 
     ;(globalThis as { WebSocket?: unknown }).WebSocket = prev
   })
 
-  it("force-closes a dead-cat websocket when heartbeats stop", () => {
+  it("force-closes a dead-cat websocket when heartbeats stop", async () => {
     ;(globalThis as unknown as { WebSocket: typeof MockWebSocket }).WebSocket = MockWebSocket
 
     const disconnected = vi.fn()
@@ -166,6 +171,7 @@ describe("realtime transport preference", () => {
       onDisconnected: disconnected,
     })
 
+    await vi.advanceTimersByTimeAsync(0)
     const socket = MockWebSocket.instances[0]
     const closeSpy = vi.spyOn(socket, "close")
     socket.emitOpen()

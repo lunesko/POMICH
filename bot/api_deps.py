@@ -19,6 +19,7 @@ from bot.field_encryption import encryption_enabled
 from bot.order_store import DispatchConflict
 from bot.otp_verification import OtpVerificationError
 from bot.runtime_store import sql_storage_enabled
+from bot import session_registry
 from bot.telegram_auth import verify_telegram_init_data, verify_telegram_init_data_any_bot
 from bot.telegram_config import (
     any_telegram_bot_configured,
@@ -45,7 +46,7 @@ _INSECURE_SECRET_VALUES = frozenset(
 )
 _INSECURE_SECRET_FRAGMENTS = ("-secret-2026", "pomich-2026", "db-pass-2026")
 _AUTH_SESSION_PREFIX = "pomich_auth_v1"
-_DEFAULT_SESSION_TTL_SECONDS = 86400
+_DEFAULT_SESSION_TTL_SECONDS = 900
 
 
 @dataclass(frozen=True)
@@ -55,6 +56,9 @@ class AuthPrincipal:
     auth_type: str
     browser_expires_at: int = 0
     remember_me: bool = False
+    session_id: str = ""
+    expires_at: int = 0
+    refresh_generation: int = 0
 
 
 def is_production_runtime() -> bool:
@@ -143,6 +147,13 @@ def runtime_config_errors() -> list[str]:
     encryption_key = (os.getenv("POMICH_ENCRYPTION_KEY") or "").strip()
     if not encryption_key or encryption_key in _INSECURE_SECRET_VALUES or "replace-with-generated" in encryption_key.lower():
         errors.append("POMICH_ENCRYPTION_KEY must be set to a generated Fernet key in production")
+
+    else:
+        try:
+            from cryptography.fernet import Fernet
+            Fernet(encryption_key.encode("ascii"))
+        except Exception:
+            errors.append("POMICH_ENCRYPTION_KEY must be a valid Fernet key; encryption is required")
 
     database_url = (os.getenv("DATABASE_URL") or "").strip()
     allow_json = os.getenv("POMICH_ALLOW_JSON_STORE_IN_PRODUCTION") == "true"
@@ -357,15 +368,19 @@ def session_ttl_seconds() -> int:
     if not raw_value:
         return _DEFAULT_SESSION_TTL_SECONDS
     try:
-        return max(300, int(raw_value))
+        return min(900, max(300, int(raw_value)))
     except ValueError:
         return _DEFAULT_SESSION_TTL_SECONDS
 
 
-def issue_role_session(role: str, subject_id: str, secret: str, *, ttl_seconds: int | None = None, browser_expires_at: int | None = None, remember_me: bool = False) -> dict:
+def issue_role_session(role: str, subject_id: str, secret: str, *, ttl_seconds: int | None = None, browser_expires_at: int | None = None, remember_me: bool = False, session_id: str | None = None, purpose: str = "access", refresh_generation: int = 0) -> dict:
     issued_at = int(time.time())
     expires_at = issued_at + (session_ttl_seconds() if ttl_seconds is None else ttl_seconds)
+    from bot.session_registry import create_family
+    session_id = session_id or create_family(role, str(subject_id), browser_expires_at or expires_at)
     payload = {
+        "sid": session_id,
+        "purpose": purpose,
         "role": role,
         "sub": str(subject_id),
         "iat": issued_at,
@@ -373,11 +388,14 @@ def issue_role_session(role: str, subject_id: str, secret: str, *, ttl_seconds: 
     }
     if browser_expires_at is not None:
         payload.update(browserExp=browser_expires_at, rememberMe=remember_me)
+    if purpose == "restore":
+        payload["generation"] = refresh_generation
     body = b64_encode(json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8"))
     signature = b64_encode(hmac.new(secret.encode("utf-8"), body.encode("ascii"), hashlib.sha256).digest())
     return {
         "role": role,
         "subjectId": str(subject_id),
+        "sessionId": session_id,
         "tokenType": "Bearer",
         "accessToken": f"{_AUTH_SESSION_PREFIX}.{body}.{signature}",
         "expiresAt": expires_at,
@@ -385,7 +403,9 @@ def issue_role_session(role: str, subject_id: str, secret: str, *, ttl_seconds: 
     }
 
 
-def verify_role_session(token: str, expected_role: str, secret: str) -> AuthPrincipal:
+def verify_role_session(token: str, expected_role: str, secret: str, *, purpose: str = "access") -> AuthPrincipal:
+    if len(token) > 8192 or not token.isascii():
+        raise HTTPException(status_code=401, detail=f"{expected_role}_session_invalid")
     parts = token.split(".")
     if len(parts) != 3 or parts[0] != _AUTH_SESSION_PREFIX:
         raise HTTPException(status_code=401, detail=f"{expected_role}_session_invalid")
@@ -408,9 +428,20 @@ def verify_role_session(token: str, expected_role: str, secret: str) -> AuthPrin
     subject_id = str(payload.get("sub") or "").strip()
     if not subject_id:
         raise HTTPException(status_code=401, detail=f"{expected_role}_session_invalid")
+    from bot.session_registry import family_active
+    sid = str(payload.get("sid") or "")
+    if payload.get("purpose") != purpose or not sid or not family_active(sid, expected_role, subject_id, int(time.time())):
+        raise HTTPException(status_code=401, detail=f"{expected_role}_session_revoked")
+    if expected_role in {"customer", "provider"}:
+        from bot.order_store import get_customer_profile, get_provider_profile
+        profile = (get_customer_profile if expected_role == "customer" else get_provider_profile)(subject_id)
+        if profile and str(profile.get("accountStatus") or "active").lower() == "disabled":
+            raise HTTPException(status_code=403, detail="account_disabled")
     return AuthPrincipal(role=expected_role, subject_id=subject_id, auth_type="session",
+                         session_id=sid, expires_at=expires_at,
                          browser_expires_at=int(payload.get("browserExp") or expires_at),
-                         remember_me=payload.get("rememberMe") is True)
+                         remember_me=payload.get("rememberMe") is True,
+                         refresh_generation=int(payload.get("generation") or 0))
 
 
 def require_admin_auth(
@@ -479,6 +510,8 @@ def require_customer_auth_from_bearer(authorization: str | None = None) -> AuthP
 
 def _session_role_hint(token: str) -> str | None:
     """Unsigned role peek used only to route verification to the correct secret."""
+    if len(token) > 8192 or not token.isascii():
+        return None
     parts = token.split(".")
     if len(parts) != 3 or parts[0] != _AUTH_SESSION_PREFIX:
         return None
@@ -486,8 +519,19 @@ def _session_role_hint(token: str) -> str | None:
         payload = json.loads(b64_decode(parts[1]).decode("utf-8"))
     except (binascii.Error, TypeError, ValueError, UnicodeDecodeError):
         return None
+    if not isinstance(payload, dict):
+        return None
     role = str(payload.get("role") or "").strip()
     return role or None
+
+
+def require_authenticated_session(authorization: str | None) -> AuthPrincipal:
+    token = extract_bearer_token(authorization)
+    role = _session_role_hint(token) if token else None
+    secrets = {"customer": configured_customer_secret, "provider": configured_provider_secret, "admin": configured_admin_secret}
+    if role not in secrets:
+        raise HTTPException(status_code=401, detail="auth_session_required")
+    return verify_role_session(token, role, secrets[role]())
 
 
 def order_customer_id(order: dict | None) -> str:

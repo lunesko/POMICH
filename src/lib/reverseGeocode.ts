@@ -1,3 +1,4 @@
+import { fetchJsonWithDeadline } from "./fetchJsonWithDeadline"
 export interface GeoPoint {
   lat: number
   lng: number
@@ -50,12 +51,10 @@ async function fetchReverseData(point: GeoPoint): Promise<NominatimReverseRespon
   if (pending) return pending
 
   const request = (async () => {
-    const response = await fetch(
+    const data = await fetchJsonWithDeadline<NominatimReverseResponse>(
       `https://nominatim.openstreetmap.org/reverse?format=json&lat=${point.lat}&lon=${point.lng}&accept-language=uk&addressdetails=1`,
       { headers: { Accept: "application/json" } },
     )
-    if (!response.ok) return null
-    const data = (await response.json()) as NominatimReverseResponse
     reverseCache.set(key, { expiresAt: Date.now() + REVERSE_CACHE_TTL_MS, data })
     while (reverseCache.size > REVERSE_CACHE_MAX) {
       const oldest = reverseCache.keys().next().value as string | undefined
@@ -163,12 +162,10 @@ export async function forwardGeocodeAddress(query: string): Promise<{ point: Geo
   const normalized = query.trim()
   if (normalized.length < 3) return null
   try {
-    const response = await fetch(
+    const results = await fetchJsonWithDeadline<NominatimSearchResponse[]>(
       `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=ua&accept-language=uk&addressdetails=1&q=${encodeURIComponent(normalized)}`,
       { headers: { Accept: "application/json" } },
     )
-    if (!response.ok) return null
-    const results = (await response.json()) as NominatimSearchResponse[]
     const first = results[0]
     const lat = Number(first?.lat)
     const lng = Number(first?.lon)

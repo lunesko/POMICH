@@ -1,6 +1,8 @@
 from __future__ import annotations
+from bot.api_requests import request_schema
 
 from fastapi import APIRouter, Header, HTTPException
+from bot.api_requests import CustomerProfilePatch, RolePatch, validated
 
 from bot.api_deps import (
     optional_customer_auth,
@@ -24,16 +26,33 @@ from bot.order_store import (
 router = APIRouter(tags=["customers"])
 
 
+@router.get("/customers/{customer_id}/data-export")
+def customer_data_export(customer_id: str, authorization: str | None = Header(default=None)):
+    from bot.data_lifecycle import export_customer
+    from fastapi.responses import JSONResponse
+    require_customer_auth(customer_id, authorization)
+    return JSONResponse(export_customer(customer_id), headers={"Cache-Control": "no-store",
+        "Content-Disposition": 'attachment; filename="pomich-personal-data.json"'})
+
+
+@router.delete("/customers/{customer_id}/data")
+def customer_data_erasure(customer_id: str, authorization: str | None = Header(default=None)):
+    from bot.data_lifecycle import erase_customer
+    require_customer_auth(customer_id, authorization)
+    return erase_customer(customer_id)
+
+
 @router.get("/customers/{customer_id}/profile")
 def read_customer_profile(customer_id: str, authorization: str | None = Header(default=None)) -> dict:
     require_customer_auth(customer_id, authorization)
     return get_customer_profile(customer_id)
 
 
-@router.post("/customers/{customer_id}/profile")
-@router.patch("/customers/{customer_id}/profile")
+@router.post("/customers/{customer_id}/profile", openapi_extra=request_schema(CustomerProfilePatch))
+@router.patch("/customers/{customer_id}/profile", openapi_extra=request_schema(CustomerProfilePatch))
 def patch_customer_profile(customer_id: str, payload: dict, authorization: str | None = Header(default=None)) -> dict:
     require_customer_auth(customer_id, authorization)
+    payload = validated(CustomerProfilePatch, payload)
     try:
         profile = update_customer_profile(customer_id, payload)
     except ValueError as exc:
@@ -65,9 +84,10 @@ def read_user_account(
     return build_user_account_status(customer_id)
 
 
-@router.patch("/users/{customer_id}/account/role")
+@router.patch("/users/{customer_id}/account/role", openapi_extra=request_schema(RolePatch))
 def patch_user_preferred_role(customer_id: str, payload: dict, authorization: str | None = Header(default=None)) -> dict:
     require_customer_auth(customer_id, authorization)
+    payload = validated(RolePatch, payload)
     role = str(payload.get("role") or payload.get("preferredRole") or "").strip()
     try:
         return set_user_preferred_role(customer_id, role)
@@ -75,7 +95,7 @@ def patch_user_preferred_role(customer_id: str, payload: dict, authorization: st
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@router.post("/users/{customer_id}/account/role")
+@router.post("/users/{customer_id}/account/role", openapi_extra=request_schema(RolePatch))
 def post_user_preferred_role(customer_id: str, payload: dict, authorization: str | None = Header(default=None)) -> dict:
     return patch_user_preferred_role(customer_id, payload, authorization)
 

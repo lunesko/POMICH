@@ -59,10 +59,19 @@ class CachedStaticFiles(StaticFiles):
 
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
+    from bot.realtime_broker import start, stop
+    from bot import data_lifecycle
     ensure_telegram_workers()
     if sql_storage_enabled():
         get_engine()
-    yield
+    start()
+    if is_production_runtime():
+        data_lifecycle.start()
+    try:
+        yield
+    finally:
+        data_lifecycle.stop()
+        stop()
 
 
 app = FastAPI(title="POMICH MVP", version="0.1.0", lifespan=_lifespan)
@@ -78,6 +87,7 @@ _cors_kwargs: dict = {
     "allow_headers": [
         "Authorization",
         "Content-Type",
+        "Idempotency-Key",
         "X-Requested-With",
         "X-POMICH-Admin-Token",
         "X-POMICH-Provider-Token",
@@ -282,15 +292,17 @@ _SEO_PUBLIC_PAGES: dict[str, dict[str, str]] = {
     <p>Щоб знайти партнера поруч, виконати заявку, підтвердити особу (OTP), запобігти шахрайству та покращити сервіс.</p>
     <h2>З ким ділимось</h2>
     <p>Дані заявки передаємо лише залученому партнеру та інфраструктурі хостингу / Telegram API в обсязі, потрібному для доставки повідомлень. Не продаємо персональні дані.</p>
+    <h2>Карти та пошук адрес</h2>
+    <p>Браузер звертається безпосередньо до OpenStreetMap/Nominatim для пошуку адрес, до OSRM для маршрутів, а також до OpenStreetMap, CARTO або Esri для зображень карти. Ці сервіси отримують IP-адресу та дані запиту: пошуковий текст, координати маршруту або область карти. Передавання відбувається під час використання відповідних функцій карти.</p>
     <h2>Cookies та локальне сховище</h2>
     <p>Для відновлення входу використовуємо захищені HttpOnly cookies. Без «Залишатися в системі» cookie діє до закриття браузера, а сесія — максимум 12 годин. Браузер із функцією відновлення вкладок може зберегти сесійну cookie після перезапуску. З галочкою вхід зберігається на 30 днів від моменту входу. Відновлення входу не продовжує цей строк. Вихід видаляє cookies входу з цього браузера.</p>
     <p>Локальне сховище зберігає налаштування інтерфейсу, міста та підтвердження ознайомлення з повідомленням. Кнопка «Зрозуміло» закриває інформаційне повідомлення. Для видалення цих даних скористайтеся налаштуваннями браузера.</p>
     <h2>Зберігання</h2>
-    <p>Профіль і історія заявок зберігаються, поки існує обліковий запис або поки дані потрібні для законних цілей (безпека, спірні ситуації). Технічні логи — обмежений строк.</p>
+    <p>Завершені та скасовані заявки автоматично видаляються через 180 днів після останньої зміни. Активні заявки автоматична очистка не видаляє. Профіль зберігається, поки існує обліковий запис. Резервні копії можуть містити видалені дані до завершення строку зберігання відповідної копії; вони використовуються лише для відновлення після аварії.</p>
     <h2>Ваші права</h2>
-    <p>Можете запросити доступ, виправлення або видалення даних через підтримку в Telegram <a href="https://t.me/pomich_ua_bot">@pomich_ua_bot</a>.</p>
+    <p>У кабінеті клієнта можна завантажити копію профілю та заявок або видалити обліковий запис. Видалення недоступне, поки є активна заявка. Для пов’язаного профілю партнера та інших випадків, що потребують перевірки, зверніться до підтримки в Telegram <a href="https://t.me/pomich_ua_bot">@pomich_ua_bot</a>.</p>
     <h2>Контакт</h2>
-    <p class="meta">Оновлено: 8 жовтня 2026 · POMICH · Україна</p>
+    <p class="meta">Оновлено: 10 жовтня 2026 · POMICH · Україна</p>
 """,
     },
     "cities/uzhhorod": {
@@ -413,6 +425,7 @@ def _media_type_for_root_file(path: Path) -> str | None:
         ".xml": "application/xml",
         ".webmanifest": "application/manifest+json",
         ".json": "application/json",
+        ".js": "text/javascript",
         ".ico": "image/x-icon",
         ".png": "image/png",
         ".jpg": "image/jpeg",
@@ -477,7 +490,7 @@ def serve_frontend(full_path: str = ""):
 
     root_file = _resolve_dist_root_file(normalized)
     if root_file is not None:
-        if root_file.name == "pomich-sw.js":
+        if root_file.name in {"pomich-sw.js", "telegram-bootstrap.js", "boot-recovery.js"}:
             headers = {
                 "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
                 "Pragma": "no-cache",

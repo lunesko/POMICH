@@ -3,6 +3,21 @@ import asyncio
 from bot import realtime
 
 
+def test_broker_routes_remote_hints_without_echoing_own_notifications():
+    import json
+    from bot import realtime_broker
+    queue = realtime.subscribe("customer:remote")
+    try:
+        envelope = {"origin": "another-process", "channel": "customer:remote", "type": "order.updated"}
+        realtime_broker._receive(json.dumps(envelope))
+        assert queue.get_nowait()["type"] == "order.updated"
+        realtime_broker._receive(json.dumps(envelope | {"origin": realtime_broker._ORIGIN}))
+        realtime_broker._receive("not-json")
+        assert queue.empty()
+    finally:
+        realtime.unsubscribe("customer:remote", queue)
+
+
 def test_realtime_publish_reaches_subscriber():
     realtime.reset_realtime_for_tests()
     channel = realtime.channel_for_order("order-1")
