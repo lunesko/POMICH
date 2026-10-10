@@ -299,7 +299,7 @@ def main() -> int:
             # Rebuild app without wiping the Postgres volume or env.
             run(
                 ssh,
-                f"cd {REMOTE_DIR} && docker compose -f docker-compose.production.yml --env-file .env.production up --build -d",
+                f"cd {REMOTE_DIR} && chown -R 10001:10001 data && docker compose -f docker-compose.production.yml --env-file .env.production up -d postgres && docker compose -f docker-compose.production.yml --env-file .env.production build pomich-app && docker compose -f docker-compose.production.yml --env-file .env.production run --rm --no-deps pomich-app python3 -m bot.migrate && docker compose -f docker-compose.production.yml --env-file .env.production up -d pomich-app",
                 check=True,
             )
             print("Waiting 45s for startup...")
@@ -326,7 +326,7 @@ def main() -> int:
         if action == "tunnel":
             tunnel_url = setup_cloudflare_tunnel(ssh)
             write_env_production(ssh, web_app_url=f"{tunnel_url}/", telegram_mode="webhook")
-            run(ssh, f"cd {REMOTE_DIR} && docker compose -f docker-compose.production.yml --env-file .env.production up -d --build pomich-app", check=True)
+            run(ssh, f"cd {REMOTE_DIR} && chown -R 10001:10001 data && docker compose -f docker-compose.production.yml --env-file .env.production build pomich-app && docker compose -f docker-compose.production.yml --env-file .env.production run --rm --no-deps pomich-app python3 -m bot.migrate && docker compose -f docker-compose.production.yml --env-file .env.production up -d pomich-app", check=True)
             time.sleep(30)
             set_telegram_webhook(ssh, tunnel_url)
             print(f"\nHTTPS URL for BotFather: {tunnel_url}/")

@@ -1,9 +1,11 @@
 from __future__ import annotations
+from bot.api_requests import request_schema
 
 import time
 from typing import Any
 
 from fastapi import APIRouter, Body, Header, HTTPException
+from bot.api_requests import ProviderProfilePatch, PresencePatch, OfferAccept, validated
 
 from bot.api_deps import (
     dispatch_conflict,
@@ -337,7 +339,7 @@ def read_provider_profile(
     return provider
 
 
-@router.patch("/providers/{provider_id}/presence")
+@router.patch("/providers/{provider_id}/presence", openapi_extra=request_schema(PresencePatch))
 def patch_provider_presence(
     provider_id: str,
     payload: dict,
@@ -345,6 +347,7 @@ def patch_provider_presence(
     authorization: str | None = Header(default=None),
 ) -> dict:
     require_provider_auth(provider_id, x_pomich_provider_token, authorization)
+    payload = validated(PresencePatch, payload)
     status = str(payload.get("status") or "").strip()
     if status not in {"online", "busy", "offline"}:
         raise HTTPException(status_code=400, detail="provider status must be online, busy or offline")
@@ -357,8 +360,8 @@ def patch_provider_presence(
     return updated
 
 
-@router.post("/providers/{provider_id}/profile")
-@router.patch("/providers/{provider_id}/profile")
+@router.post("/providers/{provider_id}/profile", openapi_extra=request_schema(ProviderProfilePatch))
+@router.patch("/providers/{provider_id}/profile", openapi_extra=request_schema(ProviderProfilePatch))
 def patch_provider_profile(
     provider_id: str,
     payload: dict,
@@ -366,6 +369,7 @@ def patch_provider_profile(
     authorization: str | None = Header(default=None),
 ) -> dict:
     require_provider_auth(provider_id, x_pomich_provider_token, authorization)
+    payload = validated(ProviderProfilePatch, payload)
     try:
         return update_provider_profile(provider_id, payload)
     except ValueError as exc:
@@ -423,7 +427,7 @@ def provider_offers(
     return get_provider_offers(provider_id)
 
 
-@router.post("/providers/{provider_id}/offers/{offer_id}/accept")
+@router.post("/providers/{provider_id}/offers/{offer_id}/accept", openapi_extra=request_schema(OfferAccept))
 def provider_accept_offer(
     provider_id: str,
     offer_id: str,
@@ -432,7 +436,7 @@ def provider_accept_offer(
     authorization: str | None = Header(default=None),
 ) -> dict:
     require_provider_auth(provider_id, x_pomich_provider_token, authorization)
-    body = payload or {}
+    body = validated(OfferAccept, payload or {})
     proposed_price = body.get("proposedPrice", body.get("partnerProposedPrice"))
     price_note = body.get("priceNote", body.get("partnerPriceNote"))
     try:
@@ -447,7 +451,7 @@ def provider_accept_offer(
     return result
 
 
-@router.post("/offers/{offer_id}/accept")
+@router.post("/offers/{offer_id}/accept", openapi_extra=request_schema(OfferAccept))
 def accept_offer_legacy(
     offer_id: str,
     payload: dict,
@@ -458,6 +462,7 @@ def accept_offer_legacy(
     if not provider_id:
         raise HTTPException(status_code=400, detail="providerId missing")
     require_provider_auth(provider_id, x_pomich_provider_token, authorization)
+    payload = validated(OfferAccept, payload)
     proposed_price = payload.get("proposedPrice", payload.get("partnerProposedPrice"))
     price_note = payload.get("priceNote", payload.get("partnerPriceNote"))
     try:

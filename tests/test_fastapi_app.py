@@ -1,3 +1,5 @@
+import pytest
+from tests.helpers import verified_customer, valid_tow_order
 import hashlib
 import hmac
 import json
@@ -16,6 +18,12 @@ PROVIDER_HEADERS = {"X-POMICH-Provider-Token": PROVIDER_TOKEN}
 ADMIN_TOKEN = "test-admin"
 ADMIN_HEADERS = {"X-POMICH-Admin-Token": ADMIN_TOKEN}
 CUSTOMER_SESSION_SECRET = "customer-session-secret-for-tests"
+
+
+@pytest.fixture(autouse=True)
+def isolated_api_data(monkeypatch, tmp_path):
+    from tests.helpers import use_temp_store
+    use_temp_store(monkeypatch, tmp_path / "api-defaults")
 
 
 def _api_provider(provider_id: str, lat: float, lng: float) -> dict:
@@ -87,14 +95,23 @@ def _admin_session_headers(client: TestClient) -> dict:
 
 
 def _customer_session_headers(client: TestClient, customer_id: str | None = None) -> dict:
-    payload: dict = {}
     if customer_id:
-        if not order_store.customer_profile_exists(customer_id):
-            order_store.update_customer_profile(customer_id, {})
-        payload = {"customerId": customer_id}
-    response = client.post("/api/auth/customer/guest/session", json=payload)
+        from bot.browser_sessions import issue_browser_login
+        from bot.api_deps import configured_customer_secret
+        order_store.update_customer_profile(customer_id, {})
+        session = issue_browser_login("customer", customer_id, configured_customer_secret())
+        return {"Authorization": f"Bearer {session['accessToken']}"}
+    response = client.post("/api/auth/customer/guest/session", json={})
     assert response.status_code == 200
     return {"Authorization": f"Bearer {response.json()['accessToken']}"}
+
+
+def _verified_customer_session_headers(client, customer_id=None):
+    from bot.api_deps import require_customer_auth_from_bearer
+    headers = _customer_session_headers(client, customer_id)
+    principal = require_customer_auth_from_bearer(headers["Authorization"])
+    verified_customer(principal.subject_id)
+    return headers
 
 
 def _signed_init_data(payload: dict[str, str], token: str) -> str:
@@ -168,7 +185,7 @@ def test_production_runtime_config_accepts_release_settings(monkeypatch) -> None
     monkeypatch.setenv("POMICH_ADMIN_TOKEN", "admin-secret-1234567890-release")
     monkeypatch.setenv("POMICH_PROVIDER_TOKEN", "provider-secret-1234567890-release")
     monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", "customer-secret-1234567890-release")
-    monkeypatch.setenv("POMICH_ENCRYPTION_KEY", "0" * 44)
+    monkeypatch.setenv("POMICH_ENCRYPTION_KEY", __import__("cryptography.fernet", fromlist=["Fernet"]).Fernet.generate_key().decode())
     monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@localhost:5432/pomich_prod")
     monkeypatch.setenv("POMICH_STORAGE_BACKEND", "sql")
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
@@ -184,7 +201,7 @@ def test_production_runtime_config_rejects_sqlite_and_json_backend(monkeypatch) 
     monkeypatch.setenv("POMICH_ADMIN_TOKEN", "admin-secret-1234567890-release")
     monkeypatch.setenv("POMICH_PROVIDER_TOKEN", "provider-secret-1234567890-release")
     monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", "customer-secret-1234567890-release")
-    monkeypatch.setenv("POMICH_ENCRYPTION_KEY", "0" * 44)
+    monkeypatch.setenv("POMICH_ENCRYPTION_KEY", __import__("cryptography.fernet", fromlist=["Fernet"]).Fernet.generate_key().decode())
     monkeypatch.setenv("DATABASE_URL", "sqlite:///release.db")
     monkeypatch.setenv("POMICH_STORAGE_BACKEND", "json")
     monkeypatch.delenv("POMICH_ALLOW_JSON_STORE_IN_PRODUCTION", raising=False)
@@ -201,7 +218,7 @@ def test_production_runtime_config_requires_telegram_public_url(monkeypatch) -> 
     monkeypatch.setenv("POMICH_ADMIN_TOKEN", "admin-secret-1234567890-release")
     monkeypatch.setenv("POMICH_PROVIDER_TOKEN", "provider-secret-1234567890-release")
     monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", "customer-secret-1234567890-release")
-    monkeypatch.setenv("POMICH_ENCRYPTION_KEY", "0" * 44)
+    monkeypatch.setenv("POMICH_ENCRYPTION_KEY", __import__("cryptography.fernet", fromlist=["Fernet"]).Fernet.generate_key().decode())
     monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@localhost:5432/pomich_prod")
     monkeypatch.setenv("POMICH_STORAGE_BACKEND", "sql")
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123456:telegram-token")
@@ -588,17 +605,17 @@ def test_fastapi_telegram_mini_app_order_uses_verified_identity(monkeypatch, tmp
         telegram_token,
     )
     session_response = client.post("/api/auth/customer/telegram/session", headers={"X-Telegram-Init-Data": init_data})
+    verified_customer(session_response.json()["customerId"])
     customer_headers = {"Authorization": f"Bearer {session_response.json()['accessToken']}"}
 
     response = client.post(
         "/api/orders",
         headers=customer_headers,
-        json={
+        json=valid_tow_order(**{
             "source": "telegram-mini-app",
             "telegramInitData": init_data,
             "service": "tow",
-            "status": "draft",
-        },
+            }),
     )
 
     assert response.status_code == 201
@@ -619,25 +636,23 @@ def test_fastapi_telegram_mini_app_order_requires_session_when_bots_unset(monkey
 
     anonymous = client.post(
         "/api/orders",
-        json={
+        json=valid_tow_order(**{
             "source": "telegram-mini-app",
             "service": "tow",
-            "status": "draft",
             "customerId": "tg-attacker",
-        },
+        }),
     )
     assert anonymous.status_code == 401
     assert anonymous.json()["detail"] == "customer_session_required"
 
-    headers = _customer_session_headers(client)
+    headers = _verified_customer_session_headers(client)
     authed = client.post(
         "/api/orders",
         headers=headers,
-        json={
+        json=valid_tow_order(**{
             "source": "telegram-mini-app",
             "service": "tow",
-            "status": "draft",
-        },
+            }),
     )
     assert authed.status_code == 201
     assert authed.json()["customerId"].startswith("guest-")
@@ -660,16 +675,15 @@ def test_fastapi_create_order_persists_customer_comment(monkeypatch, tmp_path) -
     _use_temp_store(monkeypatch, tmp_path)
     monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", CUSTOMER_SESSION_SECRET)
     client = TestClient(app)
-    customer_headers = _customer_session_headers(client)
+    customer_headers = _verified_customer_session_headers(client)
 
     created = client.post(
         "/api/orders",
         headers=customer_headers,
-        json={
+        json=valid_tow_order(**{
             "service": "tow",
-            "status": "searching",
             "customerComment": "Ключі в бардачку",
-        },
+        }),
     )
 
     assert created.status_code == 201
@@ -682,9 +696,9 @@ def test_fastapi_rejects_invalid_order_transition(monkeypatch) -> None:
     monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", CUSTOMER_SESSION_SECRET)
     client = TestClient(app)
     admin_headers = _admin_session_headers(client)
-    customer_headers = _customer_session_headers(client)
+    customer_headers = _verified_customer_session_headers(client)
 
-    created = client.post("/api/orders", headers=customer_headers, json={"service": "tow", "status": "searching"})
+    created = client.post("/api/orders", headers=customer_headers, json=valid_tow_order(**{"service": "tow", }))
     response = client.patch(
         f"/api/orders/{created.json()['id']}/status",
         json={"status": "completed"},
@@ -705,19 +719,18 @@ def test_fastapi_dispatches_order_and_first_offer_acceptance_wins(monkeypatch, t
         ],
     )
     client = TestClient(app)
-    customer_headers = _customer_session_headers(client)
+    customer_headers = _verified_customer_session_headers(client)
     first_provider_headers = _provider_session_headers(client, "p1")
     second_provider_headers = _provider_session_headers(client, "p2")
 
     created = client.post(
         "/api/orders",
         headers=customer_headers,
-        json={
+        json=valid_tow_order(**{
             "service": "tow",
-            "status": "searching",
             "customerCoordinates": {"lat": 48.6208, "lng": 22.2879},
             "customerLocation": "Uzhhorod",
-        },
+        }),
     )
 
     assert created.status_code == 201
@@ -761,16 +774,15 @@ def test_fastapi_cancel_order_notifies_partner(monkeypatch, tmp_path) -> None:
     client = TestClient(app)
     provider_headers = _provider_session_headers(client, "p1")
     customer_id = "guest-customer-cancel"
-    customer_headers = _customer_session_headers(client, customer_id)
+    customer_headers = _verified_customer_session_headers(client, customer_id)
 
     created_order = client.post(
         "/api/orders",
         headers=customer_headers,
-        json={
+        json=valid_tow_order(**{
             "service": "tow",
-            "status": "searching",
             "customerCoordinates": {"lat": 48.6208, "lng": 22.2879},
-        },
+        }),
     ).json()
     assert created_order["customerId"] == customer_id
     sent_messages: list[dict[str, str]] = []
@@ -784,7 +796,7 @@ def test_fastapi_cancel_order_notifies_partner(monkeypatch, tmp_path) -> None:
     unauthenticated = client.post(f"/api/orders/{created_order['id']}/cancel")
     assert unauthenticated.status_code == 401
 
-    other_headers = _customer_session_headers(client, "guest-customer-other")
+    other_headers = _verified_customer_session_headers(client, "guest-customer-other")
     forbidden = client.post(f"/api/orders/{created_order['id']}/cancel", headers=other_headers)
     assert forbidden.status_code == 403
 
@@ -803,16 +815,15 @@ def test_fastapi_provider_can_cancel_assigned_order(monkeypatch, tmp_path) -> No
     order_store.save_providers([_api_provider("p1", 48.6218, 22.2879)])
     client = TestClient(app)
     provider_headers = _provider_session_headers(client, "p1")
-    customer_headers = _customer_session_headers(client, "guest-customer-provider-cancel")
+    customer_headers = _verified_customer_session_headers(client, "guest-customer-provider-cancel")
 
     created_order = client.post(
         "/api/orders",
         headers=customer_headers,
-        json={
+        json=valid_tow_order(**{
             "service": "tow",
-            "status": "searching",
             "customerCoordinates": {"lat": 48.6208, "lng": 22.2879},
-        },
+        }),
     ).json()
     offer = client.get("/api/providers/p1/offers", headers=provider_headers).json()[0]
     client.post(
@@ -847,17 +858,16 @@ def test_fastapi_admin_can_cancel_order(monkeypatch, tmp_path) -> None:
     _use_temp_store(monkeypatch, tmp_path)
     monkeypatch.setenv("POMICH_ADMIN_TOKEN", ADMIN_TOKEN)
     client = TestClient(app)
-    customer_headers = _customer_session_headers(client, "guest-customer-42")
+    customer_headers = _verified_customer_session_headers(client, "guest-customer-42")
     admin_headers = _admin_session_headers(client)
 
     created_order = client.post(
         "/api/orders",
         headers=customer_headers,
-        json={
+        json=valid_tow_order(**{
             "service": "tow",
-            "status": "searching",
             "customerCoordinates": {"lat": 48.6208, "lng": 22.2879},
-        },
+        }),
     ).json()
 
     cancelled = client.post(f"/api/orders/{created_order['id']}/cancel", headers=admin_headers)
@@ -871,24 +881,23 @@ def test_fastapi_dispatch_retry_requires_customer_owner_or_admin(monkeypatch, tm
     order_store.save_providers([_api_provider("p1", 48.6218, 22.2879)])
     client = TestClient(app)
     customer_id = "guest-customer-retry"
-    customer_headers = _customer_session_headers(client, customer_id)
+    customer_headers = _verified_customer_session_headers(client, customer_id)
     admin_headers = _admin_session_headers(client)
 
     created_order = client.post(
         "/api/orders",
         headers=customer_headers,
-        json={
+        json=valid_tow_order(**{
             "service": "tow",
-            "status": "searching",
             "customerCoordinates": {"lat": 48.6208, "lng": 22.2879},
-        },
+        }),
     ).json()
 
     unauthenticated = client.post(f"/api/orders/{created_order['id']}/dispatch/retry")
     assert unauthenticated.status_code == 401
     assert unauthenticated.json()["detail"] == "auth_session_required"
 
-    other_headers = _customer_session_headers(client, "guest-customer-other")
+    other_headers = _verified_customer_session_headers(client, "guest-customer-other")
     forbidden = client.post(f"/api/orders/{created_order['id']}/dispatch/retry", headers=other_headers)
     assert forbidden.status_code == 403
     assert forbidden.json()["detail"] == "customer_identity_mismatch"
@@ -909,16 +918,15 @@ def test_fastapi_confirm_price_requires_customer_owner(monkeypatch, tmp_path) ->
     client = TestClient(app)
     provider_headers = _provider_session_headers(client, "p1")
     customer_id = "guest-customer-price"
-    customer_headers = _customer_session_headers(client, customer_id)
+    customer_headers = _verified_customer_session_headers(client, customer_id)
 
     created_order = client.post(
         "/api/orders",
         headers=customer_headers,
-        json={
+        json=valid_tow_order(**{
             "service": "tow",
-            "status": "searching",
             "customerCoordinates": {"lat": 48.6208, "lng": 22.2879},
-        },
+        }),
     ).json()
     offer = client.get("/api/providers/p1/offers", headers=provider_headers).json()[0]
     client.post(
@@ -931,7 +939,7 @@ def test_fastapi_confirm_price_requires_customer_owner(monkeypatch, tmp_path) ->
     assert unauthenticated.status_code == 401
     assert unauthenticated.json()["detail"] == "customer_session_required"
 
-    other_headers = _customer_session_headers(client, "guest-customer-other")
+    other_headers = _verified_customer_session_headers(client, "guest-customer-other")
     forbidden = client.post(f"/api/orders/{created_order['id']}/confirm-price", headers=other_headers)
     assert forbidden.status_code == 403
     assert forbidden.json()["detail"] == "customer_identity_mismatch"
@@ -947,16 +955,15 @@ def test_fastapi_assigned_provider_can_drive_lifecycle(monkeypatch, tmp_path) ->
     order_store.save_providers([_api_provider("p1", 48.6218, 22.2879)])
     client = TestClient(app)
     provider_headers = _provider_session_headers(client, "p1")
-    customer_headers = _customer_session_headers(client, "guest-customer-lifecycle")
+    customer_headers = _verified_customer_session_headers(client, "guest-customer-lifecycle")
 
     created_order = client.post(
         "/api/orders",
         headers=customer_headers,
-        json={
+        json=valid_tow_order(**{
             "service": "tow",
-            "status": "searching",
             "customerCoordinates": {"lat": 48.6208, "lng": 22.2879},
-        },
+        }),
     ).json()
     offer = client.get("/api/providers/p1/offers", headers=provider_headers).json()[0]
     client.post(
@@ -1338,7 +1345,7 @@ def test_sse_order_events_not_found(monkeypatch, tmp_path) -> None:
     _use_temp_store(monkeypatch, tmp_path)
     client = TestClient(app)
     response = client.get("/api/events/orders/missing-order")
-    assert response.status_code == 404
+    assert response.status_code == 401
 
 
 def test_sse_provider_events_require_auth(monkeypatch, tmp_path) -> None:
@@ -1356,20 +1363,19 @@ def test_ws_order_events_handshake_and_broadcast(monkeypatch, tmp_path) -> None:
 
     realtime.reset_realtime_for_tests()
     client = TestClient(app)
-    customer_headers = _customer_session_headers(client)
+    customer_headers = _verified_customer_session_headers(client)
     created = client.post(
         "/api/orders",
         headers=customer_headers,
-        json={
+        json=valid_tow_order(**{
             "service": "tow",
-            "status": "searching",
             "customerCoordinates": {"lat": 48.6208, "lng": 22.2879},
-        },
+        }),
     )
     order = created.json()
-    token = customer_headers["Authorization"].removeprefix("Bearer ").strip()
+    token = client.post(f"/api/realtime/tickets/orders/{order['id']}", headers=customer_headers).json()["ticket"]
     try:
-        with client.websocket_connect(f"/api/ws/orders/{order['id']}?access_token={token}") as websocket:
+        with client.websocket_connect(f"/api/ws/orders/{order['id']}?ticket={token}") as websocket:
             connected = websocket.receive_json()
             assert connected["type"] == "connected"
             assert connected["channel"] == realtime.channel_for_order(order["id"])

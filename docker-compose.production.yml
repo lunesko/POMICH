@@ -17,7 +17,10 @@ services:
 
   pomich-app:
     image: ${POMICH_IMAGE:-pomich-app:latest}
-    build: .
+    build:
+      context: .
+      args:
+        POMICH_BUILD_SHA: ${POMICH_BUILD_SHA:-development}
     container_name: pomich-app
     depends_on:
       postgres:
@@ -29,8 +32,23 @@ services:
       - "127.0.0.1:8000:8000"
     volumes:
       - ./data:/app/data
+    read_only: true
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 256
+    mem_limit: 1g
+    cpus: 2
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3).read()"]
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/internal/ready', timeout=3).read()"]
       interval: 5s
       timeout: 3s
       retries: 12

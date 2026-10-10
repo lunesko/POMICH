@@ -17,21 +17,19 @@ def encryption_enabled() -> bool:
 
 
 def _get_fernet():
-    global _fernet, _fernet_checked
-    if _fernet_checked:
-        return _fernet
-    _fernet_checked = True
+    # Validate the actual configured key on every call: an earlier cache hit must
+    # never mask a missing/invalid key after configuration changes.
     raw_key = (os.getenv("POMICH_ENCRYPTION_KEY") or "").strip()
     if not raw_key:
-        _fernet = None
+        runtime = (os.getenv("POMICH_RUNTIME") or os.getenv("VITE_APP_ENV") or "dev").lower()
+        if runtime in {"prod", "production"}:
+            raise RuntimeError("POMICH_ENCRYPTION_KEY is required")
         return None
     try:
         from cryptography.fernet import Fernet
-
-        _fernet = Fernet(raw_key.encode("ascii"))
-    except Exception:
-        _fernet = None
-    return _fernet
+        return Fernet(raw_key.encode("ascii"))
+    except Exception as exc:
+        raise RuntimeError("POMICH_ENCRYPTION_KEY is invalid or cryptography is unavailable") from exc
 
 
 def generate_encryption_key() -> str:

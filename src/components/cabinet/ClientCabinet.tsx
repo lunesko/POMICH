@@ -28,6 +28,7 @@ import { PhoneInput } from "../ui/PhoneInput"
 import { PrimaryButton } from "../ui/PrimaryButton"
 import { VerificationPill } from "../ui/VerificationPill"
 import OrderHistoryDetailSheet from "./OrderHistoryDetailSheet"
+import PersonalDataControls from "./PersonalDataControls"
 
 interface ClientCabinetProps {
   profile: CustomerProfile
@@ -522,6 +523,8 @@ export default function ClientCabinet({
           </div>
         </div>
       </div>
+
+      <PersonalDataControls customerId={sessionCustomerId} token={customerToken} onDeleted={onLogout} />
 
       {selectedHistoryOrder ? (
         <OrderHistoryDetailSheet

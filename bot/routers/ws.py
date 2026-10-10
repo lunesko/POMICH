@@ -1,86 +1,22 @@
-from __future__ import annotations
-
-from fastapi import APIRouter, Query, WebSocket, WebSocketException, status
-
-from bot.api_deps import require_customer_auth, require_order_participant_auth, require_provider_auth
-from bot.order_store import get_order
-from bot.realtime import channel_for_customer, channel_for_order, channel_for_provider, pump_websocket
+from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketException
+from bot.realtime import pump_websocket
+from bot.realtime_auth import channel_name, consume_ticket, principal_active
+from bot import realtime_limits
+import asyncio
 
 router = APIRouter(tags=["realtime"])
 
 
-def _bearer_from_query(access_token: str | None, authorization: str | None) -> str | None:
-    if authorization:
-        return authorization
-    token = (access_token or "").strip()
-    if not token:
-        return None
-    return f"Bearer {token}"
-
-
-@router.websocket("/ws/orders/{order_id}")
-async def ws_order_events(
-    websocket: WebSocket,
-    order_id: str,
-    access_token: str | None = Query(default=None),
-) -> None:
-    """WebSocket stream for a single order (mirrors SSE /events/orders/{id})."""
-    order = get_order(order_id)
-    if order is None:
-        raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION, reason="order not found")
-    authorization = websocket.headers.get("authorization")
+@router.websocket("/ws/{kind}/{subject}")
+async def websocket_events(websocket: WebSocket, kind: str, subject: str, ticket: str | None = Query(default=None)) -> None:
     try:
-        require_order_participant_auth(order, authorization, access_token=access_token)
-    except Exception as exc:
-        from fastapi import HTTPException
-
-        if isinstance(exc, HTTPException) and exc.status_code in {401, 403}:
-            raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION, reason="unauthorized") from exc
-        raise
-    await websocket.accept()
-    await pump_websocket(websocket, channel_for_order(order_id))
-
-
-@router.websocket("/ws/customers/{customer_id}")
-async def ws_customer_events(
-    websocket: WebSocket,
-    customer_id: str,
-    access_token: str | None = Query(default=None),
-) -> None:
-    """WebSocket stream for a customer's order updates."""
-    authorization = websocket.headers.get("authorization")
+        channel = channel_name(kind, subject)
+        principal = await asyncio.to_thread(consume_ticket, ticket, channel)
+        lease = await asyncio.to_thread(realtime_limits.acquire, principal)
+    except HTTPException as exc:
+        raise WebSocketException(code=1008, reason="unauthorized") from exc
     try:
-        require_customer_auth(customer_id, _bearer_from_query(access_token, authorization))
-    except Exception as exc:
-        from fastapi import HTTPException
-
-        if isinstance(exc, HTTPException) and exc.status_code == 401:
-            raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION, reason="unauthorized") from exc
-        raise
-    await websocket.accept()
-    await pump_websocket(websocket, channel_for_customer(customer_id))
-
-
-@router.websocket("/ws/providers/{provider_id}")
-async def ws_provider_events(
-    websocket: WebSocket,
-    provider_id: str,
-    access_token: str | None = Query(default=None),
-) -> None:
-    """WebSocket stream for partner offer / assigned-order updates."""
-    authorization = websocket.headers.get("authorization")
-    provider_token = websocket.headers.get("x-pomich-provider-token")
-    try:
-        require_provider_auth(
-            provider_id,
-            provider_token,
-            _bearer_from_query(access_token, authorization),
-        )
-    except Exception as exc:
-        from fastapi import HTTPException
-
-        if isinstance(exc, HTTPException) and exc.status_code in {401, 403}:
-            raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION, reason="unauthorized") from exc
-        raise
-    await websocket.accept()
-    await pump_websocket(websocket, channel_for_provider(provider_id))
+        await websocket.accept()
+        await pump_websocket(websocket, channel, authorized=realtime_limits.guard(principal, lease))
+    finally:
+        await asyncio.to_thread(realtime_limits.release, lease)

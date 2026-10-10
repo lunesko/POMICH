@@ -1,4 +1,4 @@
-"""In-process outbound Telegram job queue.
+"""Durable SQL outbox workers, with an in-process queue for local JSON storage.
 
 Keeps Bot API HTTP calls off the FastAPI request path so dispatch peaks and
 OTP delivery do not stall login, accept, or map/cabinet reads.
@@ -35,6 +35,10 @@ def queue_stats() -> dict[str, Any]:
         stats = dict(_STATS)
     stats["pending"] = _JOBS.qsize()
     stats["workers"] = _WORKER_COUNT
+    from bot.runtime_store import sql_storage_enabled
+    if sql_storage_enabled():
+        from bot.delivery_store import outbox_stats
+        stats["durable"] = outbox_stats()
     return stats
 
 
@@ -65,12 +69,30 @@ def _worker_loop(worker_id: int) -> None:
             _JOBS.task_done()
 
 
+def _durable_worker_loop() -> None:
+    from bot.delivery_store import process_one
+    while True:
+        try:
+            if not process_one():
+                time.sleep(1)
+        except Exception:
+            # DB restart/outage: jobs remain persisted; never acknowledge on failure.
+            time.sleep(2)
+
+
 def ensure_telegram_workers() -> None:
     global _STARTED
     if _STARTED:
         return
     with _START_LOCK:
         if _STARTED:
+            return
+        from bot.runtime_store import sql_storage_enabled
+        durable = sql_storage_enabled() and os.getenv("POMICH_TELEGRAM_QUEUE_INLINE") != "1"
+        if durable:
+            for index in range(_WORKER_COUNT):
+                threading.Thread(target=_durable_worker_loop, name=f"pomich-outbox-{index}", daemon=True).start()
+            _STARTED = True
             return
         for index in range(_WORKER_COUNT):
             thread = threading.Thread(
@@ -104,6 +126,14 @@ def enqueue_telegram(name: str, fn: JobFn, *args: Any, **kwargs: Any) -> bool:
             raise
         return False
 
+    from bot.runtime_store import sql_storage_enabled, get_engine
+    if sql_storage_enabled():
+        from bot.delivery_store import schedule_order_notifications
+        order = args[1] if name == "notify_order_created" else args[0]
+        with get_engine().begin() as connection:
+            schedule_order_notifications(connection, order)
+        ensure_telegram_workers()
+        return True
     ensure_telegram_workers()
     try:
         _JOBS.put_nowait((str(name or getattr(fn, "__name__", "job")), fn, args, kwargs))

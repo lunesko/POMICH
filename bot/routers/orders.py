@@ -1,6 +1,12 @@
 from __future__ import annotations
+from bot.api_requests import request_schema
 
 from fastapi import APIRouter, Body, Header, HTTPException
+from pydantic import ValidationError
+from bot.order_requests import CreateOrderRequest
+from bot.api_requests import StatusPatch, validated
+from bot.order_store import get_customer_profile
+from bot.phone_lookup import normalize_ukraine_phone_digits
 
 from bot.api_deps import (
     apply_verified_telegram_identity,
@@ -8,6 +14,7 @@ from bot.api_deps import (
     extract_bearer_token,
     optional_customer_auth,
     require_admin_auth,
+    require_authenticated_session,
     require_customer_auth,
     require_customer_auth_from_bearer,
     require_order_customer_owner,
@@ -52,11 +59,21 @@ def list_orders(
     return attach_dispatch_to_orders(load_orders(), load_offers())
 
 
-@router.post("/orders", status_code=201)
-def create_order(payload: dict, authorization: str | None = Header(default=None)) -> dict:
-    source = payload.get("source")
-    init_data = payload.pop("telegramInitData", None)
+@router.post("/orders", status_code=201, openapi_extra=request_schema(CreateOrderRequest))
+def create_order(payload: dict, authorization: str | None = Header(default=None), idempotency_key: str | None = Header(default=None)) -> dict:
+    if not authorization and payload.get("source") != "telegram-mini-app":
+        raise HTTPException(status_code=401, detail="customer_session_required")
     customer_principal = optional_customer_auth(authorization)
+    try:
+        payload = CreateOrderRequest.model_validate(payload).model_dump(exclude_none=True)
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.errors(include_context=False, include_input=False)) from exc
+    from bot.order_idempotency import fingerprint, IdempotencyConflict
+    if idempotency_key is not None and (not 8 <= len(idempotency_key) <= 128 or not idempotency_key.isascii()):
+        raise HTTPException(status_code=422, detail="invalid_idempotency_key")
+    request_hash = fingerprint(payload)
+    source = payload["source"]
+    init_data = payload.pop("telegramInitData", None)
     if customer_principal is not None:
         supplied_customer_id = payload.get("customerId")
         if supplied_customer_id is not None and str(supplied_customer_id) != customer_principal.subject_id:
@@ -92,33 +109,33 @@ def create_order(payload: dict, authorization: str | None = Header(default=None)
     else:
         payload["customerIdentity"] = {"type": "guest", "customerId": customer_principal.subject_id}
 
+    # Business validation is identical for every public channel.
     service = str(payload.get("service") or "").strip().lower()
-    if source in {"web", "telegram-mini-app"} and str(payload.get("status") or "searching") == "searching":
+    try:
+        payload["serviceDetails"] = validate_service_details(service, payload.get("serviceDetails"))
+    except ServiceDetailsValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    pickup_value = payload.get("customerCoordinates")
+    if not isinstance(pickup_value, dict):
+        raise HTTPException(status_code=422, detail="customer_coordinates_required")
+    try:
+        pickup_lat = float(pickup_value.get("lat"))
+        pickup_lng = float(pickup_value.get("lng"))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=422, detail="customer_coordinates_invalid")
+    if not (44.0 <= pickup_lat <= 52.5 and 22.0 <= pickup_lng <= 40.5):
+        raise HTTPException(status_code=422, detail="service_area_ukraine_only")
+    if service == "tow":
+        destination_value = payload.get("destinationCoordinates")
+        if not isinstance(destination_value, dict):
+            raise HTTPException(status_code=422, detail="destination_coordinates_required")
         try:
-            payload["serviceDetails"] = validate_service_details(service, payload.get("serviceDetails"))
-        except ServiceDetailsValidationError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        pickup_value = payload.get("customerCoordinates")
-        if not isinstance(pickup_value, dict):
-            raise HTTPException(status_code=422, detail="customer_coordinates_required")
-        try:
-            pickup_lat = float(pickup_value.get("lat"))
-            pickup_lng = float(pickup_value.get("lng"))
+            destination_lat = float(destination_value.get("lat"))
+            destination_lng = float(destination_value.get("lng"))
         except (TypeError, ValueError):
-            raise HTTPException(status_code=422, detail="customer_coordinates_invalid")
-        if not (44.0 <= pickup_lat <= 52.5 and 22.0 <= pickup_lng <= 40.5):
-            raise HTTPException(status_code=422, detail="service_area_ukraine_only")
-        if service == "tow":
-            destination_value = payload.get("destinationCoordinates")
-            if not isinstance(destination_value, dict):
-                raise HTTPException(status_code=422, detail="destination_coordinates_required")
-            try:
-                destination_lat = float(destination_value.get("lat"))
-                destination_lng = float(destination_value.get("lng"))
-            except (TypeError, ValueError):
-                raise HTTPException(status_code=422, detail="destination_coordinates_invalid")
-            if abs(destination_lat - pickup_lat) < 0.0001 and abs(destination_lng - pickup_lng) < 0.0001:
-                raise HTTPException(status_code=422, detail="destination_must_differ_from_pickup")
+            raise HTTPException(status_code=422, detail="destination_coordinates_invalid")
+        if abs(destination_lat - pickup_lat) < 0.0001 and abs(destination_lng - pickup_lng) < 0.0001:
+            raise HTTPException(status_code=422, detail="destination_must_differ_from_pickup")
 
     pickup = payload.get("customerCoordinates")
     if isinstance(pickup, dict):
@@ -150,7 +167,25 @@ def create_order(payload: dict, authorization: str | None = Header(default=None)
             )
             raise HTTPException(status_code=400, detail=f"destination_in_{zone}")
 
-    order = save_order(payload)
+    profile = get_customer_profile(str(payload.get("customerId") or "")) or {}
+    verification = profile.get("verification") or {}
+    phone = normalize_ukraine_phone_digits(profile.get("phone"))
+    if not (str(profile.get("name") or "").strip() not in {"", "Клієнт POMICH"}
+            and len(phone) == 12 and phone.startswith("380")
+            and verification.get("phone") is True
+            and profile.get("verificationStatus") == "verified"):
+        raise HTTPException(status_code=403, detail="verified_customer_profile_required")
+    if service == "mechanic" and payload["serviceDetails"]["answers"].get("issue") == "other" and len(payload.get("customerComment", "").strip()) < 5:
+        raise HTTPException(status_code=422, detail="mechanic_description_required")
+    # Notification recipients are taken only from verified Telegram identity.
+    if verified_telegram is None:
+        for key in ("chatId", "telegramUserId", "telegramUsername", "telegramFirstName", "notify"):
+            payload.pop(key, None)
+    payload["status"] = "searching"
+    try:
+        order = save_order(payload, insert_only=True, idempotency_key=idempotency_key, request_hash=request_hash)
+    except IdempotencyConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     if order.get("status") == "searching":
         dispatched = dispatch_order(str(order.get("id")))
         if dispatched is not None:
@@ -187,6 +222,7 @@ def read_order(
             source="orders.read",
         )
         raise HTTPException(status_code=401, detail="auth_session_required")
+    require_authenticated_session(authorization)
     expire_stale_and_notify()
     order = get_order(order_id)
     if order is None:
@@ -326,7 +362,7 @@ def confirm_order_price_endpoint(order_id: str, authorization: str | None = Head
     return order
 
 
-@router.patch("/providers/{provider_id}/orders/{order_id}/status")
+@router.patch("/providers/{provider_id}/orders/{order_id}/status", openapi_extra=request_schema(StatusPatch))
 def provider_patch_order_status(
     provider_id: str,
     order_id: str,
@@ -335,6 +371,7 @@ def provider_patch_order_status(
     authorization: str | None = Header(default=None),
 ) -> dict:
     require_provider_auth(provider_id, x_pomich_provider_token, authorization)
+    payload = validated(StatusPatch, payload)
     status = str(payload.get("status") or "").strip()
     if not status:
         raise HTTPException(status_code=400, detail="status missing")
@@ -389,7 +426,7 @@ def cancel_order(
     return payload
 
 
-@router.patch("/orders/{order_id}/status")
+@router.patch("/orders/{order_id}/status", openapi_extra=request_schema(StatusPatch))
 def patch_order_status(
     order_id: str,
     payload: dict,
@@ -397,6 +434,7 @@ def patch_order_status(
     authorization: str | None = Header(default=None),
 ) -> dict:
     require_admin_auth(x_pomich_admin_token, authorization)
+    payload = validated(StatusPatch, payload)
     status = str(payload.get("status") or "").strip()
     if not status:
         raise HTTPException(status_code=400, detail="status missing")

@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from bot.fastapi_app import app
 from bot.order_store import save_order
-from tests.helpers import use_temp_store
+from tests.helpers import use_temp_store, verified_customer, valid_tow_order
 
 
 def test_read_order_requires_participant(monkeypatch, tmp_path) -> None:
@@ -47,14 +47,15 @@ def test_create_order_requires_session(monkeypatch, tmp_path) -> None:
     client = TestClient(app)
     bare = client.post(
         "/api/orders",
-        json={"service": "tow", "customerCoordinates": {"lat": 48.62, "lng": 22.28}},
+        json=valid_tow_order(),
     )
     assert bare.status_code == 401
     guest = client.post("/api/auth/customer/guest/session", json={}).json()
+    verified_customer(guest["customerId"])
     created = client.post(
         "/api/orders",
         headers={"Authorization": f"Bearer {guest['accessToken']}"},
-        json={"service": "tow", "customerCoordinates": {"lat": 48.62, "lng": 22.28}},
+        json=valid_tow_order(),
     )
     assert created.status_code == 201
 
@@ -136,11 +137,11 @@ def test_guest_session_ignores_client_chosen_unknown_id_and_body(monkeypatch, tm
     rejected = client.post("/api/auth/customer/guest/session", json={"customerId": "customer-web"})
     assert rejected.status_code == 400
 
-    # Restore works only for persisted guest ids.
+    # Knowing a persisted guest id must not authenticate its owner.
     guest_id = body["customerId"]
     restored = client.post("/api/auth/customer/guest/session", json={"customerId": guest_id})
     assert restored.status_code == 200
-    assert restored.json()["customerId"] == guest_id
+    assert restored.json()["customerId"] != guest_id
 
 
 def test_provider_bootstrap_requires_existing_provider(monkeypatch, tmp_path) -> None:

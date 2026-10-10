@@ -37,6 +37,13 @@ def _postgres_ready() -> tuple[bool, str]:
         engine = get_engine()
         with engine.connect() as conn:
             conn.exec_driver_sql("SELECT 1")
+            conn.exec_driver_sql("SELECT id FROM orders LIMIT 1")
+            conn.exec_driver_sql("SELECT id FROM auth_session_families LIMIT 1")
+            conn.exec_driver_sql("SELECT id FROM auth_refresh_generations LIMIT 1")
+            conn.exec_driver_sql("SELECT id FROM realtime_connection_leases LIMIT 1")
+            conn.exec_driver_sql("SELECT digest FROM realtime_tickets LIMIT 1")
+            conn.exec_driver_sql("SELECT id FROM telegram_outbox LIMIT 1")
+            conn.exec_driver_sql("SELECT id FROM order_creation_keys LIMIT 1")
         return True, "ok"
     except Exception as exc:  # noqa: BLE001 — readiness must never raise
         return False, type(exc).__name__
@@ -70,14 +77,25 @@ def metrics(
         from bot.telegram_outbound import queue_stats
 
         payload["telegramQueue"] = queue_stats()
-    except Exception:
-        pass
+        durable = payload["telegramQueue"].get("durable") or {}
+        payload["alerts"] = {
+            "telegramDeadLetters": int(durable.get("dead") or 0) > 0,
+            "telegramPendingStale": int(durable.get("oldestPendingSeconds") or 0) > 600,
+        }
+    except Exception as exc:
+        payload["telegramQueue"] = {"status": "unavailable", "error": type(exc).__name__}
+        payload["alerts"] = {"telegramMetricsUnavailable": True}
     try:
         from bot import realtime
 
         stats_fn = getattr(realtime, "realtime_stats", None)
         if callable(stats_fn):
             payload["realtime"] = stats_fn()
-    except Exception:
-        pass
+        from bot.realtime_broker import health as broker_health
+        payload["realtime"]["broker"] = broker_health()
+        payload["alerts"]["realtimeBrokerUnavailable"] = not payload["realtime"]["broker"]["ready"]
+    except Exception as exc:
+        payload["realtime"] = {"status": "unavailable", "error": type(exc).__name__}
+        payload["alerts"]["realtimeMetricsUnavailable"] = True
+    payload["status"] = "degraded" if any(payload["alerts"].values()) else "ok"
     return payload

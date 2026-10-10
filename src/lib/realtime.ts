@@ -1,3 +1,4 @@
+import { fetchJsonWithDeadline } from "./fetchJsonWithDeadline"
 /** Realtime helpers: WebSocket preferred, SSE fallback, polling via onDisconnected in callers. */
 
 function apiBaseUrl(): string {
@@ -37,7 +38,7 @@ function buildEventsUrl(path: string, accessToken?: string): string {
   const normalizedPath = path.startsWith("/") ? path : `/${path}`
   const url = new URL(`${base}${normalizedPath}`, window.location.origin)
   if (accessToken) {
-    url.searchParams.set("access_token", accessToken)
+    url.searchParams.set("ticket", accessToken)
   }
   return url.toString()
 }
@@ -46,9 +47,18 @@ function buildWsUrl(path: string, accessToken?: string): string {
   const normalizedPath = path.startsWith("/") ? path : `/${path}`
   const url = new URL(`${wsOriginFromApiBase()}${normalizedPath}`)
   if (accessToken) {
-    url.searchParams.set("access_token", accessToken)
+    url.searchParams.set("ticket", accessToken)
   }
   return url.toString()
+}
+
+
+async function requestTicket(path: string, token?: string): Promise<string> {
+  const channel = path.replace(/^\/(ws|events)\//, "")
+  const result = await fetchJsonWithDeadline<{ ticket: string }>(`${apiBaseUrl().replace(/\/$/, "")}/realtime/tickets/${channel}`, {
+    method: "POST", headers: { Authorization: `Bearer ${token || ""}` },
+  })
+  return result.ticket
 }
 
 function handleRealtimePayload(
@@ -80,7 +90,7 @@ export function subscribeSse(
   let sawOpen = false
   let reconnectAttempt = 0
 
-  const connect = () => {
+  const connect = async () => {
     if (closed) return
     if (typeof document !== "undefined" && document.visibilityState === "hidden") {
       reconnectTimer = window.setTimeout(connect, 5000)
@@ -91,7 +101,14 @@ export function subscribeSse(
       return
     }
     source?.close()
-    source = new EventSource(buildEventsUrl(path, options.accessToken))
+    let ticket: string
+    try { ticket = await requestTicket(path, options.accessToken) }
+    catch {
+      if (!closed) { options.onDisconnected?.(); reconnectTimer = window.setTimeout(connect, 8000) }
+      return
+    }
+    if (closed) return
+    source = new EventSource(buildEventsUrl(path, ticket))
 
     source.onopen = () => {
       if (closed) return
@@ -236,7 +253,7 @@ export function subscribeRealtime(
     }, WS_WATCHDOG_TICK_MS)
   }
 
-  const connectWebSocket = () => {
+  const connectWebSocket = async () => {
     if (closed || usingSse) return
     if (typeof WebSocket === "undefined") {
       startSse()
@@ -257,7 +274,11 @@ export function subscribeRealtime(
       ws = null
     }
 
-    const socket = new WebSocket(buildWsUrl(wsPath, options.accessToken))
+    let ticket: string
+    try { ticket = await requestTicket(wsPath, options.accessToken) }
+    catch { if (!closed) { options.onDisconnected?.(); startSse() }; return }
+    if (closed || usingSse) return
+    const socket = new WebSocket(buildWsUrl(wsPath, ticket))
     ws = socket
     let opened = false
 

@@ -27,6 +27,15 @@ test.beforeEach(async ({ page }) => {
   })
 })
 
+test("loads application styles and renders the landing layout", async ({ page }) => {
+  await page.goto("/")
+  await expect(page.locator("body")).toHaveCSS("margin", "0px")
+  await expect.poll(() => page.evaluate(() => Array.from(document.styleSheets).some((sheet) => {
+    try { return sheet.cssRules.length > 100 } catch { return false }
+  }))).toBe(true)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(page.viewportSize()!.width)
+})
+
 test("public landing fits the viewport and has no serious axe violations", async ({ page }) => {
   await page.goto("/")
   await expect(page.getByText("Допомога на дорозі за хвилини", { exact: true })).toBeVisible()

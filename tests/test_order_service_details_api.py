@@ -1,3 +1,4 @@
+from tests.helpers import verified_customer
 from fastapi.testclient import TestClient
 
 from bot import order_store
@@ -14,6 +15,7 @@ def _isolated_store(monkeypatch, tmp_path) -> None:
 def _customer_headers(client: TestClient) -> dict[str, str]:
     response = client.post("/api/auth/customer/guest/session", json={})
     assert response.status_code == 200
+    verified_customer(response.json()["customerId"])
     return {"Authorization": f"Bearer {response.json()['accessToken']}"}
 
 
@@ -21,7 +23,6 @@ def _tow_payload() -> dict:
     return {
         "source": "web",
         "service": "tow",
-        "status": "searching",
         "customerLocation": "Тестова точка подачі",
         "customerCoordinates": {"lat": 50.4501, "lng": 30.5234},
         "destination": "Тестова точка призначення",
@@ -44,7 +45,7 @@ def test_web_order_service_detail_validation(monkeypatch, tmp_path) -> None:
     missing_details.pop("serviceDetails")
     response = client.post("/api/orders", headers=headers, json=missing_details)
     assert response.status_code == 422
-    assert response.json()["detail"] == "service_details_required"
+    assert response.json()["detail"][0]["loc"] == ["serviceDetails"]
 
     mismatched = _tow_payload()
     mismatched["serviceDetails"]["service"] = "fuel"
@@ -56,7 +57,7 @@ def test_web_order_service_detail_validation(monkeypatch, tmp_path) -> None:
     outside_ukraine["customerCoordinates"] = {"lat": 54.8, "lng": 9.5}
     response = client.post("/api/orders", headers=headers, json=outside_ukraine)
     assert response.status_code == 422
-    assert response.json()["detail"] == "service_area_ukraine_only"
+    assert response.json()["detail"][0]["loc"][0] == "customerCoordinates"
 
     missing_destination = _tow_payload()
     missing_destination.pop("destinationCoordinates")

@@ -40,11 +40,20 @@ Current beta foundation work is tracked in [docs/BETA_FOUNDATION.md](docs/BETA_F
 ## Development
 
 ```powershell
+python -m pip install -r requirements-dev.txt
 npm test
 npx tsc --noEmit
 npm run build
 python -m pytest
 ```
+
+Production images install the hash-pinned `requirements.lock`. Regenerate it in the Linux
+Python 3.11 build environment with `pip-compile --generate-hashes --strip-extras requirements.txt`;
+review the diff and run the dependency and container scans before committing it.
+
+Completed and cancelled orders are retained for 180 days. Run a dry run with
+`python -m bot.data_lifecycle` and explicitly apply a maintenance batch with
+`python -m bot.data_lifecycle --apply`. Production also starts the hourly bounded cleanup loop.
 
 Local Vite dev uses same-origin `/api/*` proxying to FastAPI. Public/demo tunneling must not expose browser calls to `localhost` or `127.0.0.1`.
 
@@ -54,3 +63,4 @@ Local Vite dev uses same-origin `/api/*` proxying to FastAPI. Public/demo tunnel
 - [DEPLOYMENT.md](DEPLOYMENT.md)
 - [TELEGRAM_RUNTIME.md](TELEGRAM_RUNTIME.md)
 - [PRE_PRODUCTION_AUDIT.md](PRE_PRODUCTION_AUDIT.md)
+- [docs/OPERATIONS_MONITORING.md](docs/OPERATIONS_MONITORING.md)

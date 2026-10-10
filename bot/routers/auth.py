@@ -19,7 +19,6 @@ from bot.api_deps import (
 )
 from bot.order_store import (
     build_user_account_status,
-    customer_profile_exists,
     ensure_linked_provider_profile,
     find_registered_customer_by_phone,
     get_customer_profile,
@@ -31,7 +30,7 @@ from bot.order_store import (
 )
 from bot.otp_verification import OtpVerificationError, confirm_customer_verification_code, send_customer_verification_code
 from bot.telegram_config import normalize_telegram_bot_kind
-from bot.browser_sessions import clear_browser_sessions, require_same_origin, restore_browser_session, set_browser_session, issue_browser_login
+from bot.browser_sessions import revoke_browser_sessions, clear_browser_sessions, require_same_origin, restore_browser_session, set_browser_session, issue_browser_login
 
 router = APIRouter(tags=["auth"])
 
@@ -135,28 +134,13 @@ def create_provider_account_session(payload: dict, response: Response) -> dict:
 
 @router.post("/auth/customer/guest/session")
 def create_guest_customer_session(response: Response, payload: dict | None = None) -> dict:
-    """Mint a guest customer bearer.
-
-    Security rules:
-    - Never apply untrusted profile fields from the request body.
-    - Never honor the shared ``customer-web`` singleton as a client-chosen id.
-    - Restore only a previously persisted ``guest-<32hex>`` id; unknown ids get a fresh UUID.
-    """
+    """Create a new anonymous identity; an ID is never an authentication credential."""
     requested_customer_id = str((payload or {}).get("customerId") or "").strip()
-    customer_id: str | None = None
-
-    if requested_customer_id:
-        if requested_customer_id == "customer-web" or not requested_customer_id.startswith("guest-"):
-            raise HTTPException(status_code=400, detail="guest_customer_id_invalid")
-        # Restore only — never create under a client-chosen id (blocks guest takeover / IDOR mint).
-        if customer_profile_exists(requested_customer_id):
-            customer_id = requested_customer_id
-
-    if customer_id is None:
-        customer_id = f"guest-{uuid.uuid4().hex}"
-        profile = update_customer_profile(customer_id, {})
-    else:
-        profile = get_customer_profile(customer_id)
+    if requested_customer_id and not requested_customer_id.startswith("guest-"):
+        raise HTTPException(status_code=400, detail="guest_customer_id_invalid")
+    # Existing identities are restored only by /auth/browser/restore or OTP login.
+    customer_id = f"guest-{uuid.uuid4().hex}"
+    profile = update_customer_profile(customer_id, {})
 
     session = issue_browser_login("customer", customer_id, configured_customer_secret())
     session["customerId"] = customer_id
@@ -296,5 +280,6 @@ def browser_restore(payload: dict, request: Request, response: Response) -> dict
 def browser_logout(request: Request) -> Response:
     require_same_origin(request)
     response = Response(status_code=204)
+    revoke_browser_sessions(request)
     clear_browser_sessions(response)
     return response

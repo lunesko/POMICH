@@ -2,6 +2,7 @@ import json
 import math
 import os
 import threading
+import time
 import uuid
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
@@ -684,7 +685,7 @@ def _normalize_customer_comment(order: Dict[str, Any]) -> Optional[str]:
     return text[:500]
 
 
-def save_order(order: Dict[str, Any], store_path: Optional[Path] = None) -> Dict[str, Any]:
+def save_order(order: Dict[str, Any], store_path: Optional[Path] = None, *, insert_only: bool = False, idempotency_key: str | None = None, request_hash: str = "") -> Dict[str, Any]:
     with STORE_LOCK:
         path = store_path or _default_store_path()
         payload = dict(order)
@@ -694,6 +695,8 @@ def save_order(order: Dict[str, Any], store_path: Optional[Path] = None) -> Dict
         else:
             payload.pop("customerComment", None)
         payload.pop("comment", None)
+        if insert_only:
+            payload["id"] = f"PM-{uuid.uuid4().hex}"
         payload["id"] = payload.get("id") or f"PM-{datetime.now(timezone.utc).replace(tzinfo=None).strftime('%Y%m%d%H%M%S%f')}"
         payload["createdAt"] = payload.get("createdAt") or _now_iso()
         payload["updatedAt"] = payload.get("updatedAt") or payload["createdAt"]
@@ -705,11 +708,21 @@ def save_order(order: Dict[str, Any], store_path: Optional[Path] = None) -> Dict
             {"type": "ORDER_CREATED", "at": payload["createdAt"]}
         ]
         if _should_use_sql_store(path, _default_store_path):
-            return sql_upsert_order(payload)
+            return sql_upsert_order(payload, insert_only=insert_only, idempotency_key=idempotency_key, request_hash=request_hash, require_profile=insert_only)
         orders = load_orders(path)
+        if insert_only and idempotency_key:
+            from bot.order_idempotency import scoped_key, IdempotencyConflict
+            digest = scoped_key(str(payload.get("customerId") or ""), idempotency_key)
+            for existing in orders:
+                metadata = existing.get("_creationRequest") or {}
+                if metadata.get("key") == digest and metadata.get("expires", 0) > time.time():
+                    if metadata.get("hash") != request_hash:
+                        raise IdempotencyConflict("idempotency_key_payload_mismatch")
+                    return {key: value for key, value in existing.items() if key != "_creationRequest"}
+            payload["_creationRequest"] = {"key": digest, "hash": request_hash, "expires": int(time.time()) + 86400}
         orders.append(payload)
         _write_json_atomic(path, orders)
-        return payload
+        return {key: value for key, value in payload.items() if key != "_creationRequest"}
 
 
 def resolve_provider_telegram_user_id(provider_id: str, provider_store_path: Optional[Path] = None, customer_store_path: Optional[Path] = None) -> Optional[str]:
@@ -792,6 +805,7 @@ def enrich_order_for_client(
     customer_store_path: Optional[Path] = None,
 ) -> Dict[str, Any]:
     payload = dict(order)
+    payload.pop("_creationRequest", None)
     try:
         payload["status"] = normalize_order_status(payload.get("status"))
     except ValueError:
@@ -1421,6 +1435,9 @@ def update_customer_profile(customer_id: str, data: Dict[str, Any], store_path: 
                 next_phone_digits = _customer_profile_phone_digits(payload)
                 if next_phone_digits != previous_phone_digits:
                     _ensure_customer_phone_available(customer_id, str(payload.get("phone") or ""), profiles, path)
+                    # Verification belongs to the old number, never to its replacement.
+                    payload["verification"] = {**(payload.get("verification") or {}), "phone": False}
+                    payload["verificationStatus"] = "unverified"
             payload["updatedAt"] = now
             payload["profileCompleteness"] = _customer_profile_completeness(payload)
             profiles[index] = payload
@@ -3963,88 +3980,19 @@ def build_admin_activity_feed(limit: int = 20, order_store_path: Optional[Path] 
     return feed
 
 
-def admin_update_customer_profile(customer_id: str, data: Dict[str, Any], store_path: Optional[Path] = None) -> Dict[str, Any]:
-    with STORE_LOCK:
-        path = store_path or _default_customer_store_path()
-        profiles = load_customer_profiles(path)
-        now = _now_iso()
-        updated: Optional[Dict[str, Any]] = None
-        editable_fields = ["name", "phone", "email", "telegram", "city", "avatarUrl", "bio", "accountStatus"]
-        for index, profile in enumerate(profiles):
-            if str(profile.get("id")) != str(customer_id):
-                continue
-            payload = _normalize_customer_profile(profile)
-            for field in editable_fields:
-                if data.get(field) is not None:
-                    payload[field] = str(data.get(field) or "").strip()
-            if data.get("verificationStatus") is not None:
-                status = normalize_verification_status(data.get("verificationStatus"), payload.get("verificationStatus"))
-                if status in VERIFICATION_STATUSES:
-                    payload["verificationStatus"] = status
-                    payload["trustedBadges"] = _verification_badges(status, "customer")
-            payload["updatedAt"] = now
-            payload["profileCompleteness"] = _customer_profile_completeness(payload)
-            profiles[index] = payload
-            updated = payload
-            break
-        if updated is None:
-            raise ValueError("customer profile not found")
-        save_customer_profiles(profiles, path)
-        return prepare_customer_profile_for_admin(updated)
+def admin_update_customer_profile(customer_id: str, data: Dict[str, Any], store_path: Optional[Path]=None) -> Dict[str, Any]:
+    from bot.account_admin import admin_update_customer_profile as implementation
+    return implementation(customer_id, data, store_path)
 
 
-def admin_update_provider_profile(provider_id: str, data: Dict[str, Any], store_path: Optional[Path] = None) -> Dict[str, Any]:
-    providers = load_providers(store_path)
-    now = _now_iso()
-    updated: Optional[Dict[str, Any]] = None
-    for index, provider in enumerate(providers):
-        if str(provider.get("id")) != str(provider_id):
-            continue
-        provider.pop("stale", None)
-        provider = _normalize_provider_trust(provider)
-        for field in ("name", "phone", "telegram", "vehicle", "vehicleMake", "vehicleModel", "plate", "city", "address", "website", "openingHours", "accountStatus"):
-            if data.get(field) is not None:
-                provider[field] = str(data.get(field) or "").strip()
-        if data.get("specialties") is not None:
-            specialties = _clean_provider_specialties(data.get("specialties"))
-            if specialties:
-                provider["specialties"] = specialties
-        if data.get("serviceRadiusKm") is not None:
-            try:
-                radius = int(data.get("serviceRadiusKm") or provider.get("serviceRadiusKm") or 15)
-            except (TypeError, ValueError):
-                radius = 15
-            provider["serviceRadiusKm"] = max(1, min(radius, 100))
-        if data.get("status") in PROVIDER_STATUSES:
-            provider["status"] = str(data.get("status"))
-        if data.get("verificationStatus") is not None:
-            status = normalize_verification_status(data.get("verificationStatus"), provider.get("verificationStatus"))
-            if status in VERIFICATION_STATUSES:
-                provider["verificationStatus"] = status
-                provider["trustedBadges"] = _verification_badges(status, "provider")
-        if isinstance(data.get("location"), dict):
-            provider["location"] = data["location"]
-            provider["lastLocationAt"] = now
-        provider["profileUpdatedAt"] = now
-        provider["updatedAt"] = now
-        providers[index] = provider
-        updated = provider
-        break
-    if updated is None:
-        raise ValueError("provider profile not found")
-    save_providers(providers, store_path)
-    return dict(updated)
+def admin_update_provider_profile(provider_id: str, data: Dict[str, Any], store_path: Optional[Path]=None) -> Dict[str, Any]:
+    from bot.account_admin import admin_update_provider_profile as implementation
+    return implementation(provider_id, data, store_path)
 
 
-def admin_delete_provider(provider_id: str, store_path: Optional[Path] = None) -> Dict[str, Any]:
-    with STORE_LOCK:
-        path = store_path or _default_provider_store_path()
-        providers = load_providers(path)
-        remaining = [provider for provider in providers if str(provider.get("id")) != str(provider_id)]
-        if len(remaining) == len(providers):
-            raise ValueError("provider profile not found")
-        save_providers(remaining, path)
-        return {"deleted": True, "providerId": str(provider_id)}
+def admin_delete_provider(provider_id: str, store_path: Optional[Path]=None) -> Dict[str, Any]:
+    from bot.account_admin import admin_delete_provider as implementation
+    return implementation(provider_id, store_path)
 
 
 def _order_belongs_to_customer(order: Dict[str, Any], customer_id: str) -> bool:

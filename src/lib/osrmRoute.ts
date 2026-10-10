@@ -1,3 +1,4 @@
+import { fetchJsonWithDeadline } from "./fetchJsonWithDeadline"
 import type { LatLngTuple } from "leaflet"
 
 import type { Point } from "./constants"
@@ -11,9 +12,7 @@ export interface OsrmRouteResult {
 export async function fetchOsrmRoute(from: Point, to: Point): Promise<OsrmRouteResult | null> {
   const url = `https://router.project-osrm.org/route/v1/driving/${from.lng},${from.lat};${to.lng},${to.lat}?overview=full&geometries=geojson`
   try {
-    const response = await fetch(url)
-    if (!response.ok) return null
-    const data = (await response.json()) as {
+    const data = await fetchJsonWithDeadline(url) as {
       routes?: Array<{
         distance?: number
         duration?: number
@@ -55,9 +54,7 @@ export async function forwardGeocodeAddress(query: string): Promise<Point | null
   if (!trimmed) return null
   try {
     const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(trimmed)}&limit=1&accept-language=uk`
-    const response = await fetch(url, { headers: { Accept: "application/json" } })
-    if (!response.ok) return null
-    const data = (await response.json()) as Array<{ lat?: string; lon?: string }>
+    const data = await fetchJsonWithDeadline(url, { headers: { Accept: "application/json" } }) as Array<{ lat?: string; lon?: string }>
     const hit = data[0]
     if (!hit?.lat || !hit?.lon) return null
     const lat = Number(hit.lat)

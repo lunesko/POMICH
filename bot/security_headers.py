@@ -7,18 +7,18 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 # Pragmatic CSP for SPA + Telegram WebApp + OSM/Carto tiles.
 # Fonts are self-hosted under /fonts (Google kept as legacy allow for old HTML caches).
-# 'unsafe-inline' is required for Vite-injected styles and Telegram theme hooks.
+# Inline styles support map positioning and Telegram themes; scripts use files/hashes.
 _CSP = (
     "default-src 'self'; "
     "base-uri 'self'; "
     "object-src 'none'; "
     "frame-ancestors 'self' https://web.telegram.org https://telegram.org https://*.telegram.org; "
     "form-action 'self' https://t.me https://telegram.me; "
-    "script-src 'self' 'unsafe-inline' https://telegram.org https://*.telegram.org; "
+    "script-src 'self' https://telegram.org/js/ 'sha256-Ihg5Vcw54VMsHC5NBCl8uKOI+cZAE/+qT2naL7bKLI0=' 'sha256-HEiQ7Na11ph1dWubWn9KnXlYGXaDJAz+k9YEWY05EYY='; "
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
     "font-src 'self' data: https://fonts.gstatic.com; "
-    "img-src 'self' data: blob: https:; "
-    "connect-src 'self' https: wss: blob:; "
+    "img-src 'self' data: blob: https://*.tile.openstreetmap.org https://*.basemaps.cartocdn.com https://server.arcgisonline.com; "
+    "connect-src 'self' https://nominatim.openstreetmap.org https://router.project-osrm.org https://*.tile.openstreetmap.org https://*.basemaps.cartocdn.com https://server.arcgisonline.com wss://pomich.help blob:; "
     "worker-src 'self' blob:; "
     "manifest-src 'self'"
 )
