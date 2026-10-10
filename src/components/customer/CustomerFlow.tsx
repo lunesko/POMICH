@@ -2500,7 +2500,6 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
 
   const { isTelegram, haptic } = useTelegramUx()
   const profileReady = isCustomerReadyForOrder(customerProfile)
-  const homeNeedsProfileSave = screen === "home" && !profileReady && !isCustomerProfileComplete(customerProfile)
 
   const goBackScreen = useCallback(() => {
     haptic("light")
@@ -2513,10 +2512,6 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
 
   const mainButtonOnClick = useCallback(() => {
     switch (screen) {
-      case "home":
-        haptic("medium")
-        void verifyCustomerProfile()
-        break
       case "location":
         haptic("medium")
         confirmPickupLocation()
@@ -2558,8 +2553,6 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
 
   const mainButtonText = useMemo(() => {
     switch (screen) {
-      case "home":
-        return "Зберегти профіль"
       case "location":
         return "Підтвердити місце"
       case "destination":
@@ -2583,10 +2576,8 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
 
   const customerReviewDone = customerReviewSubmitted || Boolean(currentOrder?.customerReview?.rating)
   const mainButtonVisible =
-    (homeNeedsProfileSave) ||
     ["location", "destination", "details", "review", "assigned", "cancelled", "completed", "error"].includes(screen)
   const mainButtonEnabled =
-    screen === "home" ? isCustomerProfileComplete(customerProfile) && !customerVerificationSaving :
     screen === "location" ? isWithinUkraineServiceArea(pickup) :
     screen === "destination" ? (serviceRequiresDestination(selectedService) ? destinationResolved : true) :
     screen === "details" ? serviceDetailsComplete(serviceDetails) :
@@ -2597,7 +2588,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
     text: mainButtonText,
     visible: isTelegram && mainButtonVisible,
     enabled: mainButtonEnabled,
-    loading: (screen === "review" && loading) || (screen === "home" && customerVerificationSaving),
+    loading: screen === "review" && loading,
     onClick: mainButtonOnClick,
   })
 
