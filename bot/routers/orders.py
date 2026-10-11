@@ -52,6 +52,18 @@ from bot.service_details import ServiceDetailsValidationError, validate_service_
 router = APIRouter(tags=["orders"])
 
 
+def customer_contact_verified_for_order(profile: dict) -> bool:
+    verification = profile.get("verification") if isinstance(profile.get("verification"), dict) else {}
+    phone = normalize_ukraine_phone_digits(profile.get("phone"))
+    email = str(profile.get("email") or "").strip()
+    return bool(
+        str(profile.get("name") or "").strip() not in {"", "Клієнт POMICH"}
+        and len(phone) == 12 and phone.startswith("380")
+        and profile.get("verificationStatus") == "verified"
+        and (verification.get("phone") is True or (verification.get("email") is True and email))
+    )
+
+
 @router.get("/orders")
 def list_orders(
     x_pomich_admin_token: str | None = Header(default=None),
@@ -175,12 +187,7 @@ def create_order(payload: dict, authorization: str | None = Header(default=None)
             raise HTTPException(status_code=400, detail=f"destination_in_{zone}")
 
     profile = get_customer_profile(str(payload.get("customerId") or "")) or {}
-    verification = profile.get("verification") or {}
-    phone = normalize_ukraine_phone_digits(profile.get("phone"))
-    if not (str(profile.get("name") or "").strip() not in {"", "Клієнт POMICH"}
-            and len(phone) == 12 and phone.startswith("380")
-            and verification.get("phone") is True
-            and profile.get("verificationStatus") == "verified"):
+    if not customer_contact_verified_for_order(profile):
         raise HTTPException(status_code=403, detail="verified_customer_profile_required")
     if pilot_mode_enabled():
         max_search_radius = max(search_radius_steps_for_service(service))

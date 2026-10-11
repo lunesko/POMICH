@@ -18,7 +18,7 @@ describe("OtpVerificationPanel", () => {
   })
 
   it("does not send OTP on mount (explicit trigger only)", async () => {
-    const fetchMock = vi.fn(() =>
+    const fetchMock = vi.fn((_url: string, _options?: RequestInit) =>
       Promise.resolve({
         ok: true,
         json: async () => ({
@@ -66,6 +66,30 @@ describe("OtpVerificationPanel", () => {
       expect(fetchMock).toHaveBeenCalledTimes(1)
     })
     expect(String(fetchMock.mock.calls[0][0])).toContain("/auth/customer/verify/send")
+  })
+
+  it("offers email verification without opening Telegram", async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.fn((_url: string, _options?: RequestInit) =>
+      Promise.resolve({
+        ok: true,
+        json: async () => ({
+          ok: true,
+          channel: "email",
+          expiresAt: new Date(Date.now() + 600_000).toISOString(),
+          expiresInSeconds: 600,
+          cooldownSeconds: 45,
+        }),
+      }),
+    )
+    vi.stubGlobal("fetch", fetchMock)
+
+    render(<OtpVerificationPanel profile={{ ...profile, email: "test@example.com" }} customerToken="token" />)
+    await user.click(screen.getByRole("button", { name: /Надіслати код на email/i }))
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body)).channel).toBe("email")
+    expect(screen.getByText(/Код надіслано на email/i)).toBeInTheDocument()
   })
 
   it("keeps manual resend with cooldown after send", async () => {
@@ -118,13 +142,12 @@ describe("OtpVerificationPanel", () => {
       />,
     )
 
-    expect(await screen.findByText(/Введіть номер і натисніть «Зберегти і надіслати код»/i)).toBeInTheDocument()
+    expect(await screen.findByText(/Вкажіть номер для зв'язку з партнером/i)).toBeInTheDocument()
     expect(screen.getByRole("button", { name: /Зберегти і надіслати код/i })).toBeInTheDocument()
     expect(screen.queryByText(/Спочатку введіть телефон і натисніть «Зберегти профіль»/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/Спочатку введіть коректний номер телефону та натисніть «Зберегти профіль»/i)).not.toBeInTheDocument()
     expect(screen.getByText("Підтвердження телефону")).toBeInTheDocument()
     expect(screen.queryByText("Підтвердження профілю")).not.toBeInTheDocument()
-    expect(screen.getByText(/не нова реєстрація/i)).toBeInTheDocument()
     await waitFor(() => {
       expect(fetchMock).not.toHaveBeenCalled()
     })

@@ -1191,10 +1191,7 @@ def ensure_linked_provider_profile(
     name = str(shell.get("name") or "").strip()
     phone = str(shell.get("phone") or "").strip()
     verification = profile.get("verification") if isinstance(profile.get("verification"), dict) else {}
-    customer_verified = (
-        normalize_verification_status(profile.get("verificationStatus"), "unverified") == "verified"
-        or bool(verification.get("phone"))
-    )
+    customer_verified = bool(verification.get("phone"))
     roles = [str(item).strip() for item in (profile.get("rolesRegistered") or []) if str(item).strip()]
     returning_partner = "provider" in roles or bool(str(profile.get("linkedProviderId") or "").strip())
     preferred_provider = str(profile.get("preferredRole") or "").strip() == "provider"
@@ -1431,6 +1428,7 @@ def update_customer_profile(customer_id: str, data: Dict[str, Any], store_path: 
                 continue
             payload = _normalize_customer_profile(profile)
             previous_phone_digits = _customer_profile_phone_digits(payload)
+            previous_email = str(payload.get("email") or "").strip().lower()
             for field in editable_fields:
                 if data.get(field) is not None:
                     if field == "rolesRegistered" and isinstance(data.get(field), list):
@@ -1443,6 +1441,11 @@ def update_customer_profile(customer_id: str, data: Dict[str, Any], store_path: 
                     _ensure_customer_phone_available(customer_id, str(payload.get("phone") or ""), profiles, path)
                     # Verification belongs to the old number, never to its replacement.
                     payload["verification"] = {**(payload.get("verification") or {}), "phone": False}
+                    payload["verificationStatus"] = "unverified"
+            if data.get("email") is not None and str(payload.get("email") or "").strip().lower() != previous_email:
+                verification = {**(payload.get("verification") or {}), "email": False}
+                payload["verification"] = verification
+                if not verification.get("phone"):
                     payload["verificationStatus"] = "unverified"
             payload["updatedAt"] = now
             payload["profileCompleteness"] = _customer_profile_completeness(payload)
@@ -1726,6 +1729,9 @@ def find_verified_customer_by_phone(
             continue
         normalized = _normalize_customer_profile(profile)
         if normalize_verification_status(normalized.get("verificationStatus"), "unverified") != "verified":
+            continue
+        verification = normalized.get("verification") if isinstance(normalized.get("verification"), dict) else {}
+        if verification.get("phone") is not True:
             continue
         candidates.append(normalized)
     if not candidates:
@@ -2038,7 +2044,8 @@ def sync_linked_provider_phone_verification_from_customer(
     if not customer_id:
         return provider
     profile = get_customer_profile(customer_id, customer_store_path)
-    if normalize_verification_status(profile.get("verificationStatus"), "unverified") != "verified":
+    verification = profile.get("verification") if isinstance(profile.get("verification"), dict) else {}
+    if normalize_verification_status(profile.get("verificationStatus"), "unverified") != "verified" or verification.get("phone") is not True:
         return provider
     provider_phone = _normalize_ukraine_phone_digits(str(provider.get("phone") or ""))
     customer_phone = _customer_profile_phone_digits(profile)

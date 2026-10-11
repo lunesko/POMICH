@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 
 from bot import order_store
 from bot.fastapi_app import app
+from bot.routers.orders import customer_contact_verified_for_order
 
 
 def _isolated_store(monkeypatch, tmp_path) -> None:
@@ -33,6 +34,19 @@ def _tow_payload() -> dict:
             "answers": {"incident": "breakdown", "mobility": "rolls"},
         },
     }
+
+
+def test_verified_email_allows_web_order_without_claiming_phone_verification() -> None:
+    profile = {
+        "name": "Olena",
+        "phone": "+380501112233",
+        "email": "olena@example.com",
+        "verificationStatus": "verified",
+        "verification": {"email": True, "phone": False},
+    }
+    assert customer_contact_verified_for_order(profile)
+    assert not customer_contact_verified_for_order({**profile, "email": ""})
+    assert not customer_contact_verified_for_order({**profile, "verification": {"email": False, "phone": False}})
 
 
 def test_web_order_service_detail_validation(monkeypatch, tmp_path) -> None:

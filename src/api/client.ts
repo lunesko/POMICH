@@ -28,6 +28,7 @@ const providerErrorMessages: Record<string, string> = {
   send_cooldown: 'Код уже надіслано нещодавно. Зачекайте близько хвилини й спробуйте знову.',
   invalid_channel: 'Невірний канал підтвердження.',
   telegram_unavailable: 'Telegram недоступний. Спробуйте email.',
+  email_unavailable: 'Підтвердження через email тимчасово недоступне. Спробуйте пізніше.',
   telegram_not_linked:
     'Відкрийте @pomich_ua_bot або @pomich_help_bot, надішліть /start. Код прийде в той самий бот — це підтвердження телефону, не нова реєстрація.',
   email_missing: 'Введіть email для підтвердження.',

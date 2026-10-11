@@ -582,6 +582,8 @@ def send_customer_verification_code(
     normalized_channel = str(channel or "").strip().lower()
     if normalized_channel not in {"telegram", "email"}:
         raise OtpVerificationError("invalid_channel", "channel must be telegram or email")
+    if normalized_channel == "email" and _is_production_runtime() and not _smtp_configured():
+        raise OtpVerificationError("email_unavailable", "email verification is not configured")
 
     profile = get_customer_profile(customer_id, customer_store_path)
     if profile is None:
@@ -951,6 +953,9 @@ def _verify_linked_provider_after_otp(customer_id: str, customer_store_path: Opt
 
     profile = get_customer_profile(customer_id, customer_store_path)
     if profile is None:
+        return
+    verification = profile.get("verification") if isinstance(profile.get("verification"), dict) else {}
+    if verification.get("phone") is not True:
         return
     provider_id = resolve_linked_provider_id(customer_id, profile)
     if not provider_id:

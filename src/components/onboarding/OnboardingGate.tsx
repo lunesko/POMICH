@@ -584,7 +584,7 @@ export default function OnboardingGate({ skip, startAtRoleSelect, loginMode = fa
     return { activeCustomerId, token }
   }
 
-  const handleClientRegister = async (payload: { name: string; phone: string; city: string }) => {
+  const handleClientRegister = async (payload: { name: string; phone: string; email: string; city: string }) => {
     setSaving(true)
     setError(undefined)
     try {
@@ -793,11 +793,11 @@ export default function OnboardingGate({ skip, startAtRoleSelect, loginMode = fa
     return (
       <div className="pomich-themed-shell pomich-map-shell-surface">
         <FormHeader>
-          <div className="pomich-header-title">Підтвердження телефону</div>
+          <div className="pomich-header-title">Підтвердження профілю</div>
           <div className="pomich-header-subtitle">
             {telegramContext.isTelegram
               ? "Профіль уже є — лише код з цього чату, без нової реєстрації"
-              : "Профіль уже є — код один раз з @pomich_ua_bot, не реєстрація"}
+              : "Профіль уже є — підтвердьте його кодом на email або через Telegram"}
           </div>
         </FormHeader>
         <div style={{ flex: 1, overflow: "auto" }} className="pomich-form-scroll">
@@ -808,6 +808,7 @@ export default function OnboardingGate({ skip, startAtRoleSelect, loginMode = fa
                 customerToken={customerToken}
                 isTelegram={telegramContext.isTelegram}
                 phone={profile.phone}
+                email={profile.email}
                 onPhoneSaved={(savedPhone, savedProfile) => {
                   setProfile((prev) => {
                     if (savedProfile) return { ...prev, ...savedProfile } as CustomerProfile
@@ -857,6 +858,7 @@ export default function OnboardingGate({ skip, startAtRoleSelect, loginMode = fa
     <ClientRegistrationScreen
       initialName={registrationInitialName}
       initialPhone={profile?.phone || ""}
+      initialEmail={profile?.email || ""}
       initialCity={profile?.city || (typeof window !== "undefined" ? window.localStorage.getItem("pomichPreferredCity") || undefined : undefined)}
       isTelegram={telegramContext.isTelegram}
       webApp={telegramContext.webApp}

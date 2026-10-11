@@ -267,11 +267,13 @@ def test_expired_code_cleanup_does_not_call_telegram(monkeypatch, otp_env) -> No
     assert telegram_calls == []
 
 
-def test_email_channel_sets_email_flag(otp_env) -> None:
+def test_email_channel_sets_email_flag_without_verifying_phone(otp_env, monkeypatch) -> None:
     customer_path, _ = otp_env
+    provider_phone_verifications = []
+    monkeypatch.setattr("bot.order_store.verify_provider_phone_otp", lambda provider_id: provider_phone_verifications.append(provider_id))
     update_customer_profile(
         "guest-1",
-        {"name": "Test", "phone": "+380501112233", "email": "test@example.com"},
+        {"name": "Test", "phone": "+380501112233", "email": "test@example.com", "linkedProviderId": "provider-guest-1"},
         customer_path,
     )
 
@@ -289,7 +291,31 @@ def test_email_channel_sets_email_flag(otp_env) -> None:
         customer_store_path=customer_path,
     )
     assert profile["verification"]["email"] is True
+    assert profile["verification"]["phone"] is False
+    assert provider_phone_verifications == []
     assert get_customer_profile("guest-1", customer_path)["verificationStatus"] == "verified"
+
+    changed = update_customer_profile("guest-1", {"email": "new@example.com"}, customer_path)
+    assert changed["verification"]["email"] is False
+    assert changed["verificationStatus"] == "unverified"
+
+
+def test_production_email_otp_reports_missing_smtp(otp_env, monkeypatch) -> None:
+    customer_path, _ = otp_env
+    update_customer_profile(
+        "guest-email",
+        {"name": "Test", "phone": "+380501112233", "email": "test@example.com"},
+        customer_path,
+    )
+    monkeypatch.setenv("POMICH_RUNTIME", "production")
+    with pytest.raises(otp_verification.OtpVerificationError) as exc:
+        otp_verification.send_customer_verification_code(
+            "guest-email",
+            "email",
+            email="test@example.com",
+            customer_store_path=customer_path,
+        )
+    assert exc.value.code == "email_unavailable"
 
 
 def test_telegram_otp_resolves_chat_id_by_phone(otp_env) -> None:
@@ -342,7 +368,7 @@ def test_telegram_otp_requires_bot_link_when_phone_unknown(otp_env) -> None:
     assert exc.value.code == "telegram_not_linked"
 
 
-def test_otp_verification_auto_verifies_linked_provider(otp_env, tmp_path, monkeypatch) -> None:
+def test_email_otp_does_not_verify_linked_provider_phone(otp_env, tmp_path, monkeypatch) -> None:
     customer_path, otp_path = otp_env
     provider_path = tmp_path / "providers.json"
     monkeypatch.setattr("bot.order_store._default_provider_store_path", lambda: provider_path)
@@ -379,8 +405,8 @@ def test_otp_verification_auto_verifies_linked_provider(otp_env, tmp_path, monke
     )
 
     provider = get_provider_profile("provider-guest-partner-1", provider_path)
-    assert provider["verificationStatus"] == "verified"
-    assert provider["verification"]["phone"] is True
+    assert provider["verificationStatus"] == "unverified"
+    assert not provider["verification"].get("phone")
 
 
 def test_telegram_otp_resolves_chat_id_via_provider_phone(otp_env, tmp_path, monkeypatch) -> None:

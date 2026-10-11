@@ -114,16 +114,22 @@ export function OtpVerificationPanel({
   const botHandle = `@${telegramBotUsername.replace(/^@+/, "")}`
   const helpText = useMemo(() => {
     if (showPhoneGate) {
-      return `Це підтвердження телефону, не нова реєстрація. 1. Введіть номер і натисніть «Зберегти і надіслати код». 2. Введіть 6 цифр з ${botHandle}.`
+      return canSendEmail && !isTelegram
+        ? "Вкажіть номер для зв'язку з партнером. Після збереження ми надішлемо код на email."
+        : `Вкажіть номер для зв'язку з партнером і введіть 6 цифр з ${botHandle}.`
     }
     if (sentChannel) {
-      return `Код уже в ${botHandle}. Введіть 6 цифр нижче. Після підтвердження цей крок більше не питатимемо.`
+      return sentChannel === "email"
+        ? "Код надіслано на email. Введіть 6 цифр нижче. Номер телефону залишиться контактом для партнера."
+        : `Код уже в ${botHandle}. Введіть 6 цифр нижче.`
     }
     if (isTelegram) {
       return "Профіль уже є — потрібне лише підтвердження телефону. 1. «Надіслати код» у цей чат. 2. Введіть 6 цифр. Далі вхід без повторної реєстрації."
     }
-    return `Профіль уже є — це не реєстрація. 1. Відкрийте ${botHandle} і натисніть /start. 2. «Надіслати код» на сайті. 3. Введіть 6 цифр з бота один раз — далі не питатимемо.`
-  }, [showPhoneGate, sentChannel, isTelegram, botHandle])
+    return canSendEmail
+      ? "Підтвердьте профіль кодом на email або через Telegram. Номер телефону потрібен партнеру для зв'язку."
+      : `Профіль уже є. Відкрийте ${botHandle}, натисніть /start і надішліть код через сайт.`
+  }, [showPhoneGate, sentChannel, isTelegram, botHandle, canSendEmail])
 
 
   const handleSend = async (channel: "telegram" | "email", phoneOverride?: string) => {
@@ -173,7 +179,7 @@ export function OtpVerificationPanel({
           response.profile ?? {
             ...profile,
             verificationStatus: "verified",
-            verification: { ...(profile.verification ?? {}), phone: true, status: "verified" },
+            verification: { ...(profile.verification ?? {}), [channel]: true, status: "verified" },
           },
         )
         return
@@ -185,7 +191,7 @@ export function OtpVerificationPanel({
       setCodeError(undefined)
       setCodeHint(undefined)
       if (response.alreadySent) {
-        setError("Код уже надіслано в Telegram. Введіть 6 цифр нижче.")
+        setError(channel === "email" ? "Код уже надіслано на email. Введіть 6 цифр нижче." : "Код уже надіслано в Telegram. Введіть 6 цифр нижче.")
       }
       if (response.devCode) {
         setDevHint(`Код для тесту (dev): ${response.devCode}`)
@@ -231,7 +237,7 @@ export function OtpVerificationPanel({
     setLocalPhone(validation.e164)
     try {
       // /verify/send patches phone on the customer profile when provided.
-      await handleSend("telegram", validation.e164)
+      await handleSend(canSendEmail && !isTelegram ? "email" : "telegram", validation.e164)
     } finally {
       setSavingPhone(false)
     }
@@ -244,7 +250,7 @@ export function OtpVerificationPanel({
     }
     if (code.trim().length !== 6) {
       setCodeError("Введіть 6-значний код")
-      setCodeHint(`Код з Telegram-бота ${botHandle} — рівно 6 цифр`)
+      setCodeHint(sentChannel === "email" ? "Код з email — рівно 6 цифр" : `Код з Telegram-бота ${botHandle} — рівно 6 цифр`)
       return
     }
 
@@ -271,7 +277,7 @@ export function OtpVerificationPanel({
       <div className={`pomich-otp-panel${compact ? " is-compact" : ""}`}>
         <div className="pomich-otp-verified">
           <span className="pomich-otp-verified-dot" aria-hidden="true" />
-          Телефон підтверджено
+          {profile.verification?.email && !profile.verification?.phone ? "Email підтверджено" : "Телефон підтверджено"}
         </div>
         {onVerified ? (
           <div className="pomich-otp-verified-actions">
@@ -287,7 +293,7 @@ export function OtpVerificationPanel({
 
   return (
     <div className={`pomich-otp-panel${compact ? " is-compact" : ""}`}>
-      <div className="pomich-cabinet-section-title">Підтвердження телефону</div>
+      <div className="pomich-cabinet-section-title">{canSendEmail && !isTelegram ? "Підтвердження контакту" : "Підтвердження телефону"}</div>
       <p className="pomich-cabinet-help-text">{helpText}</p>
 
       {showPhoneGate ? (

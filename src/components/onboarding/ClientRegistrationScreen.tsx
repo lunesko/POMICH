@@ -14,13 +14,14 @@ import { ThemeToggle } from "../ui/ThemeToggle"
 interface ClientRegistrationScreenProps {
   initialName?: string
   initialPhone?: string
+  initialEmail?: string
   initialCity?: string
   loggedInAs?: string
   isTelegram?: boolean
   webApp?: TelegramWebApp
   saving?: boolean
   error?: string
-  onSubmit: (payload: { name: string; phone: string; city: string }) => void
+  onSubmit: (payload: { name: string; phone: string; email: string; city: string }) => void
   onBack?: () => void
   onLogout?: () => void
 }
@@ -34,7 +35,7 @@ function RegistrationScreenHeader({ onBack }: { onBack?: () => void }) {
         ) : null}
         <div>
           <div className="pomich-header-title">Реєстрація клієнта</div>
-          <div className="pomich-header-subtitle">Ім'я, місто та телефон для виклику допомоги</div>
+          <div className="pomich-header-subtitle">Контакти для заявки та отримання коду підтвердження</div>
         </div>
       </div>
       <ThemeToggle compact />
@@ -45,6 +46,7 @@ function RegistrationScreenHeader({ onBack }: { onBack?: () => void }) {
 export default function ClientRegistrationScreen({
   initialName = "",
   initialPhone = "",
+  initialEmail = "",
   initialCity = "",
   loggedInAs,
   isTelegram = false,
@@ -57,11 +59,13 @@ export default function ClientRegistrationScreen({
 }: ClientRegistrationScreenProps) {
   const [name, setName] = useState(initialName)
   const [phone, setPhone] = useState(initialPhone)
+  const [email, setEmail] = useState(initialEmail)
   const [city, setCity] = useState(initialCity || "")
   const [nameError, setNameError] = useState<string>()
   const [nameHint, setNameHint] = useState<string>()
   const [phoneError, setPhoneError] = useState<string>()
   const [phoneHint, setPhoneHint] = useState<string>()
+  const [emailError, setEmailError] = useState<string>()
   const [cityError, setCityError] = useState<string>()
   const [cityHint, setCityHint] = useState<string>()
   const [requestingContact, setRequestingContact] = useState(false)
@@ -73,6 +77,10 @@ export default function ClientRegistrationScreen({
   useEffect(() => {
     setPhone(initialPhone)
   }, [initialPhone])
+
+  useEffect(() => {
+    setEmail(initialEmail)
+  }, [initialEmail])
 
   useEffect(() => {
     setCity(initialCity || "")
@@ -89,7 +97,8 @@ export default function ClientRegistrationScreen({
   const phoneValidation = validateUkraineMobilePhone(phone)
   const nameValidation = validatePersonName(name)
   const cityValidation = validateServiceCity(city)
-  const canSubmit = nameValidation.valid && phoneValidation.valid && (!city || cityValidation.valid)
+  const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())
+  const canSubmit = nameValidation.valid && phoneValidation.valid && (isTelegram || emailValid) && (!city || cityValidation.valid)
   const canRequestContact = isTelegram && Boolean(webApp?.requestContact) && !phoneValidation.valid
 
   const handleRequestContact = async () => {
@@ -124,10 +133,11 @@ export default function ClientRegistrationScreen({
     setNameHint(nextName.hint)
     setPhoneError(nextPhone.valid ? undefined : nextPhone.error)
     setPhoneHint(nextPhone.valid ? undefined : "Мобільний номер України: 9 цифр після +380")
+    setEmailError(!isTelegram && !emailValid ? "Вкажіть коректний email для отримання коду" : undefined)
     setCityError(city ? nextCity.error : undefined)
     setCityHint(nextCity.hint)
-    if (!nextName.valid || !nextPhone.valid || (Boolean(city) && !nextCity.valid)) return
-    onSubmit({ name: nextName.value, phone: nextPhone.e164, city: city ? nextCity.value : "" })
+    if (!nextName.valid || !nextPhone.valid || (!isTelegram && !emailValid) || (Boolean(city) && !nextCity.valid)) return
+    onSubmit({ name: nextName.value, phone: nextPhone.e164, email: email.trim(), city: city ? nextCity.value : "" })
   }
 
   return (
@@ -196,6 +206,21 @@ export default function ClientRegistrationScreen({
         />
         <FieldError hint={phoneHint && !phoneError ? phoneHint : phoneError ? phoneHint : undefined} />
       </label>
+      {!isTelegram ? (
+        <label className="pomich-form-field">
+          <span className="pomich-form-label">Email *</span>
+          <input
+            value={email}
+            onChange={(event) => { setEmail(event.target.value); if (emailError) setEmailError(undefined) }}
+            type="email"
+            inputMode="email"
+            autoComplete="email"
+            placeholder="name@example.com"
+            className={`pomich-form-input${emailError ? " is-error" : ""}`}
+          />
+          <FieldError error={emailError} />
+        </label>
+      ) : null}
       {error && error !== phoneError ? <div className="pomich-form-error">{error}</div> : null}
     </OnboardingFormShell>
   )

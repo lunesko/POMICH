@@ -7,6 +7,15 @@ import { PomichThemeProvider } from './context/PomichThemeProvider'
 import { authSessionStorageKey, EXPLICIT_LOGOUT_STORAGE_KEY, storeAuthSession } from './lib/auth'
 import { applyPomichThemeToDocument } from './lib/theme'
 
+// This suite covers the full legacy service catalogue. Pilot-only coverage is tested separately.
+vi.mock('./lib/pilotPolicy', () => ({
+  pilotMode: false,
+  pilotCity: 'Ужгород',
+  pilotRadiusKm: 15,
+  pilotServices: new Set(['tow', 'battery']),
+  pickupInPilotArea: () => true,
+}))
+
 function renderApp() {
   return render(
     <PomichThemeProvider>
@@ -276,7 +285,7 @@ describe('POMICH role-based flows', () => {
     expect(screen.getByText(/Ви увійшли як:.*Roman/i)).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /^Вийти$/i }))
 
-    expect(await screen.findByText(/Допомога на дорозі за хвилини/i)).toBeInTheDocument()
+    expect(await screen.findByText(/Допомога на дорозі в Ужгороді/i)).toBeInTheDocument()
     expect(window.localStorage.getItem('pomichCustomerId')).toBeNull()
   })
 
@@ -285,7 +294,7 @@ describe('POMICH role-based flows', () => {
     renderApp()
 
     expect(await screen.findByText('Реєстрація клієнта')).toBeInTheDocument()
-    expect(screen.queryByText(/Допомога на дорозі за хвилини/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Допомога на дорозі в Ужгороді/i)).not.toBeInTheDocument()
     await waitFor(() => {
       expect(window.location.search).not.toContain('role=')
     })
@@ -296,7 +305,7 @@ describe('POMICH role-based flows', () => {
     renderApp()
 
     expect(await screen.findByText('Реєстрація партнера')).toBeInTheDocument()
-    expect(screen.queryByText(/Допомога на дорозі за хвилини/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Допомога на дорозі в Ужгороді/i)).not.toBeInTheDocument()
     await waitFor(() => {
       expect(window.location.search).not.toContain('role=')
     })
@@ -305,7 +314,7 @@ describe('POMICH role-based flows', () => {
   it('starts with public landing browse mode', async () => {
     renderApp()
 
-    expect(await screen.findByText(/Допомога на дорозі за хвилини/i)).toBeInTheDocument()
+    expect(await screen.findByText(/Допомога на дорозі в Ужгороді/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Зареєструватися/i })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Послуги' })).toBeInTheDocument()
   })
@@ -382,7 +391,7 @@ describe('POMICH role-based flows', () => {
     expect(screen.getByText(/Ви увійшли як:.*Roman/i)).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: /^POMICH$/i }))
-    expect(await screen.findByText(/Допомога на дорозі за хвилини/i)).toBeInTheDocument()
+    expect(await screen.findByText(/Допомога на дорозі в Ужгороді/i)).toBeInTheDocument()
     expect(window.localStorage.getItem('pomichCustomerId')).toBe('guest-roman')
     expect(window.sessionStorage.getItem(authSessionStorageKey('customer', 'guest-roman'))).not.toBeNull()
 
@@ -676,7 +685,7 @@ describe('POMICH role-based flows', () => {
     expect(await screen.findByText('Особистий кабінет')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /^Вийти$/i }))
 
-    expect(await screen.findByText(/Допомога на дорозі за хвилини/i)).toBeInTheDocument()
+    expect(await screen.findByText(/Допомога на дорозі в Ужгороді/i)).toBeInTheDocument()
     expect(window.localStorage.getItem(EXPLICIT_LOGOUT_STORAGE_KEY)).toBe('tg-42')
     expect(screen.queryByText('Що сталося?')).not.toBeInTheDocument()
 
@@ -684,7 +693,7 @@ describe('POMICH role-based flows', () => {
     telegramSessionCalls.length = 0
     renderApp()
 
-    expect(await screen.findByText(/Допомога на дорозі за хвилини/i)).toBeInTheDocument()
+    expect(await screen.findByText(/Допомога на дорозі в Ужгороді/i)).toBeInTheDocument()
     expect(screen.queryByText('Що сталося?')).not.toBeInTheDocument()
     await waitFor(() => {
       expect(telegramSessionCalls).toHaveLength(0)
@@ -740,7 +749,7 @@ describe('POMICH role-based flows', () => {
     await user.click(screen.getByRole('button', { name: /^Кабінет$/i }))
     expect(await screen.findByText('Особистий кабінет')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /^Вийти$/i }))
-    expect(await screen.findByText(/Допомога на дорозі за хвилини/i)).toBeInTheDocument()
+    expect(await screen.findByText(/Допомога на дорозі в Ужгороді/i)).toBeInTheDocument()
     expect(window.localStorage.getItem(EXPLICIT_LOGOUT_STORAGE_KEY)).toBe('tg-829741830')
 
     await user.click(screen.getByRole('button', { name: /^Меню$/i }))
@@ -1608,7 +1617,7 @@ describe('POMICH role-based flows', () => {
     }))
 
     renderApp()
-    expect(await screen.findByText(/Допомога на дорозі за хвилини/i)).toBeInTheDocument()
+    expect(await screen.findByText(/Допомога на дорозі в Ужгороді/i)).toBeInTheDocument()
 
     // Landing «Партнер» must open phone login (not blank registration).
     await user.click(screen.getAllByRole('button', { name: /Надаю послуги/i })[0])
@@ -1743,7 +1752,7 @@ describe('POMICH role-based flows', () => {
 
     await user.click(screen.getByRole('button', { name: /^Вийти$/i }))
 
-    expect(await screen.findByText(/Допомога на дорозі за хвилини/i)).toBeInTheDocument()
+    expect(await screen.findByText(/Допомога на дорозі в Ужгороді/i)).toBeInTheDocument()
     expect(window.localStorage.getItem('pomichCustomerId')).toBeNull()
     expect(window.sessionStorage.getItem(authSessionStorageKey('customer', 'guest-test'))).toBeNull()
   })
@@ -1802,7 +1811,7 @@ describe('POMICH role-based flows', () => {
     expect(await screen.findByText('Що сталося?')).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: /^Вийти$/i }))
-    expect(await screen.findByText(/Допомога на дорозі за хвилини/i)).toBeInTheDocument()
+    expect(await screen.findByText(/Допомога на дорозі в Ужгороді/i)).toBeInTheDocument()
 
     await user.click(await screen.findByRole('button', { name: /^Увійти$/i }))
 
@@ -1910,6 +1919,7 @@ describe('POMICH role-based flows', () => {
       id: 'guest-test',
       name: 'PowerGear',
       phone: '+380635236801',
+      email: 'powergear@example.com',
       verificationStatus: 'unverified' as const,
     }
 
@@ -1955,7 +1965,7 @@ describe('POMICH role-based flows', () => {
       if (url.includes('/auth/customer/verify/send')) {
         return Promise.resolve({
           ok: true,
-          json: async () => ({ channel: 'telegram', expiresAt: new Date(Date.now() + 600000).toISOString() }),
+          json: async () => ({ channel: 'email', expiresAt: new Date(Date.now() + 600000).toISOString() }),
         })
       }
       return undefined
@@ -1969,10 +1979,11 @@ describe('POMICH role-based flows', () => {
     await user.clear(screen.getByPlaceholderText(/Ваше ім'я/i))
     await user.type(screen.getByPlaceholderText(/Ваше ім'я/i), 'PowerGear')
     await user.type(screen.getByPlaceholderText(/66 123 45 67/i), '635236801')
+    await user.type(screen.getByPlaceholderText('name@example.com'), 'powergear@example.com')
     await user.click(screen.getByRole('button', { name: /Продовжити/i }))
 
-    expect((await screen.findAllByText('Підтвердження телефону')).length).toBeGreaterThan(0)
-    await user.click(screen.getByRole('button', { name: /Надіслати код у Telegram/i }))
+    expect((await screen.findAllByText('Підтвердження контакту')).length).toBeGreaterThan(0)
+    await user.click(screen.getByRole('button', { name: /Надіслати код на email/i }))
     expect(await screen.findByPlaceholderText(/6 цифр/i)).toBeInTheDocument()
     expect(screen.queryByText('Що сталося?')).not.toBeInTheDocument()
     await waitFor(() => {
@@ -2777,14 +2788,14 @@ describe('POMICH role-based flows', () => {
     renderApp()
 
     expect(await screen.findByText('Захищена адмін-панель')).toBeInTheDocument()
-    expect(screen.queryByText(/Допомога на дорозі за хвилини/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Допомога на дорозі в Ужгороді/i)).not.toBeInTheDocument()
     expect(window.location.search).toBe('?role=admin')
     expect(window.location.hash).toBe('')
   })
 
   it('opens admin login when hash changes to #admin', async () => {
     renderApp()
-    expect(await screen.findByText(/Допомога на дорозі за хвилини/i)).toBeInTheDocument()
+    expect(await screen.findByText(/Допомога на дорозі в Ужгороді/i)).toBeInTheDocument()
 
     window.location.hash = '#admin'
     window.dispatchEvent(new HashChangeEvent('hashchange'))

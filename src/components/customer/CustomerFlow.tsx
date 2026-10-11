@@ -2267,7 +2267,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
 
   const submitOrder = async () => {
     if (loading) return
-    if (!isCustomerReadyForOrder(customerProfile)) { setCustomerVerificationError("Заповніть контактні дані та підтвердьте телефон перед надсиланням."); return }
+    if (!isCustomerReadyForOrder(customerProfile)) { setCustomerVerificationError("Заповніть контактні дані та підтвердьте профіль кодом перед надсиланням."); return }
     if (selectedService === "mechanic" && serviceDetails.answers.issue === "other" && customerComment.trim().length < 5) return
     if (!serviceDetailsComplete(serviceDetails)) {
       setScreen("details")
