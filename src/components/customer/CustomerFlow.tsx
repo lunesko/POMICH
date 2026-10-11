@@ -438,50 +438,6 @@ function CurrentLocationCard({
   )
 }
 
-function AvailabilityPanel({ pickup, providers, loading }: { pickup: Point; providers: ProviderAvailability[]; loading: boolean }) {
-  const nearby = nearbyProvidersFor(pickup, providers)
-  const nearest = nearby[0]
-
-  return (
-    <div style={{ background: CARD, borderRadius: 14, border: `1px solid ${BORDER}`, padding: "10px 12px", display: "grid", gap: 6 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start" }}>
-        <div>
-          <div style={{ fontWeight: 950, color: DARK, fontSize: 14 }}>{loading ? "Перевіряємо партнерів" : nearby.length > 0 ? `${nearby.length} на лінії поруч` : "Партнерів поруч не видно"}</div>
-          <div style={{ color: MUTED, fontWeight: 700, fontSize: 11, marginTop: 2, lineHeight: 1.35 }}>
-            {nearest
-              ? typeof nearest.etaMinutes === "number"
-                ? `Найближчий: ${nearest.name} · ~${nearest.etaMinutes} хв`
-                : `Найближчий: ${nearest.name} · ${distanceToProvider(pickup, nearest).toFixed(1)} км`
-              : "Можна створити заявку — диспетчер підключить вручну."}
-          </div>
-        </div>
-        <div style={{ borderRadius: 999, padding: "5px 8px", background: nearby.length > 0 ? SELECTED : "var(--pomich-warn-bg)", color: nearby.length > 0 ? BRAND : "var(--pomich-warn-text)", fontSize: 11, fontWeight: 950 }}>
-          {nearby.length > 0 ? "Live" : "Очікування"}
-        </div>
-      </div>
-      {nearby.length > 0 ? (
-        <div style={{ display: "grid", gap: 8 }}>
-          {nearby.slice(0, 2).map((item) => (
-            <div key={item.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, background: BG, borderRadius: 14, padding: "10px 12px" }}>
-              <div style={{ minWidth: 0 }}>
-                <div style={{ color: DARK, fontWeight: 900, fontSize: 13 }}>{item.name} · {item.vehicle ?? "Автодопомога"}</div>
-                <div style={{ color: MUTED, fontSize: 12, fontWeight: 700, marginTop: 2 }}>{providerStatusLabel(item.status)} · {distanceToProvider(pickup, item).toFixed(1)} км</div>
-                <div style={{ color: MUTED, fontSize: 11, fontWeight: 800, marginTop: 3 }}>{toServiceKeys(item.specialties).map(getProviderCapabilityLabel).join(" · ") || "Послуги уточнюються"}</div>
-                <div style={{ marginTop: 7 }}><VerificationPill status={item.verificationStatus} /></div>
-              </div>
-              <div style={{ color: BRAND, fontWeight: 950, whiteSpace: "nowrap" }}>
-                {typeof item.etaMinutes === "number"
-                  ? `~${item.etaMinutes} хв`
-                  : `${distanceToProvider(pickup, item).toFixed(1)} км`}
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : null}
-    </div>
-  )
-}
-
 function CustomerTrustPanel({
   profile,
   saving,
@@ -619,50 +575,27 @@ function CustomerTrustPanel({
 function HomeStep({
   pickup,
   locationLabel,
-  serviceCity,
   providers,
-  providersLoading,
-  customerProfile,
-  customerVerificationSaving,
-  customerVerificationError,
-  customerToken,
-  isTelegram,
   geoLoading,
   geoError,
   recenterTrigger,
   geoSpeedMps = null,
-  onProfileChange,
-  onVerifyCustomer,
-  onProfileVerified,
   onRetryGeo,
   onOpenGeoSettings,
-  onServiceCityChange,
   onSelect,
 }: {
   pickup: Point
   locationLabel: string
-  serviceCity: string
   providers: ProviderAvailability[]
-  providersLoading: boolean
-  customerProfile: CustomerProfile
-  customerVerificationSaving: boolean
-  customerVerificationError?: string
-  customerToken?: string
-  isTelegram?: boolean
   geoLoading: boolean
   geoError?: string
   recenterTrigger: number
   geoSpeedMps?: number | null
-  onProfileChange: (patch: Partial<CustomerProfile>) => void
-  onVerifyCustomer: () => void
-  onProfileVerified: (profile: CustomerProfile) => void
   onRetryGeo: () => void
   onOpenGeoSettings?: () => void
-  onServiceCityChange: (city: string) => void
   onSelect: (service: ServiceKey) => void
 }) {
   const nearby = nearbyProvidersFor(pickup, providers)
-  const profileReady = isCustomerReadyForOrder(customerProfile)
   const [showOtherProblems, setShowOtherProblems] = useState(false)
 
   const handleSelect = (service: ServiceKey) => {
@@ -752,6 +685,7 @@ function HomeStep({
           ) : null}
         </div>
 
+        {/* Pilot path: keep home on problem + place. City/partner lists move to later steps. */}
         <div className="pomich-home-sheet__meta">
           <CurrentLocationCard
             locationLabel={locationLabel}
@@ -759,21 +693,7 @@ function HomeStep({
             geoError={geoError}
             onRefreshGeo={onRetryGeo}
             onOpenGeoSettings={geoError ? onOpenGeoSettings : undefined}
-          >
-            <SheetDivider />
-            <div className="pomich-location-hint" aria-disabled="true">
-              <LocationRow icon="🏁" title="Куди везти або де ремонтувати" subtitle="Уточнимо після вибору послуги" />
-            </div>
-          </CurrentLocationCard>
-
-          <CitySelect
-            id="pomich-customer-home-city"
-            value={serviceCity}
-            onChange={onServiceCityChange}
-            label="Місто сервісу"
           />
-
-          <AvailabilityPanel pickup={pickup} providers={providers} loading={providersLoading} />
         </div>
       </div>
 
@@ -2703,7 +2623,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
       return <OrderErrorStep pickup={pickup} destination={destinationPoint} onRetry={() => setScreen("review")} showAction={!isTelegram} />
     case "home":
     default:
-      return <HomeStep pickup={pickup} locationLabel={`${geoState === "telegram" ? "Точка з Telegram — перевірте актуальність" : geoState === "success" ? "Точка з пристрою — перевірте актуальність" : readCachedGeoPosition() ? "Збережена точка — перевірте актуальність" : "Карта за замовчуванням — оберіть точку або натисніть «Оновити»"}: ${addressLabel || geoMessage}`} serviceCity={serviceCity} providers={liveNearbyProviders} providersLoading={liveNearbyLoading} customerProfile={customerProfile} customerVerificationSaving={customerVerificationSaving} customerVerificationError={customerVerificationError} customerToken={customerAuthToken} isTelegram={isTelegram} geoLoading={geoLoading} geoError={geoError} recenterTrigger={geoRecenterTrigger} geoSpeedMps={geoSpeedMps} onProfileChange={(patch) => setCustomerProfile((profile) => ({ ...profile, ...patch }))} onVerifyCustomer={verifyCustomerProfile} onProfileVerified={(saved) => setCustomerProfile((profile) => ({ ...profile, ...saved }))} onRetryGeo={retryGeolocation} onOpenGeoSettings={openGeoSettings} onServiceCityChange={applyServiceCity} onSelect={(service) => { if (service !== selectedService) { setServiceDetails(createServiceDetails(service)); setCustomerComment(""); setDestination(""); setDestinationResolved(false); setDestinationPoint(pickup) }; setSelectedService(service); setScreen("location") }} />
+      return <HomeStep pickup={pickup} locationLabel={`${geoState === "telegram" ? "Точка з Telegram — перевірте актуальність" : geoState === "success" ? "Точка з пристрою — перевірте актуальність" : readCachedGeoPosition() ? "Збережена точка — перевірте актуальність" : "Карта за замовчуванням — оберіть точку або натисніть «Оновити»"}: ${addressLabel || geoMessage}`} providers={liveNearbyProviders} geoLoading={geoLoading} geoError={geoError} recenterTrigger={geoRecenterTrigger} geoSpeedMps={geoSpeedMps} onRetryGeo={retryGeolocation} onOpenGeoSettings={openGeoSettings} onSelect={(service) => { if (service !== selectedService) { setServiceDetails(createServiceDetails(service)); setCustomerComment(""); setDestination(""); setDestinationResolved(false); setDestinationPoint(pickup) }; setSelectedService(service); setScreen("location") }} />
   }
   })()
 

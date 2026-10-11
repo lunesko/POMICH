@@ -2004,7 +2004,7 @@ describe('POMICH role-based flows', () => {
     expect(screen.queryByRole('button', { name: /Зберегти профіль/i })).not.toBeInTheDocument()
   })
 
-  it('shows nearby providers before a customer creates an order', async () => {
+  it('shows nearby count badge on home without partner list clutter', async () => {
     const user = userEvent.setup()
     vi.stubGlobal('fetch', mockRegisteredCustomerFetch((url) => {
       if (url.includes('/providers')) {
@@ -2037,10 +2037,11 @@ describe('POMICH role-based flows', () => {
 
     await openCustomerHome(user)
 
-    expect(await screen.findByText('2 на лінії поруч')).toBeInTheDocument()
-    // Subtitle uses a middle-dot separator; match name from the live availability list.
-    expect(await screen.findByText(/Олександр · Volkswagen Transporter/i)).toBeInTheDocument()
-    expect(screen.getByText(/Михайло · Renault Master/i)).toBeInTheDocument()
+    // Pilot home stays problem-first: nearby count is a badge, not a partner list.
+    expect(await screen.findByText('2 поруч')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /Що сталося\?/i })).toBeInTheDocument()
+    expect(screen.queryByText(/Олександр · Volkswagen Transporter/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Михайло · Renault Master/i)).not.toBeInTheDocument()
   })
 
   it('lets a provider go on duty before seeing offers', async () => {
@@ -2616,8 +2617,8 @@ describe('POMICH role-based flows', () => {
   })
 
   it.each([
-    ['Пробило колесо', 'Що з колесом?', 'Одне колесо', false],
-    ['Закінчилось пальне', 'Яке пальне потрібно?', 'Дизель', false],
+    ['Пробило колесо', 'Що з колесом?', 'Одне колесо', true],
+    ['Закінчилось пальне', 'Яке пальне потрібно?', 'Дизель', true],
     ['Замкнулось авто', 'Як відкрити авто?', 'Ключі залишилися всередині', true],
     ['Інша допомога', 'Що потрібно полагодити?', 'Перегрів двигуна', true],
   ])('shows service-specific details for %s', async (serviceName, heading, option, expandOther) => {
@@ -2640,6 +2641,7 @@ describe('POMICH role-based flows', () => {
     await user.click(screen.getByRole('radio', { name: /Запустити від іншого АКБ/i }))
     await user.click(screen.getByRole('button', { name: /Назад/i }))
     await user.click(screen.getByRole('button', { name: /Назад/i }))
+    await user.click(screen.getByRole('button', { name: /Інша проблема/i }))
     await user.click(screen.getByRole('button', { name: /Закінчилось пальне/i }))
     await user.click(screen.getByRole('button', { name: /Підтвердити місце/i }))
     expect(screen.getByRole('radio', { name: /Дизель/i })).toHaveAttribute('aria-checked', 'false')

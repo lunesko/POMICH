@@ -202,14 +202,15 @@ export const services = [
 }>
 
 /** POMICH 1.0 Home — emergency wording («Що сталося?»), not catalog labels. */
+/** Pilot-first home: tow + battery up front; other services stay one tap away. */
 export const homeProblemCards = [
   { key: "tow" as const, emoji: "🚛", label: "Евакуатор", hint: "Буксирування на СТО чи стоянку" },
   { key: "battery" as const, emoji: "🔋", label: "Не заводиться", hint: "Прикурити або замінити АКБ" },
-  { key: "wheel" as const, emoji: "🛞", label: "Пробило колесо", hint: "Заміна або ремонт на місці" },
-  { key: "fuel" as const, emoji: "⛽", label: "Закінчилось пальне", hint: "Доставка пального до вас" },
 ] as const
 
 export const homeOtherProblemCards = [
+  { key: "wheel" as const, emoji: "🛞", label: "Пробило колесо", hint: "Заміна або ремонт на місці" },
+  { key: "fuel" as const, emoji: "⛽", label: "Закінчилось пальне", hint: "Доставка пального до вас" },
   { key: "lockout" as const, emoji: "🔑", label: "Замкнулось авто", hint: "Відкрити авто або ключі" },
   { key: "mechanic" as const, emoji: "🔧", label: "Інша допомога", hint: "Дрібний ремонт на дорозі" },
 ] as const

@@ -34,28 +34,8 @@ const GHOST = "var(--pomich-ghost-bg)"
 const LANDING_MAP_CENTER: Point = PICKUP
 const LANDING_DESTINATION: Point = { lat: 48.625, lng: 22.295 }
 
-const landingHeroProviders: ProviderAvailability[] = [
-  {
-    id: "hero-oleksandr",
-    name: "Олександр",
-    status: "online",
-    vehicle: "Volkswagen Transporter",
-    rating: 4.9,
-    etaMinutes: 12,
-    location: { lat: 48.618, lng: 22.282 },
-    specialties: ["tow", "fuel"],
-  },
-  {
-    id: "hero-mykhailo",
-    name: "Михайло",
-    status: "busy",
-    vehicle: "Renault Master",
-    rating: 4.8,
-    etaMinutes: 18,
-    location: { lat: 48.628, lng: 22.301 },
-    specialties: ["battery", "wheel"],
-  },
-]
+/** Decorative map only — no named partners, ratings, or ETA (pilot honesty). */
+const landingHeroProviders: ProviderAvailability[] = []
 
 function readLandingUserLocation(): Point | undefined {
   return readCachedGeoPosition() ?? undefined
@@ -568,7 +548,7 @@ export default function LandingPage({
                 fontWeight: 600,
               }}
             >
-              Підтвердіть місце на карті — і ми знайдемо евакуатор, АКБ, шиномонтаж чи пальне поруч.
+              Що сталося → місце на карті → виклик. Спочатку допомога, не каталог послуг.
             </p>
             <div
               className="landing-hero-ctas"
