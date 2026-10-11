@@ -1,7 +1,6 @@
 import DirectoryList from "./DirectoryList"
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 
-import { type ProviderAvailability } from "../../api/client"
 import LazyRouteMap from "../map/LazyRouteMap"
 import { PomichMapBackground, useSuppressMapAtmosphere } from "../layout/PomichMapShell"
 import { useDirectoryScope } from "../../hooks/useDirectoryScope"
@@ -33,9 +32,6 @@ const GHOST = "var(--pomich-ghost-bg)"
 
 const LANDING_MAP_CENTER: Point = PICKUP
 const LANDING_DESTINATION: Point = { lat: 48.625, lng: 22.295 }
-
-/** Decorative map only — no named partners, ratings, or ETA (pilot honesty). */
-const landingHeroProviders: ProviderAvailability[] = []
 
 function readLandingUserLocation(): Point | undefined {
   return readCachedGeoPosition() ?? undefined
@@ -206,7 +202,6 @@ function LandingHeroBackground({
 }) {
   return (
     <PomichMapBackground
-      providers={landingHeroProviders}
       variant="hero"
       fixed
       fadeBottom={theme.heroFadeBottom}
