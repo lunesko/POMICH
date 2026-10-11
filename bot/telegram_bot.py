@@ -811,6 +811,9 @@ def _notify_order_cancelled_sync(order: dict[str, Any]) -> list[dict[str, Any]]:
     if idle_timeout:
         partner_text = f"Заявку #{order_id} скасовано: не оброблено протягом 15 хвилин після прийняття."
         customer_text = f"Заявку #{order_id} скасовано автоматично: ціну не підтверджено протягом 15 хвилин."
+    elif str(order.get("cancelReason") or "") == "no_provider_accepted":
+        partner_text = f"Пошук за заявкою #{order_id} завершено: партнера не знайдено."
+        customer_text = f"За заявкою #{order_id} партнера не знайдено. Пошук завершено."
     else:
         partner_text = f"Заявку #{order_id} скасовано клієнтом"
         customer_text = f"Заявку #{order_id} скасовано."

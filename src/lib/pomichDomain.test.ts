@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 
 import {
   calculateDistanceKm,
-  calculatePrice,
   getStateTransition,
   sanitizeLocation,
   validateCustomerOrderInput,
@@ -11,15 +10,12 @@ import {
 } from './pomichDomain'
 
 describe('pomichDomain', () => {
-  it('calculates a realistic distance and price for a tow request', () => {
+  it('calculates a realistic tow distance without inventing a price', () => {
     const distanceKm = calculateDistanceKm({ lat: 48.6208, lng: 22.2879 }, { lat: 48.6175, lng: 22.3056 })
 
     expect(distanceKm).toBeGreaterThan(0)
     expect(distanceKm).toBeLessThan(5)
 
-    const result = calculatePrice('tow', distanceKm)
-    expect(result.price).toBeGreaterThan(1000)
-    expect(result.etaMinutes).toBeGreaterThan(0)
   })
 
   it('rejects invalid customer order input', () => {

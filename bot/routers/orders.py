@@ -24,6 +24,7 @@ from bot.api_deps import (
     verify_init_data_or_raise,
 )
 from bot.occupied_territories import is_occupied_coordinates, occupied_zone_name
+from bot.pilot_policy import PILOT_SERVICES, pickup_in_pilot_area, pilot_mode_enabled
 from bot.order_store import (
     DispatchConflict,
     InvalidStatusTransition,
@@ -31,6 +32,7 @@ from bot.order_store import (
     attach_dispatch_to_orders,
     confirm_order_price,
     dispatch_order,
+    eligible_providers_for_order,
     expire_stale_and_notify,
     get_order,
     load_offers,
@@ -41,6 +43,7 @@ from bot.order_store import (
     update_order_status,
     update_provider_order_status,
 )
+from bot.dispatch_config import search_radius_steps_for_service
 from bot.realtime import publish_order_event, publish_provider_event
 from bot.telegram_bot import notify_dispatch_offers, notify_order_cancelled, notify_order_created
 from bot.ops_log import record_ops_event
@@ -111,6 +114,8 @@ def create_order(payload: dict, authorization: str | None = Header(default=None)
 
     # Business validation is identical for every public channel.
     service = str(payload.get("service") or "").strip().lower()
+    if pilot_mode_enabled() and service not in PILOT_SERVICES:
+        raise HTTPException(status_code=422, detail="pilot_service_unavailable")
     try:
         payload["serviceDetails"] = validate_service_details(service, payload.get("serviceDetails"))
     except ServiceDetailsValidationError as exc:
@@ -125,6 +130,8 @@ def create_order(payload: dict, authorization: str | None = Header(default=None)
         raise HTTPException(status_code=422, detail="customer_coordinates_invalid")
     if not (44.0 <= pickup_lat <= 52.5 and 22.0 <= pickup_lng <= 40.5):
         raise HTTPException(status_code=422, detail="service_area_ukraine_only")
+    if pilot_mode_enabled() and not pickup_in_pilot_area(pickup_lat, pickup_lng):
+        raise HTTPException(status_code=422, detail="pilot_area_uzhhorod_only")
     if service == "tow":
         destination_value = payload.get("destinationCoordinates")
         if not isinstance(destination_value, dict):
@@ -175,6 +182,13 @@ def create_order(payload: dict, authorization: str | None = Header(default=None)
             and verification.get("phone") is True
             and profile.get("verificationStatus") == "verified"):
         raise HTTPException(status_code=403, detail="verified_customer_profile_required")
+    if pilot_mode_enabled():
+        max_search_radius = max(search_radius_steps_for_service(service))
+        if not any(
+            provider["distanceKm"] <= max_search_radius
+            for provider in eligible_providers_for_order(payload)
+        ):
+            raise HTTPException(status_code=409, detail="pilot_no_providers_online")
     if service == "mechanic" and payload["serviceDetails"]["answers"].get("issue") == "other" and len(payload.get("customerComment", "").strip()) < 5:
         raise HTTPException(status_code=422, detail="mechanic_description_required")
     # Notification recipients are taken only from verified Telegram identity.

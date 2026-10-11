@@ -19,23 +19,6 @@ export function isWithinUkraineServiceArea(point: Coordinate): boolean {
   return point.lat >= 44.0 && point.lat <= 52.5 && point.lng >= 22.0 && point.lng <= 40.5
 }
 
-export interface PriceBreakdown {
-  price: number
-  etaMinutes: number
-  distanceKm: number
-  serviceFee: number
-  routeFee: number
-}
-
-const SERVICE_BASE_PRICES: Record<ServiceKey, number> = {
-  tow: 900,
-  battery: 750,
-  wheel: 650,
-  fuel: 600,
-  lockout: 550,
-  mechanic: 800,
-}
-
 export function calculateDistanceKm(from: Coordinate, to: Coordinate): number {
   const toRadians = (value: number) => (value * Math.PI) / 180
   const earthRadiusKm = 6371
@@ -51,21 +34,6 @@ export function calculateDistanceKm(from: Coordinate, to: Coordinate): number {
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
   const distance = earthRadiusKm * c
   return Number(distance.toFixed(1))
-}
-
-export function calculatePrice(service: ServiceKey, distanceKm: number): PriceBreakdown {
-  const base = SERVICE_BASE_PRICES[service]
-  const distanceFee = Math.max(0, Math.round(distanceKm * 90))
-  const total = base + distanceFee
-  const etaMinutes = Math.max(8, Math.min(24, Math.round(distanceKm * 4 + 8)))
-
-  return {
-    price: total,
-    etaMinutes,
-    distanceKm: Number(distanceKm.toFixed(1)),
-    serviceFee: base,
-    routeFee: distanceFee,
-  }
 }
 
 /** Tow needs a drop-off; on-site help (battery/fuel/wheel/etc.) stays at pickup. */

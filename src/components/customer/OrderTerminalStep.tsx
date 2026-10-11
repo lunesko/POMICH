@@ -40,6 +40,7 @@ interface OrderErrorStepProps {
   destination?: Point
   onRetry: () => void
   showAction?: boolean
+  message?: string
 }
 
 const terminalCopy: Record<TerminalStatus, { title: string; message: string; icon: string }> = {
@@ -77,6 +78,7 @@ export function OrderFinalStep({
   onSubmitReview,
 }: OrderFinalStepProps) {
   const copy = terminalCopy[status]
+  const noProviderAccepted = status === "cancelled" && order?.cancelReason === "no_provider_accepted"
   const onRestartRef = useRef(onRestart)
   onRestartRef.current = onRestart
 
@@ -84,11 +86,11 @@ export function OrderFinalStep({
   const dismissedRef = useRef(false)
 
   const [dismissCountdown, setDismissCountdown] = useState<number | null>(
-    status === "cancelled" ? CANCELLED_AUTO_DISMISS_SECONDS : null,
+    status === "cancelled" && !noProviderAccepted ? CANCELLED_AUTO_DISMISS_SECONDS : null,
   )
 
   useEffect(() => {
-    if (status !== "cancelled") {
+    if (status !== "cancelled" || noProviderAccepted) {
       setDismissCountdown(null)
       return
     }
@@ -121,7 +123,7 @@ export function OrderFinalStep({
         intervalRef.current = null
       }
     }
-  }, [status, orderId])
+  }, [status, orderId, noProviderAccepted])
 
   const amount = formatAmount(order?.partnerProposedPrice)
   const partnerName = order?.providerName || order?.assignedProvider?.name || reviewTargetName
@@ -133,7 +135,7 @@ export function OrderFinalStep({
   return (
     <RideScreen pickup={pickup} destination={destination} mapSubtitle={orderId ? `#${orderId}` : "POMICH"}>
       <div className="pomich-terminal-header">
-        <SheetHeading title={copy.title} subtitle={orderId ? `Замовлення #${orderId}` : "POMICH"} />
+        <SheetHeading title={noProviderAccepted ? "Партнера не знайдено" : copy.title} subtitle={orderId ? `Замовлення #${orderId}` : "POMICH"} />
         <StatusPill status={status} />
       </div>
 
@@ -141,8 +143,8 @@ export function OrderFinalStep({
         <div className={`pomich-terminal-icon pomich-terminal-icon--${status}`} aria-hidden="true">
           {copy.icon}
         </div>
-        <div className="pomich-terminal-card__title">{copy.title}</div>
-        <p className="pomich-terminal-card__message">{copy.message}</p>
+        <div className="pomich-terminal-card__title">{noProviderAccepted ? "Пошук завершено" : copy.title}</div>
+        <p className="pomich-terminal-card__message">{noProviderAccepted ? "Жоден партнер не прийняв заявку вчасно. Допомога не призначена, оплати немає. Спробуйте пізніше або зверніться до іншої служби напряму." : copy.message}</p>
 
         {status === "completed" ? (
           <div className="pomich-terminal-summary">
@@ -236,7 +238,7 @@ export function OrderFinalStep({
   )
 }
 
-export function OrderErrorStep({ pickup, destination, onRetry, showAction = true }: OrderErrorStepProps) {
+export function OrderErrorStep({ pickup, destination, onRetry, showAction = true, message }: OrderErrorStepProps) {
   return (
     <RideScreen pickup={pickup} destination={destination} mapSubtitle="Помилка заявки">
       <div className="pomich-terminal-header">
@@ -249,7 +251,7 @@ export function OrderErrorStep({ pickup, destination, onRetry, showAction = true
         </div>
         <div className="pomich-terminal-card__title">Щось пішло не так</div>
         <p className="pomich-terminal-card__message">
-          Не вдалося надіслати заявку. Перевірте інтернет-з&apos;єднання або спробуйте пізніше.
+          {message || "Не вдалося надіслати заявку. Перевірте інтернет-з'єднання або спробуйте пізніше."}
         </p>
       </div>
 

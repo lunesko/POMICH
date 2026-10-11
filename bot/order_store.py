@@ -65,6 +65,9 @@ OFFER_TIMEOUT_SECONDS = int(os.getenv("OFFER_TIMEOUT_SECONDS", "90"))
 # After a partner accepts, customer must confirm price (and processing must continue).
 # Idle accepted orders are cancelled (not hard-deleted) after this timeout.
 ACCEPTED_IDLE_TIMEOUT_SECONDS = int(os.getenv("ACCEPTED_IDLE_TIMEOUT_SECONDS", "900"))
+# A request cannot wait indefinitely when no partner accepts it. This is a
+# customer-facing deadline, independent of the offer-wave retry schedule.
+SEARCH_TIMEOUT_SECONDS = max(30, int(os.getenv("POMICH_SEARCH_TIMEOUT_SECONDS", "180")))
 OFFER_STATUSES = {"pending", "accepted", "declined", "expired", "lost", "cancelled"}
 STORE_LOCK = threading.RLock()
 _EXPIRE_STALE_LOCK = threading.Lock()
@@ -1072,23 +1075,26 @@ def nearby_searching_orders(
 
 
 def load_providers(store_path: Optional[Path] = None) -> List[Dict[str, Any]]:
+    from bot.pilot_policy import pilot_mode_enabled
+
+    fallback_providers = [] if pilot_mode_enabled() else _default_providers()
     if _should_use_sql_store(store_path, _default_provider_store_path):
         found, data = load_collection("providers")
         if not found:
-            return apply_provider_presence_ttl(_default_providers())
-        providers = data if isinstance(data, list) else _default_providers()
+            return apply_provider_presence_ttl(fallback_providers)
+        providers = data if isinstance(data, list) else fallback_providers
         return apply_provider_presence_ttl([_normalize_provider_trust(provider, "verified") for provider in providers])
 
     path = store_path or _default_provider_store_path()
     if not path.exists():
-        return apply_provider_presence_ttl(_default_providers())
+        return apply_provider_presence_ttl(fallback_providers)
     try:
         with path.open("r", encoding="utf-8") as handle:
             data = json.load(handle)
-            providers = data if isinstance(data, list) else _default_providers()
+            providers = data if isinstance(data, list) else fallback_providers
             return apply_provider_presence_ttl([_normalize_provider_trust(provider, "verified") for provider in providers])
     except json.JSONDecodeError:
-        return apply_provider_presence_ttl(_default_providers())
+        return apply_provider_presence_ttl(fallback_providers)
 
 
 def save_providers(providers: List[Dict[str, Any]], store_path: Optional[Path] = None) -> List[Dict[str, Any]]:
@@ -3009,7 +3015,7 @@ def expire_stale_dispatch(
     offer_store_path: Optional[Path] = None,
     provider_store_path: Optional[Path] = None,
 ) -> List[Dict[str, Any]]:
-    """Expire pending offers and cancel idle accepted orders. Returns cancelled (enriched) orders."""
+    """Expire offers and finish unanswered searches or idle accepted orders."""
     retry_order_ids: List[str] = []
     wave_order_ids: List[str] = []
     with STORE_LOCK:
@@ -3042,6 +3048,31 @@ def expire_stale_dispatch(
             related = [offer for offer in offers if str(offer.get("orderId")) == order_id]
             info = order.get("dispatchInfo") if isinstance(order.get("dispatchInfo"), dict) else {}
 
+            created_at = _parse_iso(order.get("createdAt"))
+            if created_at and (checked_at - created_at).total_seconds() >= SEARCH_TIMEOUT_SECONDS:
+                order["status"] = "cancelled"
+                order["cancelReason"] = "no_provider_accepted"
+                order["cancelledAt"] = now_iso
+                order["updatedAt"] = now_iso
+                order["dispatchState"] = "NO_PROVIDERS_AVAILABLE"
+                order["dispatchInfo"] = {
+                    **info,
+                    "exhaustedAt": now_iso,
+                    "clientStatusHint": "Партнера зараз не знайдено. Пошук завершено.",
+                }
+                history = order.get("statusHistory") if isinstance(order.get("statusHistory"), list) else []
+                history.append({"status": "cancelled", "at": now_iso, "reason": "no_provider_accepted"})
+                order["statusHistory"] = history
+                _append_order_event(order, "SEARCH_TIMED_OUT", now_iso, {"timeoutSeconds": SEARCH_TIMEOUT_SECONDS})
+                _append_order_event(order, "ORDER_CANCELLED", now_iso, {"reason": "no_provider_accepted"})
+                for offer in related:
+                    if offer.get("status") == "pending":
+                        offer["status"] = "cancelled"
+                        offer["respondedAt"] = now_iso
+                cancelled.append(order)
+                exhaustion_changed = True
+                continue
+
             # Priority-2 wave 2: after waveWaitSeconds, offer the next cohort even if wave 1 is still pending.
             next_wave_at = _parse_iso(info.get("nextWaveAt"))
             current_wave = int(info.get("wave") or 0)
@@ -3071,8 +3102,7 @@ def expire_stale_dispatch(
                         **info,
                         "autoRetryCount": auto_retries,
                         "exhaustedAt": now_iso,
-                        "awaitingDispatcher": True,
-                        "clientStatusHint": "Партнера поруч поки немає. Диспетчер розширює пошук.",
+                        "clientStatusHint": "Партнери не відповіли. Пошук завершиться автоматично, якщо ніхто не прийме заявку.",
                     }
                     _append_order_event(
                         order,

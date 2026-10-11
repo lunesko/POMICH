@@ -10,6 +10,7 @@ from bot.order_store import (
     InvalidStatusTransition,
     MAX_PROVIDER_OFFERS,
     ACCEPTED_IDLE_TIMEOUT_SECONDS,
+    SEARCH_TIMEOUT_SECONDS,
     OFFER_TIMEOUT_SECONDS,
     accept_offer,
     apply_provider_presence_ttl,
@@ -696,6 +697,32 @@ def test_idle_accepted_order_is_cancelled_after_timeout(tmp_path):
     assert any(event.get("type") == "ORDER_ACCEPTED_TIMEOUT" for event in persisted.get("dispatchEvents") or [])
     assert provider["status"] == "online"
     assert not provider.get("assignedOrderId")
+
+
+def test_unanswered_search_finishes_and_invalidates_pending_offers(tmp_path):
+    order_path = tmp_path / "orders.json"
+    provider_path = tmp_path / "providers.json"
+    offer_path = tmp_path / "offers.json"
+    stale_at = (
+        datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=SEARCH_TIMEOUT_SECONDS + 5)
+    ).isoformat(timespec="seconds") + "Z"
+    save_providers([_provider("p1", 48.6218, 22.2879)], provider_path)
+    order = save_order(
+        {"service": "tow", "customerCoordinates": {"lat": 48.6208, "lng": 22.2879}, "createdAt": stale_at},
+        store_path=order_path,
+    )
+    dispatch_order(order["id"], order_path, provider_path, offer_path)
+    assert load_offers(offer_path)[0]["status"] == "pending"
+
+    finished = expire_stale_dispatch(order_path, offer_path, provider_path)
+    persisted = get_order(order["id"], order_path, provider_path)
+
+    assert len(finished) == 1
+    assert persisted["status"] == "cancelled"
+    assert persisted["cancelReason"] == "no_provider_accepted"
+    assert all(offer["status"] != "pending" for offer in load_offers(offer_path))
+    assert any(event["type"] == "SEARCH_TIMED_OUT" for event in persisted["dispatchEvents"])
+    assert expire_stale_dispatch(order_path, offer_path, provider_path) == []
 
 
 def test_recent_accepted_order_is_not_cancelled_by_idle_timeout(tmp_path):

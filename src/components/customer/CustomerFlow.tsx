@@ -24,7 +24,6 @@ import { RideScreen } from "../layout/RideScreen"
 import ServiceIcon from "../ui/ServiceIcon"
 import {
   calculateDistanceKm,
-  calculatePrice,
   isWithinUkraineServiceArea,
   ON_SITE_DESTINATION_LABEL,
   sanitizeLocation,
@@ -34,6 +33,7 @@ import {
   type ServiceKey,
 } from "../../lib/pomichDomain"
 import { getTelegramContext, openTelegramLocationSettings } from "../../telegram"
+import { pilotMode, pilotCity, pilotRadiusKm, pilotServices, pickupInPilotArea } from "../../lib/pilotPolicy"
 import {
   getProfileChecklist,
   customerProfileStatusLabel,
@@ -452,7 +452,7 @@ function AvailabilityPanel({ pickup, providers, loading }: { pickup: Point; prov
               ? typeof nearest.etaMinutes === "number"
                 ? `Найближчий: ${nearest.name} · ~${nearest.etaMinutes} хв`
                 : `Найближчий: ${nearest.name} · ${distanceToProvider(pickup, nearest).toFixed(1)} км`
-              : "Можна створити заявку — диспетчер підключить вручну."}
+              : "Зараз партнерів поруч не видно. Спробуйте пізніше."}
           </div>
         </div>
         <div style={{ borderRadius: 999, padding: "5px 8px", background: nearby.length > 0 ? SELECTED : "var(--pomich-warn-bg)", color: nearby.length > 0 ? BRAND : "var(--pomich-warn-text)", fontSize: 11, fontWeight: 950 }}>
@@ -671,7 +671,7 @@ function HomeStep({
 
   const problemGrid = (
     <div className="pomich-problem-grid">
-      {homeProblemCards.map((card, index) => (
+      {homeProblemCards.filter((card) => !pilotMode || pilotServices.has(card.key)).map((card, index) => (
         <button
           key={card.key}
           type="button"
@@ -718,7 +718,7 @@ function HomeStep({
 
         {problemGrid}
 
-        <div className="pomich-problem-other">
+        {!pilotMode ? <div className="pomich-problem-other">
           <button
             type="button"
             className="pomich-problem-other__toggle"
@@ -750,7 +750,7 @@ function HomeStep({
               ))}
             </div>
           ) : null}
-        </div>
+        </div> : null}
 
         <div className="pomich-home-sheet__meta">
           <CurrentLocationCard
@@ -766,12 +766,12 @@ function HomeStep({
             </div>
           </CurrentLocationCard>
 
-          <CitySelect
+          {!pilotMode ? <CitySelect
             id="pomich-customer-home-city"
             value={serviceCity}
             onChange={onServiceCityChange}
             label="Місто сервісу"
-          />
+          /> : <p role="status">Пілот працює в Ужгороді та найближчих околицях.</p>}
 
           <AvailabilityPanel pickup={pickup} providers={providers} loading={providersLoading} />
         </div>
@@ -785,7 +785,7 @@ function HomeStep({
           </div>
         </div>
         <div className="pomich-problem-grid pomich-problem-grid--peek">
-          {homeProblemCards.map((card) => (
+          {homeProblemCards.filter((card) => !pilotMode || pilotServices.has(card.key)).map((card) => (
             <button
               key={card.key}
               type="button"
@@ -833,7 +833,7 @@ function LocationStep({
   onNext: () => void
 }) {
   const geoStatusHint = geoError ? undefined : geoLoading ? "Визначаємо ваше місцезнаходження…" : geoMessage
-  const outsideServiceArea = !isWithinUkraineServiceArea(pickup)
+  const outsideServiceArea = !isWithinUkraineServiceArea(pickup) || (pilotMode && !pickupInPilotArea(pickup))
 
   return (
     <RideScreen
@@ -870,7 +870,7 @@ function LocationStep({
 
       {outsideServiceArea ? (
         <div role="alert" style={{ marginTop: 10, background: "var(--pomich-warn-bg)", color: "var(--pomich-warn-text)", borderRadius: 14, padding: "10px 12px", fontSize: 12, fontWeight: 850 }}>
-          POMICH зараз працює в Україні. Перемістіть маркер на точку в Україні, щоб створити заявку.
+          {pilotMode ? `Пілот POMICH працює в місті ${pilotCity} та в радіусі ${pilotRadiusKm} км. Перемістіть маркер у зону роботи.` : "POMICH зараз працює в Україні. Перемістіть маркер на точку в Україні, щоб створити заявку."}
         </div>
       ) : null}
 
@@ -1201,7 +1201,6 @@ function ReviewStep({
 
 function SearchingStep({ orderId, status, order, pickup, destination, cancelError, cancelling, onCancel, onRetryDispatch }: { orderId?: string; status: OrderStatus; order?: OrderResponse; pickup: Point; destination: Point; cancelError?: string; cancelling?: boolean; onCancel: () => void; onRetryDispatch: () => void }) {
   const noProviders = order?.dispatchState === "NO_PROVIDERS_AVAILABLE"
-  const awaitingDispatcher = Boolean(order?.dispatchInfo?.awaitingDispatcher) || noProviders
   const offers = order?.offers ?? []
   const pendingOffers = offers.filter((offer) => offer.status === "pending").length
   const offersSent = order?.dispatchInfo?.offersSent ?? offers.length
@@ -1215,15 +1214,15 @@ function SearchingStep({ orderId, status, order, pickup, destination, cancelErro
   const showRetry = noProviders || offersExhausted
   const statusHint =
     (typeof order?.dispatchInfo?.clientStatusHint === "string" && order.dispatchInfo.clientStatusHint.trim()) ||
-    (awaitingDispatcher || showRetry
-      ? "Партнера поруч поки немає. Диспетчер розширює пошук."
+    (showRetry
+      ? "Партнери поки не відповіли. Пошук завершиться автоматично, якщо ніхто не прийме заявку."
       : undefined)
 
   return (
     <RideScreen pickup={pickup} destination={destination} providers={order?.assignedProvider ? [order.assignedProvider] : undefined} mapSubtitle={orderId ? `#${orderId}` : "Очікуємо партнера"}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
         <SheetHeading
-          title={showRetry ? "Розширюємо пошук" : "Очікуємо партнера"}
+          title={showRetry ? "Шукаємо ще" : "Очікуємо партнера"}
           subtitle={
             statusHint
               ? statusHint
@@ -1247,7 +1246,7 @@ function SearchingStep({ orderId, status, order, pickup, destination, cancelErro
 
       <div style={{ color: MUTED, fontWeight: 750, lineHeight: 1.4, textAlign: "center" }}>
         {noProviders
-          ? "Можна повторити пошук без створення нової заявки."
+          ? "Зараз немає вільного партнера. Пошук завершиться автоматично; можна спробувати ще раз."
           : offersExhausted
             ? "Система повторює пошук автоматично. Можна також натиснути «Спробувати ще раз»."
             : offersSent > 0
@@ -1259,7 +1258,7 @@ function SearchingStep({ orderId, status, order, pickup, destination, cancelErro
         {[
           { text: "Заявку надіслано в систему", active: true },
           { text: "Сканування та розсилка партнерам", active: true },
-          { text: "Очікування підтвердження ціни", active: !showRetry },
+          { text: "Очікування відповіді партнера", active: !showRetry },
         ].map((item) => (
           <div key={item.text} style={{ background: SURFACE_TONE, borderRadius: 15, border: `1px solid ${BORDER}`, padding: "12px 14px", fontWeight: 850, color: DARK, display: "flex", alignItems: "center", gap: 10 }}>
             <span style={{ color: item.active ? "var(--pomich-accent, #16a36a)" : "var(--pomich-muted)", fontWeight: 900 }}>{item.active ? "✓" : "⏳"}</span>
@@ -1517,7 +1516,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
   const restoredDraft = useMemo(() => {
     try {
       const value = JSON.parse(window.sessionStorage.getItem(`pomichDraft:${initialCustomerId}`) || "null")
-      if (value && Date.now() - value.savedAt < 12 * 60 * 60 * 1000 && ["home", "location", "destination", "details", "review"].includes(value.screen) && ["tow", "battery", "wheel", "fuel", "lockout", "mechanic"].includes(value.selectedService)) return value
+      if (value && Date.now() - value.savedAt < 12 * 60 * 60 * 1000 && ["home", "location", "destination", "details", "review"].includes(value.screen) && ["tow", "battery", "wheel", "fuel", "lockout", "mechanic"].includes(value.selectedService) && (!pilotMode || pilotServices.has(value.selectedService))) return value
     } catch { /* Invalid or old drafts are ignored. */ }
     return undefined
   }, [initialCustomerId])
@@ -1535,6 +1534,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
   const [serviceDetails, setServiceDetails] = useState<ServiceDetails>(() => restoredDraft?.serviceDetails || createServiceDetails("tow"))
   const [customerComment, setCustomerComment] = useState<string>(restoredDraft?.customerComment || "")
   const [loading, setLoading] = useState(false)
+  const [orderError, setOrderError] = useState<string | undefined>()
   const [priceConfirming, setPriceConfirming] = useState(false)
   const [priceConfirmError, setPriceConfirmError] = useState<string | undefined>()
   const [cancelling, setCancelling] = useState(false)
@@ -2217,7 +2217,6 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
 
   const serviceLabel = useMemo(() => services.find((item) => item.key === selectedService)?.label ?? "Евакуатор", [selectedService])
   const orderDistanceKm = useMemo(() => resolveOrderDistanceKm(selectedService, pickup, destinationPoint), [pickup, destinationPoint, selectedService])
-  const breakdown = useMemo(() => calculatePrice(selectedService, orderDistanceKm), [orderDistanceKm, selectedService])
 
   const applyPickup = (point: Point, message = "Місце подачі оновлено вручну.") => {
     setPickup(point)
@@ -2291,7 +2290,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
         serviceDetails,
         vehicleState: summarizeServiceDetails(serviceDetails),
         customerComment: customerComment.trim() || undefined,
-        distanceKm: breakdown.distanceKm,
+        distanceKm: orderDistanceKm,
         notify: Boolean(telegramContext.chatId && telegramContext.initData),
         chatId: telegramContext.chatId,
         telegramInitData: telegramContext.initData,
@@ -2319,7 +2318,8 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
       setStatus(nextStatus)
       if (response.id) persistActiveOrder(response.id, nextStatus)
       setScreen("searching")
-    } catch {
+    } catch (error) {
+      setOrderError(messageFromFetchError(error))
       setScreen("error")
     } finally {
       setLoading(false)
@@ -2587,7 +2587,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
     ["location", "destination", "details", "review", "assigned", "cancelled", "completed", "error"].includes(screen)
   const mainButtonEnabled =
     screen === "home" ? isCustomerProfileComplete(customerProfile) && !customerVerificationSaving :
-    screen === "location" ? isWithinUkraineServiceArea(pickup) :
+    screen === "location" ? isWithinUkraineServiceArea(pickup) && (!pilotMode || pickupInPilotArea(pickup)) :
     screen === "destination" ? (serviceRequiresDestination(selectedService) ? destinationResolved : true) :
     screen === "details" ? serviceDetailsComplete(serviceDetails) :
     screen === "review" ? !loading && isCustomerReadyForOrder(customerProfile) && !(selectedService === "mechanic" && serviceDetails.answers.issue === "other" && customerComment.trim().length < 5) :
@@ -2698,9 +2698,9 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
         />
       )
     case "cancelled":
-      return <OrderFinalStep orderId={orderId} status="cancelled" pickup={pickup} destination={destinationPoint} onRestart={restart} showAction={!isTelegram} />
+      return <OrderFinalStep orderId={orderId} status="cancelled" order={currentOrder} pickup={pickup} destination={destinationPoint} onRestart={restart} showAction={!isTelegram} />
     case "error":
-      return <OrderErrorStep pickup={pickup} destination={destinationPoint} onRetry={() => setScreen("review")} showAction={!isTelegram} />
+      return <OrderErrorStep pickup={pickup} destination={destinationPoint} message={orderError} onRetry={() => setScreen("review")} showAction={!isTelegram} />
     case "home":
     default:
       return <HomeStep pickup={pickup} locationLabel={`${geoState === "telegram" ? "Точка з Telegram — перевірте актуальність" : geoState === "success" ? "Точка з пристрою — перевірте актуальність" : readCachedGeoPosition() ? "Збережена точка — перевірте актуальність" : "Карта за замовчуванням — оберіть точку або натисніть «Оновити»"}: ${addressLabel || geoMessage}`} serviceCity={serviceCity} providers={liveNearbyProviders} providersLoading={liveNearbyLoading} customerProfile={customerProfile} customerVerificationSaving={customerVerificationSaving} customerVerificationError={customerVerificationError} customerToken={customerAuthToken} isTelegram={isTelegram} geoLoading={geoLoading} geoError={geoError} recenterTrigger={geoRecenterTrigger} geoSpeedMps={geoSpeedMps} onProfileChange={(patch) => setCustomerProfile((profile) => ({ ...profile, ...patch }))} onVerifyCustomer={verifyCustomerProfile} onProfileVerified={(saved) => setCustomerProfile((profile) => ({ ...profile, ...saved }))} onRetryGeo={retryGeolocation} onOpenGeoSettings={openGeoSettings} onServiceCityChange={applyServiceCity} onSelect={(service) => { if (service !== selectedService) { setServiceDetails(createServiceDetails(service)); setCustomerComment(""); setDestination(""); setDestinationResolved(false); setDestinationPoint(pickup) }; setSelectedService(service); setScreen("location") }} />

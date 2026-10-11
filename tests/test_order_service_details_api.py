@@ -74,3 +74,23 @@ def test_web_order_service_detail_validation(monkeypatch, tmp_path) -> None:
     response = client.post("/api/orders", headers=headers, json=_tow_payload())
     assert response.status_code == 201
     assert response.json()["serviceDetails"]["answers"]["mobility"] == "rolls"
+
+
+def test_pilot_rejects_uncovered_orders_before_saving(monkeypatch, tmp_path) -> None:
+    _isolated_store(monkeypatch, tmp_path)
+    monkeypatch.setenv("POMICH_PILOT_MODE", "true")
+    monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", "safe-test-session-secret-32-chars")
+    client = TestClient(app)
+    headers = _customer_headers(client)
+
+    outside = client.post("/api/orders", headers=headers, json=_tow_payload())
+    assert outside.status_code == 422
+    assert outside.json()["detail"] == "pilot_area_uzhhorod_only"
+
+    in_city = _tow_payload()
+    in_city["customerCoordinates"] = {"lat": 48.622, "lng": 22.3}
+    in_city["destinationCoordinates"] = {"lat": 48.625, "lng": 22.31}
+    unavailable = client.post("/api/orders", headers=headers, json=in_city)
+    assert unavailable.status_code == 409
+    assert unavailable.json()["detail"] == "pilot_no_providers_online"
+    assert order_store.load_orders(tmp_path / "orders.json") == []

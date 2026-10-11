@@ -1,6 +1,7 @@
 import type { ServiceDetails } from '../lib/serviceDetails'
 import { refreshBrowserAuthorization } from '../lib/browserAuthorization'
 import { orderSubmissionKey, completeOrderSubmission } from '../lib/orderSubmission'
+import { pilotRadiusKm } from '../lib/pilotPolicy'
 
 const defaultBaseUrl = '/api'
 
@@ -80,6 +81,9 @@ export class ApiRequestError extends Error {
 }
 
 function messageForErrorCode(code: string, retryAfterSeconds?: number): string {
+  if (code === 'pilot_service_unavailable') return 'У пілоті зараз доступні лише евакуатор і допомога з акумулятором.'
+  if (code === 'pilot_area_uzhhorod_only') return `Пілот працює в Ужгороді та в радіусі ${pilotRadiusKm} км від міста.`
+  if (code === 'pilot_no_providers_online') return 'Зараз для цієї послуги немає вільних перевірених партнерів поруч. Спробуйте пізніше.'
   if (typeof retryAfterSeconds === 'number' && (code === 'rate_limit_exceeded' || code === 'send_cooldown')) {
     return formatOtpRetryWait(retryAfterSeconds, code)
   }

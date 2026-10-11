@@ -1,7 +1,6 @@
 import DirectoryList from "./DirectoryList"
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 
-import { type ProviderAvailability } from "../../api/client"
 import LazyRouteMap from "../map/LazyRouteMap"
 import { PomichMapBackground, useSuppressMapAtmosphere } from "../layout/PomichMapShell"
 import { useDirectoryScope } from "../../hooks/useDirectoryScope"
@@ -10,7 +9,6 @@ import { mediaQueries } from "../../lib/breakpoints"
 import { ADMIN_LOGO_HOLD_MS } from "../../lib/adminAccess"
 import { PICKUP, services, type Point, type Role } from "../../lib/constants"
 import { readCachedGeoPosition, requestCurrentPosition } from "../../lib/mapGeo"
-import { calculatePrice } from "../../lib/pomichDomain"
 import { UKRAINE_WIDE_LABEL } from "../../lib/ukraineCities"
 import { getTelegramContext } from "../../telegram"
 import { ThemeToggle } from "../ui/ThemeToggle"
@@ -34,48 +32,25 @@ const GHOST = "var(--pomich-ghost-bg)"
 const LANDING_MAP_CENTER: Point = PICKUP
 const LANDING_DESTINATION: Point = { lat: 48.625, lng: 22.295 }
 
-const landingHeroProviders: ProviderAvailability[] = [
-  {
-    id: "hero-oleksandr",
-    name: "Олександр",
-    status: "online",
-    vehicle: "Volkswagen Transporter",
-    rating: 4.9,
-    etaMinutes: 12,
-    location: { lat: 48.618, lng: 22.282 },
-    specialties: ["tow", "fuel"],
-  },
-  {
-    id: "hero-mykhailo",
-    name: "Михайло",
-    status: "busy",
-    vehicle: "Renault Master",
-    rating: 4.8,
-    etaMinutes: 18,
-    location: { lat: 48.628, lng: 22.301 },
-    specialties: ["battery", "wheel"],
-  },
-]
-
 function readLandingUserLocation(): Point | undefined {
   return readCachedGeoPosition() ?? undefined
 }
 
 const landingSteps = [
-  ["1", "Оберіть проблему", "Евакуатор, АКБ, шиномонтаж, пальне чи механік."],
+  ["1", "Оберіть проблему", "Евакуатор або запуск АКБ в Ужгороді."],
   ["2", "Підтвердіть місце", "Маркер на карті — партнер їде саме туди."],
-  ["3", "Надішліть заявку", "Без торгу по телефону — деталі в чаті."],
+  ["3", "Надішліть заявку", "Партнер запропонує повну ціну; ви підтвердите її до виїзду."],
   ["4", "Стежте за статусом", "Прийнято → в дорозі → на місці → готово."],
 ] as const
 
 const landingFaq = [
   [
     "Що таке POMICH?",
-    "POMICH — сервіс допомоги на дорозі в Україні: евакуатор, запуск АКБ, шиномонтаж, пальне. Ви підтверджуєте місце — ми шукаємо партнера поруч.",
+    "POMICH тестує допомогу на дорозі в Ужгороді та околицях: евакуатор і запуск АКБ. Ви підтверджуєте місце — система шукає доступного партнера поруч.",
   ],
   [
     "Скільки це коштує?",
-    "На сайті показана орієнтовна база. Для евакуатора +90 ₴/км — орієнтовна перевозка від місця поломки до доставки: 10 км додають 900 ₴ до бази. Подачу, матеріали та пальне партнер уточнює окремо. Ви підтверджуєте його остаточну пропозицію перед виїздом або відмовляєтеся.",
+    "Партнер назве повну ціну після перегляду маршруту й деталей. Ви побачите її та підтвердите до виїзду. Пальне й матеріали, якщо потрібні, вказуються окремо.",
   ],
   [
     "Чи потрібен Telegram?",
@@ -226,7 +201,7 @@ function LandingHeroBackground({
 }) {
   return (
     <PomichMapBackground
-      providers={landingHeroProviders}
+      providers={[]}
       variant="hero"
       fixed
       fadeBottom={theme.heroFadeBottom}
@@ -556,7 +531,7 @@ export default function LandingPage({
                 maxWidth: layoutCompact ? "100%" : 440,
               }}
             >
-              Допомога на дорозі за хвилини
+              Допомога на дорозі в Ужгороді
             </p>
             <p
               className="landing-hero-support"
@@ -568,7 +543,7 @@ export default function LandingPage({
                 fontWeight: 600,
               }}
             >
-              Підтвердіть місце на карті — і ми знайдемо евакуатор, АКБ, шиномонтаж чи пальне поруч.
+              Оберіть евакуатор або запуск АКБ. Якщо вчасно ніхто не прийме заявку, ми одразу покажемо результат пошуку.
             </p>
             <div
               className="landing-hero-ctas"
@@ -598,10 +573,9 @@ export default function LandingPage({
         </section>
 
         <section id="services" className="pomich-landing-section" style={{ padding: layoutCompact ? "20px 12px" : "48px 24px 64px" }}>
-          <LandingSectionTitle theme={theme} eyebrow="Послуги" title="Що викликаємо" subtitle="Орієнтовна база без реєстрації. Партнер пропонує ціну, клієнт підтверджує її перед виїздом." compact={layoutCompact} />
+          <LandingSectionTitle theme={theme} eyebrow="Послуги" title="Що викликаємо" subtitle="Спочатку евакуатор і запуск АКБ. Партнер запропонує повну ціну, ви підтвердите її до виїзду." compact={layoutCompact} />
           <div className="landing-services-list pomich-landing-inner" style={{ display: "grid", gap: layoutCompact ? 6 : 8 }}>
-            {services.map((service) => {
-              const basePrice = calculatePrice(service.key, 0).price
+            {services.filter((service) => service.key === "tow" || service.key === "battery").map((service) => {
               return (
                 <button
                   key={service.key}
@@ -631,7 +605,7 @@ export default function LandingPage({
                   </span>
                   <span>
                     <span style={{ display: "block", fontSize: layoutCompact ? 14 : 15, fontWeight: 900, lineHeight: 1.15 }}>{service.label}</span>
-                    <span style={{ display: "block", marginTop: 2, color: theme.muted, fontSize: 12, fontWeight: 700 }}>від {basePrice} ₴{service.key === "tow" ? " · +90 ₴/км перевезення" : " · виїзд і матеріали узгоджуються"}</span>
+                    <span style={{ display: "block", marginTop: 2, color: theme.muted, fontSize: 12, fontWeight: 700 }}>Повну ціну підтвердите до виїзду партнера</span>
                   </span>
                   <span aria-hidden style={{ color: theme.subtle, fontWeight: 900, fontSize: 18 }}>›</span>
                 </button>
