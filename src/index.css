@@ -3617,14 +3617,21 @@ html.mobile-compact .pomich-tg-main {
 .pomich-landing .landing-map-frame {
   position: relative;
   width: 100%;
-  max-width: 1200px;
+  max-width: 960px;
   margin-left: auto;
   margin-right: auto;
   box-sizing: border-box;
-  height: 560px;
-  border-radius: 24px;
+  height: 520px;
+  border-radius: 22px;
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: 1px solid color-mix(in srgb, var(--pomich-border) 80%, transparent);
+  box-shadow:
+    0 18px 48px -28px rgba(15, 23, 42, 0.35),
+    0 1px 0 rgba(255, 255, 255, 0.45) inset;
+  background: color-mix(in srgb, var(--pomich-card-bg) 88%, #dfe8e3);
+}
+[data-pomich-theme="dark"] .pomich-landing .landing-map-frame {
+  border-color: rgba(255, 255, 255, 0.14);
   box-shadow: 0 28px 90px rgba(0, 0, 0, 0.38);
   background: #14181d;
 }
@@ -7229,6 +7236,86 @@ html:not([data-pomich-theme]) .pomich-cabinet-footer {
   .landing-service-row__name { font-size: 0.95rem; }
   .landing-service-row__amount { font-size: 0.95rem; }
 }
+.landing-steps-list {
+  list-style: none;
+  margin: 0 auto;
+  padding: 0;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  max-width: 920px;
+  width: 100%;
+  counter-reset: none;
+}
+@media (min-width: 760px) {
+  .landing-steps-list {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 14px;
+  }
+}
+.landing-step-card {
+  position: relative;
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+  text-align: center;
+  padding: 22px 16px 20px;
+  border-radius: 18px;
+  border: 1px solid color-mix(in srgb, var(--pomich-border) 65%, transparent);
+  background:
+    linear-gradient(
+      165deg,
+      color-mix(in srgb, var(--pomich-card-bg) 94%, #fff) 0%,
+      color-mix(in srgb, var(--pomich-card-bg) 78%, transparent) 100%
+    );
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.4) inset;
+  color: var(--pomich-text);
+  animation: landingRevealIn 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+  min-height: 100%;
+}
+@media (min-width: 760px) {
+  .landing-step-card:not(:last-child)::after {
+    content: "";
+    position: absolute;
+    top: 38px;
+    right: -8px;
+    width: 16px;
+    height: 2px;
+    border-radius: 999px;
+    background: linear-gradient(90deg, rgba(22, 163, 106, 0.55), rgba(29, 111, 212, 0.45));
+    z-index: 1;
+  }
+}
+.landing-step-card__num {
+  width: 42px;
+  height: 42px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, #16A36A, #0B7A4D);
+  color: #fff;
+  font-weight: 900;
+  font-size: 0.95rem;
+  letter-spacing: -0.02em;
+  box-shadow: 0 10px 22px -12px rgba(11, 122, 77, 0.65);
+}
+.landing-step-card__title {
+  display: block;
+  font-family: var(--font-display, var(--font-sans));
+  font-size: clamp(0.98rem, 1.5vw, 1.12rem);
+  font-weight: 900;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+  color: var(--pomich-text);
+}
+.landing-step-card__text {
+  display: block;
+  font-size: 0.84rem;
+  font-weight: 650;
+  line-height: 1.45;
+  color: var(--pomich-muted);
+  max-width: 16rem;
+}
 .landing-step-row:last-child {
   border-bottom: none !important;
 }
@@ -8737,16 +8824,32 @@ html.tg-compact .pomich-ride-screen__map .leaflet-top.leaflet-left {
 
 /* Audit: opaque reading surfaces and a keyboard-accessible alternative to map markers. */
 .pomich-directory-list {
-  margin: 16px auto;
-  max-width: 1000px;
-  padding: 16px;
+  margin: 18px auto 0;
+  max-width: 640px;
+  padding: 14px 16px;
   border-radius: 16px;
-  background: var(--pomich-surface);
+  border: 1px solid color-mix(in srgb, var(--pomich-border) 75%, transparent);
+  background: color-mix(in srgb, var(--pomich-card-bg) 90%, transparent);
   color: var(--pomich-text);
+  text-align: center;
 }
-.pomich-directory-list summary { cursor: pointer; font-weight: 800; min-height: 44px; }
-.pomich-directory-list input { display: block; width: 100%; min-height: 44px; background: var(--pomich-input-bg); color: var(--pomich-text); border: 1px solid var(--pomich-border); border-radius: 8px; padding: 8px; }
-.pomich-directory-list li { padding: 8px 0; }
+.pomich-directory-list summary {
+  cursor: pointer;
+  font-weight: 850;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  list-style: none;
+}
+.pomich-directory-list summary::-webkit-details-marker { display: none; }
+.pomich-directory-list[open] { text-align: left; }
+.pomich-directory-list[open] summary { justify-content: flex-start; margin-bottom: 10px; }
+.pomich-directory-list > p { margin: 0 0 10px; color: var(--pomich-muted); font-size: 0.85rem; font-weight: 650; }
+.pomich-directory-list input { display: block; width: 100%; min-height: 44px; background: var(--pomich-input-bg); color: var(--pomich-text); border: 1px solid var(--pomich-border); border-radius: 10px; padding: 8px 12px; margin-top: 6px; }
+.pomich-directory-list li { padding: 8px 0; border-bottom: 1px solid color-mix(in srgb, var(--pomich-border) 70%, transparent); }
+.pomich-directory-list li:last-child { border-bottom: none; }
 .pomich-map-shell--root .pomich-form-card,
 .pomich-map-shell--root .pomich-onboarding-card { background: var(--pomich-surface) !important; backdrop-filter: none; }
 

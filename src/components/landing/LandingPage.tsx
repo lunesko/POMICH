@@ -631,44 +631,18 @@ export default function LandingPage({
           </div>
         </section>
 
-        <section id="steps" className="pomich-landing-section-alt" style={{ padding: layoutCompact ? "20px 12px" : "48px 24px 64px" }}>
+        <section id="steps" className="pomich-landing-section-alt" style={{ padding: layoutCompact ? "28px 16px 36px" : "56px 24px 72px" }}>
           <LandingSectionTitle theme={theme} eyebrow="Як це працює" title="Чотири кроки" subtitle="Короткий сценарій без зайвих форм." compact={layoutCompact} />
-          <ol className="landing-steps-list pomich-landing-inner" style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: layoutCompact ? 8 : 10 }}>
-            {landingSteps.map(([number, title, text]) => (
+          <ol className="landing-steps-list pomich-landing-inner">
+            {landingSteps.map(([number, title, text], index) => (
               <li
                 key={number}
-                className="landing-step-row"
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "2rem 1fr",
-                  gap: 10,
-                  alignItems: "start",
-                  padding: layoutCompact ? "8px 0" : "10px 0",
-                  borderBottom: `1px solid ${theme.cardBorder}`,
-                  color: theme.text,
-                }}
+                className="landing-step-card"
+                style={{ animationDelay: `${0.05 + index * 0.06}s` }}
               >
-                <span
-                  className="landing-step-circle"
-                  style={{
-                    width: 28,
-                    height: 28,
-                    borderRadius: 999,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    background: "linear-gradient(135deg, #16A36A, #0B7A4D)",
-                    color: "#fff",
-                    fontWeight: 900,
-                    fontSize: 12,
-                  }}
-                >
-                  {number}
-                </span>
-                <span>
-                  <span style={{ display: "block", fontSize: layoutCompact ? 14 : 15, fontWeight: 900, lineHeight: 1.2 }}>{title}</span>
-                  <span style={{ display: "block", marginTop: 2, color: theme.muted, fontSize: layoutCompact ? 12 : 13, lineHeight: 1.4, fontWeight: 650 }}>{text}</span>
-                </span>
+                <span className="landing-step-card__num" aria-hidden>{number}</span>
+                <span className="landing-step-card__title">{title}</span>
+                <span className="landing-step-card__text">{text}</span>
               </li>
             ))}
           </ol>
