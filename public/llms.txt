@@ -8,6 +8,7 @@
 - Послуги: евакуатор, не заводиться (АКБ), пробило колесо, закінчилось пальне
 - Пілот: Ужгород · сервіс по Україні
 - Конфіденційність: https://pomich.help/privacy
+- Угода користувача: https://pomich.help/terms
 - Безпека: https://pomich.help/safety
 - Партнерам: https://pomich.help/partner
 
@@ -15,5 +16,6 @@
 - /sitemap.xml
 - /robots.txt
 - /privacy
+- /terms
 - /about
 - /safety
