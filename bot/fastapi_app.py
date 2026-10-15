@@ -619,10 +619,12 @@ def _seo_legal_html(slug: str, page: dict[str, str]) -> str:
       display:flex; align-items:center; justify-content:space-between; gap:12px;
     }}
     .legal-brand {{
-      display:inline-flex; align-items:center; gap:10px; text-decoration:none; color:var(--text);
-      font-family:Outfit,Sora,sans-serif; font-weight:900; font-size:1.15rem; letter-spacing:-.02em;
+      display:inline-flex; align-items:center; text-decoration:none; color:var(--text);
     }}
-    .legal-brand img {{ width:36px; height:36px; border-radius:10px; object-fit:cover }}
+    .legal-brand img {{
+      display:block; width:140px; max-width:42vw; height:auto; object-fit:contain;
+      background:#fff; border-radius:10px; padding:4px;
+    }}
     .legal-back {{
       display:inline-flex; align-items:center; gap:6px; min-height:44px; padding:0 14px;
       border-radius:12px; border:1px solid var(--border); background:rgba(28,42,36,.05);
@@ -697,8 +699,7 @@ def _seo_legal_html(slug: str, page: dict[str, str]) -> str:
   <header class="legal-header">
     <div class="legal-header__inner">
       <a class="legal-brand" href="/" aria-label="POMICH — на головну">
-        <img src="/pomich-logo.png" alt="" width="36" height="36" />
-        <span>POMICH</span>
+        <img src="/pomich-logo.png" alt="POMICH" width="160" height="54" />
       </a>
       <a class="legal-back" href="/">
         <span aria-hidden="true">←</span>
