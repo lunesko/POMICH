@@ -19,6 +19,7 @@ import BrandLogo from "../ui/BrandLogo"
 import BetaNotice from "../ui/BetaNotice"
 import { usePomichTheme } from "../../context/PomichThemeProvider"
 import { type PomichThemeColors, type PomichThemeMode } from "../../lib/theme"
+import LandingNavIcon, { type LandingNavIconName } from "./LandingNavIcon"
 
 const BRAND = "var(--pomich-brand)"
 const DARK = "var(--pomich-text)"
@@ -276,14 +277,14 @@ export default function LandingPage({
   const theme = buildLandingTheme(mode, colors)
   const heroRegionLabel =
     directoryScope === "my-city" && directoryScopeCity ? directoryScopeCity : UKRAINE_WIDE_LABEL
-  const navItems = [
-    ["#home", "Головна"],
-    ["#services", "Послуги"],
-    ["#steps", "Як це працює"],
-    ["#map", "Карта"],
-    ["#faq", "FAQ"],
-    ["#contacts", "Контакти"],
-  ] as const
+  const navItems: ReadonlyArray<{ href: string; label: string; icon: LandingNavIconName }> = [
+    { href: "#home", label: "Головна", icon: "house" },
+    { href: "#services", label: "Послуги", icon: "wrench" },
+    { href: "#steps", label: "Як це працює", icon: "list-ordered" },
+    { href: "#map", label: "Карта", icon: "map" },
+    { href: "#faq", label: "FAQ", icon: "circle-help" },
+    { href: "#contacts", label: "Контакти", icon: "phone" },
+  ]
 
   useEffect(() => {
     /* Paint the decorative map on the first frame — delayed idle load looked like a
@@ -373,7 +374,7 @@ export default function LandingPage({
 
   const mapProviderCount = mapProviders.length
 
-  const headerH = layoutCompact ? 52 : 66
+  const headerH = layoutCompact ? 52 : 58
 
   return (
     <div
@@ -399,13 +400,13 @@ export default function LandingPage({
       )}
       <header
         className={`pomich-landing-header${headerScrolled ? " is-scrolled" : ""}`}
-        style={{ height: headerH, padding: layoutCompact ? "0 12px" : "0 28px" }}
+        style={{ height: headerH, padding: layoutCompact ? "0 12px" : "0 18px" }}
       >
         <div className="pomich-landing-header__inner">
           <a
             href="#home"
             className="pomich-landing-header__brand"
-            style={{ gap: layoutCompact ? 8 : 12 }}
+            style={{ gap: layoutCompact ? 8 : 10 }}
             onPointerDown={() => {
               if (!onHiddenAdmin) return
               if (adminHoldTimerRef.current) window.clearTimeout(adminHoldTimerRef.current)
@@ -430,7 +431,7 @@ export default function LandingPage({
               if (onHiddenAdmin) event.preventDefault()
             }}
           >
-            <BrandLogo compact={layoutCompact} />
+            <BrandLogo compact />
           </a>
           {layoutCompact ? (
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -448,17 +449,20 @@ export default function LandingPage({
               </button>
             </div>
           ) : (
-            <nav style={{ display: "flex", alignItems: "center", gap: 26 }}>
-              {navItems.map(([href, label]) => (
-                <a key={href} href={href} className="pomich-landing-nav-link">{label}</a>
+            <nav className="pomich-landing-header__nav" aria-label="Навігація">
+              {navItems.map(({ href, label, icon }) => (
+                <a key={href} href={href} className="pomich-landing-nav-link">
+                  <LandingNavIcon name={icon} />
+                  <span>{label}</span>
+                </a>
               ))}
             </nav>
           )}
           {!layoutCompact ? (
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <ThemeToggle compact={layoutCompact} />
-              <LandingButton theme={theme} variant="ghost" surface="header" onClick={onLogin}>Увійти</LandingButton>
-              <LandingButton theme={theme} onClick={onRegister}>Зареєструватися</LandingButton>
+            <div className="pomich-landing-header__actions">
+              <ThemeToggle compact />
+              <LandingButton theme={theme} variant="ghost" surface="header" compact onClick={onLogin}>Увійти</LandingButton>
+              <LandingButton theme={theme} compact onClick={onRegister}>Зареєструватися</LandingButton>
             </div>
           ) : null}
         </div>
@@ -477,8 +481,11 @@ export default function LandingPage({
               aria-modal="true"
               style={{ top: headerH }}
             >
-              {navItems.map(([href, label]) => (
-                <a key={href} href={href} onClick={() => setMenuOpen(false)} className="pomich-landing-header__menu-link">{label}</a>
+              {navItems.map(({ href, label, icon }) => (
+                <a key={href} href={href} onClick={() => setMenuOpen(false)} className="pomich-landing-header__menu-link">
+                  <LandingNavIcon name={icon} size={16} />
+                  <span>{label}</span>
+                </a>
               ))}
               <button type="button" className="pomich-landing-header__menu-login" onClick={() => { setMenuOpen(false); onLogin() }}>Увійти</button>
               <button type="button" className="pomich-landing-header__menu-register" onClick={() => { setMenuOpen(false); onRegister() }}>Зареєструватися</button>
