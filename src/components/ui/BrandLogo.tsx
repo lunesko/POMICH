@@ -8,7 +8,7 @@ export default function BrandLogo({ compact = false }: { compact?: boolean }) {
       draggable={false}
       style={{
         display: "block",
-        width: compact ? 112 : 148,
+        width: compact ? 96 : 148,
         maxWidth: "100%",
         height: "auto",
         flexShrink: 0,
