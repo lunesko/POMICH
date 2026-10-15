@@ -495,8 +495,8 @@ export default function LandingPage({
             position: "relative",
             minHeight: layoutCompact ? "min(100dvh, 640px)" : "min(100dvh, 780px)",
             display: "flex",
-            alignItems: layoutCompact ? "center" : "flex-end",
-            justifyContent: layoutCompact ? "center" : "flex-start",
+            alignItems: "center",
+            justifyContent: "center",
             paddingTop: headerH + (layoutCompact ? 28 : 36),
             paddingRight: layoutCompact ? 18 : 48,
             paddingBottom: layoutCompact ? 40 : 72,
@@ -510,20 +510,20 @@ export default function LandingPage({
               position: "relative",
               zIndex: 3,
               width: "100%",
-              maxWidth: layoutCompact ? 420 : 560,
-              textAlign: layoutCompact ? "center" : "left",
-              margin: layoutCompact ? "0 auto" : "0",
+              maxWidth: layoutCompact ? 420 : 640,
+              textAlign: "center",
+              margin: "0 auto",
             }}
           >
             <BetaNotice />
             <h1
               className="landing-hero-brand"
               style={{
-                margin: 0,
+                margin: "0 auto",
                 fontFamily: "var(--font-display, var(--font-sans))",
                 fontSize: layoutCompact
                   ? "clamp(48px, calc((100vw - 40px) / 5.2), 84px)"
-                  : "clamp(96px, 12vw, 140px)",
+                  : "clamp(88px, 11vw, 132px)",
                 lineHeight: 0.9,
                 fontWeight: 800,
                 letterSpacing: layoutCompact ? "-0.05em" : "-0.035em",
@@ -548,12 +548,12 @@ export default function LandingPage({
             <p
               className="landing-hero-title"
               style={{
-                margin: layoutCompact ? "14px 0 0" : "18px 0 0",
+                margin: layoutCompact ? "14px auto 0" : "18px auto 0",
                 fontSize: layoutCompact ? 18 : "clamp(20px, 2.2vw, 26px)",
                 lineHeight: 1.2,
                 letterSpacing: "-0.02em",
                 fontWeight: 750,
-                maxWidth: layoutCompact ? "100%" : 440,
+                maxWidth: layoutCompact ? "100%" : 480,
               }}
             >
               Допомога на дорозі за хвилини
@@ -561,8 +561,8 @@ export default function LandingPage({
             <p
               className="landing-hero-support"
               style={{
-                margin: layoutCompact ? "8px auto 0" : "10px 0 0",
-                maxWidth: layoutCompact ? 320 : 380,
+                margin: layoutCompact ? "8px auto 0" : "12px auto 0",
+                maxWidth: layoutCompact ? 320 : 420,
                 fontSize: layoutCompact ? 13 : 15,
                 lineHeight: 1.45,
                 fontWeight: 600,
@@ -573,11 +573,12 @@ export default function LandingPage({
             <div
               className="landing-hero-ctas"
               style={{
-                margin: layoutCompact ? "18px auto 0" : "24px 0 0",
+                margin: layoutCompact ? "18px auto 0" : "26px auto 0",
                 display: "grid",
                 gridTemplateColumns: layoutCompact ? "1fr" : "1fr 1fr",
-                gap: 8,
-                maxWidth: layoutCompact ? 300 : 400,
+                gap: 10,
+                maxWidth: layoutCompact ? 300 : 420,
+                width: "100%",
               }}
             >
               <LandingButton theme={theme} compact={layoutCompact} className="landing-hero-cta-primary" onClick={() => onSelect("customer")}>Потрібна допомога</LandingButton>
