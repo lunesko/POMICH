@@ -587,10 +587,11 @@ export default function LandingPage({
           </div>
         </section>
 
-        <section className="pomich-landing-section landing-trust" style={{ padding: layoutCompact ? "12px 12px 4px" : "20px 24px 8px" }} aria-label="Переваги">
+        <section className="pomich-landing-section landing-trust" style={{ padding: layoutCompact ? "8px 16px 4px" : "12px 24px 8px" }} aria-label="Переваги">
           <div className="landing-trust-grid pomich-landing-inner landing-reveal">
-            {landingTrust.map(([title, text]) => (
+            {landingTrust.map(([title, text], index) => (
               <div key={title} className="landing-trust-item">
+                {index > 0 ? <span className="landing-trust-item__rule" aria-hidden /> : null}
                 <div className="landing-trust-item__title">{title}</div>
                 <div className="landing-trust-item__text">{text}</div>
               </div>
@@ -598,43 +599,32 @@ export default function LandingPage({
           </div>
         </section>
 
-        <section id="services" className="pomich-landing-section" style={{ padding: layoutCompact ? "20px 12px" : "48px 24px 64px" }}>
-          <LandingSectionTitle theme={theme} eyebrow="Послуги" title="Що викликаємо" subtitle="Орієнтовна база без реєстрації. Партнер пропонує ціну, клієнт підтверджує її перед виїздом." compact={layoutCompact} />
-          <div className="landing-services-list pomich-landing-inner" style={{ display: "grid", gap: layoutCompact ? 6 : 8 }}>
-            {services.map((service) => {
+        <section id="services" className="pomich-landing-section" style={{ padding: layoutCompact ? "28px 16px 36px" : "56px 24px 72px" }}>
+          <LandingSectionTitle theme={theme} eyebrow="Послуги" title="Що викликаємо" subtitle="Орієнтовна база без реєстрації. Партнер пропонує ціну — ви підтверджуєте перед виїздом." compact={layoutCompact} />
+          <div className="landing-services-list pomich-landing-inner">
+            {services.map((service, index) => {
               const basePrice = calculatePrice(service.key, 0).price
+              const priceHint = service.key === "tow" ? "+90 ₴/км" : "виїзд окремо"
               return (
                 <button
                   key={service.key}
                   type="button"
                   className="landing-service-row"
                   onClick={() => onSelect("customer")}
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "auto 1fr auto",
-                    alignItems: "center",
-                    gap: 10,
-                    width: "100%",
-                    minHeight: layoutCompact ? 48 : 52,
-                    padding: layoutCompact ? "8px 10px" : "10px 12px",
-                    borderRadius: 12,
-                    border: `1px solid ${theme.cardBorder}`,
-                    background: "color-mix(in srgb, var(--pomich-card-bg) 88%, transparent)",
-                    color: theme.text,
-                    fontFamily: "inherit",
-                    cursor: "pointer",
-                    textAlign: "left",
-                    backdropFilter: "blur(12px)",
-                  }}
+                  style={{ animationDelay: `${0.04 + index * 0.04}s` }}
                 >
-                  <span className="landing-service-card__icon" style={{ background: service.tone, width: 36, height: 36, borderRadius: 10, display: "grid", placeItems: "center" }}>
-                    <ServiceIcon service={service.key} size={20} />
+                  <span className="landing-service-row__icon" style={{ background: service.tone }}>
+                    <ServiceIcon service={service.key} size={layoutCompact ? 22 : 24} />
                   </span>
-                  <span>
-                    <span style={{ display: "block", fontSize: layoutCompact ? 14 : 15, fontWeight: 900, lineHeight: 1.15 }}>{service.label}</span>
-                    <span style={{ display: "block", marginTop: 2, color: theme.muted, fontSize: 12, fontWeight: 700 }}>від {basePrice} ₴{service.key === "tow" ? " · +90 ₴/км перевезення" : " · виїзд і матеріали узгоджуються"}</span>
+                  <span className="landing-service-row__copy">
+                    <span className="landing-service-row__name">{service.label}</span>
+                    <span className="landing-service-row__hint">{priceHint}</span>
                   </span>
-                  <span aria-hidden style={{ color: theme.subtle, fontWeight: 900, fontSize: 18 }}>›</span>
+                  <span className="landing-service-row__price">
+                    <span className="landing-service-row__from">від</span>
+                    <span className="landing-service-row__amount">{basePrice} ₴</span>
+                  </span>
+                  <span className="landing-service-row__chevron" aria-hidden>›</span>
                 </button>
               )
             })}

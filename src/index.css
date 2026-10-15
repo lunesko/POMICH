@@ -6974,41 +6974,72 @@ html:not([data-pomich-theme]) .pomich-cabinet-footer {
 .landing-trust-grid {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 8px;
+  gap: 14px;
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 8px 0 4px;
 }
 @media (min-width: 720px) {
   .landing-trust-grid {
-    grid-template-columns: repeat(3, 1fr);
-    gap: 10px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0;
+    align-items: start;
   }
 }
 .landing-trust-item {
-  border: 1px solid color-mix(in srgb, var(--pomich-border) 85%, transparent);
-  border-radius: 12px;
-  padding: 10px 12px;
-  background: color-mix(in srgb, var(--pomich-card-bg) 86%, transparent);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  text-align: left;
-  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+  position: relative;
+  border: none;
+  border-radius: 0;
+  padding: 4px 18px;
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  text-align: center;
+  box-shadow: none;
+  transition: none;
 }
 .landing-trust-item:hover {
-  transform: translateY(-1px);
-  border-color: rgba(22, 163, 106, 0.35);
-  box-shadow: 0 8px 18px -8px rgba(22, 163, 106, 0.2);
+  transform: none;
+  border-color: transparent;
+  box-shadow: none;
+}
+.landing-trust-item__rule {
+  display: none;
+}
+@media (min-width: 720px) {
+  .landing-trust-item__rule {
+    display: block;
+    position: absolute;
+    left: 0;
+    top: 12%;
+    bottom: 12%;
+    width: 1px;
+    background: linear-gradient(
+      180deg,
+      transparent 0%,
+      color-mix(in srgb, var(--pomich-border) 90%, transparent) 20%,
+      color-mix(in srgb, var(--pomich-border) 90%, transparent) 80%,
+      transparent 100%
+    );
+  }
 }
 .landing-trust-item__title {
-  font-size: 0.86rem;
+  font-family: var(--font-display, var(--font-sans));
+  font-size: clamp(0.95rem, 1.4vw, 1.08rem);
   font-weight: 900;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.03em;
   color: var(--pomich-text);
+  line-height: 1.2;
 }
 .landing-trust-item__text {
-  margin-top: 3px;
-  font-size: 0.72rem;
+  margin-top: 6px;
+  font-size: 0.8rem;
   font-weight: 650;
-  line-height: 1.35;
+  line-height: 1.4;
   color: var(--pomich-muted);
+  max-width: 16rem;
+  margin-left: auto;
+  margin-right: auto;
 }
 .landing-faq {
   display: grid;
@@ -7066,16 +7097,137 @@ html:not([data-pomich-theme]) .pomich-cabinet-footer {
   }
 }
 
+.landing-services-list {
+  display: grid;
+  gap: 10px;
+  max-width: 640px;
+  margin: 0 auto;
+  width: 100%;
+}
 .landing-service-row {
-  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: 12px 14px;
+  width: 100%;
+  min-height: 64px;
+  padding: 12px 14px 12px 12px;
+  border: 1px solid color-mix(in srgb, var(--pomich-border) 70%, transparent);
+  border-radius: 16px;
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--pomich-card-bg) 92%, #fff) 0%,
+      color-mix(in srgb, var(--pomich-card-bg) 78%, transparent) 100%
+    );
+  color: var(--pomich-text);
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.35) inset;
+  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+  animation: pomichServiceRowIn 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 .landing-service-row:hover {
-  transform: translateY(-1px);
-  border-color: rgba(34, 197, 94, 0.45) !important;
-  box-shadow: 0 8px 18px -6px rgba(22, 163, 106, 0.18);
+  transform: translateY(-2px);
+  border-color: rgba(22, 163, 106, 0.42);
+  box-shadow:
+    0 14px 28px -18px rgba(11, 122, 77, 0.35),
+    0 1px 0 rgba(255, 255, 255, 0.4) inset;
 }
 .landing-service-row:active {
-  transform: translateY(1px) scale(0.99);
+  transform: translateY(0) scale(0.992);
+}
+.landing-service-row__icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  box-shadow: 0 6px 14px -8px rgba(15, 23, 42, 0.35);
+}
+.landing-service-row__icon svg,
+.landing-service-row__icon img {
+  width: 1.45rem;
+  height: 1.45rem;
+}
+.landing-service-row__copy {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+.landing-service-row__name {
+  display: block;
+  font-size: 1rem;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  color: var(--pomich-text);
+}
+.landing-service-row__hint {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 650;
+  color: var(--pomich-muted);
+  line-height: 1.3;
+}
+.landing-service-row__price {
+  display: grid;
+  justify-items: end;
+  gap: 1px;
+  text-align: right;
+  white-space: nowrap;
+}
+.landing-service-row__from {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--pomich-subtle);
+}
+.landing-service-row__amount {
+  font-size: 1.02rem;
+  font-weight: 900;
+  letter-spacing: -0.03em;
+  color: var(--pomich-accent, #0b7a4d);
+  font-variant-numeric: tabular-nums;
+}
+.landing-service-row__chevron {
+  color: var(--pomich-subtle);
+  font-weight: 900;
+  font-size: 1.35rem;
+  line-height: 1;
+  transition: transform 0.18s ease, color 0.18s ease;
+}
+.landing-service-row:hover .landing-service-row__chevron {
+  color: var(--pomich-brand);
+  transform: translateX(2px);
+}
+@media (max-width: 520px) {
+  .landing-service-row {
+    grid-template-columns: auto 1fr auto;
+    grid-template-areas:
+      "icon copy chevron"
+      "icon price chevron";
+    gap: 4px 12px;
+    min-height: 60px;
+    padding: 12px;
+    border-radius: 14px;
+  }
+  .landing-service-row__icon { grid-area: icon; width: 44px; height: 44px; }
+  .landing-service-row__copy { grid-area: copy; }
+  .landing-service-row__price {
+    grid-area: price;
+    justify-items: start;
+    text-align: left;
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+  }
+  .landing-service-row__chevron { grid-area: chevron; align-self: center; }
+  .landing-service-row__name { font-size: 0.95rem; }
+  .landing-service-row__amount { font-size: 0.95rem; }
 }
 .landing-step-row:last-child {
   border-bottom: none !important;
