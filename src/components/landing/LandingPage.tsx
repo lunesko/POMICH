@@ -623,7 +623,7 @@ export default function LandingPage({
                   style={{ animationDelay: `${0.04 + index * 0.05}s`, ["--service-tone" as string]: service.tone }}
                 >
                   <span className="landing-service-tile__icon" style={{ background: service.tone }}>
-                    <ServiceIcon service={service.key} size={layoutCompact ? 22 : 32} />
+                    <ServiceIcon service={service.key} size={layoutCompact ? 24 : 32} />
                   </span>
                   <span className="landing-service-tile__name">{service.label}</span>
                   <span className="landing-service-tile__meta">
