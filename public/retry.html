@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="robots" content="noindex,nofollow" />
+  <meta http-equiv="refresh" content="4" />
+  <meta name="theme-color" content="#0B7A4D" />
+  <title>POMICH · оновлення</title>
+  <link rel="icon" href="/favicon-32.png" type="image/png" />
+  <style>
+    :root {
+      --bg: #E2E9E6;
+      --bg-deep: #D4E0DA;
+      --ink: #1A2332;
+      --muted: #4A5A68;
+      --brand: #16A36A;
+      --brand-deep: #0B7A4D;
+      --surface: rgba(255, 255, 255, 0.55);
+      --line: rgba(28, 42, 36, 0.12);
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      min-height: 100dvh;
+    }
+
+    body {
+      display: grid;
+      place-items: center;
+      padding: max(24px, env(safe-area-inset-top)) 24px max(24px, env(safe-area-inset-bottom));
+      font-family: "Sora", system-ui, -apple-system, "Segoe UI", sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(120% 80% at 50% -10%, rgba(22, 163, 106, 0.22), transparent 55%),
+        radial-gradient(90% 70% at 100% 100%, rgba(11, 122, 77, 0.14), transparent 50%),
+        radial-gradient(70% 60% at 0% 90%, rgba(29, 111, 212, 0.08), transparent 45%),
+        linear-gradient(165deg, var(--bg) 0%, var(--bg-deep) 100%);
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+    }
+
+    .stage {
+      width: min(100%, 420px);
+      text-align: center;
+      animation: rise 560ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    }
+
+    .mark {
+      width: 64px;
+      height: 64px;
+      margin: 0 auto 22px;
+      border-radius: 18px;
+      background: #fff;
+      box-shadow: 0 10px 28px rgba(11, 122, 77, 0.16), 0 1px 0 rgba(255, 255, 255, 0.7) inset;
+      display: grid;
+      place-items: center;
+      animation: softPulse 2.4s ease-in-out infinite;
+    }
+
+    .mark svg { display: block; width: 36px; height: 36px; }
+
+    .brand {
+      margin: 0;
+      font-size: clamp(2.4rem, 9vw, 3.25rem);
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      line-height: 1;
+      color: var(--brand-deep);
+    }
+
+    .brand-line {
+      width: 72px;
+      height: 3px;
+      margin: 14px auto 28px;
+      border-radius: 999px;
+      background: linear-gradient(90deg, transparent, var(--brand), transparent);
+      background-size: 200% 100%;
+      animation: sheen 2.2s ease-in-out infinite;
+    }
+
+    h1 {
+      margin: 0 0 10px;
+      font-size: clamp(1.15rem, 4.2vw, 1.35rem);
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      line-height: 1.25;
+    }
+
+    .lead {
+      margin: 0 auto 28px;
+      max-width: 34ch;
+      font-size: 0.98rem;
+      line-height: 1.55;
+      color: var(--muted);
+      font-weight: 500;
+    }
+
+    .panel {
+      padding: 18px 18px 16px;
+      border-radius: 18px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      text-align: left;
+    }
+
+    .status {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+      font-size: 0.82rem;
+      font-weight: 650;
+      letter-spacing: 0.01em;
+      color: var(--brand-deep);
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--brand);
+      box-shadow: 0 0 0 0 rgba(22, 163, 106, 0.45);
+      animation: ping 1.6s ease-out infinite;
+      flex: 0 0 auto;
+    }
+
+    .status-left {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .eta {
+      color: var(--muted);
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .track {
+      height: 6px;
+      border-radius: 999px;
+      background: rgba(28, 42, 36, 0.1);
+      overflow: hidden;
+    }
+
+    .bar {
+      height: 100%;
+      width: 40%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--brand-deep), var(--brand), #3ecf8e);
+      animation: slide 1.35s ease-in-out infinite;
+    }
+
+    .tips {
+      margin: 16px 0 0;
+      padding: 0;
+      list-style: none;
+      display: grid;
+      gap: 8px;
+    }
+
+    .tips li {
+      display: grid;
+      grid-template-columns: 18px 1fr;
+      gap: 8px;
+      align-items: start;
+      font-size: 0.86rem;
+      line-height: 1.4;
+      color: var(--muted);
+      font-weight: 500;
+    }
+
+    .tips li::before {
+      content: "";
+      width: 6px;
+      height: 6px;
+      margin-top: 0.45em;
+      margin-left: 6px;
+      border-radius: 50%;
+      background: var(--brand);
+      opacity: 0.7;
+    }
+
+    .actions {
+      margin-top: 22px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .reload {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 48px;
+      padding: 0 20px;
+      border-radius: 14px;
+      background: var(--brand-deep);
+      color: #fff;
+      text-decoration: none;
+      font-weight: 700;
+      font-size: 0.95rem;
+      letter-spacing: 0.01em;
+      box-shadow: 0 12px 24px rgba(11, 122, 77, 0.22);
+      transition: transform 160ms ease, background 160ms ease;
+    }
+
+    .reload:hover { background: #096640; transform: translateY(-1px); }
+    .reload:active { transform: translateY(0); }
+
+    .note {
+      margin: 0;
+      font-size: 0.8rem;
+      line-height: 1.45;
+      color: var(--muted);
+      opacity: 0.9;
+    }
+
+    @keyframes rise {
+      from { opacity: 0; transform: translateY(12px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes softPulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.035); }
+    }
+
+    @keyframes sheen {
+      0%, 100% { background-position: 0% 50%; opacity: 0.55; }
+      50% { background-position: 100% 50%; opacity: 1; }
+    }
+
+    @keyframes slide {
+      0% { transform: translateX(-120%); }
+      100% { transform: translateX(320%); }
+    }
+
+    @keyframes ping {
+      0% { box-shadow: 0 0 0 0 rgba(22, 163, 106, 0.45); }
+      70%, 100% { box-shadow: 0 0 0 10px rgba(22, 163, 106, 0); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .stage, .mark, .brand-line, .bar, .status-dot { animation: none; }
+      .reload { transition: none; }
+    }
+  </style>
+</head>
+<body>
+  <main class="stage" role="status" aria-live="polite">
+    <div class="mark" aria-hidden="true">
+      <svg viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M25.6 15.9c.4-1.5.05-3.2-1.1-4.35a5.1 5.1 0 0 0-4.35-1.1 5.15 5.15 0 0 0-8.05 2.05 5.15 5.15 0 0 0-2.05 8.05 5.1 5.1 0 0 0 1.1 4.35 5.15 5.15 0 0 0 8.05 2.05 5.15 5.15 0 0 0 6.4-6.4 5.1 5.1 0 0 0 0-4.65z" stroke="#0B7A4D" stroke-width="2.2" stroke-linejoin="round"/>
+        <path d="M18 13.2 21.2 15v3.8L18 20.6 14.8 18.8V15L18 13.2z" fill="#16A36A"/>
+      </svg>
+    </div>
+
+    <p class="brand">POMICH</p>
+    <div class="brand-line" aria-hidden="true"></div>
+
+    <h1>Оновлюємо сервіс</h1>
+    <p class="lead">Виходить нова версія POMICH. Зачекайте кілька секунд — сторінка відкриється сама.</p>
+
+    <div class="panel">
+      <div class="status">
+        <span class="status-left"><span class="status-dot" aria-hidden="true"></span>Йде оновлення</span>
+        <span class="eta">~15–40 с</span>
+      </div>
+      <div class="track" aria-hidden="true"><div class="bar"></div></div>
+      <ul class="tips">
+        <li>Заявки й історія зберігаються</li>
+        <li>Нічого натискати не потрібно</li>
+        <li>Якщо довго — оновіть сторінку вручну</li>
+      </ul>
+    </div>
+
+    <div class="actions">
+      <a class="reload" href="/">Оновити зараз</a>
+      <p class="note">Автооновлення кожні 4 секунди</p>
+    </div>
+  </main>
+</body>
+</html>
