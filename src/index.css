@@ -6978,76 +6978,49 @@ html:not([data-pomich-theme]) .pomich-cabinet-footer {
   font-size: 11px;
   letter-spacing: 0.02em;
 }
-.landing-trust-grid {
+.landing-trust-strip {
+  list-style: none;
+  margin: 0 auto;
+  padding: 10px 0 2px;
+  max-width: 980px;
   display: grid;
   grid-template-columns: 1fr;
-  gap: 14px;
-  max-width: 920px;
-  margin: 0 auto;
-  padding: 8px 0 4px;
+  gap: 12px;
+  text-align: center;
 }
-@media (min-width: 720px) {
-  .landing-trust-grid {
+@media (min-width: 760px) {
+  .landing-trust-strip {
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 0;
-    align-items: start;
+  }
+  .landing-trust-strip__item + .landing-trust-strip__item {
+    border-left: 1px solid color-mix(in srgb, var(--pomich-border) 85%, transparent);
   }
 }
-.landing-trust-item {
-  position: relative;
-  border: none;
-  border-radius: 0;
-  padding: 4px 18px;
-  background: transparent;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-  text-align: center;
-  box-shadow: none;
-  transition: none;
+.landing-trust-strip__item {
+  display: grid;
+  gap: 4px;
+  padding: 2px 18px;
+  justify-items: center;
 }
-.landing-trust-item:hover {
-  transform: none;
-  border-color: transparent;
-  box-shadow: none;
-}
-.landing-trust-item__rule {
-  display: none;
-}
-@media (min-width: 720px) {
-  .landing-trust-item__rule {
-    display: block;
-    position: absolute;
-    left: 0;
-    top: 12%;
-    bottom: 12%;
-    width: 1px;
-    background: linear-gradient(
-      180deg,
-      transparent 0%,
-      color-mix(in srgb, var(--pomich-border) 90%, transparent) 20%,
-      color-mix(in srgb, var(--pomich-border) 90%, transparent) 80%,
-      transparent 100%
-    );
-  }
-}
-.landing-trust-item__title {
+.landing-trust-strip__item strong {
   font-family: var(--font-display, var(--font-sans));
-  font-size: clamp(0.95rem, 1.4vw, 1.08rem);
+  font-size: clamp(0.95rem, 1.35vw, 1.08rem);
   font-weight: 900;
   letter-spacing: -0.03em;
   color: var(--pomich-text);
   line-height: 1.2;
 }
-.landing-trust-item__text {
-  margin-top: 6px;
+.landing-trust-strip__item span {
   font-size: 0.8rem;
   font-weight: 650;
   line-height: 1.4;
   color: var(--pomich-muted);
-  max-width: 16rem;
-  margin-left: auto;
-  margin-right: auto;
+  max-width: 15.5rem;
 }
+/* Keep legacy class hooks harmless if referenced elsewhere */
+.landing-trust-grid { display: contents; }
+.landing-trust-item { display: contents; }
 .landing-faq {
   display: grid;
   gap: 8px;
@@ -7104,138 +7077,122 @@ html:not([data-pomich-theme]) .pomich-cabinet-footer {
   }
 }
 
-.landing-services-list {
+.landing-services-grid {
   display: grid;
-  gap: 10px;
-  max-width: 640px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  max-width: 880px;
   margin: 0 auto;
   width: 100%;
 }
-.landing-service-row {
+@media (min-width: 900px) {
+  .landing-services-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+  }
+}
+.landing-service-tile {
+  appearance: none;
   display: grid;
-  grid-template-columns: auto 1fr auto auto;
-  align-items: center;
-  gap: 12px 14px;
+  justify-items: center;
+  align-content: start;
+  gap: 12px;
+  text-align: center;
   width: 100%;
-  min-height: 64px;
-  padding: 12px 14px 12px 12px;
-  border: 1px solid color-mix(in srgb, var(--pomich-border) 70%, transparent);
-  border-radius: 16px;
+  min-height: 168px;
+  padding: 20px 16px 18px;
+  border-radius: 20px;
+  border: 1px solid color-mix(in srgb, var(--pomich-border) 68%, transparent);
   background:
     linear-gradient(
-      135deg,
-      color-mix(in srgb, var(--pomich-card-bg) 92%, #fff) 0%,
-      color-mix(in srgb, var(--pomich-card-bg) 78%, transparent) 100%
+      165deg,
+      color-mix(in srgb, var(--pomich-card-bg) 96%, #fff) 0%,
+      color-mix(in srgb, var(--pomich-card-bg) 82%, transparent) 100%
     );
   color: var(--pomich-text);
   font-family: inherit;
   cursor: pointer;
-  text-align: left;
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.35) inset;
-  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.45) inset;
+  transition: transform 0.22s ease, border-color 0.22s ease, box-shadow 0.22s ease;
   animation: pomichServiceRowIn 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
-.landing-service-row:hover {
-  transform: translateY(-2px);
-  border-color: rgba(22, 163, 106, 0.42);
+.landing-service-tile:hover {
+  transform: translateY(-3px);
+  border-color: rgba(22, 163, 106, 0.4);
   box-shadow:
-    0 14px 28px -18px rgba(11, 122, 77, 0.35),
-    0 1px 0 rgba(255, 255, 255, 0.4) inset;
+    0 18px 34px -22px rgba(11, 122, 77, 0.4),
+    0 1px 0 rgba(255, 255, 255, 0.5) inset;
 }
-.landing-service-row:active {
-  transform: translateY(0) scale(0.992);
+.landing-service-tile:active {
+  transform: translateY(-1px) scale(0.99);
 }
-.landing-service-row__icon {
-  width: 48px;
-  height: 48px;
-  border-radius: 14px;
+.landing-service-tile__icon {
+  width: 64px;
+  height: 64px;
+  border-radius: 18px;
   display: grid;
   place-items: center;
-  flex-shrink: 0;
-  box-shadow: 0 6px 14px -8px rgba(15, 23, 42, 0.35);
+  box-shadow: 0 10px 20px -12px rgba(15, 23, 42, 0.35);
 }
-.landing-service-row__icon svg,
-.landing-service-row__icon img {
-  width: 1.45rem;
-  height: 1.45rem;
+.landing-service-tile__icon svg,
+.landing-service-tile__icon img {
+  width: 2rem;
+  height: 2rem;
 }
-.landing-service-row__copy {
-  min-width: 0;
-  display: grid;
-  gap: 3px;
-}
-.landing-service-row__name {
-  display: block;
-  font-size: 1rem;
+.landing-service-tile__name {
+  font-family: var(--font-display, var(--font-sans));
+  font-size: clamp(0.98rem, 1.5vw, 1.12rem);
   font-weight: 900;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.03em;
   line-height: 1.15;
   color: var(--pomich-text);
 }
-.landing-service-row__hint {
-  display: block;
-  font-size: 0.78rem;
-  font-weight: 650;
-  color: var(--pomich-muted);
-  line-height: 1.3;
-}
-.landing-service-row__price {
+.landing-service-tile__meta {
   display: grid;
-  justify-items: end;
-  gap: 1px;
-  text-align: right;
-  white-space: nowrap;
+  gap: 3px;
+  justify-items: center;
 }
-.landing-service-row__from {
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--pomich-subtle);
-}
-.landing-service-row__amount {
-  font-size: 1.02rem;
+.landing-service-tile__price {
+  font-size: 1.05rem;
   font-weight: 900;
   letter-spacing: -0.03em;
   color: var(--pomich-accent, #0b7a4d);
   font-variant-numeric: tabular-nums;
 }
-.landing-service-row__chevron {
-  color: var(--pomich-subtle);
-  font-weight: 900;
-  font-size: 1.35rem;
-  line-height: 1;
-  transition: transform 0.18s ease, color 0.18s ease;
+.landing-service-tile__hint {
+  font-size: 0.76rem;
+  font-weight: 650;
+  color: var(--pomich-muted);
 }
-.landing-service-row:hover .landing-service-row__chevron {
-  color: var(--pomich-brand);
-  transform: translateX(2px);
-}
-@media (max-width: 520px) {
-  .landing-service-row {
-    grid-template-columns: auto 1fr auto;
-    grid-template-areas:
-      "icon copy chevron"
-      "icon price chevron";
-    gap: 4px 12px;
-    min-height: 60px;
-    padding: 12px;
-    border-radius: 14px;
+@media (max-width: 420px) {
+  .landing-services-grid {
+    grid-template-columns: 1fr;
   }
-  .landing-service-row__icon { grid-area: icon; width: 44px; height: 44px; }
-  .landing-service-row__copy { grid-area: copy; }
-  .landing-service-row__price {
-    grid-area: price;
+  .landing-service-tile {
+    min-height: 0;
+    grid-template-columns: auto 1fr;
+    grid-template-areas:
+      "icon name"
+      "icon meta";
     justify-items: start;
     text-align: left;
-    display: flex;
-    align-items: baseline;
-    gap: 6px;
+    gap: 4px 14px;
+    padding: 14px;
+    border-radius: 16px;
   }
-  .landing-service-row__chevron { grid-area: chevron; align-self: center; }
-  .landing-service-row__name { font-size: 0.95rem; }
-  .landing-service-row__amount { font-size: 0.95rem; }
+  .landing-service-tile__icon {
+    grid-area: icon;
+    width: 52px;
+    height: 52px;
+    border-radius: 14px;
+    align-self: center;
+  }
+  .landing-service-tile__name { grid-area: name; align-self: end; }
+  .landing-service-tile__meta { grid-area: meta; justify-items: start; align-self: start; }
 }
+/* Legacy row hooks kept for older CSS references */
+.landing-services-list { display: contents; }
+.landing-service-row { display: none; }
 .landing-steps-list {
   list-style: none;
   margin: 0 auto;
