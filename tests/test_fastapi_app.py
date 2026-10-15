@@ -1513,6 +1513,15 @@ def test_robots_sitemap_and_seo_landings_are_indexable(monkeypatch, tmp_path):
     assert 'rel="canonical"' in landing.text
     assert "text/html" in (landing.headers.get("content-type") or "")
 
+    privacy = client.get("/privacy")
+    assert privacy.status_code == 200
+    assert "Політика конфіденційності" in privacy.text
+    assert "Погоджуюсь" in privacy.text
+    assert "OpenStreetMap" in privacy.text
+    assert "@pomich_ua_bot" in privacy.text
+    assert 'rel="canonical"' in privacy.text
+    assert "https://pomich.help/privacy" in privacy.text
+
 
 
 def test_unknown_paths_return_real_html_404(monkeypatch, tmp_path):
