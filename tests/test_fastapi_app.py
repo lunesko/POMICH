@@ -1521,6 +1521,9 @@ def test_robots_sitemap_and_seo_landings_are_indexable(monkeypatch, tmp_path):
     assert "@pomich_ua_bot" in privacy.text
     assert 'rel="canonical"' in privacy.text
     assert "https://pomich.help/privacy" in privacy.text
+    assert "На головну" in privacy.text
+    assert 'id="to-top"' in privacy.text
+    assert "/pomich-logo.png" in privacy.text
 
     terms = client.get("/terms")
     assert terms.status_code == 200
@@ -1530,6 +1533,9 @@ def test_robots_sitemap_and_seo_landings_are_indexable(monkeypatch, tmp_path):
     assert "@pomich_ua_bot" in terms.text
     assert 'rel="canonical"' in terms.text
     assert "https://pomich.help/terms" in terms.text
+    assert "На головну" in terms.text
+    assert 'id="to-top"' in terms.text
+    assert "legal-card" in terms.text
 
 
 

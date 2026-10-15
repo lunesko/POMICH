@@ -469,6 +469,15 @@ _SEO_PUBLIC_PAGES: dict[str, dict[str, str]] = {
 }
 
 
+_LEGAL_SEO_SLUGS = frozenset({"privacy", "terms"})
+
+
+def _seo_page_html(slug: str, page: dict[str, str]) -> str:
+    if slug in _LEGAL_SEO_SLUGS:
+        return _seo_legal_html(slug, page)
+    return _seo_landing_html(slug, page)
+
+
 def _seo_landing_html(slug: str, page: dict[str, str]) -> str:
     title = page["title"]
     h1 = page["h1"]
@@ -537,6 +546,197 @@ def _seo_landing_html(slug: str, page: dict[str, str]) -> str:
       <li><a href="/safety">Безпека</a></li>
     </ul>
   </main>
+</body>
+</html>
+"""
+
+
+def _seo_legal_html(slug: str, page: dict[str, str]) -> str:
+    """Landing-styled legal pages (/privacy, /terms) with back-home and scroll-to-top."""
+    title = page["title"]
+    h1 = page["h1"]
+    lead = page["lead"]
+    extra = page.get("body_html", "")
+    canonical = f"https://pomich.help/{slug}"
+    sibling_href = "/terms" if slug == "privacy" else "/privacy"
+    sibling_label = "Угода користувача" if slug == "privacy" else "Конфіденційність"
+    return f"""<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>{title}</title>
+  <meta name="description" content="{lead}" />
+  <link rel="canonical" href="{canonical}" />
+  <meta property="og:title" content="{title}" />
+  <meta property="og:description" content="{lead}" />
+  <meta property="og:url" content="{canonical}" />
+  <meta property="og:type" content="website" />
+  <meta property="og:image" content="https://pomich.help/og-cover-v2.png" />
+  <meta property="og:image:type" content="image/png" />
+  <meta property="og:image:width" content="1730" />
+  <meta property="og:image:height" content="909" />
+  <meta property="og:image:alt" content="Pomich — допомога на дорозі: евакуатор, АКБ, колесо, пальне." />
+  <meta property="og:locale" content="uk_UA" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="{title}" />
+  <meta name="twitter:description" content="{lead}" />
+  <meta name="twitter:image" content="https://pomich.help/og-cover-v2.png" />
+  <meta name="twitter:image:alt" content="Pomich — допомога на дорозі: евакуатор, АКБ, колесо, пальне." />
+  <meta name="robots" content="index,follow" />
+  <meta name="theme-color" content="#E2E9E6" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" type="image/png" href="/favicon.png" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@700;800;900&family=Sora:wght@600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    :root {{
+      --text:#1A2332; --muted:#4A5A68; --brand:#16A36A; --accent:#0B7A4D;
+      --border:rgba(28,42,36,.12); --card:rgba(236,241,238,.92);
+      --nav:rgba(232,238,235,.94); --footer:rgba(238,244,248,.92);
+    }}
+    * {{ box-sizing:border-box }}
+    html {{ scroll-behavior:smooth }}
+    body {{
+      margin:0; font-family:Sora,system-ui,sans-serif; color:var(--text); line-height:1.55;
+      background:
+        radial-gradient(ellipse 120% 80% at 20% 0%, rgba(22,163,106,.12), transparent 55%),
+        radial-gradient(ellipse 90% 70% at 85% 15%, rgba(47,128,237,.08), transparent 50%),
+        linear-gradient(165deg, #ecf1ee 0%, #e2eae6 48%, #d6e0db 100%);
+      min-height:100vh;
+    }}
+    a {{ color:var(--accent); font-weight:700 }}
+    a:hover {{ color:var(--brand) }}
+    .legal-header {{
+      position:sticky; top:0; z-index:40;
+      background:var(--nav); backdrop-filter:blur(14px);
+      border-bottom:1px solid var(--border);
+    }}
+    .legal-header__inner {{
+      max-width:720px; margin:0 auto; padding:12px 16px;
+      display:flex; align-items:center; justify-content:space-between; gap:12px;
+    }}
+    .legal-brand {{
+      display:inline-flex; align-items:center; gap:10px; text-decoration:none; color:var(--text);
+      font-family:Outfit,Sora,sans-serif; font-weight:900; font-size:1.15rem; letter-spacing:-.02em;
+    }}
+    .legal-brand img {{ width:36px; height:36px; border-radius:10px; object-fit:cover }}
+    .legal-back {{
+      display:inline-flex; align-items:center; gap:6px; min-height:44px; padding:0 14px;
+      border-radius:12px; border:1px solid var(--border); background:rgba(28,42,36,.05);
+      color:var(--text); text-decoration:none; font-weight:800; font-size:.9rem;
+    }}
+    .legal-back:hover {{ background:rgba(22,163,106,.12); color:var(--accent); border-color:rgba(22,163,106,.28) }}
+    .legal-main {{ max-width:720px; margin:0 auto; padding:28px 16px 96px }}
+    .legal-card {{
+      background:var(--card); border:1px solid var(--border); border-radius:20px;
+      box-shadow:0 8px 24px rgba(28,42,36,.06), 0 1px 2px rgba(0,0,0,.03);
+      padding:clamp(1.25rem,3vw,2rem);
+    }}
+    .legal-eyebrow {{
+      display:inline-flex; border:1px solid rgba(47,128,237,.42); background:rgba(47,128,237,.14);
+      color:#1D6FD4; border-radius:999px; padding:6px 12px; font-weight:900; font-size:12px; margin:0 0 14px;
+    }}
+    h1 {{
+      font-family:Outfit,Sora,sans-serif; font-size:clamp(1.75rem,4vw,2.35rem);
+      letter-spacing:-.03em; margin:0 0 .75rem; line-height:1.1; font-weight:900;
+      background:linear-gradient(90deg,#0B7A4D 0%,#1D6FD4 52%,#B8860B 100%);
+      -webkit-background-clip:text; background-clip:text; color:transparent;
+    }}
+    .legal-lead {{ margin:0 0 1.25rem; color:var(--muted); font-weight:700; font-size:1.02rem }}
+    .legal-body h2 {{
+      font-size:1.05rem; margin:1.6rem 0 .55rem; letter-spacing:-.02em; font-weight:900; color:var(--text);
+    }}
+    .legal-body p {{ margin:.55rem 0 }}
+    .legal-body ul {{ padding-left:1.15rem; margin:.5rem 0 }}
+    .legal-body li {{ margin:.3rem 0 }}
+    .legal-body .meta {{ color:var(--muted); font-size:.9rem; font-weight:650 }}
+    .legal-actions {{
+      display:flex; flex-wrap:wrap; gap:10px; margin-top:1.75rem; align-items:center;
+    }}
+    .cta {{
+      display:inline-flex; align-items:center; justify-content:center; min-height:48px;
+      padding:.75rem 1.15rem; border-radius:12px;
+      background:linear-gradient(135deg,#16A36A,#0B7A4D); color:#fff !important;
+      font-weight:900; text-decoration:none; border:none;
+    }}
+    .cta:hover {{ filter:brightness(1.05); color:#fff !important }}
+    .ghost {{
+      display:inline-flex; align-items:center; justify-content:center; min-height:48px;
+      padding:.75rem 1.1rem; border-radius:12px; border:1px solid var(--border);
+      background:rgba(28,42,36,.04); color:var(--text) !important; font-weight:800; text-decoration:none;
+    }}
+    .legal-footer {{
+      border-top:1px solid var(--border); background:var(--footer);
+      padding:20px 16px 28px; color:var(--muted); font-size:13px; font-weight:700;
+    }}
+    .legal-footer__inner {{ max-width:720px; margin:0 auto; display:grid; gap:12px }}
+    .legal-footer__links {{ display:flex; flex-wrap:wrap; gap:8px 14px }}
+    .legal-footer a {{ color:inherit; text-decoration:none; opacity:.9 }}
+    .legal-footer a:hover {{ color:var(--accent); opacity:1 }}
+    #to-top {{
+      position:fixed; right:max(16px, env(safe-area-inset-right));
+      bottom:max(16px, env(safe-area-inset-bottom));
+      width:48px; height:48px; border-radius:14px; border:1px solid var(--border);
+      background:linear-gradient(135deg,#16A36A,#0B7A4D); color:#fff;
+      box-shadow:0 10px 28px rgba(11,122,77,.28); cursor:pointer;
+      display:none; align-items:center; justify-content:center; z-index:50;
+      font-size:1.25rem; font-weight:900; line-height:1;
+    }}
+    #to-top.is-visible {{ display:inline-flex }}
+    #to-top:hover {{ filter:brightness(1.06) }}
+    @media (max-width:520px) {{
+      .legal-back span.label {{ display:none }}
+      .legal-header__inner {{ padding:10px 12px }}
+    }}
+  </style>
+</head>
+<body>
+  <header class="legal-header">
+    <div class="legal-header__inner">
+      <a class="legal-brand" href="/" aria-label="POMICH — на головну">
+        <img src="/pomich-logo.png" alt="" width="36" height="36" />
+        <span>POMICH</span>
+      </a>
+      <a class="legal-back" href="/">
+        <span aria-hidden="true">←</span>
+        <span class="label">На головну</span>
+      </a>
+    </div>
+  </header>
+  <main class="legal-main" id="top">
+    <article class="legal-card">
+      <div class="legal-eyebrow">Права та умови</div>
+      <h1>{h1}</h1>
+      <p class="legal-lead">{lead}</p>
+      <div class="legal-body">
+        {extra}
+      </div>
+      <div class="legal-actions">
+        <a class="cta" href="/?utm_source=seo&amp;utm_campaign={slug}">Відкрити застосунок</a>
+        <a class="ghost" href="/">← На головну</a>
+        <a class="ghost" href="{sibling_href}">{sibling_label}</a>
+      </div>
+    </article>
+  </main>
+  <footer class="legal-footer">
+    <div class="legal-footer__inner">
+      <div class="legal-footer__links">
+        <a href="/">Головна</a>
+        <a href="/privacy">Конфіденційність</a>
+        <a href="/terms">Угода</a>
+        <a href="/safety">Безпека</a>
+        <a href="/about">Про нас</a>
+        <a href="/partner">Партнерам</a>
+        <a href="https://t.me/pomich_ua_bot">@pomich_ua_bot</a>
+      </div>
+      <div>© 2026 POMICH · допомога на дорозі</div>
+    </div>
+  </footer>
+  <button type="button" id="to-top" aria-label="Піднятись вгору">↑</button>
+  <script src="/legal-nav.js" defer></script>
 </body>
 </html>
 """
@@ -641,7 +841,7 @@ def serve_frontend(full_path: str = ""):
     seo_page = _SEO_PUBLIC_PAGES.get(normalized.rstrip("/"))
     if seo_page is not None:
         return HTMLResponse(
-            _seo_landing_html(normalized.rstrip("/"), seo_page),
+            _seo_page_html(normalized.rstrip("/"), seo_page),
             headers={"Cache-Control": "public, max-age=300"},
         )
 
