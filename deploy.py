@@ -230,30 +230,8 @@ def publish_web_dist(ssh):
 
 def setup_nginx(ssh):
     """Apply checked-in nginx configs from deploy/nginx/ (reproducible from Git)."""
-    retry_html = """<!doctype html>
-<html lang="uk">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta http-equiv="refresh" content="2" />
-  <title>POMICH · оновлення</title>
-  <style>
-    body{margin:0;min-height:100vh;display:grid;place-items:center;font-family:system-ui,sans-serif;
-      background:#0F172A;color:#F8FAFC;padding:24px;text-align:center}
-    h1{font-size:1.25rem;margin:0 0 8px}
-    p{margin:0;opacity:.75;font-size:.95rem}
-  </style>
-</head>
-<body>
-  <div>
-    <h1>POMICH оновлюється</h1>
-    <p>Зачекайте кілька секунд — сторінка відкриється сама.</p>
-  </div>
-  <script>setTimeout(function(){location.reload()},2000)</script>
-</body>
-</html>
-"""
     repo_root = Path(__file__).resolve().parent
+    retry_html = (repo_root / "public" / "retry.html").read_text(encoding="utf-8")
     upstream_conf = (repo_root / "deploy" / "nginx" / "pomich_upstream.conf").read_text(encoding="utf-8")
     nginx_conf = (repo_root / "deploy" / "nginx" / "pomich.help.conf").read_text(encoding="utf-8")
     run(ssh, "mkdir -p /var/www/pomich", check=False)

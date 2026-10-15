@@ -110,6 +110,7 @@ fi
 mv "$dist_next" /var/www/pomich/dist
 
 if command -v nginx >/dev/null 2>&1; then
+  install -m 644 public/retry.html /var/www/pomich/retry.html
   install -m 644 deploy/nginx/pomich_upstream.conf /etc/nginx/conf.d/pomich_upstream.conf
   install -m 644 deploy/nginx/pomich.help.conf /etc/nginx/sites-available/pomich.help
   ln -sfn /etc/nginx/sites-available/pomich.help /etc/nginx/sites-enabled/pomich.help
