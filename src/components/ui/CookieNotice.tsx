@@ -1,6 +1,6 @@
 import { useState } from "react"
 
-const CONSENT_KEY = "pomichPrivacyConsent:v1"
+const CONSENT_KEY = "pomichLegalConsent:v2"
 
 export default function CookieNotice() {
   const [visible, setVisible] = useState(() => {
@@ -8,14 +8,16 @@ export default function CookieNotice() {
   })
   if (!visible) return null
   return (
-    <aside className="pomich-cookie-notice" aria-label="Політика конфіденційності" role="dialog" aria-modal="false">
+    <aside className="pomich-cookie-notice" aria-label="Угода та конфіденційність" role="dialog" aria-modal="false">
       <p>
         Продовжуючи, ви погоджуєтесь з{" "}
+        <a href="/terms" target="_blank" rel="noopener noreferrer">Угодою користувача</a>
+        {" "}та{" "}
         <a href="/privacy" target="_blank" rel="noopener noreferrer">Політикою конфіденційності</a>
-        {" "}POMICH: профіль, геолокація заявки, cookies входу та локальні налаштування.
+        {" "}POMICH.
       </p>
       <div>
-        <a href="/privacy" target="_blank" rel="noopener noreferrer">Читати</a>
+        <a href="/terms" target="_blank" rel="noopener noreferrer">Читати</a>
         <button
           type="button"
           className="pomich-cabinet-chip-btn"

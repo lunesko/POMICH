@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test"
 
 async function dismissCookieNotice(page: import("@playwright/test").Page) {
   await page.getByRole("button", { name: "Погоджуюсь", exact: true }).click()
-  await expect(page.getByRole("dialog", { name: "Політика конфіденційності" })).toHaveCount(0)
+  await expect(page.getByRole("dialog", { name: "Угода та конфіденційність" })).toHaveCount(0)
 }
 
 async function expectNoSeriousAccessibilityViolations(page: import("@playwright/test").Page) {
