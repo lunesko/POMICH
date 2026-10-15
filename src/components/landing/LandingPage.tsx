@@ -19,6 +19,7 @@ import BrandLogo from "../ui/BrandLogo"
 import BetaNotice from "../ui/BetaNotice"
 import { usePomichTheme } from "../../context/PomichThemeProvider"
 import { type PomichThemeColors, type PomichThemeMode } from "../../lib/theme"
+import LandingNavIcon, { type LandingNavIconName } from "./LandingNavIcon"
 
 const BRAND = "var(--pomich-brand)"
 const DARK = "var(--pomich-text)"
@@ -87,11 +88,11 @@ const landingFaq = [
   ],
 ] as const
 
-const landingTrust = [
-  ["Без черг номерів", "Одна заявка замість десятків дзвінків"],
-  ["Місце на карті", "Партнер бачить, куди їхати"],
-  ["Статус у реальному часі", "Прийнято → в дорозі → готово"],
-] as const
+const landingTrust: ReadonlyArray<{ icon: LandingNavIconName; title: string; text: string }> = [
+  { icon: "phone", title: "Без черг номерів", text: "Одна заявка замість десятків дзвінків" },
+  { icon: "map", title: "Місце на карті", text: "Партнер бачить, куди їхати" },
+  { icon: "list-ordered", title: "Статус у реальному часі", text: "Прийнято → в дорозі → готово" },
+]
 
 type LandingTheme = {
   page: string
@@ -181,11 +182,11 @@ function LandingButton({
       onClick={onClick}
       className={["landing-cta-btn", onHeader && isGhost ? "landing-header-ghost-btn" : null, className].filter(Boolean).join(" ")}
       style={{
-        minHeight: compact ? 42 : 48,
+        minHeight: compact ? 40 : 48,
         border: isGhost ? `1px solid ${onHeader ? "rgba(255,255,255,0.22)" : theme.ghostBorder}` : "none",
         borderRadius: compact ? 11 : 12,
-        padding: compact ? "0 14px" : "0 18px",
-        fontSize: compact ? 13 : 14,
+        padding: compact ? "0 10px" : "0 18px",
+        fontSize: compact ? 12 : 14,
         background: isPrimary
           ? "linear-gradient(135deg, #16A36A 0%, #0B7A4D 100%)"
           : isGhost
@@ -210,10 +211,10 @@ function LandingButton({
 
 function LandingSectionTitle({ eyebrow, title, subtitle, theme, compact = false }: { eyebrow: string; title: string; subtitle: string; theme: LandingTheme; compact?: boolean }) {
   return (
-    <div className="landing-section-title pomich-landing-inner" style={{ textAlign: "center", margin: compact ? "0 auto 14px" : "0 auto 34px" }}>
-      <div style={{ display: "inline-flex", border: "1px solid rgba(47,128,237,0.42)", background: "rgba(47,128,237,0.14)", color: theme.eyebrowText, borderRadius: 999, padding: compact ? "5px 10px" : "7px 12px", fontWeight: 900, fontSize: compact ? 11 : 13 }}>{eyebrow}</div>
-      <h2 style={{ margin: compact ? "10px 0 0" : "18px 0 0", color: theme.text, fontSize: compact ? 22 : "clamp(28px, 4vw, 42px)", lineHeight: 1.03, letterSpacing: 0, fontWeight: 950 }}>{title}</h2>
-      <p style={{ margin: compact ? "8px auto 0" : "14px auto 0", color: theme.muted, fontSize: compact ? 13 : 17, lineHeight: compact ? 1.45 : 1.55, fontWeight: 700 }}>{subtitle}</p>
+    <div className="landing-section-title pomich-landing-inner" style={{ textAlign: "center", margin: compact ? "0 auto 12px" : "0 auto 34px" }}>
+      <div style={{ display: "inline-flex", border: "1px solid rgba(47,128,237,0.42)", background: "rgba(47,128,237,0.14)", color: theme.eyebrowText, borderRadius: 999, padding: compact ? "3px 8px" : "7px 12px", fontWeight: 800, fontSize: compact ? 10 : 13 }}>{eyebrow}</div>
+      <h2 style={{ margin: compact ? "8px 0 0" : "18px 0 0", color: theme.text, fontSize: compact ? 18 : "clamp(28px, 4vw, 42px)", lineHeight: 1.15, letterSpacing: "-0.02em", fontWeight: 900 }}>{title}</h2>
+      <p style={{ margin: compact ? "6px auto 0" : "14px auto 0", color: theme.muted, fontSize: compact ? 12 : 17, lineHeight: compact ? 1.4 : 1.55, fontWeight: 650, maxWidth: compact ? "34ch" : undefined }}>{subtitle}</p>
     </div>
   )
 }
@@ -276,14 +277,14 @@ export default function LandingPage({
   const theme = buildLandingTheme(mode, colors)
   const heroRegionLabel =
     directoryScope === "my-city" && directoryScopeCity ? directoryScopeCity : UKRAINE_WIDE_LABEL
-  const navItems = [
-    ["#home", "Головна"],
-    ["#services", "Послуги"],
-    ["#steps", "Як це працює"],
-    ["#map", "Карта"],
-    ["#faq", "FAQ"],
-    ["#contacts", "Контакти"],
-  ] as const
+  const navItems: ReadonlyArray<{ href: string; label: string; icon: LandingNavIconName }> = [
+    { href: "#home", label: "Головна", icon: "house" },
+    { href: "#services", label: "Послуги", icon: "wrench" },
+    { href: "#steps", label: "Як це працює", icon: "list-ordered" },
+    { href: "#map", label: "Карта", icon: "map" },
+    { href: "#faq", label: "FAQ", icon: "circle-help" },
+    { href: "#contacts", label: "Контакти", icon: "phone" },
+  ]
 
   useEffect(() => {
     /* Paint the decorative map on the first frame — delayed idle load looked like a
@@ -373,7 +374,7 @@ export default function LandingPage({
 
   const mapProviderCount = mapProviders.length
 
-  const headerH = layoutCompact ? 52 : 66
+  const headerH = layoutCompact ? 52 : 58
 
   return (
     <div
@@ -399,13 +400,13 @@ export default function LandingPage({
       )}
       <header
         className={`pomich-landing-header${headerScrolled ? " is-scrolled" : ""}`}
-        style={{ height: headerH, padding: layoutCompact ? "0 12px" : "0 28px" }}
+        style={{ height: headerH, padding: layoutCompact ? "0 12px" : "0 18px" }}
       >
         <div className="pomich-landing-header__inner">
           <a
             href="#home"
             className="pomich-landing-header__brand"
-            style={{ gap: layoutCompact ? 8 : 12 }}
+            style={{ gap: layoutCompact ? 8 : 10 }}
             onPointerDown={() => {
               if (!onHiddenAdmin) return
               if (adminHoldTimerRef.current) window.clearTimeout(adminHoldTimerRef.current)
@@ -430,7 +431,7 @@ export default function LandingPage({
               if (onHiddenAdmin) event.preventDefault()
             }}
           >
-            <BrandLogo compact={layoutCompact} />
+            <BrandLogo compact />
           </a>
           {layoutCompact ? (
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -448,17 +449,20 @@ export default function LandingPage({
               </button>
             </div>
           ) : (
-            <nav style={{ display: "flex", alignItems: "center", gap: 26 }}>
-              {navItems.map(([href, label]) => (
-                <a key={href} href={href} className="pomich-landing-nav-link">{label}</a>
+            <nav className="pomich-landing-header__nav" aria-label="Навігація">
+              {navItems.map(({ href, label, icon }) => (
+                <a key={href} href={href} className="pomich-landing-nav-link">
+                  <LandingNavIcon name={icon} />
+                  <span>{label}</span>
+                </a>
               ))}
             </nav>
           )}
           {!layoutCompact ? (
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <ThemeToggle compact={layoutCompact} />
-              <LandingButton theme={theme} variant="ghost" surface="header" onClick={onLogin}>Увійти</LandingButton>
-              <LandingButton theme={theme} onClick={onRegister}>Зареєструватися</LandingButton>
+            <div className="pomich-landing-header__actions">
+              <ThemeToggle compact />
+              <LandingButton theme={theme} variant="ghost" surface="header" compact onClick={onLogin}>Увійти</LandingButton>
+              <LandingButton theme={theme} compact onClick={onRegister}>Зареєструватися</LandingButton>
             </div>
           ) : null}
         </div>
@@ -477,8 +481,11 @@ export default function LandingPage({
               aria-modal="true"
               style={{ top: headerH }}
             >
-              {navItems.map(([href, label]) => (
-                <a key={href} href={href} onClick={() => setMenuOpen(false)} className="pomich-landing-header__menu-link">{label}</a>
+              {navItems.map(({ href, label, icon }) => (
+                <a key={href} href={href} onClick={() => setMenuOpen(false)} className="pomich-landing-header__menu-link">
+                  <LandingNavIcon name={icon} size={16} />
+                  <span>{label}</span>
+                </a>
               ))}
               <button type="button" className="pomich-landing-header__menu-login" onClick={() => { setMenuOpen(false); onLogin() }}>Увійти</button>
               <button type="button" className="pomich-landing-header__menu-register" onClick={() => { setMenuOpen(false); onRegister() }}>Зареєструватися</button>
@@ -493,14 +500,14 @@ export default function LandingPage({
           className="landing-hero"
           style={{
             position: "relative",
-            minHeight: layoutCompact ? "min(100dvh, 640px)" : "min(100dvh, 780px)",
+            minHeight: layoutCompact ? "min(78dvh, 520px)" : "min(100dvh, 780px)",
             display: "flex",
-            alignItems: layoutCompact ? "center" : "flex-end",
-            justifyContent: layoutCompact ? "center" : "flex-start",
-            paddingTop: headerH + (layoutCompact ? 28 : 36),
-            paddingRight: layoutCompact ? 18 : 48,
-            paddingBottom: layoutCompact ? 40 : 72,
-            paddingLeft: layoutCompact ? 18 : 48,
+            alignItems: "center",
+            justifyContent: "center",
+            paddingTop: headerH + (layoutCompact ? 16 : 36),
+            paddingRight: layoutCompact ? 14 : 48,
+            paddingBottom: layoutCompact ? 24 : 72,
+            paddingLeft: layoutCompact ? 14 : 48,
             overflow: "visible",
           }}
         >
@@ -510,23 +517,23 @@ export default function LandingPage({
               position: "relative",
               zIndex: 3,
               width: "100%",
-              maxWidth: layoutCompact ? 420 : 560,
-              textAlign: layoutCompact ? "center" : "left",
-              margin: layoutCompact ? "0 auto" : "0",
+              maxWidth: layoutCompact ? 360 : 640,
+              textAlign: "center",
+              margin: "0 auto",
             }}
           >
-            <BetaNotice />
+            <BetaNotice compact={layoutCompact} />
             <h1
               className="landing-hero-brand"
               style={{
-                margin: 0,
+                margin: "0 auto",
                 fontFamily: "var(--font-display, var(--font-sans))",
                 fontSize: layoutCompact
-                  ? "clamp(48px, calc((100vw - 40px) / 5.2), 84px)"
-                  : "clamp(96px, 12vw, 140px)",
-                lineHeight: 0.9,
+                  ? "clamp(34px, 11vw, 48px)"
+                  : "clamp(88px, 11vw, 132px)",
+                lineHeight: 0.92,
                 fontWeight: 800,
-                letterSpacing: layoutCompact ? "-0.05em" : "-0.035em",
+                letterSpacing: layoutCompact ? "-0.04em" : "-0.035em",
                 maxWidth: "100%",
                 overflow: "visible",
               }}
@@ -548,12 +555,12 @@ export default function LandingPage({
             <p
               className="landing-hero-title"
               style={{
-                margin: layoutCompact ? "14px 0 0" : "18px 0 0",
-                fontSize: layoutCompact ? 18 : "clamp(20px, 2.2vw, 26px)",
-                lineHeight: 1.2,
+                margin: layoutCompact ? "10px auto 0" : "18px auto 0",
+                fontSize: layoutCompact ? 15 : "clamp(20px, 2.2vw, 26px)",
+                lineHeight: 1.25,
                 letterSpacing: "-0.02em",
                 fontWeight: 750,
-                maxWidth: layoutCompact ? "100%" : 440,
+                maxWidth: layoutCompact ? "100%" : 480,
               }}
             >
               Допомога на дорозі за хвилини
@@ -561,10 +568,10 @@ export default function LandingPage({
             <p
               className="landing-hero-support"
               style={{
-                margin: layoutCompact ? "8px auto 0" : "10px 0 0",
-                maxWidth: layoutCompact ? 320 : 380,
-                fontSize: layoutCompact ? 13 : 15,
-                lineHeight: 1.45,
+                margin: layoutCompact ? "6px auto 0" : "12px auto 0",
+                maxWidth: layoutCompact ? 300 : 420,
+                fontSize: layoutCompact ? 12 : 15,
+                lineHeight: 1.4,
                 fontWeight: 600,
               }}
             >
@@ -573,11 +580,12 @@ export default function LandingPage({
             <div
               className="landing-hero-ctas"
               style={{
-                margin: layoutCompact ? "18px auto 0" : "24px 0 0",
+                margin: layoutCompact ? "14px auto 0" : "26px auto 0",
                 display: "grid",
-                gridTemplateColumns: layoutCompact ? "1fr" : "1fr 1fr",
-                gap: 8,
-                maxWidth: layoutCompact ? 300 : 400,
+                gridTemplateColumns: "1fr 1fr",
+                gap: layoutCompact ? 8 : 10,
+                maxWidth: layoutCompact ? "100%" : 420,
+                width: "100%",
               }}
             >
               <LandingButton theme={theme} compact={layoutCompact} className="landing-hero-cta-primary" onClick={() => onSelect("customer")}>Потрібна допомога</LandingButton>
@@ -586,104 +594,66 @@ export default function LandingPage({
           </div>
         </section>
 
-        <section className="pomich-landing-section landing-trust" style={{ padding: layoutCompact ? "12px 12px 4px" : "20px 24px 8px" }} aria-label="Переваги">
-          <div className="landing-trust-grid pomich-landing-inner landing-reveal">
-            {landingTrust.map(([title, text]) => (
-              <div key={title} className="landing-trust-item">
-                <div className="landing-trust-item__title">{title}</div>
-                <div className="landing-trust-item__text">{text}</div>
-              </div>
+        <section className="pomich-landing-section landing-trust" style={{ padding: layoutCompact ? "8px 14px 4px" : "14px 24px 10px" }} aria-label="Переваги">
+          <ul className="landing-trust-strip pomich-landing-inner landing-reveal">
+            {landingTrust.map(({ icon, title, text }) => (
+              <li key={title} className="landing-trust-strip__item">
+                <span className="landing-trust-strip__icon" aria-hidden>
+                  <LandingNavIcon name={icon} size={layoutCompact ? 14 : 16} />
+                </span>
+                <strong>{title}</strong>
+                <span>{text}</span>
+              </li>
             ))}
-          </div>
+          </ul>
         </section>
 
-        <section id="services" className="pomich-landing-section" style={{ padding: layoutCompact ? "20px 12px" : "48px 24px 64px" }}>
-          <LandingSectionTitle theme={theme} eyebrow="Послуги" title="Що викликаємо" subtitle="Орієнтовна база без реєстрації. Партнер пропонує ціну, клієнт підтверджує її перед виїздом." compact={layoutCompact} />
-          <div className="landing-services-list pomich-landing-inner" style={{ display: "grid", gap: layoutCompact ? 6 : 8 }}>
-            {services.map((service) => {
+        <section id="services" className="pomich-landing-section" style={{ padding: layoutCompact ? "18px 14px 22px" : "56px 24px 72px" }}>
+          <LandingSectionTitle theme={theme} eyebrow="Послуги" title="Що викликаємо" subtitle="Орієнтовна база без реєстрації. Партнер пропонує ціну — ви підтверджуєте перед виїздом." compact={layoutCompact} />
+          <div className="landing-services-grid pomich-landing-inner">
+            {services.map((service, index) => {
               const basePrice = calculatePrice(service.key, 0).price
+              const priceHint = service.key === "tow" ? "+90 ₴/км" : "виїзд окремо"
               return (
                 <button
                   key={service.key}
                   type="button"
-                  className="landing-service-row"
+                  className="landing-service-tile"
                   onClick={() => onSelect("customer")}
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "auto 1fr auto",
-                    alignItems: "center",
-                    gap: 10,
-                    width: "100%",
-                    minHeight: layoutCompact ? 48 : 52,
-                    padding: layoutCompact ? "8px 10px" : "10px 12px",
-                    borderRadius: 12,
-                    border: `1px solid ${theme.cardBorder}`,
-                    background: "color-mix(in srgb, var(--pomich-card-bg) 88%, transparent)",
-                    color: theme.text,
-                    fontFamily: "inherit",
-                    cursor: "pointer",
-                    textAlign: "left",
-                    backdropFilter: "blur(12px)",
-                  }}
+                  style={{ animationDelay: `${0.04 + index * 0.05}s`, ["--service-tone" as string]: service.tone }}
                 >
-                  <span className="landing-service-card__icon" style={{ background: service.tone, width: 36, height: 36, borderRadius: 10, display: "grid", placeItems: "center" }}>
-                    <ServiceIcon service={service.key} size={20} />
+                  <span className="landing-service-tile__icon" style={{ background: service.tone }}>
+                    <ServiceIcon service={service.key} size={layoutCompact ? 24 : 32} />
                   </span>
-                  <span>
-                    <span style={{ display: "block", fontSize: layoutCompact ? 14 : 15, fontWeight: 900, lineHeight: 1.15 }}>{service.label}</span>
-                    <span style={{ display: "block", marginTop: 2, color: theme.muted, fontSize: 12, fontWeight: 700 }}>від {basePrice} ₴{service.key === "tow" ? " · +90 ₴/км перевезення" : " · виїзд і матеріали узгоджуються"}</span>
+                  <span className="landing-service-tile__name">{service.label}</span>
+                  <span className="landing-service-tile__meta">
+                    <span className="landing-service-tile__price">від {basePrice} ₴</span>
+                    <span className="landing-service-tile__hint">{priceHint}</span>
                   </span>
-                  <span aria-hidden style={{ color: theme.subtle, fontWeight: 900, fontSize: 18 }}>›</span>
                 </button>
               )
             })}
           </div>
         </section>
 
-        <section id="steps" className="pomich-landing-section-alt" style={{ padding: layoutCompact ? "20px 12px" : "48px 24px 64px" }}>
+        <section id="steps" className="pomich-landing-section-alt" style={{ padding: layoutCompact ? "18px 14px 22px" : "56px 24px 72px" }}>
           <LandingSectionTitle theme={theme} eyebrow="Як це працює" title="Чотири кроки" subtitle="Короткий сценарій без зайвих форм." compact={layoutCompact} />
-          <ol className="landing-steps-list pomich-landing-inner" style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: layoutCompact ? 8 : 10 }}>
-            {landingSteps.map(([number, title, text]) => (
+          <ol className="landing-steps-list pomich-landing-inner">
+            {landingSteps.map(([number, title, text], index) => (
               <li
                 key={number}
-                className="landing-step-row"
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "2rem 1fr",
-                  gap: 10,
-                  alignItems: "start",
-                  padding: layoutCompact ? "8px 0" : "10px 0",
-                  borderBottom: `1px solid ${theme.cardBorder}`,
-                  color: theme.text,
-                }}
+                className="landing-step-card"
+                style={{ animationDelay: `${0.05 + index * 0.06}s` }}
               >
-                <span
-                  className="landing-step-circle"
-                  style={{
-                    width: 28,
-                    height: 28,
-                    borderRadius: 999,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    background: "linear-gradient(135deg, #16A36A, #0B7A4D)",
-                    color: "#fff",
-                    fontWeight: 900,
-                    fontSize: 12,
-                  }}
-                >
-                  {number}
-                </span>
-                <span>
-                  <span style={{ display: "block", fontSize: layoutCompact ? 14 : 15, fontWeight: 900, lineHeight: 1.2 }}>{title}</span>
-                  <span style={{ display: "block", marginTop: 2, color: theme.muted, fontSize: layoutCompact ? 12 : 13, lineHeight: 1.4, fontWeight: 650 }}>{text}</span>
-                </span>
+                <span className="landing-step-card__num" aria-hidden>{number}</span>
+                <span className="landing-step-card__title">{title}</span>
+                <span className="landing-step-card__text">{text}</span>
               </li>
             ))}
           </ol>
         </section>
 
-        <section id="map" ref={mapSectionRef} className="pomich-landing-section" style={{ padding: layoutCompact ? "24px 12px" : "76px 24px 96px" }}>
+        <section id="map" ref={mapSectionRef} className="pomich-landing-section" style={{ padding: layoutCompact ? "16px 12px" : "76px 24px 96px" }}>
           <LandingSectionTitle
             theme={theme}
             eyebrow="Карта"
@@ -731,7 +701,7 @@ export default function LandingPage({
             ) : (
               <div
                 className="pomich-route-map pomich-route-map--full pomich-route-map--loading"
-                style={{ minHeight: layoutCompact ? 280 : 420, background: "var(--pomich-subtle, #e8edf2)" }}
+                style={{ minHeight: layoutCompact ? 220 : 420, background: "var(--pomich-subtle, #e8edf2)" }}
                 aria-hidden="true"
               />
             )}
@@ -756,7 +726,7 @@ export default function LandingPage({
           </p>
         </section>
 
-        <section id="faq" className="pomich-landing-section-alt" style={{ padding: layoutCompact ? "20px 12px" : "48px 24px 64px" }}>
+        <section id="faq" className="pomich-landing-section-alt" style={{ padding: layoutCompact ? "16px 12px" : "48px 24px 64px" }}>
           <LandingSectionTitle
             theme={theme}
             eyebrow="FAQ"
@@ -774,7 +744,7 @@ export default function LandingPage({
           </div>
         </section>
 
-        <section id="contacts" className="pomich-landing-section" style={{ padding: layoutCompact ? "20px 12px 28px" : "48px 24px 64px", textAlign: "center" }}>
+        <section id="contacts" className="pomich-landing-section" style={{ padding: layoutCompact ? "16px 12px 22px" : "48px 24px 64px", textAlign: "center" }}>
           <LandingSectionTitle theme={theme} eyebrow="Контакти" title="Зв'язок з POMICH" subtitle="Telegram або реєстрація в застосунку." compact={layoutCompact} />
           <div className="pomich-landing-inner" style={{ display: "grid", gap: 8, maxWidth: 420, margin: "0 auto" }}>
             <a
@@ -783,19 +753,20 @@ export default function LandingPage({
               rel="noreferrer"
               style={{
                 display: "block",
-                minHeight: 44,
+                minHeight: layoutCompact ? 40 : 44,
                 borderRadius: 12,
-                padding: "10px 14px",
+                padding: layoutCompact ? "8px 12px" : "10px 14px",
                 textDecoration: "none",
                 color: theme.text,
-                fontWeight: 850,
+                fontWeight: 800,
+                fontSize: layoutCompact ? 13 : undefined,
                 border: `1px solid ${theme.cardBorder}`,
                 background: "color-mix(in srgb, var(--pomich-card-bg) 88%, transparent)",
               }}
             >
               Telegram · @pomich_ua_bot
             </a>
-            <div style={{ display: "grid", gridTemplateColumns: layoutCompact ? "1fr" : "1fr 1fr", gap: 8 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
               <LandingButton theme={theme} compact={layoutCompact} onClick={() => onSelect("customer")}>Потрібна допомога</LandingButton>
               <LandingButton theme={theme} compact={layoutCompact} variant="secondary" onClick={() => onSelect("provider")}>Надаю послуги</LandingButton>
             </div>
@@ -812,6 +783,7 @@ export default function LandingPage({
             </div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: "8px 14px" }}>
               <a href="/privacy" style={{ color: "inherit", textDecoration: "none", opacity: 0.88 }}>Конфіденційність</a>
+              <a href="/terms" style={{ color: "inherit", textDecoration: "none", opacity: 0.88 }}>Угода</a>
               <a href="/safety" style={{ color: "inherit", textDecoration: "none", opacity: 0.88 }}>Безпека</a>
               <a href="/about" style={{ color: "inherit", textDecoration: "none", opacity: 0.88 }}>Про нас</a>
               <a href="/partner" style={{ color: "inherit", textDecoration: "none", opacity: 0.88 }}>Партнерам</a>

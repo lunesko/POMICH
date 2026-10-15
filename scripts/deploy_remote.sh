@@ -74,7 +74,8 @@ trap rollback ERR
 docker compose -f "$compose_file" --env-file "$env_file" up -d postgres
 docker compose -f "$compose_file" --env-file "$env_file" build pomich-app
 # Run DDL once before starting the new runtime; production startup performs no DDL.
-docker compose -f "$compose_file" --env-file "$env_file" run --rm --no-deps pomich-app python3 -m bot.migrate
+# -T </dev/null: avoid eating the SSH `bash -s` script stdin mid-deploy.
+docker compose -f "$compose_file" --env-file "$env_file" run --rm --no-deps -T pomich-app python3 -m bot.migrate </dev/null
 docker compose -f "$compose_file" --env-file "$env_file" up -d --no-deps pomich-app
 
 healthy=false
@@ -109,6 +110,7 @@ fi
 mv "$dist_next" /var/www/pomich/dist
 
 if command -v nginx >/dev/null 2>&1; then
+  install -m 644 public/retry.html /var/www/pomich/retry.html
   install -m 644 deploy/nginx/pomich_upstream.conf /etc/nginx/conf.d/pomich_upstream.conf
   install -m 644 deploy/nginx/pomich.help.conf /etc/nginx/sites-available/pomich.help
   ln -sfn /etc/nginx/sites-available/pomich.help /etc/nginx/sites-enabled/pomich.help
