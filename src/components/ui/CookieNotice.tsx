@@ -1,21 +1,33 @@
 import { useState } from "react"
 
-const NOTICE_KEY = "pomichCookieNotice:v1"
+const CONSENT_KEY = "pomichLegalConsent:v2"
 
 export default function CookieNotice() {
   const [visible, setVisible] = useState(() => {
-    try { return localStorage.getItem(NOTICE_KEY) !== "acknowledged" } catch { return true }
+    try { return localStorage.getItem(CONSENT_KEY) !== "accepted" } catch { return true }
   })
   if (!visible) return null
   return (
-    <aside className="pomich-cookie-notice" aria-label="Cookies та локальне сховище">
-      <p>Ми використовуємо cookies для збереження входу, а локальне сховище — для налаштувань сервісу. Строк збереження входу залежить від вибору «Залишатися в системі».</p>
+    <aside className="pomich-cookie-notice" aria-label="Угода та конфіденційність" role="dialog" aria-modal="false">
+      <p>
+        Продовжуючи, ви погоджуєтесь з{" "}
+        <a href="/terms" target="_blank" rel="noopener noreferrer">Угодою користувача</a>
+        {" "}та{" "}
+        <a href="/privacy" target="_blank" rel="noopener noreferrer">Політикою конфіденційності</a>
+        {" "}POMICH.
+      </p>
       <div>
-        <a href="/privacy" target="_blank" rel="noopener noreferrer">Детальніше</a>
-        <button type="button" className="pomich-cabinet-chip-btn" onClick={() => {
-          try { localStorage.setItem(NOTICE_KEY, "acknowledged") } catch { /* Notice can still be dismissed for this page. */ }
-          setVisible(false)
-        }}>Зрозуміло</button>
+        <a href="/terms" target="_blank" rel="noopener noreferrer">Читати</a>
+        <button
+          type="button"
+          className="pomich-cabinet-chip-btn"
+          onClick={() => {
+            try { localStorage.setItem(CONSENT_KEY, "accepted") } catch { /* Still dismiss for this page. */ }
+            setVisible(false)
+          }}
+        >
+          Погоджуюсь
+        </button>
       </div>
     </aside>
   )

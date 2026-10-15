@@ -813,6 +813,7 @@ export default function LandingPage({
             </div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: "8px 14px" }}>
               <a href="/privacy" style={{ color: "inherit", textDecoration: "none", opacity: 0.88 }}>Конфіденційність</a>
+              <a href="/terms" style={{ color: "inherit", textDecoration: "none", opacity: 0.88 }}>Угода</a>
               <a href="/safety" style={{ color: "inherit", textDecoration: "none", opacity: 0.88 }}>Безпека</a>
               <a href="/about" style={{ color: "inherit", textDecoration: "none", opacity: 0.88 }}>Про нас</a>
               <a href="/partner" style={{ color: "inherit", textDecoration: "none", opacity: 0.88 }}>Партнерам</a>

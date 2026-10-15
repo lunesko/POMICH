@@ -8578,9 +8578,10 @@ html.tg-compact .pomich-ride-screen__map .leaflet-top.leaflet-left {
 .pomich-remember-session input { width: 20px; height: 20px; accent-color: var(--pomich-accent); flex-shrink: 0; }
 .pomich-remember-session p { margin: 8px 0 0; }
 .pomich-cookie-notice { position: fixed; bottom: max(12px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); z-index: 10000; width: min(460px, calc(100% - 24px)); padding: 16px; border-radius: 16px; background: #fff; color: var(--pomich-text, #182b49); border: 1px solid var(--pomich-border, #ccd4de); box-shadow: 0 8px 32px #0003; font-size: 14px; }
-.pomich-cookie-notice p { margin: 0 0 10px; }
+.pomich-cookie-notice p { margin: 0 0 10px; line-height: 1.45; }
 .pomich-cookie-notice > div { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .pomich-cookie-notice a { color: var(--pomich-accent); text-decoration: underline; }
+.pomich-cookie-notice .pomich-cabinet-chip-btn { min-height: 44px; padding: 0 18px; font-weight: 700; }
 
 /* Audit: opaque reading surfaces and a keyboard-accessible alternative to map markers. */
 .pomich-directory-list {
