@@ -3135,11 +3135,11 @@ html:not([data-pomich-theme]) .pomich-map-shell--root .pomich-cabinet-footer {
   animation: landingHeroFadeUp 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
   animation-delay: 0.05s;
 }
-/* Hero copy floats on map — NO boxed card/plate */
+/* Hero copy floats on map — NO boxed card/plate; centered composition */
 .landing-hero-content {
   position: relative;
   z-index: 3;
-  text-align: inherit;
+  text-align: center;
   padding: 0;
   border: none;
   border-radius: 0;
@@ -3148,18 +3148,26 @@ html:not([data-pomich-theme]) .pomich-map-shell--root .pomich-cabinet-footer {
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
+.landing-hero-content .pomich-beta-notice {
+  margin-left: auto;
+  margin-right: auto;
+  margin-bottom: 18px;
+  max-width: min(100%, 28rem);
+  text-align: center;
+  align-items: center;
+}
 /* Soft feathered wash behind copy only (not a hard rectangle) */
 .landing-hero-content::before {
   content: "";
   position: absolute;
   z-index: -1;
   pointer-events: none;
-  left: -12%;
-  right: -8%;
+  left: -10%;
+  right: -10%;
   top: -8%;
   bottom: -10%;
   background: radial-gradient(
-    ellipse 70% 65% at 28% 42%,
+    ellipse 78% 70% at 50% 42%,
     rgba(8, 12, 14, 0.55) 0%,
     rgba(8, 12, 14, 0.28) 42%,
     transparent 72%
@@ -3168,7 +3176,7 @@ html:not([data-pomich-theme]) .pomich-map-shell--root .pomich-cabinet-footer {
 [data-pomich-theme="light"] .landing-hero-content::before,
 html:not([data-pomich-theme]) .landing-hero-content::before {
   background: radial-gradient(
-    ellipse 78% 74% at 28% 42%,
+    ellipse 82% 74% at 50% 42%,
     rgba(255, 255, 255, 0.92) 0%,
     rgba(232, 238, 235, 0.78) 36%,
     rgba(232, 238, 235, 0.42) 58%,
@@ -3176,7 +3184,7 @@ html:not([data-pomich-theme]) .landing-hero-content::before {
   );
 }
 .landing-hero-content .landing-hero-eyebrow {
-  justify-content: inherit;
+  justify-content: center;
 }
 /* Role/welcome intro plate — solid readable, not the landing hero */
 .pomich-map-copy-plate {
@@ -3250,14 +3258,14 @@ html:not([data-pomich-theme]) .landing-hero-brand {
 }
 .landing-hero-brand-underline {
   position: absolute;
-  left: 0;
-  right: 2%;
+  left: 6%;
+  right: 6%;
   bottom: 0.04em;
   height: 0.11em;
   border-radius: 999px;
   overflow: hidden;
   pointer-events: none;
-  transform-origin: left center;
+  transform-origin: center;
   background: linear-gradient(90deg, #16a36a 0%, #2f80ed 100%);
   box-shadow:
     0 0 10px rgba(22, 163, 106, 0.35),
@@ -3320,6 +3328,8 @@ html:not([data-pomich-theme]) .landing-hero-eyebrow {
   z-index: 5;
   pointer-events: auto;
   animation: none;
+  margin-left: auto;
+  margin-right: auto;
 }
 .landing-hero-ctas .landing-hero-cta-primary {
   animation: landingHeroFadeUp 0.75s cubic-bezier(0.16, 1, 0.3, 1) both;
@@ -3607,14 +3617,21 @@ html.mobile-compact .pomich-tg-main {
 .pomich-landing .landing-map-frame {
   position: relative;
   width: 100%;
-  max-width: 1200px;
+  max-width: 960px;
   margin-left: auto;
   margin-right: auto;
   box-sizing: border-box;
-  height: 560px;
-  border-radius: 24px;
+  height: 520px;
+  border-radius: 22px;
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: 1px solid color-mix(in srgb, var(--pomich-border) 80%, transparent);
+  box-shadow:
+    0 18px 48px -28px rgba(15, 23, 42, 0.35),
+    0 1px 0 rgba(255, 255, 255, 0.45) inset;
+  background: color-mix(in srgb, var(--pomich-card-bg) 88%, #dfe8e3);
+}
+[data-pomich-theme="dark"] .pomich-landing .landing-map-frame {
+  border-color: rgba(255, 255, 255, 0.14);
   box-shadow: 0 28px 90px rgba(0, 0, 0, 0.38);
   background: #14181d;
 }
@@ -6961,45 +6978,49 @@ html:not([data-pomich-theme]) .pomich-cabinet-footer {
   font-size: 11px;
   letter-spacing: 0.02em;
 }
-.landing-trust-grid {
+.landing-trust-strip {
+  list-style: none;
+  margin: 0 auto;
+  padding: 10px 0 2px;
+  max-width: 980px;
   display: grid;
   grid-template-columns: 1fr;
-  gap: 8px;
+  gap: 12px;
+  text-align: center;
 }
-@media (min-width: 720px) {
-  .landing-trust-grid {
-    grid-template-columns: repeat(3, 1fr);
-    gap: 10px;
+@media (min-width: 760px) {
+  .landing-trust-strip {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0;
+  }
+  .landing-trust-strip__item + .landing-trust-strip__item {
+    border-left: 1px solid color-mix(in srgb, var(--pomich-border) 85%, transparent);
   }
 }
-.landing-trust-item {
-  border: 1px solid color-mix(in srgb, var(--pomich-border) 85%, transparent);
-  border-radius: 12px;
-  padding: 10px 12px;
-  background: color-mix(in srgb, var(--pomich-card-bg) 86%, transparent);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  text-align: left;
-  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+.landing-trust-strip__item {
+  display: grid;
+  gap: 4px;
+  padding: 2px 18px;
+  justify-items: center;
 }
-.landing-trust-item:hover {
-  transform: translateY(-1px);
-  border-color: rgba(22, 163, 106, 0.35);
-  box-shadow: 0 8px 18px -8px rgba(22, 163, 106, 0.2);
-}
-.landing-trust-item__title {
-  font-size: 0.86rem;
+.landing-trust-strip__item strong {
+  font-family: var(--font-display, var(--font-sans));
+  font-size: clamp(0.95rem, 1.35vw, 1.08rem);
   font-weight: 900;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.03em;
   color: var(--pomich-text);
+  line-height: 1.2;
 }
-.landing-trust-item__text {
-  margin-top: 3px;
-  font-size: 0.72rem;
+.landing-trust-strip__item span {
+  font-size: 0.8rem;
   font-weight: 650;
-  line-height: 1.35;
+  line-height: 1.4;
   color: var(--pomich-muted);
+  max-width: 15.5rem;
 }
+/* Keep legacy class hooks harmless if referenced elsewhere */
+.landing-trust-grid { display: contents; }
+.landing-trust-item { display: contents; }
 .landing-faq {
   display: grid;
   gap: 8px;
@@ -7056,16 +7077,201 @@ html:not([data-pomich-theme]) .pomich-cabinet-footer {
   }
 }
 
-.landing-service-row {
-  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+.landing-services-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  max-width: 880px;
+  margin: 0 auto;
+  width: 100%;
 }
-.landing-service-row:hover {
-  transform: translateY(-1px);
-  border-color: rgba(34, 197, 94, 0.45) !important;
-  box-shadow: 0 8px 18px -6px rgba(22, 163, 106, 0.18);
+@media (min-width: 900px) {
+  .landing-services-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+  }
 }
-.landing-service-row:active {
-  transform: translateY(1px) scale(0.99);
+.landing-service-tile {
+  appearance: none;
+  display: grid;
+  justify-items: center;
+  align-content: start;
+  gap: 12px;
+  text-align: center;
+  width: 100%;
+  min-height: 168px;
+  padding: 20px 16px 18px;
+  border-radius: 20px;
+  border: 1px solid color-mix(in srgb, var(--pomich-border) 68%, transparent);
+  background:
+    linear-gradient(
+      165deg,
+      color-mix(in srgb, var(--pomich-card-bg) 96%, #fff) 0%,
+      color-mix(in srgb, var(--pomich-card-bg) 82%, transparent) 100%
+    );
+  color: var(--pomich-text);
+  font-family: inherit;
+  cursor: pointer;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.45) inset;
+  transition: transform 0.22s ease, border-color 0.22s ease, box-shadow 0.22s ease;
+  animation: pomichServiceRowIn 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.landing-service-tile:hover {
+  transform: translateY(-3px);
+  border-color: rgba(22, 163, 106, 0.4);
+  box-shadow:
+    0 18px 34px -22px rgba(11, 122, 77, 0.4),
+    0 1px 0 rgba(255, 255, 255, 0.5) inset;
+}
+.landing-service-tile:active {
+  transform: translateY(-1px) scale(0.99);
+}
+.landing-service-tile__icon {
+  width: 64px;
+  height: 64px;
+  border-radius: 18px;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 10px 20px -12px rgba(15, 23, 42, 0.35);
+}
+.landing-service-tile__icon svg,
+.landing-service-tile__icon img {
+  width: 2rem;
+  height: 2rem;
+}
+.landing-service-tile__name {
+  font-family: var(--font-display, var(--font-sans));
+  font-size: clamp(0.98rem, 1.5vw, 1.12rem);
+  font-weight: 900;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  color: var(--pomich-text);
+}
+.landing-service-tile__meta {
+  display: grid;
+  gap: 3px;
+  justify-items: center;
+}
+.landing-service-tile__price {
+  font-size: 1.05rem;
+  font-weight: 900;
+  letter-spacing: -0.03em;
+  color: var(--pomich-accent, #0b7a4d);
+  font-variant-numeric: tabular-nums;
+}
+.landing-service-tile__hint {
+  font-size: 0.76rem;
+  font-weight: 650;
+  color: var(--pomich-muted);
+}
+@media (max-width: 420px) {
+  .landing-services-grid {
+    grid-template-columns: 1fr;
+  }
+  .landing-service-tile {
+    min-height: 0;
+    grid-template-columns: auto 1fr;
+    grid-template-areas:
+      "icon name"
+      "icon meta";
+    justify-items: start;
+    text-align: left;
+    gap: 4px 14px;
+    padding: 14px;
+    border-radius: 16px;
+  }
+  .landing-service-tile__icon {
+    grid-area: icon;
+    width: 52px;
+    height: 52px;
+    border-radius: 14px;
+    align-self: center;
+  }
+  .landing-service-tile__name { grid-area: name; align-self: end; }
+  .landing-service-tile__meta { grid-area: meta; justify-items: start; align-self: start; }
+}
+/* Legacy row hooks kept for older CSS references */
+.landing-services-list { display: contents; }
+.landing-service-row { display: none; }
+.landing-steps-list {
+  list-style: none;
+  margin: 0 auto;
+  padding: 0;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  max-width: 920px;
+  width: 100%;
+  counter-reset: none;
+}
+@media (min-width: 760px) {
+  .landing-steps-list {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 14px;
+  }
+}
+.landing-step-card {
+  position: relative;
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+  text-align: center;
+  padding: 22px 16px 20px;
+  border-radius: 18px;
+  border: 1px solid color-mix(in srgb, var(--pomich-border) 65%, transparent);
+  background:
+    linear-gradient(
+      165deg,
+      color-mix(in srgb, var(--pomich-card-bg) 94%, #fff) 0%,
+      color-mix(in srgb, var(--pomich-card-bg) 78%, transparent) 100%
+    );
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.4) inset;
+  color: var(--pomich-text);
+  animation: landingRevealIn 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+  min-height: 100%;
+}
+@media (min-width: 760px) {
+  .landing-step-card:not(:last-child)::after {
+    content: "";
+    position: absolute;
+    top: 38px;
+    right: -8px;
+    width: 16px;
+    height: 2px;
+    border-radius: 999px;
+    background: linear-gradient(90deg, rgba(22, 163, 106, 0.55), rgba(29, 111, 212, 0.45));
+    z-index: 1;
+  }
+}
+.landing-step-card__num {
+  width: 42px;
+  height: 42px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, #16A36A, #0B7A4D);
+  color: #fff;
+  font-weight: 900;
+  font-size: 0.95rem;
+  letter-spacing: -0.02em;
+  box-shadow: 0 10px 22px -12px rgba(11, 122, 77, 0.65);
+}
+.landing-step-card__title {
+  display: block;
+  font-family: var(--font-display, var(--font-sans));
+  font-size: clamp(0.98rem, 1.5vw, 1.12rem);
+  font-weight: 900;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+  color: var(--pomich-text);
+}
+.landing-step-card__text {
+  display: block;
+  font-size: 0.84rem;
+  font-weight: 650;
+  line-height: 1.45;
+  color: var(--pomich-muted);
+  max-width: 16rem;
 }
 .landing-step-row:last-child {
   border-bottom: none !important;
@@ -8568,22 +8774,39 @@ html.tg-compact .pomich-ride-screen__map .leaflet-top.leaflet-left {
 .pomich-remember-session input { width: 20px; height: 20px; accent-color: var(--pomich-accent); flex-shrink: 0; }
 .pomich-remember-session p { margin: 8px 0 0; }
 .pomich-cookie-notice { position: fixed; bottom: max(12px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); z-index: 10000; width: min(460px, calc(100% - 24px)); padding: 16px; border-radius: 16px; background: #fff; color: var(--pomich-text, #182b49); border: 1px solid var(--pomich-border, #ccd4de); box-shadow: 0 8px 32px #0003; font-size: 14px; }
-.pomich-cookie-notice p { margin: 0 0 10px; }
+.pomich-cookie-notice p { margin: 0 0 10px; line-height: 1.45; }
 .pomich-cookie-notice > div { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .pomich-cookie-notice a { color: var(--pomich-accent); text-decoration: underline; }
+.pomich-cookie-notice .pomich-cabinet-chip-btn { min-height: 44px; padding: 0 18px; font-weight: 700; }
 
 /* Audit: opaque reading surfaces and a keyboard-accessible alternative to map markers. */
 .pomich-directory-list {
-  margin: 16px auto;
-  max-width: 1000px;
-  padding: 16px;
+  margin: 18px auto 0;
+  max-width: 640px;
+  padding: 14px 16px;
   border-radius: 16px;
-  background: var(--pomich-surface);
+  border: 1px solid color-mix(in srgb, var(--pomich-border) 75%, transparent);
+  background: color-mix(in srgb, var(--pomich-card-bg) 90%, transparent);
   color: var(--pomich-text);
+  text-align: center;
 }
-.pomich-directory-list summary { cursor: pointer; font-weight: 800; min-height: 44px; }
-.pomich-directory-list input { display: block; width: 100%; min-height: 44px; background: var(--pomich-input-bg); color: var(--pomich-text); border: 1px solid var(--pomich-border); border-radius: 8px; padding: 8px; }
-.pomich-directory-list li { padding: 8px 0; }
+.pomich-directory-list summary {
+  cursor: pointer;
+  font-weight: 850;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  list-style: none;
+}
+.pomich-directory-list summary::-webkit-details-marker { display: none; }
+.pomich-directory-list[open] { text-align: left; }
+.pomich-directory-list[open] summary { justify-content: flex-start; margin-bottom: 10px; }
+.pomich-directory-list > p { margin: 0 0 10px; color: var(--pomich-muted); font-size: 0.85rem; font-weight: 650; }
+.pomich-directory-list input { display: block; width: 100%; min-height: 44px; background: var(--pomich-input-bg); color: var(--pomich-text); border: 1px solid var(--pomich-border); border-radius: 10px; padding: 8px 12px; margin-top: 6px; }
+.pomich-directory-list li { padding: 8px 0; border-bottom: 1px solid color-mix(in srgb, var(--pomich-border) 70%, transparent); }
+.pomich-directory-list li:last-child { border-bottom: none; }
 .pomich-map-shell--root .pomich-form-card,
 .pomich-map-shell--root .pomich-onboarding-card { background: var(--pomich-surface) !important; backdrop-filter: none; }
 
