@@ -122,6 +122,14 @@ jobs:
           node-version: "22"
           cache: "npm"
 
+      - name: Run business invariants on PostgreSQL
+        env:
+          POMICH_BUSINESS_TEST_DATABASE_URL: postgresql+psycopg://pomich:pomich@127.0.0.1:5432/pomich_business_test
+          POMICH_SKIP_LOCAL_ENV: "1"
+        run: |
+          python -c "import psycopg; c=psycopg.connect('postgresql://pomich:pomich@127.0.0.1:5432/pomich', autocommit=True); c.execute('CREATE DATABASE pomich_business_test'); c.close()"
+          python -m pytest tests/test_business_logic.py -q
+
       - name: Run browser with real API and PostGIS
         env:
           POMICH_E2E_DATABASE_URL: postgresql+psycopg://pomich:pomich@127.0.0.1:5432/pomich_e2e_test
