@@ -1441,6 +1441,7 @@ function TrackingStep({ orderId, status, order, pickup, destination, cancelError
         <ProviderCard orderId={orderId} eta={eta} assignedProvider={order?.assignedProvider} />
         <div style={{ background: CARD, borderRadius: 18, padding: 14, border: `1px solid ${BORDER}` }}>
           <Timeline status={status} />
+          {order?.assignedProvider?.etaSource !== "osrm" ? <div style={{ color: MUTED, fontSize: 12, marginTop: 8 }}>Час прибуття приблизний: дорожній маршрут поки недоступний.</div> : null}
           <div style={{ color: MUTED, fontSize: 13, fontWeight: 700, marginTop: 12 }}>
             {hasLiveLocation
               ? (typeof distanceKm === "number" && distanceKm < 0.15 ? "Партнер майже на місці." : "Партнер їде до точки подачі. Позиція оновлюється з GPS.")
