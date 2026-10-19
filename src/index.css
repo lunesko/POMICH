@@ -7022,7 +7022,7 @@ html:not([data-pomich-theme]) .pomich-cabinet-footer {
 }
 .landing-faq__item summary::-webkit-details-marker { display: none; }
 .landing-faq__item summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.landing-faq__collapse, .landing-faq__item[open] .landing-faq__expand { display: none; }
+.landing-faq__item .landing-faq__collapse, .landing-faq__item[open] .landing-faq__expand { display: none; }
 .landing-faq__item[open] .landing-faq__collapse { display: inline-block; }
 .landing-faq__item p {
   margin: 8px 0 0;
