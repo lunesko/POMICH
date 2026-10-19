@@ -21,7 +21,7 @@ from bot.api_deps import (
     runtime_config_errors,
     validate_runtime_config,
 )
-from bot.routers import admin, auth, customers, events, health, internal, orders, providers, telegram, telemetry, ws
+from bot.routers import admin, auth, customers, events, health, internal, orders, providers, telegram, telemetry, ws, routing
 from bot.security_headers import SecurityHeadersMiddleware
 from bot.telegram_bot import notify_dispatch_offers, notify_order_accepted, notify_order_cancelled, notify_order_created
 from bot.runtime_store import get_engine, sql_storage_enabled
@@ -116,6 +116,7 @@ _API_ROUTERS = (
     telegram.router,
     events.router,
     ws.router,
+    routing.router,
 )
 
 # Single mount under /api — frontend always uses VITE_API_BASE_URL=/api.

@@ -3,6 +3,7 @@ import { defineConfig, devices } from '@playwright/test'
 export default defineConfig({
   testDir: './e2e', testMatch: 'backend-lifecycle.spec.ts', workers: 1,
   timeout: 60_000,
+  projects: [{ name: 'desktop' }, { name: 'mobile', use: { ...devices['Pixel 7'] } }],
   use: { baseURL: 'http://127.0.0.1:18001', ...devices['Desktop Chrome'],
     serviceWorkers: 'block', screenshot: 'only-on-failure', trace: 'retain-on-failure',
     geolocation: { latitude: 48.6208, longitude: 22.2879 }, permissions: ['geolocation'] },

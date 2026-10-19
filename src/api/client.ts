@@ -5,6 +5,7 @@ import { orderSubmissionKey, completeOrderSubmission } from '../lib/orderSubmiss
 const defaultBaseUrl = '/api'
 
 const providerErrorMessages: Record<string, string> = {
+  PROVIDER_BUSY: "Партнер уже виконує іншу заявку або перебуває офлайн.",
   provider_credentials_invalid: 'Невірний логін або пароль партнера.',
   provider_token_invalid: 'Недійсний токен партнера.',
   provider_session_required: 'Потрібен вхід партнера.',
@@ -230,6 +231,8 @@ export interface OrderResponse {
   assignedProvider?: ProviderAvailability & {
     distanceKm?: number
     etaMinutes?: number
+    etaSource?: "osrm" | "approximate"
+    roadDistanceKm?: number | null
   }
   customerReview?: OrderReview
   partnerReview?: OrderReview

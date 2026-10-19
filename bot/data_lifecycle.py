@@ -7,6 +7,7 @@ from fastapi import HTTPException
 from bot import runtime_store as db, session_registry
 from bot.delivery_store import outbox
 from bot.order_idempotency import keys
+from bot.dispatch_jobs import jobs
 
 TERMINAL = ("completed", "cancelled")
 RETENTION_DAYS = 180
@@ -22,7 +23,7 @@ def _require_sql():
 def _delete_orders(connection, ids):
     if not ids:
         return
-    for table in (db.order_events, db.dispatch_offers, outbox, keys):
+    for table in (db.order_events, db.dispatch_offers, outbox, keys, jobs):
         connection.execute(delete(table).where(table.c.order_id.in_(ids)))
     connection.execute(delete(db.orders).where(db.orders.c.id.in_(ids)))
     # Legacy whole-collection snapshots must not preserve deleted personal data.

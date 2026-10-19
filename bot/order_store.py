@@ -71,55 +71,11 @@ _EXPIRE_STALE_LOCK = threading.Lock()
 _LAST_EXPIRE_STALE_MONOTONIC = 0.0
 _EXPIRE_STALE_MIN_INTERVAL_SECONDS = float(os.getenv("POMICH_EXPIRE_MIN_INTERVAL_SECONDS", "15") or "15")
 
-ORDER_STATUS_ALIASES = {
-    "created": "searching",
-    "matching": "searching",
-    "tracking": "en_route",
-    "pending": "searching",
-}
-ORDER_STATUSES = {
-    "draft",
-    "searching",
-    "accepted",
-    "price_confirmed",
-    "assigned",
-    "en_route",
-    "arrived",
-    "in_progress",
-    "completed",
-    "cancelled",
-}
-ACTIVE_ORDER_STATUSES = {
-    "searching",
-    "accepted",
-    "price_confirmed",
-    "assigned",
-    "en_route",
-    "arrived",
-    "in_progress",
-}
-TERMINAL_ORDER_STATUSES = {"completed", "cancelled"}
-MAP_REQUEST_PIN_STATUSES = {"searching"}
-ORDER_TRANSITIONS = {
-    "draft": {"searching", "cancelled"},
-    "searching": {"accepted", "cancelled"},
-    "accepted": {"price_confirmed", "cancelled"},
-    "price_confirmed": {"en_route", "cancelled"},
-    "assigned": {"price_confirmed", "en_route", "cancelled"},
-    "en_route": {"arrived", "cancelled"},
-    "arrived": {"in_progress", "cancelled"},
-    "in_progress": {"completed", "cancelled"},
-    "completed": set(),
-    "cancelled": set(),
-}
-
-
-class InvalidStatusTransition(ValueError):
-    def __init__(self, current_status: str, next_status: str) -> None:
-        self.current_status = current_status
-        self.next_status = next_status
-        super().__init__(f"invalid order status transition: {current_status} -> {next_status}")
-
+from bot.domain.order_state import (
+    ORDER_STATUS_ALIASES, ORDER_STATUSES, ACTIVE_ORDER_STATUSES,
+    TERMINAL_ORDER_STATUSES, MAP_REQUEST_PIN_STATUSES, ORDER_TRANSITIONS,
+    InvalidStatusTransition, normalize_order_status, peek_order_status,
+)
 
 class DispatchConflict(ValueError):
     def __init__(self, code: str, message: str) -> None:
@@ -220,17 +176,6 @@ def _parse_iso(value: Any) -> Optional[datetime]:
         return None
 
 
-def peek_order_status(status: Any) -> Optional[str]:
-    """Map-safe status: missing/unknown is None, never silently becomes searching."""
-    raw = str(status or "").strip().lower()
-    if not raw:
-        return None
-    raw = ORDER_STATUS_ALIASES.get(raw, raw)
-    if raw not in ORDER_STATUSES:
-        return None
-    return raw
-
-
 def _order_accepted_at(order: Dict[str, Any]) -> Optional[datetime]:
     parsed = _parse_iso(order.get("acceptedAt"))
     if parsed is not None:
@@ -245,14 +190,6 @@ def _order_accepted_at(order: Dict[str, Any]) -> Optional[datetime]:
                 if at is not None:
                     return at
     return _parse_iso(order.get("updatedAt")) or _parse_iso(order.get("createdAt"))
-
-
-def normalize_order_status(status: Any) -> str:
-    normalized = str(status or "searching").strip().lower()
-    normalized = ORDER_STATUS_ALIASES.get(normalized, normalized)
-    if normalized not in ORDER_STATUSES:
-        raise ValueError(f"unknown order status: {status}")
-    return normalized
 
 
 def is_map_request_order(order: Dict[str, Any]) -> bool:
@@ -595,66 +532,8 @@ def save_offers(offers: List[Dict[str, Any]], store_path: Optional[Path] = None)
 
 
 def _default_providers() -> List[Dict[str, Any]]:
-    now = _now_iso()
-    return [
-        _normalize_provider_trust({
-            "id": "provider-oleksandr",
-            "name": "Олександр",
-            "rating": 4.9,
-            "vehicle": "Volkswagen Transporter",
-            "plate": "AO 1248 CH",
-            "phone": "+380671112233",
-            "telegram": "pomich_help_bot",
-            "status": "online",
-            "etaMinutes": 12,
-            "location": {"lat": 48.632, "lng": 22.271},
-            "specialties": ["tow", "battery", "wheel"],
-            "serviceRadiusKm": 15,
-            "registeredAt": now,
-            "profileUpdatedAt": now,
-            "lastSeenAt": now,
-            "lastLocationAt": now,
-            "updatedAt": now,
-        }, "verified"),
-        _normalize_provider_trust({
-            "id": "provider-mykhailo",
-            "name": "Михайло",
-            "rating": 4.8,
-            "vehicle": "Renault Master",
-            "plate": "AO 4207 KM",
-            "phone": "+380672224455",
-            "telegram": "pomich_help_bot",
-            "status": "online",
-            "etaMinutes": 18,
-            "location": {"lat": 48.612, "lng": 22.303},
-            "specialties": ["mechanic", "lockout", "fuel"],
-            "serviceRadiusKm": 8,
-            "registeredAt": now,
-            "profileUpdatedAt": now,
-            "lastSeenAt": now,
-            "lastLocationAt": now,
-            "updatedAt": now,
-        }, "verified"),
-        _normalize_provider_trust({
-            "id": "provider-taras",
-            "name": "Тарас",
-            "rating": 4.7,
-            "vehicle": "Mercedes Sprinter",
-            "plate": "AO 7719 BK",
-            "phone": "+380673334455",
-            "telegram": "pomich_help_bot",
-            "status": "offline",
-            "etaMinutes": 24,
-            "location": {"lat": 48.625, "lng": 22.325},
-            "specialties": ["tow", "mechanic"],
-            "serviceRadiusKm": 10,
-            "registeredAt": now,
-            "profileUpdatedAt": now,
-            "lastSeenAt": now,
-            "lastLocationAt": now,
-            "updatedAt": now,
-        }, "verified"),
-    ]
+    """An empty/broken registry must never advertise fictitious online partners."""
+    return []
 
 
 def load_orders(store_path: Optional[Path] = None) -> List[Dict[str, Any]]:
@@ -825,9 +704,13 @@ def enrich_order_for_client(
             pickup = _valid_point(payload.get("customerCoordinates"))
             distance_km = assigned_provider.get("distanceKm")
             eta_minutes = assigned_provider.get("etaMinutes") or provider.get("etaMinutes")
+            travel = {"etaSource": assigned_provider.get("etaSource", "approximate"),
+                      "roadDistanceKm": assigned_provider.get("roadDistanceKm")}
             if location and pickup and not terminal_status:
-                distance_km = round(haversine_distance_km(location, pickup), 2)
-                eta_minutes = max(1, math.ceil(float(distance_km) * 4))
+                from bot.routing import estimate
+                travel = estimate(location, pickup)
+                distance_km = travel["distanceKm"]
+                eta_minutes = travel["etaMinutes"]
             assigned_provider = {
                 "id": provider.get("id") or assigned_provider.get("id"),
                 "name": provider.get("name") or assigned_provider.get("name"),
@@ -841,6 +724,8 @@ def enrich_order_for_client(
                 "trustedBadges": provider.get("trustedBadges") or assigned_provider.get("trustedBadges"),
                 "distanceKm": distance_km,
                 "etaMinutes": eta_minutes,
+                "etaSource": travel["etaSource"],
+                "roadDistanceKm": travel["roadDistanceKm"],
             }
 
     if assigned_provider:
@@ -901,6 +786,7 @@ def update_order_status(
             order = sql_get_order(str(order_id))
             if order is None:
                 return None
+            original = deepcopy(order)
             current_status = normalize_order_status(order.get("status"))
             if next_status == current_status:
                 return enrich_order_for_client(order, provider_store_path)
@@ -915,7 +801,8 @@ def update_order_status(
             history.append({"status": next_status, "at": now})
             order["statusHistory"] = history
             _append_order_event(order, f"ORDER_{next_status.upper()}", now)
-            sql_upsert_order(order)
+            if not sql_commit_order_snapshot(original, order):
+                raise DispatchConflict("ORDER_CHANGED", "Order changed; refresh before retrying.")
             updated_order = order
         else:
             path = store_path or _default_store_path()
@@ -3008,6 +2895,7 @@ def expire_stale_dispatch(
     order_store_path: Optional[Path] = None,
     offer_store_path: Optional[Path] = None,
     provider_store_path: Optional[Path] = None,
+    *, only_order_id: str | None = None,
 ) -> List[Dict[str, Any]]:
     """Expire pending offers and cancel idle accepted orders. Returns cancelled (enriched) orders."""
     retry_order_ids: List[str] = []
@@ -3019,8 +2907,12 @@ def expire_stale_dispatch(
             offer_path, _default_offer_store_path
         )
         if use_sql:
-            sql_expire_pending_offers(now=datetime.now(timezone.utc).replace(tzinfo=None))
-            orders = sql_orders_by_status({"searching", "accepted"}, limit=None)
+            sql_expire_pending_offers(order_id=only_order_id, now=datetime.now(timezone.utc).replace(tzinfo=None))
+            if only_order_id:
+                found_order = sql_get_order(only_order_id)
+                orders = [found_order] if found_order and found_order.get("status") in {"searching", "accepted"} else []
+            else:
+                orders = sql_orders_by_status({"searching", "accepted"}, limit=None)
             offers = sql_offers_for_orders({str(order.get("id") or "") for order in orders})
             original_orders = {str(order["id"]): deepcopy(order) for order in orders}
             original_offers = deepcopy(offers)
@@ -3151,6 +3043,7 @@ def expire_stale_and_notify(
     provider_store_path: Optional[Path] = None,
     *,
     force: bool = False,
+    only_order_id: str | None = None,
 ) -> List[Dict[str, Any]]:
     """Expire stale dispatch state and notify parties about idle-accepted cancellations."""
     global _LAST_EXPIRE_STALE_MONOTONIC
@@ -3167,6 +3060,7 @@ def expire_stale_and_notify(
         order_store_path=order_store_path,
         offer_store_path=offer_store_path,
         provider_store_path=provider_store_path,
+        only_order_id=only_order_id,
     )
     if not cancelled:
         return cancelled
@@ -3317,7 +3211,9 @@ def _public_offer_payload(offer: Dict[str, Any], order: Dict[str, Any]) -> Dict[
         "approximateLocation": order.get("customerLocation"),
         "customerComment": order.get("customerComment"),
         "customerCoordinates": customer_coordinates,
-        "etaMinutes": max(2, math.ceil(float(offer.get("distanceKm") or 0) * 4)),
+        "etaMinutes": offer.get("etaMinutes") or max(2, math.ceil(float(offer.get("distanceKm") or 0) * 4)),
+            "etaSource": offer.get("etaSource", "approximate"),
+            "roadDistanceKm": offer.get("roadDistanceKm"),
     }
 
 
@@ -3453,6 +3349,9 @@ def dispatch_order(
                 "providerId": candidate["id"],
                 "status": "pending",
                 "distanceKm": candidate["distanceKm"],
+                "etaMinutes": candidate.get("etaMinutes"),
+                "etaSource": candidate.get("etaSource", "approximate"),
+                "roadDistanceKm": candidate.get("roadDistanceKm"),
                 "createdAt": now_iso,
                 "expiresAt": expires_at,
                 "wave": current_wave,
@@ -3506,175 +3405,9 @@ def dispatch_order(
         return attach_dispatch_to_order(order, offers)
 
 
-def _dispatch_order_sql(
-    order_id: str,
-    *,
-    reset_auto_retry: bool = False,
-    force_wave: Optional[int] = None,
-) -> Optional[Dict[str, Any]]:
-    """Row-level SQL dispatch: no full-table rewrite of orders/offers/providers."""
-    sql_expire_pending_offers(order_id=str(order_id))
-    order = sql_get_order(str(order_id))
-    if order is None:
-        return None
-    offers = sql_offers_for_order(str(order_id))
-    if normalize_order_status(order.get("status")) != "searching":
-        return attach_dispatch_to_order(order, offers)
-
-    prev_info = order.get("dispatchInfo") if isinstance(order.get("dispatchInfo"), dict) else {}
-    if reset_auto_retry:
-        order["dispatchInfo"] = {
-            **prev_info,
-            "autoRetryCount": 0,
-            "wave": 0,
-        }
-        order["dispatchInfo"].pop("exhaustedAt", None)
-        order["dispatchInfo"].pop("lastAutoRetryAt", None)
-        order["dispatchInfo"].pop("nextWaveAt", None)
-        prev_info = order["dispatchInfo"]
-
-    service = normalize_service(order.get("service"))
-    radius_steps = search_radius_steps_for_service(service)
-    current_wave = int(force_wave if force_wave is not None else (prev_info.get("wave") or 0)) + 1
-    batch_size = wave_batch_size(current_wave)
-    pending_existing = _pending_offer_count_for_order(offers, order_id)
-    slots_left = max(0, MAX_PROVIDER_OFFERS - pending_existing)
-    if slots_left <= 0:
-        order["dispatchState"] = "OFFERS_SENT"
-        order["updatedAt"] = _now_iso()
-        sql_upsert_order(order)
-        return attach_dispatch_to_order(order, offers)
-    batch_size = min(batch_size, slots_left)
-
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
-    now_iso = f"{now.isoformat(timespec='seconds')}Z"
-    offered_ids = _providers_blocked_for_order(offers, order_id)
-    max_radius = max(radius_steps)
-    candidates = sql_candidate_providers_for_order(
-        order_id=str(order_id),
-        service=service,
-        already_offered_provider_ids=offered_ids,
-        max_radius_km=max_radius,
-        ttl_seconds=PROVIDER_PRESENCE_TTL_SECONDS,
-        now=now,
-    )
-    selected: List[Dict[str, Any]] = []
-    used_ids: set[str] = set()
-    selected_radius: Optional[int] = None
-
-    _append_order_event(
-        order,
-        "DISPATCH_STARTED" if current_wave == 1 else "DISPATCH_WAVE",
-        now_iso,
-        {"wave": current_wave, "batchSize": batch_size, "serviceInitialRadiusKm": initial_radius_km_for_service(service)},
-    )
-    for radius in radius_steps:
-        for candidate in candidates:
-            if candidate["id"] in used_ids or candidate["distanceKm"] > radius:
-                continue
-            selected.append(candidate)
-            used_ids.add(candidate["id"])
-            selected_radius = radius
-            if len(selected) >= batch_size:
-                break
-        if len(selected) >= batch_size:
-            break
-
-    if not selected:
-        pending_existing = _pending_offer_count_for_order(offers, order_id)
-        prev_info = order.get("dispatchInfo") if isinstance(order.get("dispatchInfo"), dict) else {}
-        if pending_existing > 0:
-            order["dispatchState"] = "OFFERS_SENT"
-            order["dispatchInfo"] = {
-                **prev_info,
-                "eligibleProviders": len(candidates),
-                "offersSent": max(int(prev_info.get("offersSent") or 0), pending_existing),
-                "lastDispatchAt": now_iso,
-                "wave": max(int(prev_info.get("wave") or 0), current_wave - 1),
-                "searchRadiusStepsKm": radius_steps,
-                "serviceInitialRadiusKm": initial_radius_km_for_service(service),
-            }
-            order["updatedAt"] = now_iso
-            sql_upsert_order(order)
-            return attach_dispatch_to_order(order, offers)
-        order["dispatchState"] = "NO_PROVIDERS_AVAILABLE"
-        order["dispatchInfo"] = {
-            "eligibleProviders": len(candidates),
-            "offersSent": 0,
-            "searchRadiusStepsKm": radius_steps,
-            "serviceInitialRadiusKm": initial_radius_km_for_service(service),
-            "wave": current_wave,
-            "lastDispatchAt": now_iso,
-            **{
-                key: prev_info[key]
-                for key in ("autoRetryCount", "lastAutoRetryAt", "exhaustedAt")
-                if key in prev_info
-            },
-        }
-        order["updatedAt"] = now_iso
-        _append_order_event(order, "NO_PROVIDERS_AVAILABLE", now_iso)
-        sql_upsert_order(order)
-        return attach_dispatch_to_order(order, offers)
-
-    expires_at = f"{(now + timedelta(seconds=OFFER_TIMEOUT_SECONDS)).isoformat(timespec='seconds')}Z"
-    new_offers: List[Dict[str, Any]] = []
-    for candidate in selected:
-        offer = {
-            "id": f"OF-{uuid.uuid4().hex[:12].upper()}",
-            "orderId": order_id,
-            "providerId": candidate["id"],
-            "status": "pending",
-            "distanceKm": candidate["distanceKm"],
-            "createdAt": now_iso,
-            "expiresAt": expires_at,
-            "wave": current_wave,
-        }
-        new_offers.append(offer)
-        _append_order_event(
-            order,
-            "OFFER_CREATED",
-            now_iso,
-            {
-                "offerId": offer["id"],
-                "providerId": candidate["id"],
-                "distanceKm": candidate["distanceKm"],
-                "wave": current_wave,
-            },
-        )
-
-    next_wave_at = None
-    if current_wave == 1:
-        next_wave_at = f"{(now + timedelta(seconds=DISPATCH_WAVE_WAIT_SECONDS)).isoformat(timespec='seconds')}Z"
-
-    order["dispatchState"] = "OFFERS_SENT"
-    prev_info = order.get("dispatchInfo") if isinstance(order.get("dispatchInfo"), dict) else {}
-    total_sent = int(prev_info.get("offersSent") or 0) + len(selected)
-    order["dispatchInfo"] = {
-        "eligibleProviders": len(candidates),
-        "offersSent": total_sent,
-        "offersSentThisWave": len(selected),
-        "searchRadiusKm": selected_radius,
-        "searchRadiusStepsKm": radius_steps,
-        "serviceInitialRadiusKm": initial_radius_km_for_service(service),
-        "maxProviderOffers": MAX_PROVIDER_OFFERS,
-        "offerTimeoutSeconds": OFFER_TIMEOUT_SECONDS,
-        "wave": current_wave,
-        "wave1Size": DISPATCH_WAVE1_SIZE,
-        "wave2Size": DISPATCH_WAVE2_SIZE,
-        "waveWaitSeconds": DISPATCH_WAVE_WAIT_SECONDS,
-        "lastDispatchAt": now_iso,
-        **({"nextWaveAt": next_wave_at} if next_wave_at else {}),
-        **{
-            key: prev_info[key]
-            for key in ("autoRetryCount", "lastAutoRetryAt", "exhaustedAt")
-            if key in prev_info
-        },
-    }
-    if current_wave > 1:
-        order["dispatchInfo"].pop("nextWaveAt", None)
-    order["updatedAt"] = now_iso
-    persisted_order, persisted_offers = sql_commit_dispatch_wave(order, new_offers)
-    return attach_dispatch_to_order(persisted_order, persisted_offers)
+def _dispatch_order_sql(order_id, *, reset_auto_retry=False, force_wave=None):
+    from bot.dispatch_service import dispatch_order_sql
+    return dispatch_order_sql(order_id, reset_auto_retry=reset_auto_retry, force_wave=force_wave)
 
 
 def attach_dispatch_to_order(order: Dict[str, Any], offers: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
@@ -3789,6 +3522,8 @@ def accept_offer(
             raise DispatchConflict("PROVIDER_NOT_FOUND", "Provider was not found.")
         if not is_provider_verified(provider):
             raise DispatchConflict("PROVIDER_NOT_VERIFIED", "Provider verification is not approved.")
+        if provider.get("status") != "online" or provider.get("assignedOrderId"):
+            raise DispatchConflict("PROVIDER_BUSY", "Provider is unavailable or already assigned to another order.")
 
         offer["status"] = "accepted"
         offer["respondedAt"] = now
@@ -3818,7 +3553,9 @@ def accept_offer(
             "verificationStatus": provider.get("verificationStatus"),
             "trustedBadges": provider.get("trustedBadges"),
             "distanceKm": offer.get("distanceKm"),
-            "etaMinutes": max(2, math.ceil(float(offer.get("distanceKm") or 0) * 4)),
+            "etaMinutes": offer.get("etaMinutes") or max(2, math.ceil(float(offer.get("distanceKm") or 0) * 4)),
+            "etaSource": offer.get("etaSource", "approximate"),
+            "roadDistanceKm": offer.get("roadDistanceKm"),
         }
         if provider.get("name"):
             order["providerName"] = provider.get("name")

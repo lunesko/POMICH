@@ -10,7 +10,9 @@
     "format": "oxfmt",
     "test": "vitest run src",
     "test:e2e": "playwright test",
-    "test:e2e:update": "playwright test --update-snapshots"
+    "test:e2e:update": "playwright test --update-snapshots",
+    "api:generate": "python3 scripts/export_openapi.py && openapi-typescript docs/api/openapi.json -o src/api/generated.ts",
+    "api:check": "npm run api:generate && git diff --exit-code -- docs/api/openapi.json src/api/generated.ts"
   },
   "dependencies": {
     "leaflet": "^1.9.4",
@@ -32,6 +34,7 @@
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^6.0.0",
     "jsdom": "^29.1.1",
+    "openapi-typescript": "7.13.0",
     "oxfmt": "^0.2.0",
     "tailwindcss": "^4.0.0",
     "typescript": "^5.7.0",
