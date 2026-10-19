@@ -1,17 +1,14 @@
 import { type OrderStatus, orderStatusLabels } from "../../lib/constants"
+import Icon from "./Icon"
+import type { IconName } from "../../lib/icons"
 
-interface StatusPillProps {
-  status: OrderStatus
-}
-
-export function StatusPill({ status }: StatusPillProps) {
-  const cancelled = status === "cancelled"
-  return (
-    <div className={`pomich-status-pill ${cancelled ? "pomich-status-pill--cancelled" : "pomich-status-pill--active"}`}>
-      <span className="pomich-status-pill__dot" />
-      {orderStatusLabels[status]}
-    </div>
-  )
+export function StatusPill({ status }: { status: OrderStatus }) {
+  const tone = status === "completed" ? "completed" : status === "cancelled" ? "cancelled" : status === "draft" ? "draft" : status === "searching" ? "searching" : "active"
+  const icon: IconName = tone === "completed" ? "check" : tone === "cancelled" ? "close" : tone === "draft" ? "clipboard" : "clock"
+  return <div className={`pomich-status-pill pomich-status-pill--${tone}`}>
+    <Icon name={icon} size={16} />
+    {orderStatusLabels[status]}
+  </div>
 }
 
 export default StatusPill

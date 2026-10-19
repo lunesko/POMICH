@@ -2044,12 +2044,7 @@ html.mobile-compact .pomich-map-occupied-hint {
   backdrop-filter: blur(18px) saturate(1.35);
   -webkit-backdrop-filter: blur(18px) saturate(1.35);
 }
-.pomich-map-address-pill::before {
-  content: "📍";
-  flex-shrink: 0;
-  font-size: 13px;
-  line-height: 1;
-}
+
 /* Pin address pill just above the live bottom sheet (same --pomich-sheet-height as drag/snap). */
 .pomich-ride-screen--overlay .pomich-map-address-pill {
   bottom: calc(
@@ -6724,8 +6719,8 @@ html:not([data-pomich-theme]) .pomich-cabinet-footer {
   display: grid;
   grid-template-columns: 1.35rem 1fr;
   grid-template-areas:
-    "emoji label"
-    "emoji hint";
+    "icon label"
+    "icon hint";
   column-gap: 7px;
   row-gap: 1px;
   align-items: start;
@@ -6755,7 +6750,7 @@ html:not([data-pomich-theme]) .pomich-cabinet-footer {
   animation: pomichServiceRowIn 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 .pomich-problem-card--peek {
-  grid-template-areas: "emoji label";
+  grid-template-areas: "icon label";
   grid-template-rows: auto;
   align-items: center;
   padding: 6px 8px;
@@ -6775,14 +6770,14 @@ html:not([data-pomich-theme]) .pomich-cabinet-footer {
 .pomich-problem-card:disabled {
   cursor: not-allowed;
 }
-.pomich-problem-card__emoji {
-  grid-area: emoji;
+.pomich-problem-card__icon {
+  grid-area: icon;
   align-self: center;
   font-size: 1.15rem;
   line-height: 1;
   filter: drop-shadow(0 1px 1px rgba(17, 19, 21, 0.12));
 }
-.pomich-problem-card--peek .pomich-problem-card__emoji {
+.pomich-problem-card--peek .pomich-problem-card__icon {
   font-size: 1.05rem;
 }
 .pomich-problem-card__label {
@@ -7026,13 +7021,9 @@ html:not([data-pomich-theme]) .pomich-cabinet-footer {
   list-style: none;
 }
 .landing-faq__item summary::-webkit-details-marker { display: none; }
-.landing-faq__item summary::after {
-  content: "+";
-  float: right;
-  color: var(--pomich-brand);
-  font-weight: 900;
-}
-.landing-faq__item[open] summary::after { content: "–"; }
+.landing-faq__item summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.landing-faq__item .landing-faq__collapse, .landing-faq__item[open] .landing-faq__expand { display: none; }
+.landing-faq__item[open] .landing-faq__collapse { display: inline-block; }
 .landing-faq__item p {
   margin: 8px 0 0;
   font-size: 0.78rem;
@@ -8567,7 +8558,25 @@ html.tg-compact .pomich-ride-screen__map .leaflet-top.leaflet-left {
 .pomich-remember-session label { display: flex; align-items: center; gap: 10px; cursor: pointer; }
 .pomich-remember-session input { width: 20px; height: 20px; accent-color: var(--pomich-accent); flex-shrink: 0; }
 .pomich-remember-session p { margin: 8px 0 0; }
-.pomich-cookie-notice { position: fixed; bottom: max(12px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); z-index: 10000; width: min(460px, calc(100% - 24px)); padding: 16px; border-radius: 16px; background: #fff; color: var(--pomich-text, #182b49); border: 1px solid var(--pomich-border, #ccd4de); box-shadow: 0 8px 32px #0003; font-size: 14px; }
+.pomich-cookie-notice {
+  position: fixed;
+  inset: calc(var(--pomich-header-stack-height, 64px) + 12px) auto auto 50%;
+  transform: translateX(-50%);
+  z-index: 10000;
+  width: min(460px, calc(100% - 24px));
+  height: auto;
+  min-height: 0;
+  max-height: calc(50dvh - 24px);
+  overflow-y: auto;
+  display: block;
+  padding: 16px;
+  border-radius: 16px;
+  background: var(--pomich-card-bg);
+  color: var(--pomich-text);
+  border: 1px solid var(--pomich-border);
+  box-shadow: var(--pomich-card-shadow);
+  font-size: 14px;
+}
 .pomich-cookie-notice p { margin: 0 0 10px; }
 .pomich-cookie-notice > div { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .pomich-cookie-notice a { color: var(--pomich-accent); text-decoration: underline; }
@@ -8587,4 +8596,17 @@ html.tg-compact .pomich-ride-screen__map .leaflet-top.leaflet-left {
 .pomich-map-shell--root .pomich-form-card,
 .pomich-map-shell--root .pomich-onboarding-card { background: var(--pomich-surface) !important; backdrop-filter: none; }
 
-[data-pomich-theme="dark"] .pomich-cookie-notice { background: #182b49; }
+
+/* Shared SVGs: fixed geometry, inherited color, and no interactive descendants. */
+.pomich-icon { display: inline-block; flex-shrink: 0; vertical-align: middle; fill: none; pointer-events: none; }
+.pomich-icon-use--filled { fill: currentColor; }
+.pomich-rating-stars { display: inline-flex; align-items: center; gap: 2px; color: var(--pomich-accent); vertical-align: middle; }
+.pomich-flow-secondary-btn, .pomich-step-back { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.pomich-back-btn { display: inline-flex; align-items: center; justify-content: center; }
+.pomich-status-pill--completed { background: var(--pomich-selected-bg); color: var(--pomich-accent); }
+.pomich-status-pill--searching { background: var(--pomich-info-bg); color: var(--pomich-info-text); }
+.pomich-status-pill--draft { background: var(--pomich-ghost-bg); color: var(--pomich-muted); }
+.pomich-problem-card__icon { display: flex; align-items: center; justify-content: center; }
+.pomich-cookie-notice button { min-height: 44px; }
+
+.pomich-problem-card__icon .pomich-service-icon-svg { width: 1.25rem; height: 1.25rem; }

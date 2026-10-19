@@ -1,5 +1,6 @@
+import type { ReactNode } from "react"
 interface SecondaryButtonProps {
-  label: string
+  label: ReactNode
   onClick?: () => void
   danger?: boolean
   disabled?: boolean

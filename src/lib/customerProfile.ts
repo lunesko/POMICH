@@ -32,8 +32,8 @@ export function getProfileChecklist(profile: CustomerProfile): ProfileCheckItem[
 
 /** User-facing checklist row status — optional fields are not used for clients anymore. */
 export function profileChecklistItemStatus(item: ProfileCheckItem): string {
-  if (item.filled) return "✓ Заповнено"
-  return item.required ? "— Потрібно" : "— Необов'язково"
+  if (item.filled) return "Заповнено"
+  return item.required ? "Потрібно" : "Необов'язково"
 }
 
 /** Merge server/session profile without wiping in-progress local edits. */

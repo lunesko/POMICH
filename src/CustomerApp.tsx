@@ -1,3 +1,4 @@
+import Icon from "./components/ui/Icon"
 import { Suspense, lazy, useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
 
 import { getUserAccount, logoutBrowserSessions, updateProviderPresence, type UserAccountStatus } from "./api/client"
@@ -123,7 +124,7 @@ function CabinetSuspense({ children, onBack }: { children: ReactNode; onBack: ()
           }}
         >
           <button type="button" className="pomich-ghost-btn" onClick={onBack} style={{ alignSelf: "flex-start" }}>
-            ← Назад
+            <Icon name="arrow-left" size={18} /> Назад
           </button>
           <div style={{ margin: "auto 0", textAlign: "center", color: "var(--pomich-muted)", fontWeight: 700 }}>
             Відкриваємо кабінет…
