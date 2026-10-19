@@ -1,3 +1,6 @@
+import Icon from "../ui/Icon"
+import ServiceIcon, { serviceAccentColor } from "../ui/ServiceIcon"
+import { serviceMarkerMarkup, iconMarkup } from "../../lib/icons"
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 
 import type { LatLngTuple } from "leaflet"
@@ -24,7 +27,6 @@ import {
 
   getDirectoryIconColor,
 
-  getDirectoryIconEmoji,
 
   getDirectoryPrimarySpecialty,
 
@@ -478,6 +480,20 @@ const pickupIcon = L.divIcon({
 
 
 
+function MapZoomControls() {
+  const map = useMap()
+  useEffect(() => {
+    const controls = L.control.zoom({
+      zoomInText: iconMarkup("plus"),
+      zoomOutText: iconMarkup("minus"),
+      zoomInTitle: "Збільшити масштаб",
+      zoomOutTitle: "Зменшити масштаб",
+    }).addTo(map)
+    return () => { controls.remove() }
+  }, [map])
+  return null
+}
+
 const destinationIcon = L.divIcon({
 
   className: "pomich-destination-marker",
@@ -496,7 +512,7 @@ const partnerIcon = L.divIcon({
 
   className: "pomich-partner-marker",
 
-  html: '<div style="width:28px;height:28px;border-radius:999px;background:#F59E0B;border:3px solid white;display:flex;align-items:center;justify-content:center;color:white;font-size:13px">🚛</div>',
+  html: `<div style="width:28px;height:28px;border-radius:999px;background:#F59E0B;border:3px solid white;display:flex;align-items:center;justify-content:center;color:#0f172a">${serviceMarkerMarkup("tow", 22)}</div>`,
 
   iconSize: [28, 28],
 
@@ -510,7 +526,7 @@ const liveProviderIcon = L.divIcon({
 
   className: "pomich-live-provider-marker",
 
-  html: '<div style="width:28px;height:28px;border-radius:999px;background:#F59E0B;border:3px solid white;display:flex;align-items:center;justify-content:center;color:white;font-size:13px">🚛</div>',
+  html: `<div style="width:28px;height:28px;border-radius:999px;background:#F59E0B;border:3px solid white;display:flex;align-items:center;justify-content:center;color:#0f172a">${serviceMarkerMarkup("tow", 22)}</div>`,
 
   iconSize: [28, 28],
 
@@ -538,7 +554,7 @@ const requestIcon = L.divIcon({
 
   className: "pomich-request-marker",
 
-  html: '<div style="width:30px;height:30px;border-radius:999px;background:#EF4444;border:3px solid white;display:flex;align-items:center;justify-content:center;color:white;font-size:14px">!</div>',
+  html: `<div style="width:30px;height:30px;border-radius:999px;background:#EF4444;border:3px solid white;display:flex;align-items:center;justify-content:center;color:white">${iconMarkup("warning", 20)}</div>`,
 
   iconSize: [30, 30],
 
@@ -556,7 +572,7 @@ function directoryProviderIcon(item: ProviderAvailability): L.DivIcon {
 
   const specialty = getDirectoryPrimarySpecialty(item)
 
-  const emoji = getDirectoryIconEmoji(item)
+  const glyph = serviceMarkerMarkup(specialty)
 
   const color = getDirectoryIconColor(specialty)
 
@@ -568,7 +584,7 @@ function directoryProviderIcon(item: ProviderAvailability): L.DivIcon {
 
     className: "pomich-directory-marker",
 
-    html: `<div style="width:26px;height:26px;border-radius:8px;background:${color};border:2px solid white;display:flex;align-items:center;justify-content:center;color:white;font-size:12px">${emoji}</div>`,
+    html: `<div style="width:26px;height:26px;border-radius:8px;background:var(--pomich-card-bg, white);border:2px solid ${color};display:flex;align-items:center;justify-content:center;color:${serviceAccentColor(specialty)}">${glyph}</div>`,
 
     iconSize: [26, 26],
 
@@ -593,12 +609,12 @@ function LivePartnerPopup({ item }: { item: ProviderAvailability }) {
   return (
     <div style={{ minWidth: 220, maxWidth: 280 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <span style={{ fontSize: 18 }}>{getDirectoryIconEmoji(item)}</span>
+        <ServiceIcon service={specialty} size={24} />
         <strong style={{ lineHeight: 1.25 }}>{item.name}</strong>
       </div>
       <div style={{ marginTop: 6, fontSize: 12, color: "#4B5563", fontWeight: 700 }}>
         {providerStatusLabel(item.status)}
-        {typeof item.rating === "number" ? ` · ★ ${item.rating.toFixed(1)}` : ""}
+        {typeof item.rating === "number" ? <span> · <Icon name="star" size={14} filled /> {item.rating.toFixed(1)}</span> : null}
         {item.etaMinutes ? ` · ~${item.etaMinutes} хв` : ""}
       </div>
       {item.vehicle ? <div style={{ marginTop: 6, fontSize: 12, color: "#374151" }}>{item.vehicle}</div> : null}
@@ -611,7 +627,7 @@ function LivePartnerPopup({ item }: { item: ProviderAvailability }) {
       </div>
       {telHref ? (
         <a href={telHref} style={{ display: "inline-block", marginTop: 10, fontSize: 14, fontWeight: 900, color: BRAND, textDecoration: "none" }}>
-          📞 {item.phone}
+          <Icon name="phone" size={16} /> {item.phone}
         </a>
       ) : (
         <div style={{ marginTop: 10, fontSize: 11, color: "#9CA3AF", fontWeight: 700 }}>Телефон не вказано</div>
@@ -646,7 +662,7 @@ function DirectoryPopup({
   return (
     <div style={{ minWidth: 200, maxWidth: 260 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <span style={{ fontSize: 18 }}>{getDirectoryIconEmoji(item)}</span>
+        <ServiceIcon service={specialty} size={24} />
         <strong style={{ lineHeight: 1.25 }}>{item.name}</strong>
       </div>
       <div style={{ marginTop: 6, fontSize: 12, color: "#4B5563", fontWeight: 700 }}>{serviceLabel}</div>
@@ -658,7 +674,7 @@ function DirectoryPopup({
       ) : (
         <div style={{ marginTop: 8, fontSize: 11, color: "#9CA3AF", fontWeight: 700 }}>Телефон у довіднику відсутній</div>
       )}
-      {item.openingHours ? <div style={{ marginTop: 6, fontSize: 11, color: "#6B7280" }}>🕐 {item.openingHours}</div> : null}
+      {item.openingHours ? <div style={{ marginTop: 6, fontSize: 11, color: "#6B7280" }}><Icon name="clock" size={14} /> {item.openingHours}</div> : null}
       {item.website ? (
         <a href={item.website.startsWith("http") ? item.website : `https://${item.website}`} target="_blank" rel="noreferrer" style={{ display: "inline-block", marginTop: 6, fontSize: 11, color: "#2563EB", textDecoration: "none" }}>
           Сайт
@@ -813,7 +829,7 @@ function RouteOriginSheet({
               fontFamily: "inherit",
             }}
           >
-            {geoRequesting ? "Визначаємо…" : "📍 Увімкнути геолокацію"}
+            <Icon name="locate" size={18} /> {geoRequesting ? "Визначаємо…" : "Увімкнути геолокацію"}
           </button>
           <button
             type="button"
@@ -829,7 +845,7 @@ function RouteOriginSheet({
               fontFamily: "inherit",
             }}
           >
-            {pickMode ? "Оберіть точку на карті ↑" : "🗺️ Обрати на карті"}
+            <Icon name={pickMode ? "arrow-up" : "map"} size={18} /> {pickMode ? "Оберіть точку на карті" : "Обрати на карті"}
           </button>
         </div>
       </div>
@@ -1737,7 +1753,7 @@ export function RouteMap({
       <MapContainer
         center={initialCenterRef.current}
         zoom={effectiveZoom}
-        zoomControl={mapInteractive}
+        zoomControl={false}
         scrollWheelZoom={mapInteractive}
         dragging={mapInteractive}
         touchZoom={mapInteractive}
@@ -1752,6 +1768,7 @@ export function RouteMap({
       >
 
         <MapSizeController />
+        {mapInteractive ? <MapZoomControls /> : null}
 
         {directoryScopeRecenterTrigger > 0 && directoryScope ? (
           <MapDirectoryScopeRecenter
@@ -2123,6 +2140,7 @@ export function RouteMap({
 
       {showBadges && displaySubtitle && !hideMapChrome ? (
         <div className="pomich-map-address-pill">
+          <Icon name="pin" size={16} />
           {displaySubtitle}
         </div>
       ) : null}
@@ -2177,7 +2195,7 @@ export function RouteMap({
                 aria-label="Закрити фільтр сервісів"
                 onClick={() => setMapToolsOpen(false)}
               >
-                ✕
+                <Icon name="close" />
               </button>
             </div>
             {onDirectoryScopeChange ? (
@@ -2200,7 +2218,7 @@ export function RouteMap({
                     aria-pressed={directoryScope === "my-city"}
                     disabled={directoryScopeGeoLoading}
                   >
-                    {directoryScopeGeoLoading ? "📍 …" : "📍 Моє місто"}
+                    <Icon name="locate" size={16} /> {directoryScopeGeoLoading ? "Визначаємо…" : "Моє місто"}
                   </button>
                 </div>
                 {directoryScope === "my-city" && directoryScopeCity ? (
@@ -2235,7 +2253,7 @@ export function RouteMap({
                 }}
                 aria-pressed={directoryMarkersHidden}
               >
-                {directoryMarkersHidden ? "👁 Показати всі" : "Сховати все"}
+                <Icon name={directoryMarkersHidden ? "eye" : "eye-off"} size={16} /> {directoryMarkersHidden ? "Показати всі" : "Сховати все"}
               </button>
             ) : null}
             {directoryCategoryFilters.map((filter) => {
@@ -2258,7 +2276,7 @@ export function RouteMap({
                     opacity: directoryMarkersHidden ? 0.55 : 1,
                   }}
                 >
-                  {filter.emoji} {filter.label}{count > 0 ? ` (${count})` : ""}
+                  {filter.key === "all" ? <Icon name="pin" size={18} /> : <ServiceIcon service={filter.key} size={20} />} {filter.label}{count > 0 ? ` (${count})` : ""}
                 </button>
               )
             })}

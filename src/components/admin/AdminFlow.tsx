@@ -1,3 +1,6 @@
+import Icon from "../ui/Icon"
+import type { IconName } from "../../lib/icons"
+import ServiceIcon from "../ui/ServiceIcon"
 import { useCallback, useEffect, useMemo, useState } from "react"
 
 import {
@@ -31,7 +34,6 @@ import {
 } from "../../api/client"
 import {
   getProviderCapabilityLabel,
-  getServiceEmoji,
   getServiceLabel,
   isVerified,
   orderStatusLabels,
@@ -49,15 +51,15 @@ import { useConfirmDialog } from "../ui/ConfirmDialog"
 
 type AdminSection = "dashboard" | "clients" | "providers" | "orders" | "logs" | "map" | "verification" | "settings"
 
-const NAV: Array<{ id: AdminSection; label: string; icon: string }> = [
-  { id: "dashboard", label: "Дашборд", icon: "📊" },
-  { id: "clients", label: "Клієнти", icon: "👤" },
-  { id: "providers", label: "Партнери", icon: "🚛" },
-  { id: "orders", label: "Заявки", icon: "📋" },
-  { id: "logs", label: "Логи", icon: "🛰️" },
-  { id: "map", label: "Карта", icon: "🗺️" },
-  { id: "verification", label: "Перевірка", icon: "✅" },
-  { id: "settings", label: "Налаштування", icon: "⚙️" },
+const NAV: Array<{ id: AdminSection; label: string; icon: IconName }> = [
+  { id: "dashboard", label: "Дашборд", icon: "dashboard" },
+  { id: "clients", label: "Клієнти", icon: "user" },
+  { id: "providers", label: "Партнери", icon: "car" },
+  { id: "orders", label: "Заявки", icon: "clipboard" },
+  { id: "logs", label: "Логи", icon: "activity" },
+  { id: "map", label: "Карта", icon: "map" },
+  { id: "verification", label: "Перевірка", icon: "shield-check" },
+  { id: "settings", label: "Налаштування", icon: "settings" },
 ]
 
 function normalizeOrderStatus(status?: string): OrderStatus {
@@ -454,7 +456,7 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
                 setSidebarOpen(false)
               }}
             >
-              <span>{item.icon}</span>
+              <span><Icon name={item.icon} /></span>
               <span>{item.label}</span>
               {item.id === "verification" && pendingProviders.length > 0 ? (
                 <span className="admin-nav-badge">{pendingProviders.length}</span>
@@ -463,13 +465,13 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
           ))}
         </nav>
         <div className="admin-sidebar-foot">
-          <div className="admin-session-pill">🔒 JWT сесія активна</div>
+          <div className="admin-session-pill"><Icon name="lock" size={16} /> JWT сесія активна</div>
         </div>
       </aside>
 
       <div className="admin-main">
         <header className="admin-topbar">
-          <button className="admin-menu-btn" onClick={() => setSidebarOpen((value) => !value)} aria-label="Меню">☰</button>
+          <button className="admin-menu-btn" onClick={() => setSidebarOpen((value) => !value)} aria-label="Меню"><Icon name="menu" /></button>
           <div>
             <div className="admin-topbar-title">{sectionTitle}</div>
             <div className="admin-topbar-sub">Повний контроль системи POMICH</div>
@@ -519,7 +521,7 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
                     <div key={`${item.type}-${item.id}-${item.at}`} className="admin-activity-item">
                       <div>
                         <strong>{item.id ?? "—"}</strong>
-                        <div className="admin-muted">{getServiceEmoji(item.service)} {getServiceLabel(item.service)} · {item.source ?? "web"}</div>
+                        <div className="admin-muted"><ServiceIcon service={item.service} size={20} /> {getServiceLabel(item.service)} · {item.source ?? "web"}</div>
                       </div>
                       <div className="admin-activity-meta">
                         <StatusPill status={normalizeOrderStatus(item.status)} />
@@ -628,8 +630,8 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
                     <button key={order.id} aria-pressed={selectedOrder?.id === order.id} className={`admin-list-item${selectedOrder?.id === order.id ? " admin-list-item-active" : ""}`} onClick={() => setSelectedOrderId(order.id)}>
                       <div>
                         <strong>{order.id}</strong>
-                        <div className="admin-muted">{getServiceEmoji(order.service)} {getServiceLabel(order.service)}</div>
-                        <div className="admin-muted">{order.customerLocation ?? "?"} → {order.destination ?? "?"}</div>
+                        <div className="admin-muted"><ServiceIcon service={order.service} size={20} /> {getServiceLabel(order.service)}</div>
+                        <div className="admin-muted">{order.customerLocation ?? "?"} <Icon name="arrow-right" size={16} /> {order.destination ?? "?"}</div>
                       </div>
                       <StatusPill status={normalizeOrderStatus(order.status)} />
                     </button>
@@ -991,7 +993,7 @@ function OrderEditor({
       <div className="admin-kv-grid">
         <div><span>Послуга</span><strong>{getServiceLabel(order.service)}</strong></div>
         <div><span>Клієнт</span><strong>{order.telegramUsername ? `@${order.telegramUsername}` : order.chatId ?? "web"}</strong></div>
-        <div><span>Маршрут</span><strong>{order.customerLocation ?? "?"} → {order.destination ?? "?"}</strong></div>
+        <div><span>Маршрут</span><strong>{order.customerLocation ?? "?"} <Icon name="arrow-right" size={16} /> {order.destination ?? "?"}</strong></div>
         <div><span>Dispatch</span><strong>{order.dispatchState ?? "—"}</strong></div>
         <div><span>Виконавець</span><strong>{order.assignedProvider?.name ?? order.assignedProviderId ?? "—"}</strong></div>
         <div><span>Створено</span><strong>{order.createdAt ?? "—"}</strong></div>

@@ -1,3 +1,6 @@
+import Icon from "../ui/Icon"
+import { renderReviewStars } from "../ui/RatingStars"
+import ServiceIcon from "../ui/ServiceIcon"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import {
@@ -19,7 +22,6 @@ import {
 import {
   BRAND,
   DEFAULT_SERVICE_RADIUS_KM,
-  getServiceEmoji,
   getServiceLabel,
   isProviderPhoneVerified,
   services,
@@ -39,7 +41,7 @@ import { authSessionStorageKey, isAuthSessionToken, readAuthSessionSubject, read
 import { presenceErrorMessage } from "../ui/DutyStatusToggle"
 import { getTelegramContext } from "../../telegram"
 import { Header } from "../layout/Header"
-import { formatCabinetOrderStatus, formatCabinetReviewStars } from "../customer/OrderTerminalStep"
+import { formatCabinetOrderStatus } from "../customer/OrderTerminalStep"
 import OrderHistoryDetailSheet from "./OrderHistoryDetailSheet"
 import { OrderRequestSheet } from "../provider/OrderRequestSheet"
 import { CitySelect } from "../ui/CitySelect"
@@ -729,7 +731,7 @@ export default function ProviderCabinet({
                               onClick={() => toggleSpecialty(service.key)}
                               className={`pomich-cabinet-service-chip${selected ? " is-selected" : ""}`}
                             >
-                              {service.emoji} {service.label}
+                              <ServiceIcon service={service.key} size={20} /> {service.label}
                             </button>
                           )
                         })}
@@ -782,7 +784,7 @@ export default function ProviderCabinet({
                         <div className="pomich-cabinet-profile-services">
                           {toServiceKeys(profile.specialties).map((key) => (
                             <span key={key} className="pomich-cabinet-profile-service">
-                              <span aria-hidden="true">{getServiceEmoji(key)}</span>
+                              <span aria-hidden="true"><ServiceIcon service={key} size={20} /></span>
                               {services.find((item) => item.key === key)?.label ?? key}
                             </span>
                           ))}
@@ -841,7 +843,7 @@ export default function ProviderCabinet({
                             aria-label={`Відкрити заявку ${serviceLabel}`}
                           >
                             <div className="pomich-cabinet-order-title">
-                              {getServiceEmoji(offer.service)} {serviceLabel} · {distance}
+                              <ServiceIcon service={offer.service} size={20} /> {serviceLabel} · {distance}
                             </div>
                             <div className="pomich-cabinet-order-status">
                               {seconds > 0 ? `Очікує відповіді · ${seconds} сек` : "Час вийшов"}
@@ -885,8 +887,8 @@ export default function ProviderCabinet({
                 ) : (
                   <div className="pomich-cabinet-order-list">
                   {orderHistory.map((order) => {
-                    const ownReview = formatCabinetReviewStars(order.partnerReview?.rating)
-                    const clientReview = formatCabinetReviewStars(order.customerReview?.rating)
+                    const ownReview = renderReviewStars(order.partnerReview?.rating)
+                    const clientReview = renderReviewStars(order.customerReview?.rating)
                     const clientName = order.customerName
                     const orderKey = order.id || `${order.createdAt}-${order.status}`
                     return (
@@ -916,7 +918,7 @@ export default function ProviderCabinet({
                           ) : null}
                         </div>
                         <span className="pomich-cabinet-order-item__chevron" aria-hidden="true">
-                          ›
+                          <Icon name="arrow-right" size={18} />
                         </span>
                       </button>
                     )

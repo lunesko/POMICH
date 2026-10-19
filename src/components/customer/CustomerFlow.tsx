@@ -1,3 +1,8 @@
+import type { IconName } from "../../lib/icons"
+import { StatusPill } from "../ui/StatusPill"
+import { SecondaryButton } from "../ui/SecondaryButton"
+import { PrimaryButton } from "../ui/PrimaryButton"
+import Icon from "../ui/Icon"
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import "./CustomerFlowUx.css"
 
@@ -162,54 +167,6 @@ function resolveOrderDistanceKm(service: ServiceKey, pickup: Point, destinationP
   return serviceRequiresDestination(service) ? raw : Math.max(0.5, raw)
 }
 
-function PrimaryButton({
-  label,
-  onClick,
-  loading = false,
-  loadingLabel,
-  disabled = false,
-}: {
-  label: string
-  onClick?: () => void
-  loading?: boolean
-  loadingLabel?: string
-  disabled?: boolean
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled || loading}
-      className={`pomich-primary-btn${disabled || loading ? " is-disabled" : ""}`}
-    >
-      {loading ? (loadingLabel ?? label) : label}
-    </button>
-  )
-}
-
-function SecondaryButton({ label, onClick, danger = false, disabled = false }: { label: string; onClick?: () => void; danger?: boolean; disabled?: boolean }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className={`pomich-flow-secondary-btn${danger ? " is-danger" : ""}`}
-    >
-      {label}
-    </button>
-  )
-}
-
-function StatusPill({ status }: { status: OrderStatus }) {
-  const cancelled = status === "cancelled"
-  return (
-    <div className={`pomich-status-pill ${cancelled ? "pomich-status-pill--cancelled" : "pomich-status-pill--active"}`}>
-      <span className="pomich-status-pill__dot" />
-      {orderStatusLabels[status]}
-    </div>
-  )
-}
-
 function Timeline({ status }: { status: OrderStatus }) {
   const steps: Array<{ status: OrderStatus; label: string }> = [
     { status: "searching", label: "Пошук" },
@@ -272,22 +229,22 @@ function ProviderCard({
     <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 18, padding: 14, boxShadow: "0 8px 22px rgba(0,0,0,0.05)" }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
         <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-          <div style={{ width: 48, height: 48, borderRadius: 14, background: SELECTED, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24 }}>🚛</div>
+          <div style={{ width: 48, height: 48, borderRadius: 14, background: SELECTED, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24 }}><ServiceIcon service="tow" size={30} /></div>
           <div>
             <div style={{ fontWeight: 900, color: DARK }}>{cardProvider.name ?? fallbackName ?? "Партнер"}</div>
             <div style={{ fontSize: 12, color: MUTED, marginTop: 2 }}>{[cardProvider.vehicle, cardProvider.plate].filter(Boolean).join(" · ") || "Дані авто уточнюються"}</div>
             <div style={{ marginTop: 6 }}><VerificationPill status={verificationStatus} /></div>
           </div>
         </div>
-        {typeof rating === "number" ? <div style={{ textAlign: "right", fontWeight: 900, color: BRAND }}>★ {rating}</div> : null}
+        {typeof rating === "number" ? <div style={{ textAlign: "right", fontWeight: 900, color: BRAND }}><Icon name="star" size={16} filled /> {rating}</div> : null}
       </div>
       <div style={{ display: "grid", gridTemplateColumns: phone && telegram ? "1fr 1fr" : "1fr", gap: 10, marginTop: 12 }}>
         {phone ? (
-          <SecondaryButton label="📞 Подзвонити" onClick={() => { window.location.href = `tel:${phone}` }} />
+          <SecondaryButton label={<><Icon name="phone" size={18} /> Подзвонити</>} onClick={() => { window.location.href = `tel:${phone}` }} />
         ) : null}
         {telegram ? (
           <SecondaryButton
-            label="💬 Чат"
+            label={<><Icon name="chat" size={18} /> Чат</>}
             onClick={() => {
               window.open(`https://t.me/${telegram}${orderId ? `?start=order_${orderId}` : ""}`, "_blank", "noopener,noreferrer")
             }}
@@ -314,7 +271,7 @@ function ScreenLayout({ children, footer }: { children: React.ReactNode; footer?
 function StepBack({ onBack, hide = false }: { onBack: () => void; hide?: boolean }) {
   if (hide) return null
   return (
-    <button type="button" onClick={onBack} className="pomich-step-back">← Назад</button>
+    <button type="button" onClick={onBack} className="pomich-step-back"><Icon name="arrow-left" size={18} /> Назад</button>
   )
 }
 
@@ -327,10 +284,10 @@ function SheetHeading({ title, subtitle }: { title: string; subtitle?: string })
   )
 }
 
-function LocationRow({ icon, title, subtitle, active = false }: { icon: string; title: string; subtitle: string; active?: boolean }) {
+function LocationRow({ icon, title, subtitle, active = false }: { icon: IconName; title: string; subtitle: string; active?: boolean }) {
   return (
     <div className="pomich-location-row">
-      <div className="pomich-location-row__icon" style={{ background: active ? SELECTED : GHOST }}>{icon}</div>
+      <div className="pomich-location-row__icon" style={{ background: active ? SELECTED : GHOST }}><Icon name={icon} /></div>
       <div style={{ minWidth: 0 }}>
         <div className="pomich-location-row__title">{title}</div>
         <div className="pomich-location-row__subtitle">{subtitle}</div>
@@ -398,7 +355,7 @@ function CurrentLocationCard({
     <div style={{ marginTop: 0, border: `1px solid ${BORDER}`, borderRadius: 14, padding: "2px 10px 8px", background: SURFACE_TONE }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <LocationRow icon="●" title="Точка допомоги — перевірте на карті" subtitle={geoLoading ? "Визначаємо адресу…" : locationLabel} active />
+          <LocationRow icon="pin" title="Точка допомоги — перевірте на карті" subtitle={geoLoading ? "Визначаємо адресу…" : locationLabel} active />
         </div>
         <GeoRefreshButton loading={geoLoading} onClick={onRefreshGeo} />
       </div>
@@ -591,7 +548,7 @@ function CustomerTrustPanel({
           {checklist.map((item) => (
             <div key={item.key} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 13, fontWeight: 800 }}>
               <span style={{ color: "var(--pomich-label)" }}>{item.label}{item.required ? " *" : ""}</span>
-              <span style={{ color: item.filled ? BRAND : SUBTLE }}>{profileChecklistItemStatus(item)}</span>
+              <span style={{ color: item.filled ? BRAND : SUBTLE }}><Icon name={item.filled ? "check" : "circle"} size={16} /> {profileChecklistItemStatus(item)}</span>
             </div>
           ))}
         </div>
@@ -679,8 +636,8 @@ function HomeStep({
                     className="pomich-problem-card"
           style={{ animationDelay: `${index * 50}ms`, opacity: 1 }}
         >
-          <span className="pomich-problem-card__emoji" aria-hidden="true">
-            {card.emoji}
+          <span className="pomich-problem-card__icon" aria-hidden="true">
+            <ServiceIcon service={card.key} size={32} />
           </span>
           <span className="pomich-problem-card__label">{card.label}</span>
           <span className="pomich-problem-card__hint">{card.hint}</span>
@@ -739,13 +696,13 @@ function HomeStep({
                   style={{ background: CARD, opacity: 1 }}
                 >
                   <span className="pomich-service-row__icon" style={{ background: SURFACE_TONE }}>
-                    <span aria-hidden="true">{card.emoji}</span>
+                    <span aria-hidden="true"><ServiceIcon service={card.key} size={32} /></span>
                   </span>
                   <span style={{ minWidth: 0 }}>
                     <span className="pomich-service-row__label">{card.label}</span>
                     <span className="pomich-service-row__hint">{card.hint}</span>
                   </span>
-                  <span className="pomich-service-row__chevron" aria-hidden="true">›</span>
+                  <span className="pomich-service-row__chevron" aria-hidden="true"><Icon name="arrow-right" size={18} /></span>
                 </button>
               ))}
             </div>
@@ -762,7 +719,7 @@ function HomeStep({
           >
             <SheetDivider />
             <div className="pomich-location-hint" aria-disabled="true">
-              <LocationRow icon="🏁" title="Куди везти або де ремонтувати" subtitle="Уточнимо після вибору послуги" />
+              <LocationRow icon="flag" title="Куди везти або де ремонтувати" subtitle="Уточнимо після вибору послуги" />
             </div>
           </CurrentLocationCard>
 
@@ -793,7 +750,7 @@ function HomeStep({
                             className="pomich-problem-card pomich-problem-card--peek"
               style={{ opacity: 1 }}
             >
-              <span className="pomich-problem-card__emoji" aria-hidden="true">{card.emoji}</span>
+              <span className="pomich-problem-card__icon" aria-hidden="true"><ServiceIcon service={card.key} size={32} /></span>
               <span className="pomich-problem-card__label">{card.label}</span>
             </button>
           ))}
@@ -856,7 +813,7 @@ function LocationStep({
       <SheetHeading title="Де ви зараз?" subtitle="Це місце, де вас знайде партнер. Перетягніть маркер на карті або натисніть, щоб уточнити." />
 
       <div style={{ marginTop: 14, border: `1px solid ${BORDER}`, borderRadius: 18, padding: "4px 14px 10px", background: SURFACE_TONE }}>
-        <LocationRow icon="📍" title="Адреса" subtitle={geoLoading ? "Визначаємо адресу…" : addressLabel} active />
+        <LocationRow icon="pin" title="Адреса" subtitle={geoLoading ? "Визначаємо адресу…" : addressLabel} active />
         {geoStatusHint ? (
           <div style={{ margin: "0 0 8px 47px", color: MUTED, fontSize: 11, fontWeight: 750, lineHeight: 1.35 }}>{geoStatusHint}</div>
         ) : null}
@@ -957,16 +914,16 @@ function DestinationStep({
       <SheetHeading title={title} subtitle={subtitle} />
 
       <div style={{ marginTop: 16, border: `1px solid ${BORDER}`, borderRadius: 18, padding: "4px 14px", background: SURFACE_TONE }}>
-        <LocationRow icon="●" title="Звідки" subtitle="Ваше місцезнаходження" active />
+        <LocationRow icon="pin" title="Звідки" subtitle="Ваше місцезнаходження" active />
         {needsDestination ? (
           <>
             <SheetDivider />
-            <LocationRow icon="🏁" title="Куди" subtitle={value.trim() || "Оберіть на карті або введіть адресу"} />
+            <LocationRow icon="flag" title="Куди" subtitle={value.trim() || "Оберіть на карті або введіть адресу"} />
           </>
         ) : (
           <>
             <SheetDivider />
-            <LocationRow icon="🛠️" title="Куди" subtitle={ON_SITE_DESTINATION_LABEL} />
+            <LocationRow icon="wrench" title="Куди" subtitle={ON_SITE_DESTINATION_LABEL} />
           </>
         )}
       </div>
@@ -996,7 +953,7 @@ function DestinationStep({
           {resolvedAddressLabel && !destinationResolved ? <div role="status">Адресу знайдено: {resolvedAddressLabel}. Перевірте маркер і підтвердьте точку.</div> : null}
           {destinationResolved ? (
             <div className="pomich-address-resolved" role="status">
-              <strong>✓ Точку доставки підтверджено на карті</strong>
+              <strong><Icon name="check" size={16} /> Точку доставки підтверджено на карті</strong>
               {resolvedAddressLabel ? <span>{resolvedAddressLabel}</span> : null}
             </div>
           ) : null}
@@ -1074,7 +1031,7 @@ function DetailsStep({ pickup, destination, details, isTelegram, onChange, onNex
                         <span style={{ display: "block" }}>{option.label}</span>
                         {option.hint ? <span style={{ display: "block", color: MUTED, fontSize: 12, marginTop: 3 }}>{option.hint}</span> : null}
                       </span>
-                      <span aria-hidden="true" style={{ color: selected ? BRAND : SUBTLE }}>{selected ? "✓" : "○"}</span>
+                      <span aria-hidden="true" style={{ color: selected ? BRAND : SUBTLE }}><Icon name={selected ? "check" : "circle"} size={18} /></span>
                     </span>
                   </button>
                 )
@@ -1146,25 +1103,25 @@ function ReviewStep({
       <SheetHeading title="Перевірте заявку" subtitle="Партнер запропонує ціну. Ви окремо підтвердите її перед виїздом; до цього можете відмовитися." />
 
       <div style={{ marginTop: 16, border: `1px solid ${BORDER}`, borderRadius: 18, padding: "4px 14px", background: SURFACE_TONE }}>
-        <LocationRow icon="🛠️" title="Послуга" subtitle={serviceLabel} active />
+        <LocationRow icon="wrench" title="Послуга" subtitle={serviceLabel} active />
         <SheetDivider />
-        <LocationRow icon="📍" title="Де ви" subtitle={addressLabel} />
+        <LocationRow icon="pin" title="Де ви" subtitle={addressLabel} />
         {showDestination ? (
           <>
             <SheetDivider />
-            <LocationRow icon="🏁" title="Куди" subtitle={destination} />
+            <LocationRow icon="flag" title="Куди" subtitle={destination} />
           </>
         ) : onSiteLabel ? (
           <>
             <SheetDivider />
-            <LocationRow icon="🛠️" title="Куди" subtitle={ON_SITE_DESTINATION_LABEL} />
+            <LocationRow icon="wrench" title="Куди" subtitle={ON_SITE_DESTINATION_LABEL} />
           </>
         ) : null}
         {detailRows.length > 0 ? <SheetDivider /> : null}
         {detailRows.map((row, index) => (
           <div key={row.label}>
             {index > 0 ? <SheetDivider /> : null}
-            <LocationRow icon={index === 0 ? "🚗" : "·"} title={row.label} subtitle={row.value} />
+            <LocationRow icon={index === 0 ? "car" : "info"} title={row.label} subtitle={row.value} />
           </div>
         ))}
       </div>
@@ -1242,7 +1199,7 @@ function SearchingStep({ orderId, status, order, pickup, destination, cancelErro
         <div className="pomich-radar-ring" />
         <div className="pomich-radar-ring" />
         <div className="pomich-radar-beam" />
-        <div className="pomich-radar-center-icon">🚛</div>
+        <div className="pomich-radar-center-icon"><ServiceIcon service="tow" size={30} /></div>
       </div>
 
       <div style={{ color: MUTED, fontWeight: 750, lineHeight: 1.4, textAlign: "center" }}>
@@ -1262,7 +1219,7 @@ function SearchingStep({ orderId, status, order, pickup, destination, cancelErro
           { text: "Очікування підтвердження ціни", active: !showRetry },
         ].map((item) => (
           <div key={item.text} style={{ background: SURFACE_TONE, borderRadius: 15, border: `1px solid ${BORDER}`, padding: "12px 14px", fontWeight: 850, color: DARK, display: "flex", alignItems: "center", gap: 10 }}>
-            <span style={{ color: item.active ? "var(--pomich-accent, #16a36a)" : "var(--pomich-muted)", fontWeight: 900 }}>{item.active ? "✓" : "⏳"}</span>
+            <span style={{ color: item.active ? "var(--pomich-accent, #16a36a)" : "var(--pomich-muted)", fontWeight: 900 }}><Icon name={item.active ? "check" : "clock"} size={18} /></span>
             <span>{item.text}</span>
           </div>
         ))}
