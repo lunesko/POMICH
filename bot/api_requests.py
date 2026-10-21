@@ -79,3 +79,13 @@ def request_schema(model) -> dict:
             return {key: expand(item) for key, item in value.items()}
         return value
     return {"requestBody": {"required": True, "content": {"application/json": {"schema": expand(schema)}}}}
+
+
+class SupportCaseCreate(RequestModel):
+    reason: Literal["no_partner", "partner_unreachable", "help_not_received", "other"]
+    description: str = Field(min_length=5, max_length=2000)
+
+
+class SupportCasePatch(RequestModel):
+    status: Literal["open", "in_review", "resolved"]
+    resolution: str = Field(default="", max_length=2000)

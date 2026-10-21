@@ -186,7 +186,7 @@ def sql_storage_enabled() -> bool:
 
 
 def get_engine() -> Engine:
-    from bot import delivery_store, order_idempotency  # register transactional tables
+    from bot import delivery_store, order_idempotency, support_store  # register transactional tables
     global _ENGINE, _ENGINE_URL
     url = _database_url()
     if not url:
@@ -214,7 +214,7 @@ def reset_runtime_store_for_tests() -> None:
 
 
 def _install_schema(engine: Engine) -> None:
-    from bot import delivery_store, order_idempotency
+    from bot import delivery_store, order_idempotency, support_store
     if engine.dialect.name == "postgresql":
         with engine.begin() as connection:
             connection.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))

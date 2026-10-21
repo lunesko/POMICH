@@ -27,6 +27,7 @@ interface OrderFinalStepProps {
   /** Hide in-sheet CTA when Telegram main button handles it */
   showAction?: boolean
   /** When set, show stars review (skippable — never block logout / continue) */
+  autoDismiss?: boolean
   reviewMode?: "customer" | "partner" | null
   reviewTargetName?: string
   reviewSaving?: boolean
@@ -69,6 +70,7 @@ export function OrderFinalStep({
   onRestart,
   onLogout,
   showAction = true,
+  autoDismiss = true,
   reviewMode = null,
   reviewTargetName,
   reviewSaving = false,
@@ -88,7 +90,7 @@ export function OrderFinalStep({
   )
 
   useEffect(() => {
-    if (status !== "cancelled") {
+    if (status !== "cancelled" || !autoDismiss) {
       setDismissCountdown(null)
       return
     }
@@ -121,7 +123,7 @@ export function OrderFinalStep({
         intervalRef.current = null
       }
     }
-  }, [status, orderId])
+  }, [status, orderId, autoDismiss])
 
   const amount = formatAmount(order?.partnerProposedPrice)
   const partnerName = order?.providerName || order?.assignedProvider?.name || reviewTargetName

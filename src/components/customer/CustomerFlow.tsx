@@ -20,7 +20,10 @@ import {
   type ProviderAvailability,
   type VerificationStatus,
 } from "../../api/client"
-import { RideScreen } from "../layout/RideScreen"
+import OrderSupport from "./OrderSupport"
+import useApproachOrder from "../../hooks/useApproachOrder"
+import { etaRangeLabel, providerLocationFresh } from "../../lib/orderReliability"
+import { RideScreen, RideScreenFooterContext } from "../layout/RideScreen"
 import ServiceIcon from "../ui/ServiceIcon"
 import {
   calculateDistanceKm,
@@ -294,7 +297,7 @@ function ProviderCard({
           />
         ) : null}
       </div>
-      {eta ? <div style={{ marginTop: 10, color: MUTED, fontSize: 13, fontWeight: 700 }}>Прибуття приблизно за {eta} хв</div> : null}
+      {eta ? <div style={{ marginTop: 10, color: MUTED, fontSize: 13, fontWeight: 700 }}>Прибуття приблизно за {etaRangeLabel(eta)}</div> : null}
       {distanceLabel ? <div style={{ marginTop: 6, color: MUTED, fontSize: 13, fontWeight: 700 }}>{distanceLabel}</div> : null}
     </div>
   )
@@ -1200,8 +1203,14 @@ function ReviewStep({
 }
 
 function SearchingStep({ orderId, status, order, pickup, destination, cancelError, cancelling, onCancel, onRetryDispatch }: { orderId?: string; status: OrderStatus; order?: OrderResponse; pickup: Point; destination: Point; cancelError?: string; cancelling?: boolean; onCancel: () => void; onRetryDispatch: () => void }) {
+  const [searchClock, setSearchClock] = useState(Date.now())
+  useEffect(() => {
+    const timer = window.setInterval(() => setSearchClock(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [])
+  const startedAt = Date.parse(order?.createdAt || "")
+  const waitingMinutes = Number.isFinite(startedAt) ? Math.max(0, Math.floor((searchClock - startedAt) / 60000)) : undefined
   const noProviders = order?.dispatchState === "NO_PROVIDERS_AVAILABLE"
-  const awaitingDispatcher = Boolean(order?.dispatchInfo?.awaitingDispatcher) || noProviders
   const offers = order?.offers ?? []
   const pendingOffers = offers.filter((offer) => offer.status === "pending").length
   const offersSent = order?.dispatchInfo?.offersSent ?? offers.length
@@ -1214,16 +1223,13 @@ function SearchingStep({ orderId, status, order, pickup, destination, cancelErro
     offers.some((offer) => offer.status === "expired" || offer.status === "declined" || offer.status === "lost")
   const showRetry = noProviders || offersExhausted
   const statusHint =
-    (typeof order?.dispatchInfo?.clientStatusHint === "string" && order.dispatchInfo.clientStatusHint.trim()) ||
-    (awaitingDispatcher || showRetry
-      ? "Партнера поруч поки немає. Диспетчер розширює пошук."
-      : undefined)
+    showRetry ? "Поки немає доступних партнерів. Повторіть пошук або повідомте про проблему." : undefined
 
   return (
     <RideScreen pickup={pickup} destination={destination} providers={order?.assignedProvider ? [order.assignedProvider] : undefined} mapSubtitle={orderId ? `#${orderId}` : "Очікуємо партнера"}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
         <SheetHeading
-          title={showRetry ? "Розширюємо пошук" : "Очікуємо партнера"}
+          title={showRetry ? "Партнера поки не знайдено" : "Очікуємо партнера"}
           subtitle={
             statusHint
               ? statusHint
@@ -1237,6 +1243,7 @@ function SearchingStep({ orderId, status, order, pickup, destination, cancelErro
         <StatusPill status={status} />
       </div>
 
+      {waitingMinutes !== undefined ? <p role="status">Пошук триває {waitingMinutes} хв. {waitingMinutes >= 3 ? "Пошук затягнувся. Ви можете повідомити про проблему або скасувати заявку." : "Час прийняття заявки залежить від доступності партнерів."}</p> : null}
       <div className="pomich-radar-container">
         <div className="pomich-radar-ring" />
         <div className="pomich-radar-ring" />
@@ -1333,7 +1340,7 @@ function AcceptedStep({
       <div style={{ marginTop: 16, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
         <div style={{ background: "var(--pomich-accent-panel-bg)", color: "#fff", borderRadius: 18, padding: 16, textAlign: "center" }}>
           <div style={{ color: "#A7F3D0", fontWeight: 800, fontSize: 12 }}>Прибуття</div>
-          <div style={{ fontSize: 28, fontWeight: 950, marginTop: 6 }}>{typeof eta === "number" ? `~${eta} хв` : "—"}</div>
+          <div style={{ fontSize: 28, fontWeight: 950, marginTop: 6 }}>{typeof eta === "number" ? etaRangeLabel(eta) : "—"}</div>
         </div>
         <div style={{ background: "var(--pomich-accent-panel-bg)", color: "#fff", borderRadius: 18, padding: 16, textAlign: "center" }}>
           <div style={{ color: "#A7F3D0", fontWeight: 800, fontSize: 12 }}>Запропонована ціна</div>
@@ -1385,7 +1392,7 @@ function AssignedStep({ orderId, status, order, pickup, destination, isTelegram,
       <div style={{ marginTop: 16, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
         <div style={{ background: "var(--pomich-accent-panel-bg)", color: "#fff", borderRadius: 18, padding: 16, textAlign: "center" }}>
           <div style={{ color: "#A7F3D0", fontWeight: 800, fontSize: 12 }}>Прибуття</div>
-          <div style={{ fontSize: 28, fontWeight: 950, marginTop: 6 }}>{typeof eta === "number" ? `~${eta} хв` : "—"}</div>
+          <div style={{ fontSize: 28, fontWeight: 950, marginTop: 6 }}>{typeof eta === "number" ? etaRangeLabel(eta) : "—"}</div>
         </div>
         <div style={{ background: "var(--pomich-accent-panel-bg)", color: "#fff", borderRadius: 18, padding: 16, textAlign: "center" }}>
           <div style={{ color: "#A7F3D0", fontWeight: 800, fontSize: 12 }}>Узгоджена ціна</div>
@@ -1415,7 +1422,7 @@ function AssignedStep({ orderId, status, order, pickup, destination, isTelegram,
 
 function TrackingStep({ orderId, status, order, pickup, destination, cancelError, cancelling, onCancel }: { orderId?: string; status: OrderStatus; order?: OrderResponse; pickup: Point; destination: Point; cancelError?: string; cancelling?: boolean; onCancel: () => void }) {
   const liveProviderLocation = order?.assignedProvider?.location
-  const hasLiveLocation = Boolean(liveProviderLocation && Number.isFinite(liveProviderLocation.lat) && Number.isFinite(liveProviderLocation.lng))
+  const hasLiveLocation = providerLocationFresh(order) && Boolean(liveProviderLocation && Number.isFinite(liveProviderLocation.lat) && Number.isFinite(liveProviderLocation.lng))
   const providerPosition = hasLiveLocation
     ? { lat: liveProviderLocation!.lat, lng: liveProviderLocation!.lng }
     : undefined
@@ -1428,14 +1435,14 @@ function TrackingStep({ orderId, status, order, pickup, destination, cancelError
         : `${distanceKm.toFixed(1)} км від вас`
       : null
   const mapSubtitle = hasLiveLocation
-    ? [eta ? `ETA ${eta} хв` : null, distanceLabel].filter(Boolean).join(" · ") || "Партнер у дорозі"
-    : "Партнер прийняв · очікуємо геолокацію"
+    ? [eta ? etaRangeLabel(eta) : null, distanceLabel].filter(Boolean).join(" · ") || "Партнер у дорозі"
+    : "Геолокація партнера уточнюється"
 
   return (
     <RideScreen pickup={pickup} destination={destination} providerPosition={providerPosition} mapSubtitle={mapSubtitle}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
         <SheetHeading title="Партнер у дорозі" subtitle={orderId ? `Замовлення #${orderId}` : undefined} />
-        {eta ? <div style={{ background: "var(--pomich-accent-panel-bg)", color: "#fff", borderRadius: 999, padding: "9px 12px", fontWeight: 950 }}>{eta} хв</div> : null}
+        {eta ? <div style={{ background: "var(--pomich-accent-panel-bg)", color: "#fff", borderRadius: 999, padding: "9px 12px", fontWeight: 950 }}>{etaRangeLabel(eta)}</div> : null}
       </div>
       <div style={{ marginTop: 16, display: "grid", gap: 12 }}>
         <ProviderCard orderId={orderId} eta={eta} assignedProvider={order?.assignedProvider} />
@@ -1444,13 +1451,13 @@ function TrackingStep({ orderId, status, order, pickup, destination, cancelError
           <div style={{ color: MUTED, fontSize: 13, fontWeight: 700, marginTop: 12 }}>
             {hasLiveLocation
               ? (typeof distanceKm === "number" && distanceKm < 0.15 ? "Партнер майже на місці." : "Партнер їде до точки подачі. Позиція оновлюється з GPS.")
-              : "Партнер прийняв заявку. Карта покаже рух, щойно з’явиться його геолокація."}
+              : "Партнер прийняв заявку. Карта покаже рух після отримання свіжої геолокації."}
           </div>
         </div>
       </div>
       <div style={{ display: "grid", gap: 10, marginTop: 16 }}>
         {cancelError ? <div style={{ background: "var(--pomich-error-bg)", color: "var(--pomich-error-text)", borderRadius: 14, padding: 12, fontWeight: 800 }}>{cancelError}</div> : null}
-        <PrimaryButton label={eta ? `Очікувати · ${eta} хв` : "Очікуємо партнера"} disabled />
+        <PrimaryButton label={eta ? `Очікувати · ${etaRangeLabel(eta)}` : "Очікуємо партнера"} disabled />
         <SecondaryButton label={cancelling ? "Скасовуємо…" : "Скасувати заявку"} danger disabled={cancelling} onClick={onCancel} />
       </div>
     </RideScreen>
@@ -1541,6 +1548,9 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
   const [cancelError, setCancelError] = useState<string | undefined>()
   const [orderId, setOrderId] = useState<string | undefined>(() => restoredActiveOrder?.orderId)
   const [currentOrder, setCurrentOrder] = useState<OrderResponse | undefined>()
+  const [syncError, setSyncError] = useState(false)
+  const [lastOrderSync, setLastOrderSync] = useState<number>()
+  const { displayOrder, fresh: providerFresh, delayed: approachDelayed, now: reliabilityNow } = useApproachOrder(currentOrder)
   const [status, setStatus] = useState<OrderStatus>(() => {
     const restoredStatus = restoredActiveOrder?.status
     return restoredStatus ? normalizeOrderStatus(restoredStatus) : "draft"
@@ -1568,6 +1578,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
   const [geoRecenterTrigger, setGeoRecenterTrigger] = useState(0)
   const [geoSpeedMps, setGeoSpeedMps] = useState<number | null>(null)
   const [pickup, setPickup] = useState<Point>(() => restoredDraft?.pickup || readCachedGeoPosition() || PICKUP)
+  const manualPickupRef = useRef(Boolean(restoredDraft?.manualPickup))
   const explicitGeoRecenterRef = useRef(false)
   const skipNextAutoGeoRef = useRef(false)
   /** True while an explicit «Оновити» request is in flight — blocks StrictMode auto re-entry. */
@@ -1602,7 +1613,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
     const key = `pomichDraft:${customerId}`
     if (!["home", "location", "destination", "details", "review"].includes(screen)) { window.sessionStorage.removeItem(key); return }
     try {
-      window.sessionStorage.setItem(key, JSON.stringify({ savedAt: Date.now(), screen, selectedService, destination, destinationCandidate, destinationResolved, serviceDetails, customerComment, pickup, destinationPoint, addressLabel }))
+      window.sessionStorage.setItem(key, JSON.stringify({ savedAt: Date.now(), screen, selectedService, destination, destinationCandidate, destinationResolved, serviceDetails, customerComment, pickup, destinationPoint, addressLabel, manualPickup: manualPickupRef.current }))
     } catch { /* Storage may be disabled; the live form still works. */ }
   }, [customerId, screen, selectedService, destination, destinationCandidate, destinationResolved, serviceDetails, customerComment, pickup, destinationPoint, addressLabel])
 
@@ -1758,7 +1769,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
             return merged
           })
         }
-        if (!session.location) return
+        if (!session.location || manualPickupRef.current || readActiveOrder()) return
         const point = { lat: session.location.latitude, lng: session.location.longitude }
         writeCachedGeoPosition(point)
         // Session coords are not an OS browser geolocation grant — do not sticky-grant
@@ -1857,7 +1868,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
     const requestGen = geoRequestGenRef.current
     requestCurrentPosition(
       (nextPoint) => {
-        if (cancelled || requestGen !== geoRequestGenRef.current) return
+        if (cancelled || manualPickupRef.current || requestGen !== geoRequestGenRef.current) return
         setPickup(nextPoint)
         setGeoState("success")
         setGeoMessage("Місцезнаходження визначено.")
@@ -1867,7 +1878,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
         }
       },
       (message, kind) => {
-        if (cancelled || requestGen !== geoRequestGenRef.current) return
+        if (cancelled || manualPickupRef.current || requestGen !== geoRequestGenRef.current) return
         setGeoState(kind === "permission-denied" ? "permission-denied" : "unavailable")
         setGeoMessage(message)
       },
@@ -1888,7 +1899,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
       if (cancelled || !ok) return
       requestCurrentPosition(
         (nextPoint) => {
-          if (cancelled || requestGen !== geoRequestGenRef.current) return
+          if (cancelled || manualPickupRef.current || requestGen !== geoRequestGenRef.current) return
           setPickup(nextPoint)
         },
         () => undefined,
@@ -1916,6 +1927,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
     let denied = false
 
     const applyGeoPosition = (position: GeolocationPosition) => {
+      if (manualPickupRef.current) return
       const nextPoint = { lat: position.coords.latitude, lng: position.coords.longitude }
       const rawSpeed = resolveGroundSpeedMps(position, geoMotionSampleRef.current)
       const smoothed = smoothSpeedMps(geoSpeedSmoothRef.current, rawSpeed)
@@ -1989,6 +2001,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
   }, [screen, geoState])
 
   const retryGeolocation = () => {
+    manualPickupRef.current = false
     explicitGeoRecenterRef.current = true
     skipNextAutoGeoRef.current = true
     explicitGeoInFlightRef.current = true
@@ -2046,85 +2059,54 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
       ? (geoMessage || "Не вдалося визначити геолокацію. Натисніть «Оновити» або оберіть точку на карті.")
       : undefined
 
-  /* Restore in-progress order after Telegram WebApp reopen (sessionStorage often wiped). */
+  /* Transport errors retain the active order; only a server snapshot can end it. */
   useEffect(() => {
     let cancelled = false
-
-    const resetToHome = () => {
-      setOrderId(undefined)
-      setCurrentOrder(undefined)
-      setStatus("draft")
-      setScreen("home")
-      clearActiveOrder()
-    }
-
+    let restoring = false
+    let restored = false
     const restore = async () => {
+      if (cancelled || restoring || restored) return
+      restoring = true
       try {
         const session = await ensureCustomerSession()
         if (cancelled || !session.customerId || !session.token) return
-        const orders = await getCustomerOrders(session.customerId, session.token, 20)
-        if (cancelled) return
-
         const stored = readActiveOrder()
-        const active = pickLatestActiveOrder(orders)
-
-        if (!active) {
-          if (stored?.orderId) {
-            try {
-              const snapshot = await getOrder(stored.orderId, session.token)
-              if (cancelled) return
-              const snapshotStatus = normalizeOrderStatus(snapshot?.status)
-              if (isActiveOrderStatus(snapshotStatus) && snapshot?.id) {
-                setOrderId(snapshot.id)
-                setCurrentOrder(snapshot)
-                setStatus(snapshotStatus)
-                persistActiveOrder(snapshot.id, snapshotStatus)
-                if (snapshot.customerCoordinates) setPickup(snapshot.customerCoordinates)
-                if (snapshot.destinationCoordinates) setDestinationPoint(snapshot.destinationCoordinates)
-                setScreen((current) => {
-                  if (current === "cancelled" || current === "completed") return current
-                  return screenForOrderStatus(snapshotStatus)
-                })
-                return
-              }
-            } catch {
-              // fall through to reset
-            }
-            resetToHome()
-            return
-          }
-          clearActiveOrder()
-          return
+        let full: OrderResponse | undefined
+        if (stored?.orderId) {
+          full = await getOrder(stored.orderId, session.token)
+        } else {
+          const orders = await getCustomerOrders(session.customerId, session.token, 20)
+          const active = pickLatestActiveOrder(orders)
+          full = active ? orders.find(item => item.id === active.orderId) : undefined
         }
-
-        const full = orders.find((item) => item.id === active.orderId) ?? (await getOrder(active.orderId, session.token))
-        if (cancelled || !full?.id) return
+        if (cancelled) return
+        restored = true
+        setSyncError(false)
+        if (!full?.id) return
         const nextStatus = normalizeOrderStatus(full.status)
-        if (!isActiveOrderStatus(nextStatus)) {
-          resetToHome()
-          return
-        }
         setOrderId(full.id)
         setCurrentOrder(full)
+        setLastOrderSync(Date.now())
         setStatus(nextStatus)
         persistActiveOrder(full.id, nextStatus)
         if (full.customerCoordinates) setPickup(full.customerCoordinates)
         if (full.destinationCoordinates) setDestinationPoint(full.destinationCoordinates)
-        setScreen((current) => {
-          if (current === "cancelled" || current === "completed") return current
-          if (current !== "home" && orderId) return current
-          return screenForOrderStatus(nextStatus)
-        })
+        setScreen(screenForOrderStatus(nextStatus))
       } catch {
-        const stored = readActiveOrder()
-        if (stored?.orderId) resetToHome()
-      }
+        if (!cancelled && readActiveOrder()?.orderId) setSyncError(true)
+      } finally { restoring = false }
     }
     void restore()
+    const timer = window.setInterval(restore, 5000)
+    window.addEventListener("online", restore)
+    window.addEventListener("focus", restore)
     return () => {
       cancelled = true
+      window.clearInterval(timer)
+      window.removeEventListener("online", restore)
+      window.removeEventListener("focus", restore)
     }
-    // Intentionally once per customer identity / mount — not on every orderId change.
+    // Session bootstrap is keyed by identity; polling handles subsequent changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customerId, customerAuthToken])
 
@@ -2149,7 +2131,11 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
           clearActiveOrder()
         }
       }
+      setSyncError(false)
+      setLastOrderSync(Date.now())
       setCurrentOrder(order)
+      if (order.customerCoordinates) setPickup(order.customerCoordinates)
+      if (order.destinationCoordinates) setDestinationPoint(order.destinationCoordinates)
       setStatus(nextStatus)
       if (resolvedOrderId) setOrderId(resolvedOrderId)
       persistActiveOrder(resolvedOrderId, nextStatus)
@@ -2172,7 +2158,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
       if (document.visibilityState !== "visible") return
       getOrder(orderId, customerAuthToken)
         .then(applyPolledOrder)
-        .catch(() => undefined)
+        .catch(() => { if (!cancelled) setSyncError(true) })
     }
 
     refreshOrder()
@@ -2206,12 +2192,14 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
     }
     document.addEventListener("visibilitychange", onVisibility)
     window.addEventListener("focus", refreshOrder)
+    window.addEventListener("online", refreshOrder)
     return () => {
       cancelled = true
       window.clearInterval(interval)
       stopRealtime()
       document.removeEventListener("visibilitychange", onVisibility)
       window.removeEventListener("focus", refreshOrder)
+      window.removeEventListener("online", refreshOrder)
     }
   }, [orderId, screen, customerAuthToken])
 
@@ -2220,6 +2208,10 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
   const breakdown = useMemo(() => calculatePrice(selectedService, orderDistanceKm), [orderDistanceKm, selectedService])
 
   const applyPickup = (point: Point, message = "Місце подачі оновлено вручну.") => {
+    manualPickupRef.current = true
+    geoRequestGenRef.current += 1
+    explicitGeoInFlightRef.current = false
+    pickupRef.current = point
     setPickup(point)
     // Do not write manual map picks into the shared GPS cache — that poisoned
     // partner/landing reopen with a dragged customer pin.
@@ -2339,7 +2331,8 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
     setCancelling(true)
     setCancelError(undefined)
     try {
-      await cancelOrderRequest(orderId, customerAuthToken)
+      const cancelledOrder = await cancelOrderRequest(orderId, customerAuthToken)
+      setCurrentOrder(cancelledOrder)
       userInitiatedCancelRef.current = true
       setStatus("cancelled")
       setScreen("cancelled")
@@ -2351,14 +2344,47 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
     }
   }
 
+  const replaceUnreachablePartner = async () => {
+    if (!orderId || cancelling || !currentOrder) return
+    if (!await confirm({
+      title: "Знайти іншого партнера?",
+      description: "Поточну заявку буде скасовано. Перевірте дані та надішліть нову заявку. Попередній партнер може ще бути в дорозі — спробуйте спочатку зв’язатися з ним.",
+      confirmLabel: "Скасувати та перевірити нову заявку",
+      cancelLabel: "Залишити поточну заявку",
+      danger: true,
+    })) return
+    setCancelling(true)
+    setCancelError(undefined)
+    try {
+      await cancelOrderRequest(orderId, customerAuthToken)
+      userInitiatedCancelRef.current = true
+      clearActiveOrder()
+      setOrderId(undefined)
+      const service = (currentOrder.service || "tow") as ServiceKey
+      setSelectedService(service)
+      setServiceDetails(currentOrder.serviceDetails || createServiceDetails(service))
+      setCustomerComment(currentOrder.customerComment || "")
+      setDestination(currentOrder.destination || "")
+      setDestinationResolved(true)
+      manualPickupRef.current = true
+      setCurrentOrder(undefined)
+      setStatus("draft")
+      setScreen("review")
+    } catch {
+      setCancelError("Не вдалося скасувати поточну заявку. Нову заявку не створено. Спробуйте ще раз.")
+    } finally { setCancelling(false) }
+  }
+
   const retryOrderDispatch = useCallback(() => {
     if (!orderId) return
     retryDispatch(orderId, customerAuthToken)
       .then((order) => {
         setCurrentOrder(order)
         setStatus(normalizeOrderStatus(order.status))
+        setSyncError(false)
+        setLastOrderSync(Date.now())
       })
-      .catch(() => undefined)
+      .catch(() => setSyncError(true))
   }, [orderId, customerAuthToken])
 
   const verifyCustomerProfile = async () => {
@@ -2669,23 +2695,23 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
         />
       )
     case "searching":
-      return <SearchingStep orderId={orderId} status={status} order={currentOrder} pickup={pickup} destination={destinationPoint} cancelError={cancelError} cancelling={cancelling} onCancel={cancelOrder} onRetryDispatch={retryOrderDispatch} />
+      return <SearchingStep orderId={orderId} status={status} order={displayOrder} pickup={pickup} destination={destinationPoint} cancelError={cancelError} cancelling={cancelling} onCancel={cancelOrder} onRetryDispatch={retryOrderDispatch} />
     case "accepted":
-      return <AcceptedStep orderId={orderId} status={status} order={currentOrder} pickup={pickup} destination={destinationPoint} confirming={priceConfirming} confirmError={priceConfirmError} cancelError={cancelError} cancelling={cancelling} onConfirmPrice={confirmProposedPrice} onContact={contactAssignedProvider} onCancel={cancelOrder} />
+      return <AcceptedStep orderId={orderId} status={status} order={displayOrder} pickup={pickup} destination={destinationPoint} confirming={priceConfirming} confirmError={priceConfirmError} cancelError={cancelError} cancelling={cancelling} onConfirmPrice={confirmProposedPrice} onContact={contactAssignedProvider} onCancel={cancelOrder} />
     case "assigned":
-      return <AssignedStep orderId={orderId} status={status} order={currentOrder} pickup={pickup} destination={destinationPoint} isTelegram={isTelegram} cancelError={cancelError} cancelling={cancelling} onTrack={startTracking} onCancel={cancelOrder} />
+      return <AssignedStep orderId={orderId} status={status} order={displayOrder} pickup={pickup} destination={destinationPoint} isTelegram={isTelegram} cancelError={cancelError} cancelling={cancelling} onTrack={startTracking} onCancel={cancelOrder} />
     case "tracking":
-      return <TrackingStep orderId={orderId} status={status} order={currentOrder} pickup={pickup} destination={destinationPoint} cancelError={cancelError} cancelling={cancelling} onCancel={cancelOrder} />
+      return <TrackingStep orderId={orderId} status={status} order={displayOrder} pickup={pickup} destination={destinationPoint} cancelError={cancelError} cancelling={cancelling} onCancel={cancelOrder} />
     case "arrived":
-      return <ArrivedStep orderId={orderId} status={status} order={currentOrder} pickup={pickup} destination={destinationPoint} cancelError={cancelError} cancelling={cancelling} onCancel={cancelOrder} />
+      return <ArrivedStep orderId={orderId} status={status} order={displayOrder} pickup={pickup} destination={destinationPoint} cancelError={cancelError} cancelling={cancelling} onCancel={cancelOrder} />
     case "in_progress":
-      return <InProgressStep orderId={orderId} status={status} order={currentOrder} pickup={pickup} destination={destinationPoint} cancelError={cancelError} cancelling={cancelling} onCancel={cancelOrder} />
+      return <InProgressStep orderId={orderId} status={status} order={displayOrder} pickup={pickup} destination={destinationPoint} cancelError={cancelError} cancelling={cancelling} onCancel={cancelOrder} />
     case "completed":
       return (
         <OrderFinalStep
           orderId={orderId}
           status="completed"
-          order={currentOrder}
+          order={displayOrder}
           pickup={pickup}
           destination={destinationPoint}
           onRestart={restart}
@@ -2698,14 +2724,26 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
         />
       )
     case "cancelled":
-      return <OrderFinalStep orderId={orderId} status="cancelled" pickup={pickup} destination={destinationPoint} onRestart={restart} showAction={!isTelegram} />
+      return <OrderFinalStep orderId={orderId} status="cancelled" autoDismiss={false} pickup={pickup} destination={destinationPoint} onRestart={restart} showAction={!isTelegram} />
     case "error":
       return <OrderErrorStep pickup={pickup} destination={destinationPoint} onRetry={() => setScreen("review")} showAction={!isTelegram} />
     case "home":
     default:
-      return <HomeStep pickup={pickup} locationLabel={`${geoState === "telegram" ? "Точка з Telegram — перевірте актуальність" : geoState === "success" ? "Точка з пристрою — перевірте актуальність" : readCachedGeoPosition() ? "Збережена точка — перевірте актуальність" : "Карта за замовчуванням — оберіть точку або натисніть «Оновити»"}: ${addressLabel || geoMessage}`} serviceCity={serviceCity} providers={liveNearbyProviders} providersLoading={liveNearbyLoading} customerProfile={customerProfile} customerVerificationSaving={customerVerificationSaving} customerVerificationError={customerVerificationError} customerToken={customerAuthToken} isTelegram={isTelegram} geoLoading={geoLoading} geoError={geoError} recenterTrigger={geoRecenterTrigger} geoSpeedMps={geoSpeedMps} onProfileChange={(patch) => setCustomerProfile((profile) => ({ ...profile, ...patch }))} onVerifyCustomer={verifyCustomerProfile} onProfileVerified={(saved) => setCustomerProfile((profile) => ({ ...profile, ...saved }))} onRetryGeo={retryGeolocation} onOpenGeoSettings={openGeoSettings} onServiceCityChange={applyServiceCity} onSelect={(service) => { if (service !== selectedService) { setServiceDetails(createServiceDetails(service)); setCustomerComment(""); setDestination(""); setDestinationResolved(false); setDestinationPoint(pickup) }; setSelectedService(service); setScreen("location") }} />
+      return <HomeStep pickup={pickup} locationLabel={`${geoState === "telegram" ? "Точка з Telegram — перевірте актуальність" : manualPickupRef.current ? "Точку обрано вручну" : geoState === "success" ? "Точка з пристрою — перевірте актуальність" : readCachedGeoPosition() ? "Збережена точка — перевірте актуальність" : "Карта за замовчуванням — оберіть точку або натисніть «Оновити»"}: ${addressLabel || geoMessage}`} serviceCity={serviceCity} providers={liveNearbyProviders} providersLoading={liveNearbyLoading} customerProfile={customerProfile} customerVerificationSaving={customerVerificationSaving} customerVerificationError={customerVerificationError} customerToken={customerAuthToken} isTelegram={isTelegram} geoLoading={geoLoading} geoError={geoError} recenterTrigger={geoRecenterTrigger} geoSpeedMps={geoSpeedMps} onProfileChange={(patch) => setCustomerProfile((profile) => ({ ...profile, ...patch }))} onVerifyCustomer={verifyCustomerProfile} onProfileVerified={(saved) => setCustomerProfile((profile) => ({ ...profile, ...saved }))} onRetryGeo={retryGeolocation} onOpenGeoSettings={openGeoSettings} onServiceCityChange={applyServiceCity} onSelect={(service) => { if (service !== selectedService) { setServiceDetails(createServiceDetails(service)); setCustomerComment(""); setDestination(""); setDestinationResolved(false); setDestinationPoint(pickup) }; setSelectedService(service); setScreen("location") }} />
   }
   })()
 
-  return screenContent
+  const showOrderTools = Boolean(orderId) && ["searching", "accepted", "assigned", "tracking", "arrived", "in_progress", "completed", "cancelled"].includes(screen)
+  const syncStale = syncError || Boolean(lastOrderSync && reliabilityNow - lastOrderSync > 45000 && isActiveOrderStatus(status))
+  const orderTools = showOrderTools ? <aside aria-label="Стан зв’язку та підтримка" style={{ position: "relative", zIndex: 30, padding: "8px 14px", background: "var(--pomich-bg)" }}>
+      {syncStale ? <p role="alert">Немає актуального зв’язку із сервером. Заявка збережена. {lastOrderSync ? `Останнє оновлення: ${new Date(lastOrderSync).toLocaleTimeString("uk-UA")}.` : "Відновлюємо стан заявки…"} Повторюємо підключення автоматично.</p> : null}
+      {currentOrder?.assignedProvider && isActiveOrderStatus(status) ? <p role="status">
+        {!providerFresh ? "Немає свіжої геолокації партнера. Час прибуття уточнюється. Зв’яжіться з партнером або повідомте про проблему." : displayOrder?.assignedProvider?.etaMinutes ? "Час прибуття орієнтовний, за дорожнім маршрутом, без урахування поточних заторів." : "Геолокація партнера актуальна. Час прибуття уточнюється."}
+        {approachDelayed ? " Час прибуття збільшився більш ніж на 5 хвилин." : ""}
+        {currentOrder.assignedProvider.lastLocationAt ? ` Позиція від ${new Date(currentOrder.assignedProvider.lastLocationAt).toLocaleTimeString("uk-UA")}.` : ""}
+      </p> : null}
+      {currentOrder?.assignedProvider && !providerFresh && ["accepted", "assigned", "tracking"].includes(screen) ? <SecondaryButton label="Знайти іншого партнера" disabled={cancelling || syncStale} onClick={replaceUnreachablePartner} /> : null}
+      {orderId ? <OrderSupport key={orderId} orderId={orderId} token={customerAuthToken} /> : null}
+    </aside> : null
+  return <RideScreenFooterContext.Provider value={orderTools}>{screenContent}</RideScreenFooterContext.Provider>
 }

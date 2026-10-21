@@ -237,3 +237,25 @@ def admin_import_ukraine_providers(
         "perSettlement": result["perSettlement"],
         "merge": merge_result,
     }
+
+
+@router.get("/admin/support")
+def admin_support_cases(authorization: str | None = Header(default=None)) -> list[dict]:
+    from bot.support_store import list_cases
+    require_admin_auth(authorization=authorization)
+    return list_cases()
+
+
+@router.patch("/admin/support/{case_id}")
+def admin_update_support_case(case_id: str, payload: dict, authorization: str | None = Header(default=None)) -> dict:
+    from bot.api_requests import SupportCasePatch, validated
+    from bot.support_store import update_case
+    require_admin_auth(authorization=authorization)
+    payload = validated(SupportCasePatch, payload)
+    resolution = payload.get("resolution", "").strip()
+    if payload["status"] == "resolved" and len(resolution) < 5:
+        raise HTTPException(status_code=422, detail="resolution_required")
+    case = update_case(case_id, payload["status"], resolution)
+    if case is None:
+        raise HTTPException(status_code=404, detail="case not found")
+    return case

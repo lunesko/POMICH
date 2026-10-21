@@ -6,6 +6,7 @@ import { getServiceLabel, type Point } from "../../lib/constants"
 import type { ServiceKey } from "../../lib/pomichDomain"
 import { isServiceDetails, serviceDetailRows } from "../../lib/serviceDetails"
 import { formatCabinetOrderStatus, formatCabinetReviewStars } from "../customer/OrderTerminalStep"
+import OrderSupport from "../customer/OrderSupport"
 import ServiceIcon from "../ui/ServiceIcon"
 import { SecondaryButton } from "../ui/SecondaryButton"
 
@@ -112,10 +113,12 @@ function MapFallback() {
 export default function OrderHistoryDetailSheet({
   order,
   viewer,
+  customerToken,
   onClose,
 }: {
   order: OrderResponse
   viewer: OrderHistoryViewer
+  customerToken?: string
   onClose: () => void
 }) {
   const detailRows = serviceDetailRows(isServiceDetails(order.serviceDetails) ? order.serviceDetails : undefined)
@@ -253,6 +256,8 @@ export default function OrderHistoryDetailSheet({
               </div>
             ) : null}
           </div>
+
+          {viewer === "customer" && order.id ? <OrderSupport orderId={order.id} token={customerToken} /> : null}
 
           {pickup ? (
             <div className="pomich-history-detail__map" aria-label="Карта маршруту партнер клієнт">

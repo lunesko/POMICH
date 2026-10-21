@@ -415,3 +415,29 @@ def _table_names():
 def _table_count(table):
     with runtime_store.get_engine().begin() as connection:
         return connection.scalar(select(func.count()).select_from(table))
+
+
+def test_sql_support_case_retries_are_atomic_and_do_not_overwrite_order(sql_runtime):
+    from bot.support_store import create_case, list_cases, update_case
+    order = save_order({"customerId": "client-1", "service": "battery", "status": "en_route"})
+    def report(_):
+        return create_case(order, "client-1", "partner_unreachable", "Немає зв’язку з партнером")
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        reports = list(pool.map(report, range(8)))
+    assert len({row["id"] for row in reports}) == 1
+    assert len(list_cases(order_id=order["id"])) == 1
+    assert runtime_store.sql_get_order(order["id"])["status"] == "en_route"
+    update_case(reports[0]["id"], "in_review", "Уточнюємо у партнера")
+    assert list_cases(order_id=order["id"])[0]["status"] == "in_review"
+    assert list_cases(order_id="missing") == []
+
+
+def test_sql_support_cases_follow_order_retention_and_export(sql_runtime):
+    from bot.support_store import create_case, list_cases
+    from bot.data_lifecycle import export_customer, _delete_orders
+    order = save_order({"customerId": "client-1", "service": "battery", "status": "cancelled"})
+    case = create_case(order, "client-1", "help_not_received", "Допомогу не надано")
+    assert export_customer("client-1")["supportCases"][0]["id"] == case["id"]
+    with runtime_store.get_engine().begin() as conn:
+        _delete_orders(conn, [order["id"]])
+    assert list_cases(order_id=order["id"]) == []

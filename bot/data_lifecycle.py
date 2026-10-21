@@ -7,6 +7,7 @@ from fastapi import HTTPException
 from bot import runtime_store as db, session_registry
 from bot.delivery_store import outbox
 from bot.order_idempotency import keys
+from bot.support_store import cases
 
 TERMINAL = ("completed", "cancelled")
 RETENTION_DAYS = 180
@@ -22,7 +23,7 @@ def _require_sql():
 def _delete_orders(connection, ids):
     if not ids:
         return
-    for table in (db.order_events, db.dispatch_offers, outbox, keys):
+    for table in (db.order_events, db.dispatch_offers, outbox, keys, cases):
         connection.execute(delete(table).where(table.c.order_id.in_(ids)))
     connection.execute(delete(db.orders).where(db.orders.c.id.in_(ids)))
     # Legacy whole-collection snapshots must not preserve deleted personal data.
@@ -60,7 +61,8 @@ def export_customer(customer_id: str) -> dict:
         owned = or_(owned, db.orders.c.chat_id == customer_id[3:])
     with db.get_engine().connect() as connection:
         orders = list(connection.execute(select(db.orders.c.payload).where(owned)).scalars())
-    return {"customerId": customer_id, "profile": profile, "orders": orders,
+        support = list(connection.execute(select(cases.c.payload).where(cases.c.customer_id == customer_id)).scalars())
+    return {"customerId": customer_id, "profile": profile, "orders": orders, "supportCases": support,
         "exportedAt": datetime.now(timezone.utc).isoformat()}
 
 

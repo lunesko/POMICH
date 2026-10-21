@@ -405,6 +405,8 @@ export interface ProviderAvailability {
   telegram?: string
   status: ProviderStatus
   etaMinutes?: number
+  etaSource?: "straight_line_estimate" | "road_route"
+  stale?: boolean
   location?: {
     lat: number
     lng: number
@@ -1473,4 +1475,41 @@ export async function adminDeleteProvider(providerId: string, adminToken?: strin
   })
   if (!response.ok) throw new Error(await parseApiError(response, 'Не вдалося видалити партнера.'))
   return response.json() as Promise<{ deleted: boolean; providerId: string }>
+}
+
+
+export interface SupportCase {
+  id: string
+  orderId: string
+  customerId: string
+  providerId?: string
+  reason: "no_partner" | "partner_unreachable" | "help_not_received" | "other"
+  description: string
+  status: "open" | "in_review" | "resolved"
+  createdAt: string
+  updatedAt: string
+  resolution?: string
+}
+
+export async function getSupportCases(token?: string, orderId?: string): Promise<SupportCase[]> {
+  const path = orderId ? `/orders/${encodeURIComponent(orderId)}/support` : '/admin/support'
+  const response = await fetchApi(`${getBaseUrl()}${path}`, { headers: authHeaders(token), cache: 'no-store' })
+  if (!response.ok) throw new Error(await parseApiError(response, 'Не вдалося завантажити звернення.'))
+  return response.json()
+}
+
+export async function createSupportCase(orderId: string, payload: Pick<SupportCase, 'reason' | 'description'>, token?: string): Promise<SupportCase> {
+  const response = await fetchApi(`${getBaseUrl()}/orders/${encodeURIComponent(orderId)}/support`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders(token) }, body: JSON.stringify(payload),
+  })
+  if (!response.ok) throw new Error(await parseApiError(response, 'Не вдалося надіслати звернення. Спробуйте ще раз.'))
+  return response.json()
+}
+
+export async function updateSupportCase(caseId: string, status: SupportCase['status'], resolution: string, token?: string): Promise<SupportCase> {
+  const response = await fetchApi(`${getBaseUrl()}/admin/support/${encodeURIComponent(caseId)}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json', ...authHeaders(token) }, body: JSON.stringify({ status, resolution }),
+  })
+  if (!response.ok) throw new Error(await parseApiError(response, 'Не вдалося оновити звернення. Для закриття опишіть результат.'))
+  return response.json()
 }
