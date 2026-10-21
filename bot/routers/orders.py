@@ -452,3 +452,30 @@ def patch_order_status(
     else:
         publish_order_event(result, "order.status")
     return result
+
+
+@router.get("/orders/{order_id}/support")
+def order_support_cases(order_id: str, authorization: str | None = Header(default=None)) -> list[dict]:
+    from bot.support_store import list_cases
+    order = get_order(order_id)
+    if order is None:
+        raise HTTPException(status_code=404, detail="order not found")
+    require_order_customer_owner(order, authorization)
+    return list_cases(order_id=order_id)
+
+
+@router.post("/orders/{order_id}/support")
+def create_order_support_case(order_id: str, payload: dict, authorization: str | None = Header(default=None)) -> dict:
+    from bot.api_requests import SupportCaseCreate
+    from bot.support_store import create_case
+    order = get_order(order_id)
+    if order is None:
+        raise HTTPException(status_code=404, detail="order not found")
+    principal = require_order_customer_owner(order, authorization)
+    payload = validated(SupportCaseCreate, payload)
+    description = payload["description"].strip()
+    if len(description) < 5:
+        raise HTTPException(status_code=422, detail="description_required")
+    # Unique order_id makes network retries idempotent; creating a case never cancels a ride.
+    case = create_case(order, principal.subject_id, payload["reason"], description)
+    return case

@@ -530,6 +530,7 @@ export default function ClientCabinet({
         <OrderHistoryDetailSheet
           order={selectedHistoryOrder}
           viewer="customer"
+          customerToken={customerToken}
           onClose={() => setSelectedHistoryOrder(undefined)}
         />
       ) : null}

@@ -841,14 +841,20 @@ def enrich_order_for_client(
                 "trustedBadges": provider.get("trustedBadges") or assigned_provider.get("trustedBadges"),
                 "distanceKm": distance_km,
                 "etaMinutes": eta_minutes,
+                "etaSource": "straight_line_estimate",
+                "lastSeenAt": provider.get("lastSeenAt"),
+                "lastLocationAt": provider.get("lastLocationAt"),
+                "status": provider.get("status", "offline"),
+                "stale": not live_location or provider.get("status") == "offline" or not _provider_is_recent(provider, datetime.now(timezone.utc).replace(tzinfo=None)),
             }
+            if assigned_provider["stale"] and not terminal_status:
+                assigned_provider["etaMinutes"] = None
 
     if assigned_provider:
         payload["assignedProvider"] = assigned_provider
         if assigned_provider.get("name"):
             payload["providerName"] = assigned_provider.get("name")
-        if assigned_provider.get("etaMinutes") is not None:
-            payload["etaMinutes"] = assigned_provider.get("etaMinutes")
+        payload["etaMinutes"] = assigned_provider.get("etaMinutes")
 
     if payload.get("partnerProposedPrice") is None and payload.get("proposedPrice") is not None:
         payload["partnerProposedPrice"] = payload.get("proposedPrice")
@@ -3071,8 +3077,8 @@ def expire_stale_dispatch(
                         **info,
                         "autoRetryCount": auto_retries,
                         "exhaustedAt": now_iso,
-                        "awaitingDispatcher": True,
-                        "clientStatusHint": "Партнера поруч поки немає. Диспетчер розширює пошук.",
+                        "awaitingDispatcher": False,
+                        "clientStatusHint": "Поки немає доступних партнерів. Повторіть пошук або зверніться до підтримки.",
                     }
                     _append_order_event(
                         order,

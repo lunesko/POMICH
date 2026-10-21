@@ -47,13 +47,16 @@ import { StatusPill } from "../ui/StatusPill"
 import { Timeline } from "../ui/Timeline"
 import { useConfirmDialog } from "../ui/ConfirmDialog"
 
-type AdminSection = "dashboard" | "clients" | "providers" | "orders" | "logs" | "map" | "verification" | "settings"
+type AdminSection = "support" | "dashboard" | "clients" | "providers" | "orders" | "logs" | "map" | "verification" | "settings"
+
+import SupportCases from "./SupportCases"
 
 const NAV: Array<{ id: AdminSection; label: string; icon: string }> = [
   { id: "dashboard", label: "Дашборд", icon: "📊" },
   { id: "clients", label: "Клієнти", icon: "👤" },
   { id: "providers", label: "Партнери", icon: "🚛" },
   { id: "orders", label: "Заявки", icon: "📋" },
+  { id: "support", label: "Підтримка", icon: "" },
   { id: "logs", label: "Логи", icon: "🛰️" },
   { id: "map", label: "Карта", icon: "🗺️" },
   { id: "verification", label: "Перевірка", icon: "✅" },
@@ -609,6 +612,8 @@ export default function AdminFlow({ adminToken }: { adminToken?: string }) {
               ) : null}
             </div>
           ) : null}
+
+          {section === "support" ? <SupportCases token={adminAuthToken} /> : null}
 
           {section === "orders" ? (
             <div className="admin-split">
