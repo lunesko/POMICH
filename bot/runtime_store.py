@@ -735,6 +735,89 @@ def sql_commit_order_snapshot(original: dict[str, Any], proposed: dict[str, Any]
     return True
 
 
+def sql_commit_order_transition(original: dict[str, Any], proposed: dict[str, Any]) -> bool:
+    """CAS a status transition and commit its terminal effects exactly once.
+
+    Keep lock order consistent with acceptance: order, provider, then customer.
+    A failed comparison changes neither presence, counters nor offers.
+    """
+    engine = get_engine()
+    order_id = str(original["id"])
+    status = str(proposed["status"])
+    now = proposed.get("updatedAt")
+    provider_id = str(proposed.get("assignedProviderId") or proposed.get("partnerId") or "")
+    terminal = status in {"completed", "cancelled"}
+    with engine.begin() as connection:
+        row = connection.execute(_for_update(
+            select(orders.c.payload).where(orders.c.id == order_id), engine,
+        )).first()
+        if row is None or _json_object(row[0]) != original:
+            return False
+
+        if provider_id:
+            provider_row = connection.execute(_for_update(
+                select(providers.c.payload).where(providers.c.id == provider_id), engine,
+            )).first()
+            presence_row = connection.execute(_for_update(
+                select(provider_presence.c.payload).where(provider_presence.c.provider_id == provider_id), engine,
+            )).first()
+            if provider_row:
+                provider = _merge_provider_payload(provider_row[0], presence_row[0] if presence_row else {})
+                # Do not clear a newer assignment left by legacy/inconsistent data.
+                assigned = str(provider.get("assignedOrderId") or "")
+                change_presence = not assigned or assigned == order_id
+                if change_presence:
+                    provider.pop("stale", None)
+                    provider["status"] = "online" if terminal else "busy"
+                    provider["updatedAt"] = now
+                    provider["lastSeenAt"] = now
+                    if terminal:
+                        provider.pop("assignedOrderId", None)
+                    else:
+                        provider["assignedOrderId"] = order_id
+                if status == "completed":
+                    provider["ordersCompleted"] = int(provider.get("ordersCompleted") or 0) + 1
+                    provider["updatedAt"] = now
+                connection.execute(update(providers).where(providers.c.id == provider_id)
+                    .values(payload=provider, updated_at=now))
+                if change_presence and presence_row:
+                    presence = _json_object(presence_row[0])
+                    presence.update(status=provider["status"], assignedOrderId=None if terminal else order_id,
+                                    updatedAt=now, lastSeenAt=now)
+                    connection.execute(update(provider_presence).where(provider_presence.c.provider_id == provider_id)
+                        .values(status=provider["status"], assigned_order_id=None if terminal else order_id,
+                                updated_at=now, last_seen_at=now, payload=presence))
+
+            customer_id = str(proposed.get("customerId") or "")
+            if status == "completed" and customer_id:
+                customer_row = connection.execute(_for_update(
+                    select(customers.c.payload).where(customers.c.id == customer_id), engine,
+                )).first()
+                if customer_row:
+                    # Counters are not encrypted; preserve all encrypted fields verbatim.
+                    customer = _json_object(customer_row[0])
+                    customer["ordersCompleted"] = int(customer.get("ordersCompleted") or 0) + 1
+                    customer["updatedAt"] = now
+                    connection.execute(update(customers).where(customers.c.id == customer_id)
+                        .values(payload=customer, updated_at=now))
+
+        if terminal:
+            pending = connection.execute(_for_update(
+                select(dispatch_offers.c.id, dispatch_offers.c.payload)
+                .where(dispatch_offers.c.order_id == order_id, dispatch_offers.c.status == "pending"), engine,
+            )).all()
+            for offer_id, payload in pending:
+                offer = _json_object(payload)
+                offer.update(status="cancelled" if status == "cancelled" else "lost", respondedAt=now)
+                connection.execute(update(dispatch_offers).where(dispatch_offers.c.id == offer_id)
+                    .values(status=offer["status"], responded_at=now, payload=offer))
+
+        connection.execute(update(orders).where(orders.c.id == order_id)
+            .values(status=status, updated_at=now, payload=proposed))
+        _insert_order_events(connection, proposed)
+    return True
+
+
 def sql_orders_by_status(statuses: set[str], *, limit: int | None = 1000) -> list[dict[str, Any]]:
     wanted = {str(status).strip().lower() for status in statuses if str(status).strip()}
     if not wanted:
@@ -1459,6 +1542,15 @@ def sql_accept_offer(
 
         order = _json_object(order_row["payload"])
         provider = _merge_provider_payload(provider_row["provider_payload"], provider_row["presence_payload"])
+        # Two different orders have different order locks. Serialize on the
+        # provider above and recheck its committed assignment before accepting.
+        other_active_order = connection.execute(select(orders.c.id).where(
+            orders.c.assigned_provider_id == str(provider_id),
+            orders.c.id != str(order["id"]),
+            orders.c.status.in_(["accepted", "price_confirmed", "assigned", "en_route", "arrived", "in_progress"]),
+        ).limit(1)).first()
+        if provider.get("status") == "busy" or provider.get("assignedOrderId") or other_active_order:
+            raise SqlDispatchConflict("PROVIDER_BUSY", "Provider already has an active order.")
         accepted_offer = _json_object(offer)
 
         accepted_offer["status"] = "accepted"
