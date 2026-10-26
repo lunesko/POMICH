@@ -25,6 +25,32 @@ def enabled() -> bool:
     return sql_storage_enabled() and get_engine().dialect.name == "postgresql"
 
 
+def notify_order_commit(connection, order: dict) -> None:
+    """Commit state and its invalidation together; a crashed API cannot lose the hint."""
+    if connection.dialect.name != "postgresql":
+        return
+    from bot import runtime_store as db
+    from sqlalchemy import select
+    order_id = str(order.get("id") or "")
+    if not order_id:
+        return
+    channels = {f"order:{order_id}"}
+    if order.get("customerId"):
+        channels.add(f"customer:{order['customerId']}")
+    provider_id = order.get("assignedProviderId") or order.get("partnerId")
+    if provider_id:
+        channels.add(f"provider:{provider_id}")
+    for provider in connection.execute(select(db.dispatch_offers.c.provider_id).where(
+            db.dispatch_offers.c.order_id == order_id)).scalars():
+        channels.add(f"provider:{provider}")
+    for channel in sorted(channels):
+        # No origin suppression: the writing process also needs the committed
+        # hint if it died/restarted between commit and its local publish call.
+        payload = json.dumps({"channel": channel,
+            "type": "offers.changed" if channel.startswith("provider:") else "order.updated"})
+        connection.execute(text("SELECT pg_notify('pomich_realtime', :payload)"), {"payload": payload})
+
+
 def broadcast(message: dict) -> None:
     if not enabled():
         return

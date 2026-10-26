@@ -64,6 +64,7 @@ rollback() {
   done
   if [[ -n "$previous_image" ]]; then
     export POMICH_IMAGE="$previous_image"
+    docker compose -f "$compose_file" --env-file "$env_file" stop pomich-worker
     docker compose -f "$compose_file" --env-file "$env_file" up -d --no-deps pomich-app
   fi
   if command -v nginx >/dev/null; then nginx -t && systemctl reload nginx; fi
@@ -75,11 +76,12 @@ docker compose -f "$compose_file" --env-file "$env_file" up -d postgres
 docker compose -f "$compose_file" --env-file "$env_file" build pomich-app
 # Run DDL once before starting the new runtime; production startup performs no DDL.
 docker compose -f "$compose_file" --env-file "$env_file" run --rm --no-deps pomich-app python3 -m bot.migrate
-docker compose -f "$compose_file" --env-file "$env_file" up -d --no-deps pomich-app
+docker compose -f "$compose_file" --env-file "$env_file" up -d --no-deps pomich-app pomich-worker
 
 healthy=false
 for _ in $(seq 1 24); do
-  if curl --fail --silent --show-error --max-time 5 http://127.0.0.1:8000/internal/ready >/dev/null; then
+  if curl --fail --silent --show-error --max-time 5 http://127.0.0.1:8000/internal/ready >/dev/null && \
+    docker compose -f "$compose_file" --env-file "$env_file" exec -T pomich-worker python3 -c "from bot.dispatch_jobs import stats; raise SystemExit(0 if stats()['workerHealthy'] else 1)"; then
     healthy=true
     break
   fi

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from bot.field_encryption import decrypt_customer_profile, decrypt_field, encrypt_customer_profile, is_encrypted_value
+from bot.provider_eligibility import provider_can_take_orders
 from bot.runtime_store import (
     SqlDispatchConflict,
     load_collection,
@@ -38,6 +39,7 @@ from bot.runtime_store import (
     sql_storage_enabled,
     sql_upsert_offer,
     sql_upsert_provider,
+    sql_update_provider_presence,
 )
 from bot.ukraine_plate import is_valid_ukraine_plate, normalize_ukraine_plate
 from bot.dispatch_config import (
@@ -71,55 +73,11 @@ _EXPIRE_STALE_LOCK = threading.Lock()
 _LAST_EXPIRE_STALE_MONOTONIC = 0.0
 _EXPIRE_STALE_MIN_INTERVAL_SECONDS = float(os.getenv("POMICH_EXPIRE_MIN_INTERVAL_SECONDS", "15") or "15")
 
-ORDER_STATUS_ALIASES = {
-    "created": "searching",
-    "matching": "searching",
-    "tracking": "en_route",
-    "pending": "searching",
-}
-ORDER_STATUSES = {
-    "draft",
-    "searching",
-    "accepted",
-    "price_confirmed",
-    "assigned",
-    "en_route",
-    "arrived",
-    "in_progress",
-    "completed",
-    "cancelled",
-}
-ACTIVE_ORDER_STATUSES = {
-    "searching",
-    "accepted",
-    "price_confirmed",
-    "assigned",
-    "en_route",
-    "arrived",
-    "in_progress",
-}
-TERMINAL_ORDER_STATUSES = {"completed", "cancelled"}
-MAP_REQUEST_PIN_STATUSES = {"searching"}
-ORDER_TRANSITIONS = {
-    "draft": {"searching", "cancelled"},
-    "searching": {"accepted", "cancelled"},
-    "accepted": {"price_confirmed", "cancelled"},
-    "price_confirmed": {"en_route", "cancelled"},
-    "assigned": {"price_confirmed", "en_route", "cancelled"},
-    "en_route": {"arrived", "cancelled"},
-    "arrived": {"in_progress", "cancelled"},
-    "in_progress": {"completed", "cancelled"},
-    "completed": set(),
-    "cancelled": set(),
-}
-
-
-class InvalidStatusTransition(ValueError):
-    def __init__(self, current_status: str, next_status: str) -> None:
-        self.current_status = current_status
-        self.next_status = next_status
-        super().__init__(f"invalid order status transition: {current_status} -> {next_status}")
-
+from bot.domain.order_state import (
+    ORDER_STATUS_ALIASES, ORDER_STATUSES, ACTIVE_ORDER_STATUSES,
+    TERMINAL_ORDER_STATUSES, MAP_REQUEST_PIN_STATUSES, ORDER_TRANSITIONS,
+    InvalidStatusTransition, normalize_order_status, peek_order_status,
+)
 
 class DispatchConflict(ValueError):
     def __init__(self, code: str, message: str) -> None:
@@ -220,17 +178,6 @@ def _parse_iso(value: Any) -> Optional[datetime]:
         return None
 
 
-def peek_order_status(status: Any) -> Optional[str]:
-    """Map-safe status: missing/unknown is None, never silently becomes searching."""
-    raw = str(status or "").strip().lower()
-    if not raw:
-        return None
-    raw = ORDER_STATUS_ALIASES.get(raw, raw)
-    if raw not in ORDER_STATUSES:
-        return None
-    return raw
-
-
 def _order_accepted_at(order: Dict[str, Any]) -> Optional[datetime]:
     parsed = _parse_iso(order.get("acceptedAt"))
     if parsed is not None:
@@ -245,14 +192,6 @@ def _order_accepted_at(order: Dict[str, Any]) -> Optional[datetime]:
                 if at is not None:
                     return at
     return _parse_iso(order.get("updatedAt")) or _parse_iso(order.get("createdAt"))
-
-
-def normalize_order_status(status: Any) -> str:
-    normalized = str(status or "searching").strip().lower()
-    normalized = ORDER_STATUS_ALIASES.get(normalized, normalized)
-    if normalized not in ORDER_STATUSES:
-        raise ValueError(f"unknown order status: {status}")
-    return normalized
 
 
 def is_map_request_order(order: Dict[str, Any]) -> bool:
@@ -403,11 +342,7 @@ def _normalize_provider_trust(provider: Dict[str, Any], default_status: str = "u
 
 
 def is_provider_verified(provider: Dict[str, Any]) -> bool:
-    status = normalize_verification_status(provider.get("verificationStatus"), "unverified")
-    if status == "verified":
-        return True
-    verification = provider.get("verification") if isinstance(provider.get("verification"), dict) else {}
-    return bool(verification.get("phone"))
+    return provider_can_take_orders(provider)
 
 
 def verify_provider_phone_otp(provider_id: str, store_path: Optional[Path] = None) -> Optional[Dict[str, Any]]:
@@ -595,66 +530,8 @@ def save_offers(offers: List[Dict[str, Any]], store_path: Optional[Path] = None)
 
 
 def _default_providers() -> List[Dict[str, Any]]:
-    now = _now_iso()
-    return [
-        _normalize_provider_trust({
-            "id": "provider-oleksandr",
-            "name": "Олександр",
-            "rating": 4.9,
-            "vehicle": "Volkswagen Transporter",
-            "plate": "AO 1248 CH",
-            "phone": "+380671112233",
-            "telegram": "pomich_help_bot",
-            "status": "online",
-            "etaMinutes": 12,
-            "location": {"lat": 48.632, "lng": 22.271},
-            "specialties": ["tow", "battery", "wheel"],
-            "serviceRadiusKm": 15,
-            "registeredAt": now,
-            "profileUpdatedAt": now,
-            "lastSeenAt": now,
-            "lastLocationAt": now,
-            "updatedAt": now,
-        }, "verified"),
-        _normalize_provider_trust({
-            "id": "provider-mykhailo",
-            "name": "Михайло",
-            "rating": 4.8,
-            "vehicle": "Renault Master",
-            "plate": "AO 4207 KM",
-            "phone": "+380672224455",
-            "telegram": "pomich_help_bot",
-            "status": "online",
-            "etaMinutes": 18,
-            "location": {"lat": 48.612, "lng": 22.303},
-            "specialties": ["mechanic", "lockout", "fuel"],
-            "serviceRadiusKm": 8,
-            "registeredAt": now,
-            "profileUpdatedAt": now,
-            "lastSeenAt": now,
-            "lastLocationAt": now,
-            "updatedAt": now,
-        }, "verified"),
-        _normalize_provider_trust({
-            "id": "provider-taras",
-            "name": "Тарас",
-            "rating": 4.7,
-            "vehicle": "Mercedes Sprinter",
-            "plate": "AO 7719 BK",
-            "phone": "+380673334455",
-            "telegram": "pomich_help_bot",
-            "status": "offline",
-            "etaMinutes": 24,
-            "location": {"lat": 48.625, "lng": 22.325},
-            "specialties": ["tow", "mechanic"],
-            "serviceRadiusKm": 10,
-            "registeredAt": now,
-            "profileUpdatedAt": now,
-            "lastSeenAt": now,
-            "lastLocationAt": now,
-            "updatedAt": now,
-        }, "verified"),
-    ]
+    """An empty/broken registry must never advertise fictitious online partners."""
+    return []
 
 
 def load_orders(store_path: Optional[Path] = None) -> List[Dict[str, Any]]:
@@ -685,7 +562,9 @@ def _normalize_customer_comment(order: Dict[str, Any]) -> Optional[str]:
     return text[:500]
 
 
-def save_order(order: Dict[str, Any], store_path: Optional[Path] = None, *, insert_only: bool = False, idempotency_key: str | None = None, request_hash: str = "") -> Dict[str, Any]:
+def save_order(order: Dict[str, Any], store_path: Optional[Path] = None, *, insert_only: bool = False, idempotency_key: str | None = None, request_hash: str = "", creation_state: Optional[dict] = None) -> Dict[str, Any]:
+    if creation_state is not None:
+        creation_state["created"] = True
     with STORE_LOCK:
         path = store_path or _default_store_path()
         payload = dict(order)
@@ -708,18 +587,35 @@ def save_order(order: Dict[str, Any], store_path: Optional[Path] = None, *, inse
             {"type": "ORDER_CREATED", "at": payload["createdAt"]}
         ]
         if _should_use_sql_store(path, _default_store_path):
-            return sql_upsert_order(payload, insert_only=insert_only, idempotency_key=idempotency_key, request_hash=request_hash, require_profile=insert_only)
+            return sql_upsert_order(payload, insert_only=insert_only, idempotency_key=idempotency_key, request_hash=request_hash, require_profile=insert_only, creation_state=creation_state)
         orders = load_orders(path)
         if insert_only and idempotency_key:
             from bot.order_idempotency import scoped_key, IdempotencyConflict
             digest = scoped_key(str(payload.get("customerId") or ""), idempotency_key)
             for existing in orders:
-                metadata = existing.get("_creationRequest") or {}
-                if metadata.get("key") == digest and metadata.get("expires", 0) > time.time():
-                    if metadata.get("hash") != request_hash:
-                        raise IdempotencyConflict("idempotency_key_payload_mismatch")
-                    return {key: value for key, value in existing.items() if key != "_creationRequest"}
+                records = [existing.get("_creationRequest") or {}, *existing.get("_creationRequests", [])]
+                for metadata in records:
+                    if metadata.get("key") == digest and metadata.get("expires", 0) > time.time():
+                        if metadata.get("hash") != request_hash:
+                            raise IdempotencyConflict("idempotency_key_payload_mismatch")
+                        if creation_state is not None:
+                            creation_state["created"] = False
+                        return {key: value for key, value in existing.items() if key not in {"_creationRequest", "_creationRequests"}}
             payload["_creationRequest"] = {"key": digest, "hash": request_hash, "expires": int(time.time()) + 86400}
+        if insert_only:
+            from bot.order_idempotency import same_order_intent
+            duplicate = next((item for item in orders
+                if item.get("customerId") == payload.get("customerId")
+                and normalize_order_status(item.get("status")) in ACTIVE_ORDER_STATUSES
+                and same_order_intent(item, payload)), None)
+            if duplicate is not None:
+                if creation_state is not None:
+                    creation_state["created"] = False
+                if idempotency_key:
+                    records = [record for record in duplicate.get("_creationRequests", []) if record.get("expires", 0) > time.time()]
+                    duplicate["_creationRequests"] = [*records, payload["_creationRequest"]]
+                    _write_json_atomic(path, orders)
+                return {key: value for key, value in duplicate.items() if key not in {"_creationRequest", "_creationRequests"}}
         orders.append(payload)
         _write_json_atomic(path, orders)
         return {key: value for key, value in payload.items() if key != "_creationRequest"}
@@ -806,6 +702,7 @@ def enrich_order_for_client(
 ) -> Dict[str, Any]:
     payload = dict(order)
     payload.pop("_creationRequest", None)
+    payload.pop("_creationRequests", None)
     try:
         payload["status"] = normalize_order_status(payload.get("status"))
     except ValueError:
@@ -825,9 +722,13 @@ def enrich_order_for_client(
             pickup = _valid_point(payload.get("customerCoordinates"))
             distance_km = assigned_provider.get("distanceKm")
             eta_minutes = assigned_provider.get("etaMinutes") or provider.get("etaMinutes")
+            travel = {"etaSource": assigned_provider.get("etaSource", "approximate"),
+                      "roadDistanceKm": assigned_provider.get("roadDistanceKm")}
             if location and pickup and not terminal_status:
-                distance_km = round(haversine_distance_km(location, pickup), 2)
-                eta_minutes = max(1, math.ceil(float(distance_km) * 4))
+                from bot.routing import estimate
+                travel = estimate(location, pickup)
+                distance_km = travel["distanceKm"]
+                eta_minutes = travel["etaMinutes"]
             assigned_provider = {
                 "id": provider.get("id") or assigned_provider.get("id"),
                 "name": provider.get("name") or assigned_provider.get("name"),
@@ -841,14 +742,21 @@ def enrich_order_for_client(
                 "trustedBadges": provider.get("trustedBadges") or assigned_provider.get("trustedBadges"),
                 "distanceKm": distance_km,
                 "etaMinutes": eta_minutes,
+                "etaSource": travel["etaSource"],
+                "roadDistanceKm": travel["roadDistanceKm"],
+                "lastSeenAt": provider.get("lastSeenAt"),
+                "lastLocationAt": provider.get("lastLocationAt"),
+                "status": provider.get("status", "offline"),
+                "stale": not live_location or provider.get("status") == "offline" or not _provider_is_recent(provider, datetime.now(timezone.utc).replace(tzinfo=None)),
             }
+            if assigned_provider["stale"] and not terminal_status:
+                assigned_provider["etaMinutes"] = None
 
     if assigned_provider:
         payload["assignedProvider"] = assigned_provider
         if assigned_provider.get("name"):
             payload["providerName"] = assigned_provider.get("name")
-        if assigned_provider.get("etaMinutes") is not None:
-            payload["etaMinutes"] = assigned_provider.get("etaMinutes")
+        payload["etaMinutes"] = assigned_provider.get("etaMinutes")
 
     if payload.get("partnerProposedPrice") is None and payload.get("proposedPrice") is not None:
         payload["partnerProposedPrice"] = payload.get("proposedPrice")
@@ -901,12 +809,14 @@ def update_order_status(
             order = sql_get_order(str(order_id))
             if order is None:
                 return None
+            original = deepcopy(order)
             current_status = normalize_order_status(order.get("status"))
             if next_status == current_status:
                 return enrich_order_for_client(order, provider_store_path)
             if next_status not in ORDER_TRANSITIONS[current_status]:
                 raise InvalidStatusTransition(current_status, next_status)
 
+            original = deepcopy(order)
             order["status"] = next_status
             order["updatedAt"] = now
             history = order.get("statusHistory")
@@ -915,8 +825,11 @@ def update_order_status(
             history.append({"status": next_status, "at": now})
             order["statusHistory"] = history
             _append_order_event(order, f"ORDER_{next_status.upper()}", now)
-            sql_upsert_order(order)
-            updated_order = order
+            if next_status == "price_confirmed":
+                order["priceConfirmedAt"] = now
+            if not sql_commit_order_snapshot(original, order):
+                raise DispatchConflict("ORDER_CHANGED", "Order changed concurrently. Refresh and retry.")
+            return enrich_order_for_client(order, provider_store_path)
         else:
             path = store_path or _default_store_path()
             orders = load_orders(path)
@@ -927,12 +840,13 @@ def update_order_status(
                     continue
                 current_status = normalize_order_status(order.get("status"))
                 if next_status == current_status:
-                    updated_order = order
-                    break
+                    return enrich_order_for_client(order, provider_store_path)
                 if next_status not in ORDER_TRANSITIONS[current_status]:
                     raise InvalidStatusTransition(current_status, next_status)
 
                 order["status"] = next_status
+                if next_status == "price_confirmed":
+                    order["priceConfirmedAt"] = now
                 order["updatedAt"] = now
                 history = order.get("statusHistory")
                 if not isinstance(history, list):
@@ -951,12 +865,12 @@ def update_order_status(
         if next_status == "cancelled":
             invalidate_order_offers(order_id, "cancelled", offer_store_path)
             if updated_order.get("assignedProviderId"):
-                _set_provider_status(str(updated_order.get("assignedProviderId")), "online", provider_store_path=provider_store_path)
+                _release_provider_after_order(str(updated_order.get("assignedProviderId")), order_id, provider_store_path)
         elif next_status == "completed":
             invalidate_order_offers(order_id, "lost", offer_store_path)
             if updated_order.get("assignedProviderId"):
                 provider_id = str(updated_order.get("assignedProviderId"))
-                _set_provider_status(provider_id, "online", provider_store_path=provider_store_path)
+                _release_provider_after_order(provider_id, order_id, provider_store_path)
                 _increment_provider_orders_completed(provider_id, provider_store_path=provider_store_path)
                 customer_id = str(updated_order.get("customerId") or "").strip()
                 if customer_id:
@@ -2024,7 +1938,7 @@ def sync_linked_provider_phone_verification_from_customer(
 ) -> Optional[Dict[str, Any]]:
     """Mirror verified client phone onto the linked partner cabinet without re-OTP."""
     provider = get_provider_profile(provider_id, store_path)
-    if provider is None or is_provider_verified(provider):
+    if provider is None or is_provider_verified(provider) or str(provider.get("verificationStatus")) == "rejected" or provider.get("accountStatus") == "disabled":
         return provider
     customer_id = resolve_customer_id_for_provider(str(provider_id))
     if not customer_id and str(provider_id).startswith("provider-"):
@@ -2542,7 +2456,7 @@ def update_provider_profile(provider_id: str, data: Dict[str, Any], store_path: 
             providers.append(updated)
 
     if use_sql:
-        persisted = sql_upsert_provider(dict(updated))
+        persisted = sql_upsert_provider(dict(updated), update_location=isinstance(data.get("location"), dict))
         persisted.pop("stale", None)
         updated = _normalize_provider_trust(persisted)
     else:
@@ -2608,6 +2522,11 @@ def update_provider_profile(provider_id: str, data: Dict[str, Any], store_path: 
 
 
 def update_provider_presence(provider_id: str, data: Dict[str, Any], store_path: Optional[Path] = None) -> Dict[str, Any]:
+    with STORE_LOCK:
+        return _update_provider_presence(provider_id, data, store_path)
+
+
+def _update_provider_presence(provider_id: str, data: Dict[str, Any], store_path: Optional[Path] = None) -> Dict[str, Any]:
     status = str(data.get("status") or "").strip()
     if status in PROVIDER_ACTIVE_STATUSES:
         # Linked Mini App partners often hit presence before a SQL row is fully promoted.
@@ -2622,14 +2541,15 @@ def update_provider_presence(provider_id: str, data: Dict[str, Any], store_path:
         sync_linked_provider_phone_verification_from_customer(str(provider_id), store_path)
 
     use_sql = _should_use_sql_store(store_path, _default_provider_store_path)
+    if use_sql:
+        persisted = sql_update_provider_presence(provider_id, data)
+        if persisted.get("status") == "online":
+            redispatch_searching_orders_for_provider(provider_id, provider_store_path=store_path)
+        return persisted
     now = _now_iso()
     updated: Optional[Dict[str, Any]] = None
 
-    if use_sql:
-        provider = get_provider_profile(str(provider_id), store_path)
-        providers = [dict(provider)] if provider else []
-    else:
-        providers = load_providers(store_path)
+    providers = load_providers(store_path)
 
     for index, provider in enumerate(providers):
         if str(provider.get("id")) != str(provider_id):
@@ -2689,16 +2609,6 @@ def update_provider_presence(provider_id: str, data: Dict[str, Any], store_path:
             raise ValueError("provider verification must be approved before going online")
         updated = candidate
         providers.append(updated)
-
-    if use_sql:
-        persisted = sql_upsert_provider(dict(updated))
-        persisted.pop("stale", None)
-        if persisted.get("status") == "online":
-            redispatch_searching_orders_for_provider(
-                provider_id,
-                provider_store_path=store_path,
-            )
-        return persisted
 
     save_providers(providers, store_path)
     updated.pop("stale", None)
@@ -2982,19 +2892,21 @@ def _free_providers_after_idle_cancel(
         for order in cancelled_orders
     }
     provider_ids.discard("")
-    if _should_use_sql_store(provider_store_path, _default_provider_store_path):
-        for provider_id in provider_ids:
-            _set_provider_status(provider_id, "online", provider_store_path=provider_store_path)
-        return bool(provider_ids)
     providers = load_providers(provider_store_path)
+    expected_assignments = {
+        str(order.get("assignedProviderId") or order.get("partnerId") or ""): str(order["id"])
+        for order in cancelled_orders
+    }
     for provider in providers:
         if str(provider.get("id") or "") not in provider_ids:
             continue
+        if str(provider.get("assignedOrderId") or "") != expected_assignments[str(provider["id"])]:
+            continue
         provider.pop("stale", None)
-        provider["status"] = "online"
+        if provider.get("status") == "busy":
+            provider["status"] = "online" if is_provider_verified(provider) else "offline"
         provider["assignedOrderId"] = None
         provider["updatedAt"] = now
-        provider["lastSeenAt"] = now
         changed = True
     if changed:
         save_providers(providers, provider_store_path)
@@ -3008,6 +2920,7 @@ def expire_stale_dispatch(
     order_store_path: Optional[Path] = None,
     offer_store_path: Optional[Path] = None,
     provider_store_path: Optional[Path] = None,
+    *, only_order_id: str | None = None,
 ) -> List[Dict[str, Any]]:
     """Expire pending offers and cancel idle accepted orders. Returns cancelled (enriched) orders."""
     retry_order_ids: List[str] = []
@@ -3019,8 +2932,12 @@ def expire_stale_dispatch(
             offer_path, _default_offer_store_path
         )
         if use_sql:
-            sql_expire_pending_offers(now=datetime.now(timezone.utc).replace(tzinfo=None))
-            orders = sql_orders_by_status({"searching", "accepted"}, limit=None)
+            sql_expire_pending_offers(order_id=only_order_id, now=datetime.now(timezone.utc).replace(tzinfo=None))
+            if only_order_id:
+                found_order = sql_get_order(only_order_id)
+                orders = [found_order] if found_order and found_order.get("status") in {"searching", "accepted"} else []
+            else:
+                orders = sql_orders_by_status({"searching", "accepted"}, limit=None)
             offers = sql_offers_for_orders({str(order.get("id") or "") for order in orders})
             original_orders = {str(order["id"]): deepcopy(order) for order in orders}
             original_offers = deepcopy(offers)
@@ -3071,8 +2988,8 @@ def expire_stale_dispatch(
                         **info,
                         "autoRetryCount": auto_retries,
                         "exhaustedAt": now_iso,
-                        "awaitingDispatcher": True,
-                        "clientStatusHint": "Партнера поруч поки немає. Диспетчер розширює пошук.",
+                        "awaitingDispatcher": False,
+                        "clientStatusHint": "Поки немає доступних партнерів. Повторіть пошук або зверніться до підтримки.",
                     }
                     _append_order_event(
                         order,
@@ -3116,7 +3033,7 @@ def expire_stale_dispatch(
             else:
                 save_offers(offers, offer_path)
                 _write_json_atomic(order_path, orders)
-        if cancelled:
+        if cancelled and not use_sql:
             _free_providers_after_idle_cancel(cancelled, provider_store_path)
 
     for order_id in wave_order_ids:
@@ -3151,6 +3068,7 @@ def expire_stale_and_notify(
     provider_store_path: Optional[Path] = None,
     *,
     force: bool = False,
+    only_order_id: str | None = None,
 ) -> List[Dict[str, Any]]:
     """Expire stale dispatch state and notify parties about idle-accepted cancellations."""
     global _LAST_EXPIRE_STALE_MONOTONIC
@@ -3167,6 +3085,7 @@ def expire_stale_and_notify(
         order_store_path=order_store_path,
         offer_store_path=offer_store_path,
         provider_store_path=provider_store_path,
+        only_order_id=only_order_id,
     )
     if not cancelled:
         return cancelled
@@ -3207,44 +3126,21 @@ def invalidate_order_offers(order_id: str, status: str = "cancelled", offer_stor
         return offers
 
 
-def _set_provider_status(provider_id: str, status: str, assigned_order_id: Optional[str] = None, provider_store_path: Optional[Path] = None) -> Optional[Dict[str, Any]]:
-    now = _now_iso()
-    use_sql = _should_use_sql_store(provider_store_path, _default_provider_store_path)
-
-    if use_sql:
-        provider = get_provider_profile(provider_id, provider_store_path)
-        if provider is None:
-            return None
-        provider.pop("stale", None)
-        provider["status"] = status
-        provider["updatedAt"] = now
-        provider["lastSeenAt"] = now
-        if assigned_order_id:
-            provider["assignedOrderId"] = assigned_order_id
-        else:
-            provider.pop("assignedOrderId", None)
-        return sql_upsert_provider(dict(provider))
-
+def _release_provider_after_order(provider_id: str, order_id: str, provider_store_path: Optional[Path] = None) -> None:
+    """JSON fallback. SQL releases are part of sql_commit_order_snapshot."""
     providers = load_providers(provider_store_path)
-    updated: Optional[Dict[str, Any]] = None
-
     for provider in providers:
         if str(provider.get("id")) != str(provider_id):
             continue
+        if str(provider.get("assignedOrderId") or "") != str(order_id):
+            return
         provider.pop("stale", None)
-        provider["status"] = status
-        provider["updatedAt"] = now
-        provider["lastSeenAt"] = now
-        if assigned_order_id:
-            provider["assignedOrderId"] = assigned_order_id
-        else:
-            provider.pop("assignedOrderId", None)
-        updated = provider
-        break
-
-    if updated is not None:
+        provider.pop("assignedOrderId", None)
+        if provider.get("status") == "busy":
+            provider["status"] = "online" if is_provider_verified(provider) else "offline"
+        provider["updatedAt"] = _now_iso()
         save_providers(providers, provider_store_path)
-    return updated
+        return
 
 
 def _provider_is_recent(provider: Dict[str, Any], now: Optional[datetime] = None) -> bool:
@@ -3317,7 +3213,9 @@ def _public_offer_payload(offer: Dict[str, Any], order: Dict[str, Any]) -> Dict[
         "approximateLocation": order.get("customerLocation"),
         "customerComment": order.get("customerComment"),
         "customerCoordinates": customer_coordinates,
-        "etaMinutes": max(2, math.ceil(float(offer.get("distanceKm") or 0) * 4)),
+        "etaMinutes": offer.get("etaMinutes") or max(2, math.ceil(float(offer.get("distanceKm") or 0) * 4)),
+            "etaSource": offer.get("etaSource", "approximate"),
+            "roadDistanceKm": offer.get("roadDistanceKm"),
     }
 
 
@@ -3453,6 +3351,9 @@ def dispatch_order(
                 "providerId": candidate["id"],
                 "status": "pending",
                 "distanceKm": candidate["distanceKm"],
+                "etaMinutes": candidate.get("etaMinutes"),
+                "etaSource": candidate.get("etaSource", "approximate"),
+                "roadDistanceKm": candidate.get("roadDistanceKm"),
                 "createdAt": now_iso,
                 "expiresAt": expires_at,
                 "wave": current_wave,
@@ -3506,175 +3407,9 @@ def dispatch_order(
         return attach_dispatch_to_order(order, offers)
 
 
-def _dispatch_order_sql(
-    order_id: str,
-    *,
-    reset_auto_retry: bool = False,
-    force_wave: Optional[int] = None,
-) -> Optional[Dict[str, Any]]:
-    """Row-level SQL dispatch: no full-table rewrite of orders/offers/providers."""
-    sql_expire_pending_offers(order_id=str(order_id))
-    order = sql_get_order(str(order_id))
-    if order is None:
-        return None
-    offers = sql_offers_for_order(str(order_id))
-    if normalize_order_status(order.get("status")) != "searching":
-        return attach_dispatch_to_order(order, offers)
-
-    prev_info = order.get("dispatchInfo") if isinstance(order.get("dispatchInfo"), dict) else {}
-    if reset_auto_retry:
-        order["dispatchInfo"] = {
-            **prev_info,
-            "autoRetryCount": 0,
-            "wave": 0,
-        }
-        order["dispatchInfo"].pop("exhaustedAt", None)
-        order["dispatchInfo"].pop("lastAutoRetryAt", None)
-        order["dispatchInfo"].pop("nextWaveAt", None)
-        prev_info = order["dispatchInfo"]
-
-    service = normalize_service(order.get("service"))
-    radius_steps = search_radius_steps_for_service(service)
-    current_wave = int(force_wave if force_wave is not None else (prev_info.get("wave") or 0)) + 1
-    batch_size = wave_batch_size(current_wave)
-    pending_existing = _pending_offer_count_for_order(offers, order_id)
-    slots_left = max(0, MAX_PROVIDER_OFFERS - pending_existing)
-    if slots_left <= 0:
-        order["dispatchState"] = "OFFERS_SENT"
-        order["updatedAt"] = _now_iso()
-        sql_upsert_order(order)
-        return attach_dispatch_to_order(order, offers)
-    batch_size = min(batch_size, slots_left)
-
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
-    now_iso = f"{now.isoformat(timespec='seconds')}Z"
-    offered_ids = _providers_blocked_for_order(offers, order_id)
-    max_radius = max(radius_steps)
-    candidates = sql_candidate_providers_for_order(
-        order_id=str(order_id),
-        service=service,
-        already_offered_provider_ids=offered_ids,
-        max_radius_km=max_radius,
-        ttl_seconds=PROVIDER_PRESENCE_TTL_SECONDS,
-        now=now,
-    )
-    selected: List[Dict[str, Any]] = []
-    used_ids: set[str] = set()
-    selected_radius: Optional[int] = None
-
-    _append_order_event(
-        order,
-        "DISPATCH_STARTED" if current_wave == 1 else "DISPATCH_WAVE",
-        now_iso,
-        {"wave": current_wave, "batchSize": batch_size, "serviceInitialRadiusKm": initial_radius_km_for_service(service)},
-    )
-    for radius in radius_steps:
-        for candidate in candidates:
-            if candidate["id"] in used_ids or candidate["distanceKm"] > radius:
-                continue
-            selected.append(candidate)
-            used_ids.add(candidate["id"])
-            selected_radius = radius
-            if len(selected) >= batch_size:
-                break
-        if len(selected) >= batch_size:
-            break
-
-    if not selected:
-        pending_existing = _pending_offer_count_for_order(offers, order_id)
-        prev_info = order.get("dispatchInfo") if isinstance(order.get("dispatchInfo"), dict) else {}
-        if pending_existing > 0:
-            order["dispatchState"] = "OFFERS_SENT"
-            order["dispatchInfo"] = {
-                **prev_info,
-                "eligibleProviders": len(candidates),
-                "offersSent": max(int(prev_info.get("offersSent") or 0), pending_existing),
-                "lastDispatchAt": now_iso,
-                "wave": max(int(prev_info.get("wave") or 0), current_wave - 1),
-                "searchRadiusStepsKm": radius_steps,
-                "serviceInitialRadiusKm": initial_radius_km_for_service(service),
-            }
-            order["updatedAt"] = now_iso
-            sql_upsert_order(order)
-            return attach_dispatch_to_order(order, offers)
-        order["dispatchState"] = "NO_PROVIDERS_AVAILABLE"
-        order["dispatchInfo"] = {
-            "eligibleProviders": len(candidates),
-            "offersSent": 0,
-            "searchRadiusStepsKm": radius_steps,
-            "serviceInitialRadiusKm": initial_radius_km_for_service(service),
-            "wave": current_wave,
-            "lastDispatchAt": now_iso,
-            **{
-                key: prev_info[key]
-                for key in ("autoRetryCount", "lastAutoRetryAt", "exhaustedAt")
-                if key in prev_info
-            },
-        }
-        order["updatedAt"] = now_iso
-        _append_order_event(order, "NO_PROVIDERS_AVAILABLE", now_iso)
-        sql_upsert_order(order)
-        return attach_dispatch_to_order(order, offers)
-
-    expires_at = f"{(now + timedelta(seconds=OFFER_TIMEOUT_SECONDS)).isoformat(timespec='seconds')}Z"
-    new_offers: List[Dict[str, Any]] = []
-    for candidate in selected:
-        offer = {
-            "id": f"OF-{uuid.uuid4().hex[:12].upper()}",
-            "orderId": order_id,
-            "providerId": candidate["id"],
-            "status": "pending",
-            "distanceKm": candidate["distanceKm"],
-            "createdAt": now_iso,
-            "expiresAt": expires_at,
-            "wave": current_wave,
-        }
-        new_offers.append(offer)
-        _append_order_event(
-            order,
-            "OFFER_CREATED",
-            now_iso,
-            {
-                "offerId": offer["id"],
-                "providerId": candidate["id"],
-                "distanceKm": candidate["distanceKm"],
-                "wave": current_wave,
-            },
-        )
-
-    next_wave_at = None
-    if current_wave == 1:
-        next_wave_at = f"{(now + timedelta(seconds=DISPATCH_WAVE_WAIT_SECONDS)).isoformat(timespec='seconds')}Z"
-
-    order["dispatchState"] = "OFFERS_SENT"
-    prev_info = order.get("dispatchInfo") if isinstance(order.get("dispatchInfo"), dict) else {}
-    total_sent = int(prev_info.get("offersSent") or 0) + len(selected)
-    order["dispatchInfo"] = {
-        "eligibleProviders": len(candidates),
-        "offersSent": total_sent,
-        "offersSentThisWave": len(selected),
-        "searchRadiusKm": selected_radius,
-        "searchRadiusStepsKm": radius_steps,
-        "serviceInitialRadiusKm": initial_radius_km_for_service(service),
-        "maxProviderOffers": MAX_PROVIDER_OFFERS,
-        "offerTimeoutSeconds": OFFER_TIMEOUT_SECONDS,
-        "wave": current_wave,
-        "wave1Size": DISPATCH_WAVE1_SIZE,
-        "wave2Size": DISPATCH_WAVE2_SIZE,
-        "waveWaitSeconds": DISPATCH_WAVE_WAIT_SECONDS,
-        "lastDispatchAt": now_iso,
-        **({"nextWaveAt": next_wave_at} if next_wave_at else {}),
-        **{
-            key: prev_info[key]
-            for key in ("autoRetryCount", "lastAutoRetryAt", "exhaustedAt")
-            if key in prev_info
-        },
-    }
-    if current_wave > 1:
-        order["dispatchInfo"].pop("nextWaveAt", None)
-    order["updatedAt"] = now_iso
-    persisted_order, persisted_offers = sql_commit_dispatch_wave(order, new_offers)
-    return attach_dispatch_to_order(persisted_order, persisted_offers)
+def _dispatch_order_sql(order_id, *, reset_auto_retry=False, force_wave=None):
+    from bot.dispatch_service import dispatch_order_sql
+    return dispatch_order_sql(order_id, reset_auto_retry=reset_auto_retry, force_wave=force_wave)
 
 
 def attach_dispatch_to_order(order: Dict[str, Any], offers: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
@@ -3789,6 +3524,14 @@ def accept_offer(
             raise DispatchConflict("PROVIDER_NOT_FOUND", "Provider was not found.")
         if not is_provider_verified(provider):
             raise DispatchConflict("PROVIDER_NOT_VERIFIED", "Provider verification is not approved.")
+        if provider.get("assignedOrderId") or provider.get("status") == "busy" or any(
+            peek_order_status(item.get("status")) in ACTIVE_ORDER_STATUSES
+            and str(item.get("assignedProviderId") or item.get("partnerId") or "") == str(provider_id)
+            for item in orders
+        ):
+            raise DispatchConflict("PROVIDER_BUSY", "Provider already has an active order.")
+        if provider.get("status") != "online" or not _provider_is_recent(provider):
+            raise DispatchConflict("PROVIDER_OFFLINE", "Provider must be online to accept an offer.")
 
         offer["status"] = "accepted"
         offer["respondedAt"] = now
@@ -3818,7 +3561,9 @@ def accept_offer(
             "verificationStatus": provider.get("verificationStatus"),
             "trustedBadges": provider.get("trustedBadges"),
             "distanceKm": offer.get("distanceKm"),
-            "etaMinutes": max(2, math.ceil(float(offer.get("distanceKm") or 0) * 4)),
+            "etaMinutes": offer.get("etaMinutes") or max(2, math.ceil(float(offer.get("distanceKm") or 0) * 4)),
+            "etaSource": offer.get("etaSource", "approximate"),
+            "roadDistanceKm": offer.get("roadDistanceKm"),
         }
         if provider.get("name"):
             order["providerName"] = provider.get("name")
@@ -3895,6 +3640,9 @@ def update_provider_order_status(
     offer_store_path: Optional[Path] = None,
 ) -> Dict[str, Any]:
     with STORE_LOCK:
+        next_status = normalize_order_status(status)
+        if next_status not in {"en_route", "arrived", "in_progress", "completed", "cancelled"}:
+            raise DispatchConflict("PROVIDER_STATUS_FORBIDDEN", "This transition requires customer or admin confirmation.")
         order = get_order(order_id, order_store_path)
         if order is None:
             raise DispatchConflict("ORDER_NOT_FOUND", "Order was not found.")
@@ -3910,10 +3658,6 @@ def update_provider_order_status(
         )
         if updated is None:
             raise DispatchConflict("ORDER_NOT_FOUND", "Order was not found.")
-        if normalize_order_status(updated.get("status")) in {"completed", "cancelled"}:
-            _set_provider_status(provider_id, "online", provider_store_path=provider_store_path)
-        else:
-            _set_provider_status(provider_id, "busy", order_id, provider_store_path=provider_store_path)
         return attach_dispatch_to_order(updated, load_offers(offer_store_path))
 
 
@@ -4390,9 +4134,6 @@ def submit_order_review(
             raise DispatchConflict("ORDER_NOT_COMPLETED", "Reviews are available only for completed orders.")
 
         review_key = "customerReview" if role == "customer" else "partnerReview"
-        if isinstance(order.get(review_key), dict) and order[review_key].get("rating") is not None:
-            raise DispatchConflict("REVIEW_ALREADY_SUBMITTED", "Review already submitted for this order.")
-
         if role == "customer":
             if author_id:
                 aliases = _customer_ids_for_order_history(str(author_id), customer_store_path)
@@ -4402,6 +4143,9 @@ def submit_order_review(
             provider_id = str(order.get("assignedProviderId") or order.get("partnerId") or "").strip()
             if author_id and provider_id and str(author_id) != provider_id:
                 raise DispatchConflict("REVIEW_FORBIDDEN", "Partner cannot review this order.")
+
+        if isinstance(order.get(review_key), dict) and order[review_key].get("rating") is not None:
+            raise DispatchConflict("REVIEW_ALREADY_SUBMITTED", "Review already submitted for this order.")
 
         now = _now_iso()
         review_payload = {

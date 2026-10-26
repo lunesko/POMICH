@@ -7,6 +7,8 @@ from fastapi import HTTPException
 from bot import runtime_store as db, session_registry
 from bot.delivery_store import outbox
 from bot.order_idempotency import keys
+from bot.support_store import cases
+from bot.dispatch_jobs import jobs
 
 TERMINAL = ("completed", "cancelled")
 RETENTION_DAYS = 180
@@ -22,7 +24,7 @@ def _require_sql():
 def _delete_orders(connection, ids):
     if not ids:
         return
-    for table in (db.order_events, db.dispatch_offers, outbox, keys):
+    for table in (db.order_events, db.dispatch_offers, outbox, keys, cases, jobs):
         connection.execute(delete(table).where(table.c.order_id.in_(ids)))
     connection.execute(delete(db.orders).where(db.orders.c.id.in_(ids)))
     # Legacy whole-collection snapshots must not preserve deleted personal data.
@@ -60,14 +62,18 @@ def export_customer(customer_id: str) -> dict:
         owned = or_(owned, db.orders.c.chat_id == customer_id[3:])
     with db.get_engine().connect() as connection:
         orders = list(connection.execute(select(db.orders.c.payload).where(owned)).scalars())
-    return {"customerId": customer_id, "profile": profile, "orders": orders,
+        support = list(connection.execute(select(cases.c.payload).where(cases.c.customer_id == customer_id)).scalars())
+    return {"customerId": customer_id, "profile": profile, "orders": orders, "supportCases": support,
         "exportedAt": datetime.now(timezone.utc).isoformat()}
 
 
 def erase_customer(customer_id: str) -> dict:
     from bot import otp_verification
     _require_sql()
-    with db.get_engine().begin() as connection:
+    from bot.otp_repository import _connection
+    # OTP operations and erasure share the same database-wide transaction lock.
+    with otp_verification._otp_transaction():
+        connection = _connection()
         # Lock the profile so account changes cannot race the eligibility check.
         query = select(db.customers).where(db.customers.c.id == customer_id)
         if connection.dialect.name == "postgresql":
@@ -82,14 +88,14 @@ def erase_customer(customer_id: str) -> dict:
         if any(row.status not in TERMINAL for row in rows):
             raise HTTPException(status_code=409, detail="active_orders_prevent_erasure")
         _delete_orders(connection, [row.id for row in rows])
+        # Cases can be authored on phone-linked alias orders that must survive.
+        connection.execute(delete(cases).where(cases.c.customer_id == customer_id))
         connection.execute(delete(db.customers).where(db.customers.c.id == customer_id))
         connection.execute(delete(db.runtime_collections).where(db.runtime_collections.c.name.in_(["customers", "telegram_sessions"])))
         if customer_id.startswith("tg-"):
             connection.execute(delete(db.sessions).where(db.sessions.c.chat_id == customer_id[3:]))
         connection.execute(update(session_registry.sessions).where(session_registry.sessions.c.role == "customer",
             session_registry.sessions.c.subject == customer_id).values(revoked=1))
-    # OTP records are a separate local store; remove the challenge as well.
-    with otp_verification.STORE_LOCK:
         records = otp_verification._load_otp_store()
         records.pop(customer_id, None)
         otp_verification._save_otp_store(records)

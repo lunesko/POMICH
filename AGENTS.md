@@ -39,3 +39,17 @@ This project uses **Tailwind CSS v4** through the `@tailwindcss/vite` plugin con
 - Use double quotes for strings containing apostrophes (`"We're here to help"`), or escape them in single-quoted strings. An unescaped apostrophe in a single-quoted string breaks the build.
 - Ensure JSX tags are closed and braces are balanced.
 - Export components as default exports.
+
+## Project Agency agents
+
+Для задач этого проекта сначала прочитай `.agency/COMMON_RULES.md`, затем выбери подходящую роль из `.agency/README.md` и прочитай её профиль перед работой. Загружай только нужные роли; не подключай весь каталог одновременно. Профили дополняют существующие инструкции репозитория.
+
+- Реализация: `.agency/profiles/pomich-backend-architect.md`.
+- Проверка diff: `.agency/profiles/pomich-code-reviewer.md`.
+- Тестирование: `.agency/profiles/pomich-test-automation.md`.
+- Подготовка выпуска: `.agency/profiles/pomich-release-verifier.md`.
+
+Роль выбирается по текущей задаче, а не запускает параллельных агентов автоматически. Перед следующей стадией проверь фактический diff и результаты предыдущей. При недоступной проверке используй BLOCKED/NOT RUN, не объявляй её выполненной.
+
+Контекст и команды профилей — проверяемый снимок: при расхождении сверяй исходники, конфигурацию и текущую среду. В частности, документированное утверждение о работающем dev server требует проверки. Подключение профилей не разрешает merge, production deploy или обращения к реальным пользователям.
+

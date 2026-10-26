@@ -44,6 +44,8 @@ def _postgres_ready() -> tuple[bool, str]:
             conn.exec_driver_sql("SELECT digest FROM realtime_tickets LIMIT 1")
             conn.exec_driver_sql("SELECT id FROM telegram_outbox LIMIT 1")
             conn.exec_driver_sql("SELECT id FROM order_creation_keys LIMIT 1")
+            conn.exec_driver_sql("SELECT id FROM dispatch_jobs LIMIT 1")
+            conn.exec_driver_sql("SELECT id FROM dispatch_workers LIMIT 1")
         return True, "ok"
     except Exception as exc:  # noqa: BLE001 — readiness must never raise
         return False, type(exc).__name__
@@ -97,5 +99,14 @@ def metrics(
     except Exception as exc:
         payload["realtime"] = {"status": "unavailable", "error": type(exc).__name__}
         payload["alerts"]["realtimeMetricsUnavailable"] = True
+    from bot import dispatch_jobs
+    if dispatch_jobs.enabled():
+        try:
+            payload["dispatch"] = dispatch_jobs.stats()
+            payload["alerts"]["dispatchWorkerUnavailable"] = not payload["dispatch"]["workerHealthy"]
+            payload["alerts"]["dispatchDeadLetters"] = int(payload["dispatch"].get("dead") or 0) > 0
+            payload["alerts"]["dispatchDelayed"] = payload["dispatch"]["oldestDueSeconds"] > 30
+        except Exception:
+            payload["alerts"]["dispatchMetricsUnavailable"] = True
     payload["status"] = "degraded" if any(payload["alerts"].values()) else "ok"
     return payload

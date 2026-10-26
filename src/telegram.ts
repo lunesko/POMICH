@@ -267,7 +267,7 @@ export function clearEntryScreenParam() {
   const url = new URL(window.location.href)
   if (!url.searchParams.has("screen")) return
   url.searchParams.delete("screen")
-  window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`)
+  window.history.replaceState(window.history.state ?? {}, "", `${url.pathname}${url.search}${url.hash}`)
 }
 
 const PUBLIC_EPHEMERAL_QUERY_KEYS = [
@@ -302,7 +302,7 @@ export function sanitizePublicAppUrl(options?: { preserveAdminRole?: boolean }) 
     changed = true
   }
   if (!changed) return
-  window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}` || "/")
+  window.history.replaceState(window.history.state ?? {}, "", `${url.pathname}${url.search}${url.hash}` || "/")
 }
 
 const THEME_PARAM_MAP: Record<string, string> = {

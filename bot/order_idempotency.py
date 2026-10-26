@@ -23,6 +23,12 @@ def fingerprint(payload: dict) -> str:
     return hashlib.sha256(json.dumps(data, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()).hexdigest()
 
 
+def same_order_intent(left: dict, right: dict) -> bool:
+    """Ignore channel/auth/retry metadata when identifying duplicate active requests."""
+    fields = ("service", "customerCoordinates", "customerLocation", "destinationCoordinates", "destination", "serviceDetails", "vehicleState", "customerComment")
+    return all((left.get(key) or None) == (right.get(key) or None) for key in fields)
+
+
 def scoped_key(customer_id: str, key: str) -> str:
     return hashlib.sha256(json.dumps([customer_id, key], separators=(",", ":")).encode()).hexdigest()
 
