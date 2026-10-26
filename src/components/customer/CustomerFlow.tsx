@@ -1405,6 +1405,7 @@ function TrackingStep({ orderId, status, order, pickup, destination, cancelError
         <ProviderCard orderId={orderId} eta={eta} assignedProvider={order?.assignedProvider} />
         <div style={{ background: CARD, borderRadius: 18, padding: 14, border: `1px solid ${BORDER}` }}>
           <Timeline status={status} />
+          {order?.assignedProvider?.etaSource !== "osrm" ? <div style={{ color: MUTED, fontSize: 12, marginTop: 8 }}>Час прибуття приблизний: дорожній маршрут поки недоступний.</div> : null}
           <div style={{ color: MUTED, fontSize: 13, fontWeight: 700, marginTop: 12 }}>
             {hasLiveLocation
               ? (typeof distanceKm === "number" && distanceKm < 0.15 ? "Партнер майже на місці." : "Партнер їде до точки подачі. Позиція оновлюється з GPS.")
@@ -2016,6 +2017,18 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
       ? (geoMessage || "Не вдалося визначити геолокацію. Натисніть «Оновити» або оберіть точку на карті.")
       : undefined
 
+  const discardUnavailableOrder = (error: unknown) => {
+    const code = (error as { status?: number })?.status
+    if (code !== 403 && code !== 404) return false
+    clearActiveOrder()
+    setOrderId(undefined)
+    setCurrentOrder(undefined)
+    setStatus("draft")
+    setSyncError(false)
+    setScreen("home")
+    return true
+  }
+
   /* Transport errors retain the active order; only a server snapshot can end it. */
   useEffect(() => {
     let cancelled = false
@@ -2049,8 +2062,11 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
         if (full.customerCoordinates) setPickup(full.customerCoordinates)
         if (full.destinationCoordinates) setDestinationPoint(full.destinationCoordinates)
         setScreen(screenForOrderStatus(nextStatus))
-      } catch {
-        if (!cancelled && readActiveOrder()?.orderId) setSyncError(true)
+      } catch (error) {
+        if (!cancelled) {
+          if (discardUnavailableOrder(error)) restored = true
+          else if (readActiveOrder()?.orderId) setSyncError(true)
+        }
       } finally { restoring = false }
     }
     void restore()
@@ -2115,7 +2131,7 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
       if (document.visibilityState !== "visible") return
       getOrder(orderId, customerAuthToken)
         .then(applyPolledOrder)
-        .catch(() => { if (!cancelled) setSyncError(true) })
+        .catch(error => { if (!cancelled && !discardUnavailableOrder(error)) setSyncError(true) })
     }
 
     refreshOrder()

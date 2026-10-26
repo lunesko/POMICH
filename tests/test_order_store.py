@@ -2062,5 +2062,5 @@ def test_assigned_provider_position_exposes_freshness_and_hides_stale_eta(tmp_pa
     save_providers([provider], providers)
     result = enrich_order_for_client(order, providers)["assignedProvider"]
     assert result["stale"] is False
-    assert result["etaSource"] == "straight_line_estimate"
+    assert result["etaSource"] == "approximate"
     assert result["etaMinutes"] >= 1

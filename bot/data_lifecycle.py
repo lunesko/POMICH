@@ -8,6 +8,7 @@ from bot import runtime_store as db, session_registry
 from bot.delivery_store import outbox
 from bot.order_idempotency import keys
 from bot.support_store import cases
+from bot.dispatch_jobs import jobs
 
 TERMINAL = ("completed", "cancelled")
 RETENTION_DAYS = 180
@@ -23,7 +24,7 @@ def _require_sql():
 def _delete_orders(connection, ids):
     if not ids:
         return
-    for table in (db.order_events, db.dispatch_offers, outbox, keys, cases):
+    for table in (db.order_events, db.dispatch_offers, outbox, keys, cases, jobs):
         connection.execute(delete(table).where(table.c.order_id.in_(ids)))
     connection.execute(delete(db.orders).where(db.orders.c.id.in_(ids)))
     # Legacy whole-collection snapshots must not preserve deleted personal data.
@@ -84,6 +85,8 @@ def erase_customer(customer_id: str) -> dict:
         if any(row.status not in TERMINAL for row in rows):
             raise HTTPException(status_code=409, detail="active_orders_prevent_erasure")
         _delete_orders(connection, [row.id for row in rows])
+        # Cases can be authored on phone-linked alias orders that must survive.
+        connection.execute(delete(cases).where(cases.c.customer_id == customer_id))
         connection.execute(delete(db.customers).where(db.customers.c.id == customer_id))
         connection.execute(delete(db.runtime_collections).where(db.runtime_collections.c.name.in_(["customers", "telegram_sessions"])))
         if customer_id.startswith("tg-"):

@@ -192,3 +192,26 @@ def test_two_connections_competing_terminal_transitions_commit_one(assignment_db
     completed = runtime_store.sql_get_order("order-0")["status"] == "completed"
     assert runtime_store.sql_get_provider("partner")["ordersCompleted"] == int(completed)
     assert runtime_store.sql_get_customer("customer")["ordersCompleted"] == int(completed)
+
+
+def test_decline_and_cancellation_use_consistent_lock_order(assignment_db):
+    if assignment_db.dialect.name != 'postgresql':
+        pytest.skip('PostgreSQL row-lock concurrency')
+    seed_orders(count=1)
+    barrier = threading.Barrier(2)
+    def cancel():
+        barrier.wait(timeout=10)
+        return order_store.update_order_status('order-0', 'cancelled')['status']
+    def decline():
+        barrier.wait(timeout=10)
+        try:
+            return runtime_store.sql_decline_offer('offer-0', 'partner')['status']
+        except runtime_store.SqlDispatchConflict as exc:
+            return exc.code
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        cancelled = pool.submit(cancel)
+        declined = pool.submit(decline)
+        assert cancelled.result(timeout=15) == 'cancelled'
+        assert declined.result(timeout=15) in {'declined', 'cancelled'}
+    assert runtime_store.sql_get_order('order-0')['status'] == 'cancelled'
+    assert runtime_store.sql_offers_for_order('order-0')[0]['status'] in {'declined', 'cancelled'}

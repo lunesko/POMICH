@@ -25,7 +25,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: "npm"
 
       - name: Install Python dependencies
@@ -33,6 +33,9 @@ jobs:
 
       - name: Install Node dependencies
         run: npm ci
+
+      - name: Verify generated API contract
+        run: npm run api:check
 
       - name: Check production dependency vulnerabilities
         run: npm audit --audit-level=moderate
@@ -114,7 +117,14 @@ jobs:
           POMICH_SKIP_LOCAL_ENV: "1"
         run: |
           python -c "import psycopg; c=psycopg.connect('postgresql://pomich:pomich@127.0.0.1:5432/pomich', autocommit=True); c.execute('CREATE DATABASE pomich_audit_test'); c.close()"
-          python -m pytest tests/test_audit_regressions.py tests/test_order_assignment_transactions.py -q
+          python -m pytest tests/test_audit_regressions.py tests/test_order_assignment_transactions.py tests/test_dispatch_jobs.py tests/test_routing.py tests/test_geo_plan.py -q
+
+      - name: Upload PostGIS query plan
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: postgis-candidate-plan
+          path: test-results/postgis-candidate-plan.json
 
       - name: Set up Node for real browser lifecycle
         uses: actions/setup-node@v4

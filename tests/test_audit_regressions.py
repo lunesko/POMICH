@@ -421,3 +421,67 @@ def test_ticket_and_stream_principal_expire(clients, monkeypatch):
         realtime_auth.consume_ticket(second["ticket"], channel)
     monkeypatch.setattr(realtime_auth.time, "time", lambda: principal.expires_at + 1)
     assert not realtime_auth.principal_active(principal)
+
+
+def test_erasure_removes_principal_authored_alias_cases_only(clients, monkeypatch, tmp_path):
+    from bot.support_store import create_case, list_cases
+    from tests.helpers import verified_customer
+    a, _, sa, sb = clients
+    monkeypatch.setenv('POMICH_OTP_STORE_PATH', str(tmp_path / 'otp.json'))
+    for identity in (sa, sb):
+        verified_customer(identity['customerId'])
+        profile = order_store.get_customer_profile(identity['customerId'])
+        profile['phone'] = '+380671234567'
+        runtime_store.sql_upsert_customer(profile)
+    alias_order = {'id': 'alias-case-order', 'customerId': sb['customerId'], 'status': 'completed'}
+    other_order = {'id': 'other-case-order', 'customerId': sb['customerId'], 'status': 'completed'}
+    runtime_store.sql_upsert_order(alias_order)
+    runtime_store.sql_upsert_order(other_order)
+    unrelated = create_case(other_order, sb['customerId'], 'other', 'Synthetic unrelated case')
+    headers = {'Authorization': 'Bearer ' + sa['accessToken']}
+    response = a.post('/api/orders/alias-case-order/support', headers=headers,
+        json={'reason': 'help_not_received', 'description': 'Synthetic alias report'})
+    assert response.status_code == 200
+    assert response.json()['customerId'] == sa['customerId']
+    erased = a.delete('/api/customers/' + sa['customerId'] + '/data', headers=headers)
+    assert erased.status_code == 200
+    assert list_cases(order_id='alias-case-order') == []
+    assert list_cases(order_id='other-case-order')[0]['id'] == unrelated['id']
+    assert runtime_store.sql_get_order('alias-case-order') is not None
+
+
+def test_failed_erasure_keeps_support_cases(clients):
+    from bot.support_store import create_case, list_cases
+    a, _, sa, _ = clients
+    order = {'id': 'active-case', 'customerId': sa['customerId'], 'status': 'en_route'}
+    runtime_store.sql_upsert_order(order)
+    case = create_case(order, sa['customerId'], 'other', 'Synthetic support report')
+    response = a.delete('/api/customers/' + sa['customerId'] + '/data',
+        headers={'Authorization': 'Bearer ' + sa['accessToken']})
+    assert response.status_code == 409
+    assert list_cases(order_id='active-case')[0]['id'] == case['id']
+
+
+def test_inflight_alias_support_cannot_recreate_erased_customer_data(clients, monkeypatch, tmp_path):
+    from bot import support_store
+    from bot.data_lifecycle import erase_customer
+    from tests.helpers import verified_customer
+    a, _, sa, sb = clients
+    monkeypatch.setenv('POMICH_OTP_STORE_PATH', str(tmp_path / 'otp.json'))
+    for identity in (sa, sb):
+        verified_customer(identity['customerId'])
+        profile = order_store.get_customer_profile(identity['customerId'])
+        profile['phone'] = '+380671234567'
+        runtime_store.sql_upsert_customer(profile)
+    runtime_store.sql_upsert_order({'id': 'alias-inflight', 'customerId': sb['customerId'], 'status': 'completed'})
+    original = support_store.create_case
+    def erase_after_auth(order, customer_id, reason, description):
+        assert erase_customer(customer_id)['deleted'] is True
+        return original(order, customer_id, reason, description)
+    monkeypatch.setattr(support_store, 'create_case', erase_after_auth)
+    response = a.post('/api/orders/alias-inflight/support',
+        headers={'Authorization': 'Bearer ' + sa['accessToken']},
+        json={'reason': 'other', 'description': 'Synthetic inflight report'})
+    assert response.status_code == 403
+    assert support_store.list_cases(order_id='alias-inflight') == []
+    assert runtime_store.sql_get_order('alias-inflight') is not None

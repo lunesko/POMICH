@@ -4,9 +4,14 @@ import type { OrderResponse } from "../api/client"
 export function providerLocationFresh(order: OrderResponse | undefined, now = Date.now()): boolean {
   const provider = order?.assignedProvider
   if (!provider || !provider.location || !Number.isFinite(provider.location.lat) || !Number.isFinite(provider.location.lng) || provider.stale || provider.status === "offline") return false
+  const serverTime = Date.parse(order?.serverTime || "")
+  const receipt = order?.receivedAt
+  const referenceNow = Number.isFinite(serverTime) && typeof receipt === "number" && Number.isFinite(receipt)
+    ? serverTime + Math.max(0, now - receipt)
+    : now
   const seen = Date.parse(provider.lastSeenAt || "")
   const located = Date.parse(provider.lastLocationAt || "")
-  return [seen, located].every(value => Number.isFinite(value) && now - value <= 60000 && value <= now + 5000)
+  return [seen, located].every(value => Number.isFinite(value) && referenceNow - value <= 60000 && value <= referenceNow + 5000)
 }
 
 export function etaRangeLabel(minutes: number): string {

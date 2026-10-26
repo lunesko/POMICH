@@ -29,6 +29,11 @@ function SupportCaseEditor({ row, token, onSaved }: { row: SupportCase; token?: 
   const [resolution, setResolution] = useState(row.resolution || "")
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
+  useEffect(() => {
+    setStatus(row.status)
+    setResolution(row.resolution || "")
+    setError("")
+  }, [row.status, row.resolution, row.updatedAt])
   const save = async () => {
     setSaving(true)
     setError("")

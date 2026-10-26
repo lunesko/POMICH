@@ -188,7 +188,7 @@ def sql_storage_enabled() -> bool:
 
 
 def get_engine() -> Engine:
-    from bot import delivery_store, order_idempotency, support_store  # register transactional tables
+    from bot import delivery_store, order_idempotency, support_store, dispatch_jobs  # register transactional tables
     global _ENGINE, _ENGINE_URL
     url = _database_url()
     if not url:
@@ -216,7 +216,7 @@ def reset_runtime_store_for_tests() -> None:
 
 
 def _install_schema(engine: Engine) -> None:
-    from bot import delivery_store, order_idempotency, support_store
+    from bot import delivery_store, order_idempotency, support_store, dispatch_jobs
     if engine.dialect.name == "postgresql":
         with engine.begin() as connection:
             connection.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
@@ -699,7 +699,11 @@ def sql_upsert_order(order: dict[str, Any], *, insert_only: bool = False, idempo
             )
 
         from bot.delivery_store import schedule_order_notifications
+        from bot.dispatch_jobs import schedule_order_jobs
         schedule_order_notifications(connection, payload)
+        schedule_order_jobs(connection, payload)
+        from bot.realtime_broker import notify_order_commit
+        notify_order_commit(connection, payload)
 
     return payload
 
@@ -824,6 +828,8 @@ def sql_update_provider_presence(provider_id: str, patch: dict[str, Any]) -> dic
             status = "busy"
         now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat(timespec="seconds") + "Z"
         provider.update(status=status, updatedAt=now, lastSeenAt=now)
+        if patch.get("etaMinutes") is not None:
+            provider["etaMinutes"] = patch["etaMinutes"]
         if isinstance(patch.get("location"), dict):
             provider.update(location=patch["location"], lastLocationAt=now)
         _write_provider_presence(connection, provider)
@@ -1006,11 +1012,14 @@ def sql_commit_dispatch_wave(
             .where(dispatch_offers.c.status != "expired")
         ).mappings().all()
         blocked_provider_ids = {str(row["provider_id"]) for row in existing_rows}
+        from bot.order_store import MAX_PROVIDER_OFFERS
+        pending_count = sum(1 for row in existing_rows if _json_object(row["payload"]).get("status") == "pending")
+        slots_left = max(0, MAX_PROVIDER_OFFERS - pending_count)
         inserted = [
             _json_safe_copy(offer)
             for offer in proposed_offers
             if str(offer.get("providerId") or "") not in blocked_provider_ids
-        ]
+        ][:slots_left]
         if not inserted:
             all_rows = connection.execute(
                 select(dispatch_offers.c.payload)
@@ -1140,70 +1149,53 @@ def sql_insert_offers(offers: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def sql_expire_pending_offers(
-    *,
-    order_id: str | None = None,
-    now: datetime | None = None,
+    *, order_id: str | None = None, now: datetime | None = None,
 ) -> list[dict[str, Any]]:
-    """Expire timed-out pending offers (optionally scoped to one order). Returns updated offers."""
+    """Serialize expiry with acceptance: order first, then its pending offers."""
+    engine = get_engine()
     now_dt = now or datetime.now(timezone.utc).replace(tzinfo=None)
     now_iso = f"{now_dt.isoformat(timespec='seconds')}Z"
     changed: list[dict[str, Any]] = []
-    with get_engine().begin() as connection:
-        query = select(
-            dispatch_offers.c.id,
-            dispatch_offers.c.order_id,
-            dispatch_offers.c.provider_id,
-            dispatch_offers.c.expires_at,
-            dispatch_offers.c.payload,
-            orders.c.status.label("order_status"),
-            orders.c.payload.label("order_payload"),
-        ).select_from(
-            dispatch_offers.outerjoin(orders, dispatch_offers.c.order_id == orders.c.id)
-        ).where(dispatch_offers.c.status == "pending")
+    with engine.begin() as connection:
+        query = select(dispatch_offers.c.order_id).where(dispatch_offers.c.status == "pending")
         if order_id:
             query = query.where(dispatch_offers.c.order_id == str(order_id))
-        rows = connection.execute(query).mappings().all()
-        for row in rows:
-            expires_at = None
-            raw_expires = row["expires_at"]
-            if raw_expires:
-                try:
-                    expires_at = datetime.fromisoformat(str(raw_expires).replace("Z", "+00:00")).replace(tzinfo=None)
-                except ValueError:
-                    expires_at = None
-            order_status = str(row["order_status"] or "").strip().lower()
-            new_status = None
-            if order_status in {"", "cancelled"} or order_status in {"completed", "cancelled"}:
-                new_status = "cancelled" if order_status != "completed" else "lost"
-            elif order_status and order_status != "searching":
-                new_status = "lost"
-            elif expires_at and now_dt >= expires_at:
-                new_status = "expired"
-            if not new_status:
-                continue
-            offer_payload = _json_safe_copy(row["payload"] if isinstance(row["payload"], dict) else {})
-            offer_payload["status"] = new_status
-            offer_payload["respondedAt"] = now_iso
-            connection.execute(
-                update(dispatch_offers)
-                .where(dispatch_offers.c.id == str(row["id"]))
-                .values(status=new_status, responded_at=now_iso, payload=offer_payload)
-            )
-            if new_status == "expired" and isinstance(row["order_payload"], dict):
-                order_payload = _json_safe_copy(row["order_payload"])
-                _append_event(
-                    order_payload,
-                    "OFFER_EXPIRED",
-                    now_iso,
-                    {"offerId": row["id"], "providerId": row["provider_id"]},
-                )
-                connection.execute(
-                    update(orders)
-                    .where(orders.c.id == str(row["order_id"]))
-                    .values(payload=order_payload, updated_at=now_iso)
-                )
+        ids = list(connection.execute(query.distinct().order_by(dispatch_offers.c.order_id)).scalars())
+        for wanted in ids:
+            order_row = connection.execute(_for_update(
+                select(orders.c.status, orders.c.payload).where(orders.c.id == wanted), engine,
+            )).mappings().first()
+            rows = connection.execute(_for_update(select(dispatch_offers).where(
+                dispatch_offers.c.order_id == wanted, dispatch_offers.c.status == "pending"
+            ).order_by(dispatch_offers.c.id), engine)).mappings().all()
+            order_status = str(order_row["status"] or "") if order_row else ""
+            order_payload = _json_object(order_row["payload"]) if order_row else None
+            order_changed = False
+            for row in rows:
+                expires_at = _parse_iso(row["expires_at"])
+                if order_status in {"", "cancelled"}:
+                    new_status = "cancelled"
+                elif order_status != "searching":
+                    new_status = "lost"
+                elif expires_at and now_dt >= expires_at:
+                    new_status = "expired"
+                else:
+                    continue
+                payload = _json_object(row["payload"])
+                payload.update(status=new_status, respondedAt=now_iso)
+                connection.execute(update(dispatch_offers).where(
+                    dispatch_offers.c.id == row["id"], dispatch_offers.c.status == "pending"
+                ).values(status=new_status, responded_at=now_iso, payload=payload))
+                if new_status == "expired" and order_payload is not None:
+                    _append_event(order_payload, "OFFER_EXPIRED", now_iso,
+                        {"offerId": row["id"], "providerId": row["provider_id"]})
+                    order_changed = True
+                changed.append(payload)
+            if order_changed:
+                order_payload["updatedAt"] = now_iso
+                connection.execute(update(orders).where(orders.c.id == wanted)
+                    .values(payload=order_payload, updated_at=now_iso))
                 _insert_order_events(connection, order_payload)
-            changed.append(offer_payload)
     return changed
 
 
@@ -1211,7 +1203,18 @@ def sql_decline_offer(offer_id: str, provider_id: str, now: datetime | None = No
     """Mark one pending offer declined and append an order event — no full-table rewrite."""
     now_dt = now or datetime.now(timezone.utc).replace(tzinfo=None)
     now_iso = f"{now_dt.isoformat(timespec='seconds')}Z"
-    with get_engine().begin() as connection:
+    with _locked_transaction() as connection:
+        # Cancellation/acceptance lock order first, then offers. Match that order.
+        lookup = connection.execute(select(dispatch_offers.c.order_id, dispatch_offers.c.provider_id)
+            .where(dispatch_offers.c.id == str(offer_id))).first()
+        if lookup is None or str(lookup.provider_id) != str(provider_id):
+            raise SqlDispatchConflict("OFFER_NOT_FOUND", "Offer was not found.")
+        locked_order_id = str(lookup.order_id)
+        locked_order = connection.execute(_for_update(
+            select(orders.c.id).where(orders.c.id == locked_order_id), connection.engine,
+        )).first()
+        if locked_order is None:
+            raise SqlDispatchConflict("ORDER_NOT_FOUND", "Order was not found.")
         offer_row = connection.execute(
             _for_update(
                 select(
@@ -1226,6 +1229,8 @@ def sql_decline_offer(offer_id: str, provider_id: str, now: datetime | None = No
         ).mappings().first()
         if offer_row is None or str(offer_row["provider_id"]) != str(provider_id):
             raise SqlDispatchConflict("OFFER_NOT_FOUND", "Offer was not found.")
+        if str(offer_row["order_id"]) != locked_order_id:
+            raise SqlDispatchConflict("ORDER_CHANGED", "Offer changed concurrently. Refresh and retry.")
         if str(offer_row["status"]) != "pending":
             raise SqlDispatchConflict(str(offer_row["status"]), f"Offer status is {offer_row['status']}.")
 
@@ -1613,7 +1618,9 @@ def sql_accept_offer(
             "verificationStatus": provider.get("verificationStatus"),
             "trustedBadges": provider.get("trustedBadges"),
             "distanceKm": accepted_offer.get("distanceKm"),
-            "etaMinutes": max(2, math.ceil(float(accepted_offer.get("distanceKm") or 0) * 4)),
+            "etaMinutes": accepted_offer.get("etaMinutes") or max(2, math.ceil(float(accepted_offer.get("distanceKm") or 0) * 4)),
+            "etaSource": accepted_offer.get("etaSource", "approximate"),
+            "roadDistanceKm": accepted_offer.get("roadDistanceKm"),
         }
         if provider.get("name"):
             order["providerName"] = provider.get("name")
@@ -1707,67 +1714,9 @@ def sql_accept_offer(
     return {"offer": accepted_offer, "order": order_with_offers, "provider": provider}
 
 
-def _postgres_candidate_providers(
-    order_id: str,
-    service: str,
-    offered_ids: set[str],
-    max_radius_km: float,
-    threshold_iso: str,
-) -> list[dict[str, Any]]:
-    exclusion = "AND p.id NOT IN :offered_ids" if offered_ids else ""
-    query = text(f"""
-        SELECT
-            p.payload AS provider_payload,
-            pp.payload AS presence_payload,
-            ST_Distance(
-                ST_SetSRID(ST_MakePoint(pp.lng, pp.lat), 4326)::geography,
-                ST_SetSRID(ST_MakePoint(o.customer_lng, o.customer_lat), 4326)::geography
-            ) / 1000 AS distance_km
-        FROM providers p
-        JOIN provider_presence pp ON pp.provider_id = p.id
-        JOIN orders o ON o.id = :order_id
-        WHERE o.customer_lat IS NOT NULL
-          AND o.customer_lng IS NOT NULL
-          AND pp.lat IS NOT NULL
-          AND pp.lng IS NOT NULL
-          AND (
-              p.verification_status = 'verified'
-              OR COALESCE((p.payload->'verification'->>'phone')::boolean, false)
-          )
-          AND LOWER(COALESCE(p.payload->>'accountStatus', 'active')) <> 'disabled'
-          AND LOWER(COALESCE(p.verification_status, 'unverified')) <> 'rejected'
-          AND p.capabilities LIKE :capability
-          AND pp.status = 'online'
-          AND pp.assigned_order_id IS NULL
-          AND pp.last_seen_at >= :threshold_iso
-          AND pp.last_location_at >= :threshold_iso
-          {exclusion}
-          AND ST_DWithin(
-              ST_SetSRID(ST_MakePoint(pp.lng, pp.lat), 4326)::geography,
-              ST_SetSRID(ST_MakePoint(o.customer_lng, o.customer_lat), 4326)::geography,
-              LEAST(COALESCE(p.service_radius_km, 15), :max_radius_km) * 1000
-          )
-        ORDER BY distance_km ASC
-    """)
-    if offered_ids:
-        query = query.bindparams(bindparam("offered_ids", expanding=True))
-
-    params = {
-        "order_id": str(order_id),
-        "capability": f"%|{service}|%",
-        "threshold_iso": threshold_iso,
-        "max_radius_km": max_radius_km,
-    }
-    if offered_ids:
-        params["offered_ids"] = sorted(offered_ids)
-
-    with get_engine().begin() as connection:
-        rows = connection.execute(query, params).mappings().all()
-
-    return [
-        _merge_provider_payload(row["provider_payload"], row["presence_payload"], float(row["distance_km"]))
-        for row in rows
-    ]
+def _postgres_candidate_providers(order_id, service, offered_ids, max_radius_km, threshold_iso):
+    from bot.geo_search import _postgres_candidate_providers as query_candidates
+    return query_candidates(order_id, service, offered_ids, max_radius_km, threshold_iso)
 
 
 def _portable_candidate_providers(
@@ -1821,7 +1770,7 @@ def _portable_candidate_providers(
             continue
         candidates.append(_merge_provider_payload(row["provider_payload"], row["presence_payload"], distance_km))
 
-    return sorted(candidates, key=lambda provider: provider["distanceKm"])
+    return sorted(candidates, key=lambda provider: (provider["distanceKm"], str(provider["id"])))[:max(8, min(100, int(os.getenv("POMICH_MATCH_CANDIDATE_LIMIT", "32"))))]
 
 
 def _for_update(statement, engine: Engine):
@@ -1851,7 +1800,11 @@ def _append_event(order: dict[str, Any], event_type: str, at: str, extra: dict[s
 
 def _insert_order_events(connection, order: dict[str, Any]) -> None:
     from bot.delivery_store import schedule_order_notifications
+    from bot.dispatch_jobs import schedule_order_jobs
     schedule_order_notifications(connection, order)
+    schedule_order_jobs(connection, order)
+    from bot.realtime_broker import notify_order_commit
+    notify_order_commit(connection, order)
     events = order.get("dispatchEvents") if isinstance(order.get("dispatchEvents"), list) else []
     for index, event in enumerate(events):
         event_id = f"{order.get('id')}:{index}:{event.get('type')}:{event.get('at')}"[:240]
@@ -1910,7 +1863,9 @@ def _save_orders(connection, order_payloads: list[dict[str, Any]]) -> None:
     connection.execute(delete(orders))
     for order in order_payloads:
         from bot.delivery_store import schedule_order_notifications
+        from bot.dispatch_jobs import schedule_order_jobs
         schedule_order_notifications(connection, order)
+        schedule_order_jobs(connection, order)
         customer_lat, customer_lng = _point(order.get("customerCoordinates"))
         destination_lat, destination_lng = _point(order.get("destinationCoordinates"))
         connection.execute(
@@ -1979,6 +1934,8 @@ def sql_upsert_provider(provider: dict[str, Any], *, update_location: bool = Fal
             # Profile/OTP/rating saves cannot overwrite assignment or heartbeat state.
             # Only the presence patch, acceptance and terminal transaction own these fields.
             for key in ("status", "assignedOrderId", "lastSeenAt", "lastLocationAt"):
+                if key == "lastLocationAt" and update_location:
+                    continue
                 if key in current:
                     payload[key] = current[key]
                 else:

@@ -31,6 +31,10 @@ def _load():
         return json.load(handle)
 
 
+class SupportCaseOwnerUnavailable(ValueError):
+    pass
+
+
 def create_case(order: dict, customer_id: str, reason: str, description: str) -> dict:
     from bot.order_store import STORE_LOCK, _now_iso, _write_json_atomic
     now = _now_iso()
@@ -39,7 +43,12 @@ def create_case(order: dict, customer_id: str, reason: str, description: str) ->
         orderStatus=order.get("status"), reason=reason, description=description,
         status="open", createdAt=now, updatedAt=now)
     if runtime_store.sql_storage_enabled():
-        with runtime_store.get_engine().begin() as conn:
+        with runtime_store._locked_transaction() as conn:
+            # Serialize against account erasure, including alias-owned orders.
+            query = select(runtime_store.customers.c.payload).where(runtime_store.customers.c.id == customer_id)
+            profile = conn.execute(runtime_store._for_update(query, conn.engine)).scalar_one_or_none()
+            if profile is None or profile.get("accountStatus") == "disabled":
+                raise SupportCaseOwnerUnavailable("customer_profile_unavailable")
             insert_once(conn, cases, dict(id=payload["id"], order_id=order["id"], customer_id=customer_id,
                 status="open", created_at=now, payload=payload))
             return dict(conn.execute(select(cases.c.payload).where(cases.c.order_id == order["id"])).scalar_one())

@@ -5,6 +5,7 @@ import { orderSubmissionKey, completeOrderSubmission } from '../lib/orderSubmiss
 const defaultBaseUrl = '/api'
 
 const providerErrorMessages: Record<string, string> = {
+  PROVIDER_BUSY: "Партнер уже виконує іншу заявку або перебуває офлайн.",
   provider_credentials_invalid: 'Невірний логін або пароль партнера.',
   provider_token_invalid: 'Недійсний токен партнера.',
   provider_session_required: 'Потрібен вхід партнера.',
@@ -191,6 +192,9 @@ async function fetchApi(input: RequestInfo | URL, init?: RequestInit, timeoutMs 
 }
 
 export interface OrderResponse {
+  serverTime?: string
+  /** Local receipt time, never sent as order input. */
+  receivedAt?: number
   id?: string
   createdAt?: string
   updatedAt?: string
@@ -230,6 +234,8 @@ export interface OrderResponse {
   assignedProvider?: ProviderAvailability & {
     distanceKm?: number
     etaMinutes?: number
+    etaSource?: "osrm" | "approximate"
+    roadDistanceKm?: number | null
   }
   customerReview?: OrderReview
   partnerReview?: OrderReview
@@ -405,7 +411,7 @@ export interface ProviderAvailability {
   telegram?: string
   status: ProviderStatus
   etaMinutes?: number
-  etaSource?: "straight_line_estimate" | "road_route"
+  etaSource?: "osrm" | "approximate"
   stale?: boolean
   location?: {
     lat: number
@@ -500,7 +506,7 @@ export async function createOrder(payload: Record<string, unknown>, customerToke
     throw new Error(`Order request failed with ${response.status}`)
   }
 
-  const order = await response.json() as OrderResponse
+  const order = withOrderReceipt(await response.json() as OrderResponse, response.headers?.get("Date") ?? null)
   completeOrderSubmission(requestKey)
   return order
 }
@@ -649,7 +655,7 @@ export async function getOrder(orderId: string, accessToken?: string) {
     throw Object.assign(new Error(parsed.message), { status: response.status, detail: parsed.code || parsed.message })
   }
 
-  return response.json() as Promise<OrderResponse>
+  return (response.json() as Promise<OrderResponse>).then(order => withOrderReceipt(order, response.headers?.get("Date") ?? null))
 }
 
 export async function getCustomerOrders(customerId: string, customerToken?: string, limit = 50) {
@@ -665,7 +671,7 @@ export async function getCustomerOrders(customerId: string, customerToken?: stri
     throw new Error(await parseApiError(response, `Customer orders failed with ${response.status}`))
   }
 
-  return response.json() as Promise<OrderResponse[]>
+  return (response.json() as Promise<OrderResponse[]>).then(orders => orders.map(order => withOrderReceipt(order, response.headers?.get("Date") ?? null)))
 }
 
 export async function exportCustomerData(customerId: string, token?: string) {
@@ -701,7 +707,7 @@ export async function getProviderOrders(providerId: string, providerToken?: stri
     throw new Error(await parseApiError(response, `Provider orders failed with ${response.status}`))
   }
 
-  return response.json() as Promise<OrderResponse[]>
+  return (response.json() as Promise<OrderResponse[]>).then(orders => orders.map(order => withOrderReceipt(order, response.headers?.get("Date") ?? null)))
 }
 
 export async function submitOrderReview(
@@ -723,7 +729,7 @@ export async function submitOrderReview(
     throw Object.assign(new Error(parsed.message), { status: response.status, detail: parsed.code || parsed.message })
   }
 
-  return response.json() as Promise<OrderResponse>
+  return (response.json() as Promise<OrderResponse>).then(order => withOrderReceipt(order, response.headers?.get("Date") ?? null))
 }
 
 export async function cancelOrder(orderId: string, authToken?: string) {
@@ -736,7 +742,7 @@ export async function cancelOrder(orderId: string, authToken?: string) {
     throw new Error(`Order cancel request failed with ${response.status}`)
   }
 
-  return response.json() as Promise<OrderResponse>
+  return (response.json() as Promise<OrderResponse>).then(order => withOrderReceipt(order, response.headers?.get("Date") ?? null))
 }
 
 export async function confirmOrderPrice(orderId: string, customerToken?: string) {
@@ -750,7 +756,7 @@ export async function confirmOrderPrice(orderId: string, customerToken?: string)
     throw Object.assign(new Error(`Order price confirm failed with ${response.status}`), { status: response.status, detail: error?.detail })
   }
 
-  return response.json() as Promise<OrderResponse>
+  return (response.json() as Promise<OrderResponse>).then(order => withOrderReceipt(order, response.headers?.get("Date") ?? null))
 }
 
 export async function retryDispatch(orderId: string, authToken?: string) {
@@ -763,7 +769,7 @@ export async function retryDispatch(orderId: string, authToken?: string) {
     throw new Error(`Dispatch retry request failed with ${response.status}`)
   }
 
-  return response.json() as Promise<OrderResponse>
+  return (response.json() as Promise<OrderResponse>).then(order => withOrderReceipt(order, response.headers?.get("Date") ?? null))
 }
 
 export async function getMapProviders(options?: {
@@ -1185,7 +1191,7 @@ export async function updateProviderOrderStatus(providerId: string, orderId: str
     throw Object.assign(new Error(message), { status: response.status, detail: parsed.code || parsed.message })
   }
 
-  return response.json() as Promise<OrderResponse>
+  return (response.json() as Promise<OrderResponse>).then(order => withOrderReceipt(order, response.headers?.get("Date") ?? null))
 }
 
 export async function updateProviderProfile(providerId: string, payload: {
@@ -1229,7 +1235,7 @@ export async function updateOrderStatus(orderId: string, status: string, adminTo
     throw new Error(`Order status request failed with ${response.status}`)
   }
 
-  return response.json() as Promise<OrderResponse>
+  return (response.json() as Promise<OrderResponse>).then(order => withOrderReceipt(order, response.headers?.get("Date") ?? null))
 }
 
 export async function getTelegramSession(
@@ -1439,7 +1445,7 @@ export async function getAdminOrders(adminToken?: string, status?: string) {
   const params = status && status !== 'all' ? `?status=${encodeURIComponent(status)}` : ''
   const response = await fetchApi(`${getBaseUrl()}/admin/orders${params}`, { headers: adminHeaders(adminToken) })
   if (!response.ok) throw new Error(`Admin orders request failed with ${response.status}`)
-  return response.json() as Promise<OrderResponse[]>
+  return (response.json() as Promise<OrderResponse[]>).then(orders => orders.map(order => withOrderReceipt(order, response.headers?.get("Date") ?? null)))
 }
 
 export async function getAdminSettings(adminToken?: string) {
@@ -1512,4 +1518,8 @@ export async function updateSupportCase(caseId: string, status: SupportCase['sta
   })
   if (!response.ok) throw new Error(await parseApiError(response, 'Не вдалося оновити звернення. Для закриття опишіть результат.'))
   return response.json()
+}
+
+function withOrderReceipt(order: OrderResponse, serverTime: string | null): OrderResponse {
+  return { ...order, serverTime: serverTime || order.serverTime, receivedAt: Date.now() }
 }

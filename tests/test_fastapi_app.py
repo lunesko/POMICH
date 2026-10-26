@@ -234,6 +234,7 @@ def test_fastapi_updates_provider_presence(monkeypatch, tmp_path) -> None:
     _use_provider_auth(monkeypatch)
     client = TestClient(app)
     provider_headers = _provider_session_headers(client, "provider-oleksandr")
+    order_store.save_providers([_api_provider("provider-oleksandr", 48.63, 22.27)])
     client.patch(
         "/api/providers/provider-oleksandr/profile",
         headers=provider_headers,
@@ -279,7 +280,7 @@ def test_fastapi_registers_provider_profile(monkeypatch, tmp_path) -> None:
     assert response.status_code == 200
     assert response.json()["specialties"] == ["tow", "fuel"]
     assert response.json()["serviceRadiusKm"] == 9
-    assert response.json()["verificationStatus"] == "verified"
+    assert response.json()["verificationStatus"] == "unverified"
 
 
 def test_fastapi_customer_profile_and_verification_review(monkeypatch, tmp_path) -> None:

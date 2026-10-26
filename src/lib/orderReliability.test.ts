@@ -18,3 +18,11 @@ describe("provider location freshness", () => {
     }
   })
 })
+
+it.each([-3600000, 3600000])("uses server age when the customer clock differs by %s ms", skew => {
+  const snapshot = { ...order, serverTime: new Date(now).toISOString(), receivedAt: now + skew }
+  expect(providerLocationFresh(snapshot, now + skew)).toBe(true)
+  expect(providerLocationFresh(snapshot, now + skew + 61000)).toBe(false)
+  const stale = { ...snapshot, assignedProvider: { ...snapshot.assignedProvider!, lastLocationAt: new Date(now - 61000).toISOString() } }
+  expect(providerLocationFresh(stale, now + skew)).toBe(false)
+})

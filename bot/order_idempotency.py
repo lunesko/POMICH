@@ -25,7 +25,7 @@ def fingerprint(payload: dict) -> str:
 
 def same_order_intent(left: dict, right: dict) -> bool:
     """Ignore channel/auth/retry metadata when identifying duplicate active requests."""
-    fields = ("service", "customerCoordinates", "destinationCoordinates", "serviceDetails", "vehicleState", "customerComment")
+    fields = ("service", "customerCoordinates", "customerLocation", "destinationCoordinates", "destination", "serviceDetails", "vehicleState", "customerComment")
     return all((left.get(key) or None) == (right.get(key) or None) for key in fields)
 
 

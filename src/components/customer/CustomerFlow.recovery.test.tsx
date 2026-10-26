@@ -83,3 +83,12 @@ describe("customer failure recovery", () => {
     expect(screen.getByTestId("pickup")).toHaveTextContent("48.67,22.32")
   })
 })
+
+it.each([403, 404])("clears permanently inaccessible restored orders (%s)", async status => {
+  persistActiveOrder("PM-OLD-SESSION", "searching")
+  vi.mocked(getOrder).mockRejectedValue(Object.assign(new Error("Unavailable"), { status }))
+  render(<CustomerFlow />)
+  await waitFor(() => expect(readActiveOrder()).toBeUndefined())
+  expect(screen.queryByText(/Заявка збережена/)).not.toBeInTheDocument()
+  expect(await screen.findByRole("heading", { name: "Що сталося?" })).toBeInTheDocument()
+})

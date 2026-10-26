@@ -295,3 +295,35 @@ def test_simultaneous_duplicate_creates_have_one_order(business_store):
         results = list(executor.map(create, range(2)))
     assert results[0] == results[1]
     assert len(store.load_orders()) == 1
+
+@pytest.mark.parametrize('field', ['customerLocation', 'destination'])
+def test_corrected_address_is_a_different_order_intent(business_store, field):
+    verified_customer('owner')
+    payload = {'service': 'tow', 'customerId': 'owner', 'customerCoordinates': {'lat': 48.62, 'lng': 22.28},
+               'customerLocation': 'Old pickup', 'destination': 'Old destination'}
+    first = store.save_order(payload, insert_only=True)
+    changed = {**payload, field: 'Corrected address'}
+    second = store.save_order(changed, insert_only=True)
+    assert second['id'] != first['id']
+    assert second[field] == 'Corrected address'
+
+
+def test_sql_profile_location_preserves_new_fix_time(business_store):
+    if business_store != 'sql':
+        pytest.skip('SQL profile persistence')
+    provider = _provider('p1', 48.62, 22.28)
+    provider['lastLocationAt'] = '2026-01-01T00:00:00Z'
+    store.save_providers([provider])
+    updated = store.update_provider_profile('p1', {'specialties': ['tow'], 'location': {'lat': 48.63, 'lng': 22.29}})
+    saved = sql.sql_get_provider('p1')
+    assert saved['location'] == {'lat': 48.63, 'lng': 22.29}
+    assert saved['lastLocationAt'] == updated['lastLocationAt']
+    assert saved['lastLocationAt'] != provider['lastLocationAt']
+
+
+def test_presence_applies_eta_and_preserves_it_when_omitted(business_store):
+    store.save_providers([_provider('p1', 48.62, 22.28)])
+    store.update_provider_presence('p1', {'status': 'online', 'etaMinutes': 17})
+    assert store.get_provider_profile('p1')['etaMinutes'] == 17
+    store.update_provider_presence('p1', {'status': 'online'})
+    assert store.get_provider_profile('p1')['etaMinutes'] == 17
