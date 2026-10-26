@@ -234,3 +234,32 @@ def test_postgres_one_provider_two_orders_race(clients):
     with ThreadPoolExecutor(max_workers=2) as pool:
         results = list(pool.map(accept, offers))
     assert sorted(results) == ["PROVIDER_BUSY", "accepted"]
+
+
+def test_each_auto_retry_has_a_distinct_restart_safe_start_job(sql_runtime, monkeypatch):
+    order = _order()
+    assert dispatch_jobs.process_one()
+    with runtime_store.get_engine().begin() as connection:
+        initial = connection.execute(select(dispatch_jobs.jobs.c.id).where(dispatch_jobs.jobs.c.kind == 'dispatch.start')).scalar_one()
+        connection.execute(update(dispatch_jobs.jobs).values(state='done'))
+    retry = runtime_store.sql_get_order(order['id'])
+    retry['dispatchInfo'] = {'wave': 0, 'autoRetryCount': 1, 'lastAutoRetryAt': retry['createdAt']}
+    runtime_store.sql_upsert_order(retry)
+    with runtime_store.get_engine().connect() as connection:
+        pending = connection.execute(select(dispatch_jobs.jobs).where(dispatch_jobs.jobs.c.state == 'pending')).mappings().one()
+        assert pending['kind'] == 'dispatch.start'
+        assert pending['id'] != initial
+    original = order_store.dispatch_order
+    def fail(*args, **kwargs):
+        raise RuntimeError('synthetic retry failure')
+    monkeypatch.setattr(order_store, 'dispatch_order', fail)
+    assert dispatch_jobs.process_one()
+    runtime_store.reset_runtime_store_for_tests()
+    dispatch_jobs.reconcile()
+    with runtime_store.get_engine().begin() as connection:
+        row = connection.execute(select(dispatch_jobs.jobs).where(dispatch_jobs.jobs.c.id == pending['id'])).mappings().one()
+        assert row['state'] == 'pending' and row['attempts'] == 1
+        connection.execute(update(dispatch_jobs.jobs).where(dispatch_jobs.jobs.c.id == row['id']).values(available_at=0))
+    monkeypatch.setattr(order_store, 'dispatch_order', original)
+    assert dispatch_jobs.process_one()
+    assert runtime_store.sql_get_order(order['id'])['dispatchInfo']['wave'] == 1

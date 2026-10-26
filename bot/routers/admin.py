@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import os
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Query
+from typing import Literal
 
 from bot.api_deps import build_admin_settings_payload, require_admin_auth
 from bot.order_store import (
@@ -240,10 +241,12 @@ def admin_import_ukraine_providers(
 
 
 @router.get("/admin/support")
-def admin_support_cases(authorization: str | None = Header(default=None)) -> list[dict]:
+def admin_support_cases(authorization: str | None = Header(default=None),
+                        offset: int = Query(default=0, ge=0), limit: int = Query(default=100, ge=1, le=200),
+                        status: Literal["open", "in_review", "resolved", "unresolved"] | None = None) -> list[dict]:
     from bot.support_store import list_cases
     require_admin_auth(authorization=authorization)
-    return list_cases()
+    return list_cases(offset=offset, limit=limit, status=status)
 
 
 @router.patch("/admin/support/{case_id}")

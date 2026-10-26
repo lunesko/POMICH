@@ -1497,9 +1497,15 @@ export interface SupportCase {
   resolution?: string
 }
 
-export async function getSupportCases(token?: string, orderId?: string): Promise<SupportCase[]> {
+export async function getSupportCases(token?: string, orderId?: string, options?: { offset?: number; limit?: number; status?: SupportCase["status"] | "unresolved" }): Promise<SupportCase[]> {
   const path = orderId ? `/orders/${encodeURIComponent(orderId)}/support` : '/admin/support'
-  const response = await fetchApi(`${getBaseUrl()}${path}`, { headers: authHeaders(token), cache: 'no-store' })
+  const query = new URLSearchParams()
+  if (!orderId && options) {
+    if (options.offset !== undefined) query.set("offset", String(options.offset))
+    if (options.limit !== undefined) query.set("limit", String(options.limit))
+    if (options.status) query.set("status", options.status)
+  }
+  const response = await fetchApi(`${getBaseUrl()}${path}${query.size ? `?${query}` : ""}`, { headers: authHeaders(token), cache: 'no-store' })
   if (!response.ok) throw new Error(await parseApiError(response, 'Не вдалося завантажити звернення.'))
   return response.json()
 }

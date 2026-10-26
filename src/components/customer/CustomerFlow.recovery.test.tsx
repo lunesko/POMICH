@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { ReactNode } from "react"
 import CustomerFlow from "./CustomerFlow"
-import { cancelOrder, getOrder } from "../../api/client"
+import { cancelOrder, getOrder, getCustomerOrders } from "../../api/client"
 import { persistActiveOrder, readActiveOrder } from "../../lib/customerSession"
 import { requestCurrentPosition } from "../../lib/mapGeo"
 
@@ -23,10 +23,11 @@ vi.mock("../../lib/customerSession", async original => ({ ...await original<type
 vi.mock("../../lib/reverseGeocode", () => ({ reverseGeocodeAddress: async () => "Ужгород", forwardGeocodeAddress: async () => null }))
 vi.mock("../../lib/syncProfileCityFromGeo", () => ({ syncProfileCityFromGeo: async () => undefined }))
 vi.mock("../../lib/mapGeo", async original => ({ ...await original<typeof import("../../lib/mapGeo")>(), canRequestGeoSilently: async () => true, requestCurrentPosition: vi.fn() }))
-vi.mock("../../api/client", async original => ({ ...await original<typeof import("../../api/client")>(), getOrder: vi.fn(), cancelOrder: vi.fn(), getCustomerOrders: async () => [], getSupportCases: async () => [], getMapProviders: async () => [] }))
+vi.mock("../../api/client", async original => ({ ...await original<typeof import("../../api/client")>(), getOrder: vi.fn(), cancelOrder: vi.fn(), getCustomerOrders: vi.fn().mockResolvedValue([]), getSupportCases: async () => [], getMapProviders: async () => [] }))
 
 beforeEach(() => {
   vi.clearAllMocks()
+  vi.mocked(getCustomerOrders).mockResolvedValue([])
   localStorage.clear()
   sessionStorage.clear()
   localStorage.setItem("pomichCustomerId", "recovery-client")
@@ -91,4 +92,15 @@ it.each([403, 404])("clears permanently inaccessible restored orders (%s)", asyn
   await waitFor(() => expect(readActiveOrder()).toBeUndefined())
   expect(screen.queryByText(/Заявка збережена/)).not.toBeInTheDocument()
   expect(await screen.findByRole("heading", { name: "Що сталося?" })).toBeInTheDocument()
+})
+
+it("restores a newer active order when the local order finished on another device", async () => {
+  persistActiveOrder("PM-OLD-COMPLETE", "searching")
+  vi.mocked(getOrder).mockImplementation(async id => id === "PM-OLD-COMPLETE"
+    ? { id, status: "completed" }
+    : { id, status: "en_route", customerCoordinates: { lat: 48.66, lng: 22.31 } })
+  vi.mocked(getCustomerOrders).mockResolvedValue([{ id: "PM-NEW-ACTIVE", status: "en_route", customerCoordinates: { lat: 48.66, lng: 22.31 } }])
+  render(<CustomerFlow />)
+  expect(await screen.findByText("Партнер у дорозі")).toBeInTheDocument()
+  expect(readActiveOrder()?.orderId).toBe("PM-NEW-ACTIVE")
 })

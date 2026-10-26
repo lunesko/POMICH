@@ -7,20 +7,31 @@ export default function SupportCases({ token }: { token?: string }) {
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(true)
   const [reload, setReload] = useState(0)
+  const [page, setPage] = useState(0)
+  const [filter, setFilter] = useState<"unresolved" | "resolved" | "all">("unresolved")
+  const pageSize = 100
   useEffect(() => {
     let stopped = false
-    const refresh = () => getSupportCases(token).then(result => {
+    const refresh = () => getSupportCases(token, undefined, { offset: page * pageSize, limit: pageSize, status: filter === "all" ? undefined : filter }).then(result => {
       if (!stopped) { setRows(result); setError("") }
     }).catch(err => { if (!stopped) setError(messageFromFetchError(err)) })
       .finally(() => { if (!stopped) setLoading(false) })
     void refresh()
     const timer = window.setInterval(refresh, 15000)
     return () => { stopped = true; window.clearInterval(timer) }
-  }, [token, reload])
+  }, [token, reload, page, filter])
   return <div className="admin-panel"><h2>Звернення клієнтів</h2>
+    <label className="admin-field">Показати<select value={filter} onChange={event => { setFilter(event.target.value as typeof filter); setPage(0) }}>
+      <option value="unresolved">Відкриті та в роботі</option><option value="resolved">Вирішені</option><option value="all">Усі звернення</option>
+    </select></label>
     {error ? <p role="alert">{error}</p> : null}
     {loading ? <p>Завантажуємо…</p> : !rows.length ? <p>Звернень немає.</p> : null}
     {rows.map(row => <SupportCaseEditor key={row.id} row={row} token={token} onSaved={() => setReload(v => v + 1)} />)}
+    <nav aria-label="Сторінки звернень">
+      <button type="button" className="admin-secondary-btn" disabled={page === 0} onClick={() => setPage(value => value - 1)}>Попередня сторінка</button>
+      <span> Сторінка {page + 1} </span>
+      <button type="button" className="admin-secondary-btn" disabled={rows.length < pageSize} onClick={() => setPage(value => value + 1)}>Наступна сторінка</button>
+    </nav>
   </div>
 }
 

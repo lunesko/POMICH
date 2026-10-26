@@ -62,17 +62,22 @@ def create_case(order: dict, customer_id: str, reason: str, description: str) ->
         return payload
 
 
-def list_cases(*, order_id: str | None = None) -> list[dict]:
+def list_cases(*, order_id: str | None = None, offset: int = 0, limit: int = 200, status: str | None = None) -> list[dict]:
+    offset, limit = max(0, offset), max(1, min(200, limit))
+    statuses = {"open", "in_review"} if status == "unresolved" else {status} if status else None
     if runtime_store.sql_storage_enabled():
-        query = select(cases.c.payload).order_by(cases.c.created_at.desc()).limit(200)
+        query = select(cases.c.payload).order_by(cases.c.created_at.desc(), cases.c.id.desc()).offset(offset).limit(limit)
         if order_id:
             query = query.where(cases.c.order_id == order_id)
+        if statuses:
+            query = query.where(cases.c.status.in_(statuses))
         with runtime_store.get_engine().connect() as conn:
             return [dict(row) for row in conn.execute(query).scalars()]
     from bot.order_store import STORE_LOCK
     with STORE_LOCK:
-        return sorted([row for row in _load() if not order_id or row["orderId"] == order_id],
-            key=lambda row: row["createdAt"], reverse=True)[:200]
+        return sorted([row for row in _load() if (not order_id or row["orderId"] == order_id)
+                       and (not statuses or row["status"] in statuses)],
+            key=lambda row: (row["createdAt"], row["id"]), reverse=True)[offset:offset + limit]
 
 
 def update_case(case_id: str, status: str, resolution: str) -> dict | None:

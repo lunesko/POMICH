@@ -49,7 +49,7 @@ def schedule_order_jobs(connection, order: dict) -> None:
     if status == "searching":
         info = order.get("dispatchInfo") or {}
         if not info.get("wave"):
-            timers.append(("dispatch.start", _epoch(order.get("createdAt")) or int(time.time())))
+            timers.append(("dispatch.start", _epoch(info.get("lastAutoRetryAt")) or _epoch(order.get("createdAt")) or int(time.time())))
         due = _epoch(info.get("nextWaveAt"))
         if due is not None:
             timers.append(("dispatch.next_wave", due))
@@ -68,7 +68,8 @@ def schedule_order_jobs(connection, order: dict) -> None:
         if accepted is not None:
             timers.append(("order.accepted_timeout", int(accepted.replace(tzinfo=timezone.utc).timestamp()) + ACCEPTED_IDLE_TIMEOUT_SECONDS))
     for kind, due in timers:
-        key = hashlib.sha256(f"{order_id}:{kind}:{due}".encode()).hexdigest()
+        generation = f":retry={int((order.get('dispatchInfo') or {}).get('autoRetryCount') or 0)}" if kind == "dispatch.start" else ""
+        key = hashlib.sha256(f"{order_id}:{kind}:{due}{generation}".encode()).hexdigest()
         insert_once(connection, jobs, dict(id=key, order_id=order_id, kind=kind,
             state="pending", due_at=due, available_at=due, attempts=0))
 

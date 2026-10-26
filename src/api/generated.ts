@@ -1997,7 +1997,11 @@ export interface operations {
     };
     admin_support_cases_api_admin_support_get: {
         parameters: {
-            query?: never;
+            query?: {
+                offset?: number;
+                limit?: number;
+                status?: ("open" | "in_review" | "resolved" | "unresolved") | null;
+            };
             header?: {
                 authorization?: string | null;
             };

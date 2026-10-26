@@ -2042,12 +2042,20 @@ export default function CustomerFlow({ onLogout }: { onLogout?: () => void } = {
         if (cancelled || !session.customerId || !session.token) return
         const stored = readActiveOrder()
         let full: OrderResponse | undefined
+        let findActive = !stored?.orderId
         if (stored?.orderId) {
-          full = await getOrder(stored.orderId, session.token)
-        } else {
+          try { full = await getOrder(stored.orderId, session.token) }
+          catch (error) {
+            if (cancelled) return
+            if (!discardUnavailableOrder(error)) throw error
+            findActive = true
+          }
+          if (full && isTerminalOrderStatus(normalizeOrderStatus(full.status))) findActive = true
+        }
+        if (findActive) {
           const orders = await getCustomerOrders(session.customerId, session.token, 20)
           const active = pickLatestActiveOrder(orders)
-          full = active ? orders.find(item => item.id === active.orderId) : undefined
+          full = (active ? orders.find(item => item.id === active.orderId) : undefined) || full
         }
         if (cancelled) return
         restored = true
