@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import Column, DateTime, Index, JSON, String, Table, delete, insert, select, text, update
-from bot.runtime_store import _METADATA, get_engine
+from bot.runtime_store import _METADATA, get_engine, _BOUND_CONNECTION
 
 otp_codes = Table(
     "otp_codes", _METADATA,
@@ -37,7 +37,11 @@ def transaction(*, commit_errors: tuple[type[Exception], ...] = ()):
             connection.begin()
             connection.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": _OTP_LOCK_ID})
         token = _CONNECTION.set(connection)
+        binding = _BOUND_CONNECTION.set(connection)
         try:
+            # SQL challenges replace the old file; never leave expired personal data behind.
+            from bot.otp_verification import _default_otp_store_path
+            _default_otp_store_path().unlink(missing_ok=True)
             yield
         except commit_errors:
             # Invalid-code/expired responses intentionally persist attempts/deletions.
@@ -49,6 +53,7 @@ def transaction(*, commit_errors: tuple[type[Exception], ...] = ()):
         else:
             connection.commit()
         finally:
+            _BOUND_CONNECTION.reset(binding)
             _CONNECTION.reset(token)
 
 

@@ -183,3 +183,23 @@ with 20,000 synthetic providers, and uploads the query plan. It does not force
 The real backend browser harness launches an independent worker and checks the
 lifecycle on desktop/mobile. SQLite is useful for local lifecycle checks but does
 not substitute for PostgreSQL row/advisory locks or the PostGIS CI run.
+
+## Audit integration and OTP transition (2026-10-26)
+
+The integration forwards the functional fixes from audit PR #91 into the current
+module layout. Its older file-layout refactor and realtime polling replacement
+are superseded by the current domain/dispatch services and transactional realtime
+broker. Current CSP hashes, strict encryption-key validation, support workflow and
+atomic business transitions are retained.
+
+OTP profile changes, challenges, confirmation attempts and account erasure share a
+single SQL unit of work. The PostgreSQL advisory lock serializes OTP operations
+across API workers; SQLite reserves its writer for isolated local tests. A missing
+persisted customer cannot be recreated by a request authenticated before erasure.
+
+Pending challenges from the old OTP JSON file are deliberately invalidated rather
+than imported. The release migration retires that obsolete file after creating
+the SQL tables; the first SQL OTP operation or erasure also performs this cleanup.
+Users with a pending code request a new code after deployment. The code file is
+removed, while customer profiles, order history and support cases retain their
+existing migration and erasure rules.

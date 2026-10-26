@@ -523,3 +523,40 @@ def test_unreadable_profile_returns_503_without_changing_ciphertext(clients, mon
     assert response.json() == {'detail': 'profile_storage_unavailable'}
     with runtime_store.get_engine().connect() as conn:
         assert conn.execute(select(runtime_store.customers.c.payload).where(runtime_store.customers.c.id == sa['customerId'])).scalar_one() == original
+
+
+def test_inflight_otp_send_cannot_recreate_erased_profile_or_challenge(clients, monkeypatch):
+    from contextlib import contextmanager
+    from bot import otp_verification as otp, otp_repository
+    from bot.data_lifecycle import erase_customer
+    a, _, sa, _ = clients
+    customer_id = sa['customerId']
+    order_store.update_customer_profile(customer_id, {'email': 'synthetic@example.test'})
+    monkeypatch.setattr(otp, '_run_in_background', lambda callback: None)
+    original = otp._otp_transaction
+    erased = False
+    @contextmanager
+    def erase_before_transaction(*args, **kwargs):
+        nonlocal erased
+        if not erased:
+            erased = True
+            assert erase_customer(customer_id)['deleted'] is True
+        with original(*args, **kwargs):
+            yield
+    monkeypatch.setattr(otp, '_otp_transaction', erase_before_transaction)
+    with pytest.raises(otp.OtpVerificationError, match='customer profile not found'):
+        otp.send_customer_verification_code(customer_id, 'email', email='changed@example.test')
+    assert runtime_store.sql_get_customer(customer_id) is None
+    with otp_repository.transaction():
+        assert customer_id not in otp_repository.load()
+
+
+def test_sql_erasure_retires_legacy_otp_personal_data(clients, monkeypatch, tmp_path):
+    import json
+    from bot.data_lifecycle import erase_customer
+    _, _, sa, _ = clients
+    legacy = tmp_path / 'legacy-otp.json'
+    monkeypatch.setenv('POMICH_OTP_STORE_PATH', str(legacy))
+    legacy.write_text(json.dumps({sa['customerId']: {'email': 'synthetic@example.test', 'target': 'synthetic@example.test', 'codeHash': 'obsolete'}}))
+    assert erase_customer(sa['customerId'])['deleted'] is True
+    assert not legacy.exists()

@@ -3,12 +3,31 @@ import math
 import os
 import threading
 from contextlib import contextmanager, nullcontext
+from contextvars import ContextVar
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import JSON, Column, DateTime, Float, Index, MetaData, String, Table, bindparam, create_engine, delete, insert, inspect, select, text, update
 from sqlalchemy.engine import Engine, Connection
 from bot.provider_eligibility import provider_can_take_orders
+
+_BOUND_CONNECTION: ContextVar[Connection | None] = ContextVar("runtime_sql_connection", default=None)
+
+
+class _TransactionEngine:
+    """Reuse an OTP unit of work for existing repository read/write helpers."""
+    def __init__(self, connection):
+        self.connection = connection
+
+    def __getattr__(self, name):
+        return getattr(self.connection.engine, name)
+
+    def begin(self):
+        return nullcontext(self.connection)
+
+    def connect(self):
+        return nullcontext(self.connection)
+
 
 _STORE_LOCK = threading.RLock()
 _ENGINE: Engine | None = None
@@ -188,6 +207,9 @@ def sql_storage_enabled() -> bool:
 
 
 def get_engine() -> Engine:
+    connection = _BOUND_CONNECTION.get()
+    if connection is not None:
+        return _TransactionEngine(connection)
     from bot import delivery_store, order_idempotency, support_store, dispatch_jobs, otp_repository, rate_limits  # register transactional tables
     global _ENGINE, _ENGINE_URL
     url = _database_url()
@@ -764,6 +786,10 @@ def sql_commit_order_snapshot(original: dict[str, Any], proposed: dict[str, Any]
 @contextmanager
 def _locked_transaction():
     """Row locks on PostgreSQL; reserve the writer before reading on SQLite."""
+    bound = _BOUND_CONNECTION.get()
+    if bound is not None:
+        yield bound
+        return
     engine = get_engine()
     with engine.connect() as connection:
         if engine.dialect.name == "sqlite":
