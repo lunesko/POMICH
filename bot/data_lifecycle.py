@@ -70,7 +70,10 @@ def export_customer(customer_id: str) -> dict:
 def erase_customer(customer_id: str) -> dict:
     from bot import otp_verification
     _require_sql()
-    with db.get_engine().begin() as connection:
+    from bot.otp_repository import _connection
+    # OTP operations and erasure share the same database-wide transaction lock.
+    with otp_verification._otp_transaction():
+        connection = _connection()
         # Lock the profile so account changes cannot race the eligibility check.
         query = select(db.customers).where(db.customers.c.id == customer_id)
         if connection.dialect.name == "postgresql":
@@ -93,8 +96,6 @@ def erase_customer(customer_id: str) -> dict:
             connection.execute(delete(db.sessions).where(db.sessions.c.chat_id == customer_id[3:]))
         connection.execute(update(session_registry.sessions).where(session_registry.sessions.c.role == "customer",
             session_registry.sessions.c.subject == customer_id).values(revoked=1))
-    # OTP records are a separate local store; remove the challenge as well.
-    with otp_verification.STORE_LOCK:
         records = otp_verification._load_otp_store()
         records.pop(customer_id, None)
         otp_verification._save_otp_store(records)

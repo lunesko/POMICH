@@ -37,7 +37,7 @@ def test_customer_profile_encryption(encryption_env):
     assert restored["name"] == profile["name"]
 
 
-def test_decrypt_failure_preserves_ciphertext(encryption_env, monkeypatch):
+def test_decrypt_failure_blocks_read_and_preserves_ciphertext(encryption_env, monkeypatch):
     encrypted = encrypt_field("+380671112233")
     # Force a different key so decrypt fails.
     other = generate_encryption_key()
@@ -46,7 +46,8 @@ def test_decrypt_failure_preserves_ciphertext(encryption_env, monkeypatch):
 
     module._fernet = None
     module._fernet_checked = False
-    assert decrypt_field(encrypted) == encrypted
+    with pytest.raises(module.FieldEncryptionError):
+        decrypt_field(encrypted)
     # Re-encrypt must not wipe the ciphertext with an empty value.
     stored = encrypt_customer_profile({"id": "tg-1", "phone": encrypted})
     assert stored["phone"] == encrypted

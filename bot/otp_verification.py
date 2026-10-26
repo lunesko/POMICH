@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 import hashlib
 import hmac
 import json
@@ -116,7 +117,27 @@ def _telegram_otp_guard_stamp(chat_id: str) -> None:
         _TELEGRAM_OTP_GUARD[key] = stamps
 
 
+
+def _sql_otp_enabled(path: Optional[Path]) -> bool:
+    from bot.runtime_store import sql_storage_enabled
+    return sql_storage_enabled() and (path is None or path == _default_otp_store_path())
+
+
+@contextmanager
+def _otp_transaction(path: Optional[Path] = None):
+    with OTP_LOCK:
+        if _sql_otp_enabled(path):
+            from bot.otp_repository import transaction
+            with transaction(commit_errors=(OtpVerificationError,)):
+                yield
+        else:
+            yield
+
+
 def _load_otp_store(path: Optional[Path] = None) -> Dict[str, Any]:
+    if _sql_otp_enabled(path):
+        from bot.otp_repository import load
+        return load()
     store_path = path or _default_otp_store_path()
     if not store_path.exists():
         return {}
@@ -128,6 +149,10 @@ def _load_otp_store(path: Optional[Path] = None) -> Dict[str, Any]:
 
 
 def _save_otp_store(data: Dict[str, Any], path: Optional[Path] = None) -> None:
+    if _sql_otp_enabled(path):
+        from bot.otp_repository import save
+        save(data)
+        return
     store_path = path or _default_otp_store_path()
     _write_json_atomic(store_path, data)
 
@@ -314,7 +339,7 @@ def _deliver_telegram_otp_and_record(
 ) -> None:
     def _invalidate_undelivered_code(reason: str) -> None:
         """Drop orphan hashes so confirm cannot succeed when Telegram never delivered."""
-        with OTP_LOCK:
+        with _otp_transaction(store_path):
             otp_path = store_path or _default_otp_store_path()
             store = _load_otp_store(otp_path)
             record = store.get(customer_id)
@@ -348,13 +373,13 @@ def _deliver_telegram_otp_and_record(
             message_id, bot_kind = _deliver_telegram_otp(chat_id, code, preferred_kind=preferred_kind)
     except Exception as exc:
         print(
-            f"[POMICH OTP] telegram send failed customer_id={customer_id} chat_id={chat_id} error={exc}",
+            f"[POMICH OTP] telegram send failed customer_id={customer_id} chat_id={chat_id} error={type(exc).__name__}",
             flush=True,
         )
         _invalidate_undelivered_code("telegram_send_failed")
         return
     _telegram_otp_guard_stamp(chat_id)
-    with OTP_LOCK:
+    with _otp_transaction(store_path):
         otp_path = store_path or _default_otp_store_path()
         store = _load_otp_store(otp_path)
         record = store.get(customer_id)
@@ -645,7 +670,7 @@ def send_customer_verification_code(
     telegram_chat_id: Optional[str] = None
     otp_path = store_path or _default_otp_store_path()
 
-    with OTP_LOCK:
+    with _otp_transaction(store_path):
         store = _cleanup_expired_otp_records(_load_otp_store(otp_path), now)
         record = store.get(customer_id) if isinstance(store.get(customer_id), dict) else {}
         send_history = record.get("sendHistory") if isinstance(record.get("sendHistory"), list) else []
@@ -796,7 +821,7 @@ def send_customer_verification_code(
             try:
                 _send_email_otp(target_email, queued_code)
             except Exception as exc:
-                print(f"[POMICH OTP] email send failed target={target_email} error={exc}", flush=True)
+                print(f"[POMICH OTP] email send failed target={target_email} error={type(exc).__name__}", flush=True)
 
         _run_in_background(_bg_email_send)
 
@@ -826,7 +851,7 @@ def confirm_customer_verification_code(
 
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     linked_owner_id = ""
-    with OTP_LOCK:
+    with _otp_transaction(store_path):
         otp_path = store_path or _default_otp_store_path()
         store = _cleanup_expired_otp_records(_load_otp_store(otp_path), now)
         record = store.get(customer_id) if isinstance(store.get(customer_id), dict) else None

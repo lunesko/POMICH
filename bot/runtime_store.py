@@ -2,12 +2,12 @@ import json
 import math
 import os
 import threading
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import JSON, Column, DateTime, Float, Index, MetaData, String, Table, bindparam, create_engine, delete, insert, inspect, select, text, update
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Engine, Connection
 from bot.provider_eligibility import provider_can_take_orders
 
 _STORE_LOCK = threading.RLock()
@@ -188,7 +188,7 @@ def sql_storage_enabled() -> bool:
 
 
 def get_engine() -> Engine:
-    from bot import delivery_store, order_idempotency, support_store, dispatch_jobs  # register transactional tables
+    from bot import delivery_store, order_idempotency, support_store, dispatch_jobs, otp_repository, rate_limits  # register transactional tables
     global _ENGINE, _ENGINE_URL
     url = _database_url()
     if not url:
@@ -216,11 +216,14 @@ def reset_runtime_store_for_tests() -> None:
 
 
 def _install_schema(engine: Engine) -> None:
-    from bot import delivery_store, order_idempotency, support_store, dispatch_jobs
+    from bot import delivery_store, order_idempotency, support_store, dispatch_jobs, otp_repository, rate_limits
     if engine.dialect.name == "postgresql":
         with engine.begin() as connection:
+            connection.execute(text("SELECT pg_advisory_xact_lock(1347374408)"))
             connection.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
-
+            _METADATA.create_all(connection)
+            _run_schema_migrations(connection)
+        return
     _METADATA.create_all(engine)
     _run_schema_migrations(engine)
 
@@ -237,7 +240,7 @@ def _run_schema_migrations(engine: Engine) -> None:
         ("2026092702", "active dispatch offer uniqueness", _migration_active_offer_uniqueness),
     )
 
-    with engine.begin() as connection:
+    with (nullcontext(engine) if isinstance(engine, Connection) else engine.begin()) as connection:
         applied = {
             str(row.version)
             for row in connection.execute(select(schema_migrations.c.version))

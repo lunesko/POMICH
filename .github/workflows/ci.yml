@@ -43,6 +43,12 @@ jobs:
       - name: Audit Python dependencies
         run: python -m pip_audit -r requirements.lock
 
+      - name: Check tracked credentials
+        run: python scripts/check_secrets.py
+
+      - name: Validate nginx configuration
+        run: sudo apt-get update && sudo apt-get install -y nginx && python scripts/check_nginx_config.py
+
       - name: Run backend tests
         run: python -m pytest
 

@@ -6833,6 +6833,20 @@
         ]
       }
     },
+    "/api/telemetry/crashes": {
+      "post": {
+        "operationId": "crash_counter_api_telemetry_crashes_post",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Crash Counter",
+        "tags": [
+          "telemetry"
+        ]
+      }
+    },
     "/api/telemetry/web-vitals": {
       "post": {
         "operationId": "web_vitals_api_telemetry_web_vitals_post",

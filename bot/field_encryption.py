@@ -10,6 +10,11 @@ SENSITIVE_CUSTOMER_FIELDS = ("name", "phone", "email", "city", "bio")
 
 _fernet = None
 _fernet_checked = False
+_fernet_key = None
+
+
+class FieldEncryptionError(RuntimeError):
+    """PII cannot be safely read or written with the configured key."""
 
 
 def encryption_enabled() -> bool:
@@ -17,19 +22,18 @@ def encryption_enabled() -> bool:
 
 
 def _get_fernet():
-    # Validate the actual configured key on every call: an earlier cache hit must
-    # never mask a missing/invalid key after configuration changes.
+    # Revalidate on every call so config changes cannot be hidden by a cache.
     raw_key = (os.getenv("POMICH_ENCRYPTION_KEY") or "").strip()
     if not raw_key:
         runtime = (os.getenv("POMICH_RUNTIME") or os.getenv("VITE_APP_ENV") or "dev").lower()
         if runtime in {"prod", "production"}:
-            raise RuntimeError("POMICH_ENCRYPTION_KEY is required")
+            raise FieldEncryptionError("POMICH_ENCRYPTION_KEY is required")
         return None
     try:
         from cryptography.fernet import Fernet
         return Fernet(raw_key.encode("ascii"))
     except Exception as exc:
-        raise RuntimeError("POMICH_ENCRYPTION_KEY is invalid or cryptography is unavailable") from exc
+        raise FieldEncryptionError("POMICH_ENCRYPTION_KEY is invalid or cryptography is unavailable") from exc
 
 
 def generate_encryption_key() -> str:
@@ -61,14 +65,14 @@ def decrypt_field(value: str) -> str:
         return normalized
     fernet = _get_fernet()
     if fernet is None:
-        return normalized
+        raise FieldEncryptionError("PII encryption key is required to decrypt stored data")
     token = normalized[len(ENC_PREFIX) :]
+    from cryptography.fernet import InvalidToken
     try:
         return fernet.decrypt(token.encode("ascii")).decode("utf-8")
-    except Exception:
-        # Keep the ciphertext. Returning "" would let the next profile save
-        # encrypt an empty value and permanently wipe customer PII.
-        return normalized
+    except (InvalidToken, ValueError, UnicodeError) as exc:
+        # Block profile updates rather than overwrite unreadable PII with empty values.
+        raise FieldEncryptionError("Stored PII could not be decrypted") from exc
 
 
 def encrypt_customer_profile(profile: dict[str, Any]) -> dict[str, Any]:

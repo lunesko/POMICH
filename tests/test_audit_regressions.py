@@ -485,3 +485,41 @@ def test_inflight_alias_support_cannot_recreate_erased_customer_data(clients, mo
     assert response.status_code == 403
     assert support_store.list_cases(order_id='alias-inflight') == []
     assert runtime_store.sql_get_order('alias-inflight') is not None
+
+
+def test_shared_sql_rate_limit_counts_concurrent_workers(clients):
+    import subprocess, sys, time
+    from bot.rate_limits import _take
+    key, expires = 'synthetic-shared-api-window', int(time.time()) + 60
+    assert _take(key, expires) == 1
+    worker = "from bot.rate_limits import _take; import time; [_take('synthetic-shared-api-window', int(time.time())+60) for _ in range(5)]"
+    workers = [subprocess.Popen([sys.executable, '-c', worker]) for _ in range(2)]
+    assert [process.wait(timeout=20) for process in workers] == [0, 0]
+    assert _take(key, expires) == 12
+
+
+def test_rate_limit_cannot_be_bypassed_by_forwarded_header(clients, monkeypatch):
+    a, _, sa, _ = clients
+    monkeypatch.setenv('POMICH_RATE_LIMITS_ENABLED', '1')
+    monkeypatch.setenv('POMICH_RATE_LIMIT_READ_PER_MINUTE', '1')
+    path = '/api/customers/' + sa['customerId'] + '/profile'
+    headers = {'Authorization': 'Bearer ' + sa['accessToken']}
+    assert a.get(path, headers={**headers, 'X-Forwarded-For': '192.0.2.1'}).status_code == 200
+    blocked = a.get(path, headers={**headers, 'X-Forwarded-For': '192.0.2.2'})
+    assert blocked.status_code == 429
+    assert int(blocked.headers['retry-after']) > 0
+
+
+def test_unreadable_profile_returns_503_without_changing_ciphertext(clients, monkeypatch):
+    from sqlalchemy import select
+    a, _, sa, _ = clients
+    monkeypatch.setenv('POMICH_ENCRYPTION_KEY', field_encryption.generate_encryption_key())
+    order_store.update_customer_profile(sa['customerId'], {'name': 'Synthetic Name', 'phone': '+380671234567'})
+    with runtime_store.get_engine().connect() as conn:
+        original = conn.execute(select(runtime_store.customers.c.payload).where(runtime_store.customers.c.id == sa['customerId'])).scalar_one()
+    monkeypatch.setenv('POMICH_ENCRYPTION_KEY', field_encryption.generate_encryption_key())
+    response = a.get('/api/customers/' + sa['customerId'] + '/profile', headers={'Authorization': 'Bearer ' + sa['accessToken']})
+    assert response.status_code == 503
+    assert response.json() == {'detail': 'profile_storage_unavailable'}
+    with runtime_store.get_engine().connect() as conn:
+        assert conn.execute(select(runtime_store.customers.c.payload).where(runtime_store.customers.c.id == sa['customerId'])).scalar_one() == original

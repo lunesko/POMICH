@@ -10,9 +10,13 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.gzip import GZipMiddleware
+
+from bot.telegram_config import load_local_env
+
+load_local_env()
 
 from bot.api_deps import (
     AuthPrincipal,
@@ -77,7 +81,17 @@ async def _lifespan(_app: FastAPI):
 app = FastAPI(title="POMICH MVP", version="0.1.0", lifespan=_lifespan)
 
 
+from bot.field_encryption import FieldEncryptionError
+from bot.rate_limits import ApiRateLimitMiddleware
+
+
+@app.exception_handler(FieldEncryptionError)
+async def field_encryption_unavailable(_request, _error):
+    return JSONResponse(status_code=503, content={"detail": "profile_storage_unavailable"})
+
+
 app.add_middleware(GZipMiddleware, minimum_size=400)
+app.add_middleware(ApiRateLimitMiddleware)
 
 _cors_origins = get_cors_origins()
 _cors_kwargs: dict = {

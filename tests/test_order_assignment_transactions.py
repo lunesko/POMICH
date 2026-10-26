@@ -201,7 +201,11 @@ def test_decline_and_cancellation_use_consistent_lock_order(assignment_db):
     barrier = threading.Barrier(2)
     def cancel():
         barrier.wait(timeout=10)
-        return order_store.update_order_status('order-0', 'cancelled')['status']
+        try:
+            return order_store.update_order_status('order-0', 'cancelled')['status']
+        except order_store.DispatchConflict as exc:
+            assert exc.code == 'ORDER_CHANGED'
+            return exc.code
     def decline():
         barrier.wait(timeout=10)
         try:
@@ -211,7 +215,12 @@ def test_decline_and_cancellation_use_consistent_lock_order(assignment_db):
     with ThreadPoolExecutor(max_workers=2) as pool:
         cancelled = pool.submit(cancel)
         declined = pool.submit(decline)
-        assert cancelled.result(timeout=15) == 'cancelled'
+        cancellation = cancelled.result(timeout=15)
+        assert cancellation in {'cancelled', 'ORDER_CHANGED'}
         assert declined.result(timeout=15) in {'declined', 'cancelled'}
+    if cancellation == 'ORDER_CHANGED':
+        # Decline committed first: the explicit conflict preserves its history.
+        assert runtime_store.sql_get_order('order-0')['status'] == 'searching'
+        assert order_store.update_order_status('order-0', 'cancelled')['status'] == 'cancelled'
     assert runtime_store.sql_get_order('order-0')['status'] == 'cancelled'
     assert runtime_store.sql_offers_for_order('order-0')[0]['status'] in {'declined', 'cancelled'}

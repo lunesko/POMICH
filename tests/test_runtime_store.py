@@ -443,3 +443,40 @@ def test_sql_support_cases_follow_order_retention_and_export(sql_runtime):
     with runtime_store.get_engine().begin() as conn:
         _delete_orders(conn, [order["id"]])
     assert list_cases(order_id=order["id"]) == []
+
+
+def test_otp_state_is_shared_across_independent_processes(sql_runtime):
+    import subprocess
+    import sys
+    from bot import otp_repository
+    with otp_repository.transaction():
+        otp_repository.save({"c1": {"failedAttempts": 0, "codeHash": "hashed", "expiresAt": "2099-01-01T00:00:00Z"}})
+    worker = '''
+from bot import otp_repository
+for _ in range(5):
+    with otp_repository.transaction():
+        data = otp_repository.load()
+        data["c1"]["failedAttempts"] += 1
+        otp_repository.save(data)
+'''
+    workers = [subprocess.Popen([sys.executable, "-c", worker]) for _ in range(2)]
+    assert [process.wait(timeout=15) for process in workers] == [0, 0]
+    with otp_repository.transaction():
+        assert otp_repository.load()["c1"]["failedAttempts"] == 10
+
+
+def test_sql_otp_send_confirm_and_failed_attempts_are_persisted(sql_runtime, monkeypatch):
+    from bot import otp_verification as otp, otp_repository
+    from bot.order_store import update_customer_profile
+    monkeypatch.setenv("POMICH_OTP_SECRET", "test-shared-otp-secret")
+    monkeypatch.setattr(otp, "_run_in_background", lambda fn: None)
+    update_customer_profile("tg-123", {"name": "Test", "phone": "+380991111234"})
+    monkeypatch.setattr(otp, "_generate_otp_code", lambda: "123456")
+    assert otp.send_customer_verification_code("tg-123", "telegram")["sent"]
+    with pytest.raises(otp.OtpVerificationError, match="verification code is invalid"):
+        otp.confirm_customer_verification_code("tg-123", "999999")
+    with otp_repository.transaction():
+        assert otp_repository.load()["tg-123"]["failedAttempts"] == 1
+    assert otp.confirm_customer_verification_code("tg-123", "123456")["verificationStatus"] == "verified"
+    with otp_repository.transaction():
+        assert "tg-123" not in otp_repository.load()

@@ -400,7 +400,7 @@ export default function ProviderFlow({
     dismissedOfferIdsRef.current = new Set(persisted.offerIds)
     dismissedOrderIdsRef.current = new Set(persisted.orderIds)
   }, [providerId])
-  const providerSpecialties = toServiceKeys(providerProfile.specialties)
+  const providerSpecialties = useMemo(() => toServiceKeys(providerProfile.specialties), [providerProfile.specialties])
   const providerPresence: ProviderAvailability = {
     id: providerId,
     name: providerProfile.name || "Партнер POMICH",
