@@ -3,7 +3,10 @@ import { expect, test } from '@playwright/test'
 
 test('built application loads under production CSP and blocks injected scripts', async ({ page }) => {
   const config = readFileSync('deploy/nginx/pomich.help.conf', 'utf8')
-  const policy = config.match(/add_header Content-Security-Policy "([^"]+)"/)![1]
+  const policyMatch = config.match(/\bset\s+\$pomich_csp\s+"([^"]+)"\s*;/)
+  expect(policyMatch, 'nginx must define the production CSP').not.toBeNull()
+  expect(config).toMatch(/\badd_header\s+Content-Security-Policy\s+\$pomich_csp\s+always\s*;/)
+  const policy = policyMatch![1]
   const violations: string[] = []
   page.on('console', message => {
     if (message.type() === 'error' && /Content Security Policy/i.test(message.text())) violations.push(message.text())
