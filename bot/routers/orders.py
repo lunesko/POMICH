@@ -182,10 +182,13 @@ def create_order(payload: dict, authorization: str | None = Header(default=None)
         for key in ("chatId", "telegramUserId", "telegramUsername", "telegramFirstName", "notify"):
             payload.pop(key, None)
     payload["status"] = "searching"
+    creation_state = {}
     try:
-        order = save_order(payload, insert_only=True, idempotency_key=idempotency_key, request_hash=request_hash)
+        order = save_order(payload, insert_only=True, idempotency_key=idempotency_key, request_hash=request_hash, creation_state=creation_state)
     except IdempotencyConflict as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not creation_state.get("created", True) and (order.get("dispatchState") or order.get("status") != "searching"):
+        return attach_dispatch_to_order(order, load_offers())
     if order.get("status") == "searching":
         dispatched = dispatch_order(str(order.get("id")))
         if dispatched is not None:
@@ -272,9 +275,12 @@ def create_order_review(
         publish_order_event(result if isinstance(result, dict) else None, "order.reviewed")
         return result
     except DispatchConflict as exc:
+        if exc.code == "REVIEW_FORBIDDEN":
+            raise HTTPException(status_code=403, detail=exc.code) from exc
         if exc.code == "REVIEW_ALREADY_SUBMITTED":
             existing = get_order(order_id)
             if existing is not None:
+                require_order_participant_auth(existing, authorization)
                 return existing
         record_ops_event(
             event_type="REVIEW_FAILED",
@@ -452,3 +458,30 @@ def patch_order_status(
     else:
         publish_order_event(result, "order.status")
     return result
+
+
+@router.get("/orders/{order_id}/support")
+def order_support_cases(order_id: str, authorization: str | None = Header(default=None)) -> list[dict]:
+    from bot.support_store import list_cases
+    order = get_order(order_id)
+    if order is None:
+        raise HTTPException(status_code=404, detail="order not found")
+    require_order_customer_owner(order, authorization)
+    return list_cases(order_id=order_id)
+
+
+@router.post("/orders/{order_id}/support")
+def create_order_support_case(order_id: str, payload: dict, authorization: str | None = Header(default=None)) -> dict:
+    from bot.api_requests import SupportCaseCreate
+    from bot.support_store import create_case
+    order = get_order(order_id)
+    if order is None:
+        raise HTTPException(status_code=404, detail="order not found")
+    principal = require_order_customer_owner(order, authorization)
+    payload = validated(SupportCaseCreate, payload)
+    description = payload["description"].strip()
+    if len(description) < 5:
+        raise HTTPException(status_code=422, detail="description_required")
+    # Unique order_id makes network retries idempotent; creating a case never cancels a ride.
+    case = create_case(order, principal.subject_id, payload["reason"], description)
+    return case

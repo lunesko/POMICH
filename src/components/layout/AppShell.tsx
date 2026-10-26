@@ -1,3 +1,4 @@
+import Icon from "../ui/Icon"
 import type { ReactNode } from "react"
 
 import type { Role } from "../../lib/constants"
@@ -52,7 +53,7 @@ export function AppShell({
                   aria-label="Меню"
                   title="Меню"
                 >
-                  ←
+                  <Icon name="arrow-left" />
                 </button>
               ) : null}
               {sessionLabel ? (

@@ -1546,6 +1546,7 @@ def test_cancel_order_releases_assigned_provider(tmp_path):
             "telegram": "pomich_help_bot",
             "status": "busy",
             "assignedOrderId": "PM-777",
+            "lastSeenAt": datetime.now(timezone.utc).replace(tzinfo=None).isoformat(timespec="seconds") + "Z",
             "etaMinutes": 10,
             "location": {"lat": 48.62, "lng": 22.28},
             "specialties": ["tow"],
@@ -2041,3 +2042,25 @@ def test_submit_order_review_allows_history_alias_customer(tmp_path, monkeypatch
         customer_store_path=customer_path,
     )
     assert reviewed.get("customerReview", {}).get("rating") == 5
+
+
+def test_assigned_provider_position_exposes_freshness_and_hides_stale_eta(tmp_path):
+    providers = tmp_path / "providers.json"
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    old = (now - timedelta(seconds=65)).isoformat() + "Z"
+    fresh = now.isoformat() + "Z"
+    provider = {"id": "gps-partner", "name": "Partner", "status": "busy", "location": {"lat": 48.63, "lng": 22.29},
+        "lastSeenAt": old, "lastLocationAt": old}
+    save_providers([provider], providers)
+    order = {"id": "PM-GPS", "status": "en_route", "assignedProviderId": "gps-partner",
+        "customerCoordinates": {"lat": 48.62, "lng": 22.28}}
+    result = enrich_order_for_client(order, providers)["assignedProvider"]
+    assert result["stale"] is True
+    assert result["lastLocationAt"] == old
+    assert result["etaMinutes"] is None
+    provider.update(lastSeenAt=fresh, lastLocationAt=fresh)
+    save_providers([provider], providers)
+    result = enrich_order_for_client(order, providers)["assignedProvider"]
+    assert result["stale"] is False
+    assert result["etaSource"] == "straight_line_estimate"
+    assert result["etaMinutes"] >= 1

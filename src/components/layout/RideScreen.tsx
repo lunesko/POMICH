@@ -1,5 +1,5 @@
 import type { CSSProperties, ReactNode, WheelEvent } from "react"
-import { Children, isValidElement, useEffect, useMemo, useRef, useState } from "react"
+import { createContext, useContext, Children, isValidElement, useEffect, useMemo, useRef, useState } from "react"
 
 import type { MapRequestPin, ProviderAvailability } from "../../api/client"
 import { mediaQueries } from "../../lib/breakpoints"
@@ -11,6 +11,8 @@ import { getTelegramContext } from "../../telegram"
 import LazyRouteMap from "../map/LazyRouteMap"
 import { useSuppressMapAtmosphere } from "./PomichMapShell"
 import type { MapTileTheme } from "../../lib/theme"
+
+export const RideScreenFooterContext = createContext<ReactNode>(null)
 
 function isolatePanelWheel(event: WheelEvent<HTMLElement>) {
   event.stopPropagation()
@@ -108,6 +110,7 @@ export function RideScreen({
   serviceRadiusKm,
   children,
 }: RideScreenProps) {
+  const footer = useContext(RideScreenFooterContext)
   /* Interactive ride map owns the viewport — don't stack decorative shell map underneath. */
   useSuppressMapAtmosphere()
   const mapTileTheme: MapTileTheme = "light"
@@ -295,6 +298,7 @@ export function RideScreen({
           <div className="pomich-sheet-panel__scroll" onWheel={isolatePanelWheel}>
             <div className="p-3 pb-[calc(12px+env(safe-area-inset-bottom,0px))]">
               {filterSheetChildren(children, false, "expanded")}
+              {footer}
             </div>
           </div>
         </div>
@@ -347,7 +351,7 @@ export function RideScreen({
           ) : null}
         </div>
         <div className="pomich-sheet-panel__scroll pomich-sheet-panel__scroll--bottom" onWheel={isolatePanelWheel}>
-          <div className="pomich-sheet-panel__body">{sheetChildren}</div>
+          <div className="pomich-sheet-panel__body">{sheetChildren}{footer}</div>
         </div>
       </div>
     </div>

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from bot.field_encryption import decrypt_customer_profile, decrypt_field, encrypt_customer_profile, is_encrypted_value
+from bot.provider_eligibility import provider_can_take_orders
 from bot.runtime_store import (
     SqlDispatchConflict,
     load_collection,
@@ -38,6 +39,7 @@ from bot.runtime_store import (
     sql_storage_enabled,
     sql_upsert_offer,
     sql_upsert_provider,
+    sql_update_provider_presence,
 )
 from bot.ukraine_plate import is_valid_ukraine_plate, normalize_ukraine_plate
 from bot.dispatch_config import (
@@ -403,11 +405,7 @@ def _normalize_provider_trust(provider: Dict[str, Any], default_status: str = "u
 
 
 def is_provider_verified(provider: Dict[str, Any]) -> bool:
-    status = normalize_verification_status(provider.get("verificationStatus"), "unverified")
-    if status == "verified":
-        return True
-    verification = provider.get("verification") if isinstance(provider.get("verification"), dict) else {}
-    return bool(verification.get("phone"))
+    return provider_can_take_orders(provider)
 
 
 def verify_provider_phone_otp(provider_id: str, store_path: Optional[Path] = None) -> Optional[Dict[str, Any]]:
@@ -685,7 +683,9 @@ def _normalize_customer_comment(order: Dict[str, Any]) -> Optional[str]:
     return text[:500]
 
 
-def save_order(order: Dict[str, Any], store_path: Optional[Path] = None, *, insert_only: bool = False, idempotency_key: str | None = None, request_hash: str = "") -> Dict[str, Any]:
+def save_order(order: Dict[str, Any], store_path: Optional[Path] = None, *, insert_only: bool = False, idempotency_key: str | None = None, request_hash: str = "", creation_state: Optional[dict] = None) -> Dict[str, Any]:
+    if creation_state is not None:
+        creation_state["created"] = True
     with STORE_LOCK:
         path = store_path or _default_store_path()
         payload = dict(order)
@@ -708,18 +708,35 @@ def save_order(order: Dict[str, Any], store_path: Optional[Path] = None, *, inse
             {"type": "ORDER_CREATED", "at": payload["createdAt"]}
         ]
         if _should_use_sql_store(path, _default_store_path):
-            return sql_upsert_order(payload, insert_only=insert_only, idempotency_key=idempotency_key, request_hash=request_hash, require_profile=insert_only)
+            return sql_upsert_order(payload, insert_only=insert_only, idempotency_key=idempotency_key, request_hash=request_hash, require_profile=insert_only, creation_state=creation_state)
         orders = load_orders(path)
         if insert_only and idempotency_key:
             from bot.order_idempotency import scoped_key, IdempotencyConflict
             digest = scoped_key(str(payload.get("customerId") or ""), idempotency_key)
             for existing in orders:
-                metadata = existing.get("_creationRequest") or {}
-                if metadata.get("key") == digest and metadata.get("expires", 0) > time.time():
-                    if metadata.get("hash") != request_hash:
-                        raise IdempotencyConflict("idempotency_key_payload_mismatch")
-                    return {key: value for key, value in existing.items() if key != "_creationRequest"}
+                records = [existing.get("_creationRequest") or {}, *existing.get("_creationRequests", [])]
+                for metadata in records:
+                    if metadata.get("key") == digest and metadata.get("expires", 0) > time.time():
+                        if metadata.get("hash") != request_hash:
+                            raise IdempotencyConflict("idempotency_key_payload_mismatch")
+                        if creation_state is not None:
+                            creation_state["created"] = False
+                        return {key: value for key, value in existing.items() if key not in {"_creationRequest", "_creationRequests"}}
             payload["_creationRequest"] = {"key": digest, "hash": request_hash, "expires": int(time.time()) + 86400}
+        if insert_only:
+            from bot.order_idempotency import same_order_intent
+            duplicate = next((item for item in orders
+                if item.get("customerId") == payload.get("customerId")
+                and normalize_order_status(item.get("status")) in ACTIVE_ORDER_STATUSES
+                and same_order_intent(item, payload)), None)
+            if duplicate is not None:
+                if creation_state is not None:
+                    creation_state["created"] = False
+                if idempotency_key:
+                    records = [record for record in duplicate.get("_creationRequests", []) if record.get("expires", 0) > time.time()]
+                    duplicate["_creationRequests"] = [*records, payload["_creationRequest"]]
+                    _write_json_atomic(path, orders)
+                return {key: value for key, value in duplicate.items() if key not in {"_creationRequest", "_creationRequests"}}
         orders.append(payload)
         _write_json_atomic(path, orders)
         return {key: value for key, value in payload.items() if key != "_creationRequest"}
@@ -806,6 +823,7 @@ def enrich_order_for_client(
 ) -> Dict[str, Any]:
     payload = dict(order)
     payload.pop("_creationRequest", None)
+    payload.pop("_creationRequests", None)
     try:
         payload["status"] = normalize_order_status(payload.get("status"))
     except ValueError:
@@ -841,14 +859,20 @@ def enrich_order_for_client(
                 "trustedBadges": provider.get("trustedBadges") or assigned_provider.get("trustedBadges"),
                 "distanceKm": distance_km,
                 "etaMinutes": eta_minutes,
+                "etaSource": "straight_line_estimate",
+                "lastSeenAt": provider.get("lastSeenAt"),
+                "lastLocationAt": provider.get("lastLocationAt"),
+                "status": provider.get("status", "offline"),
+                "stale": not live_location or provider.get("status") == "offline" or not _provider_is_recent(provider, datetime.now(timezone.utc).replace(tzinfo=None)),
             }
+            if assigned_provider["stale"] and not terminal_status:
+                assigned_provider["etaMinutes"] = None
 
     if assigned_provider:
         payload["assignedProvider"] = assigned_provider
         if assigned_provider.get("name"):
             payload["providerName"] = assigned_provider.get("name")
-        if assigned_provider.get("etaMinutes") is not None:
-            payload["etaMinutes"] = assigned_provider.get("etaMinutes")
+        payload["etaMinutes"] = assigned_provider.get("etaMinutes")
 
     if payload.get("partnerProposedPrice") is None and payload.get("proposedPrice") is not None:
         payload["partnerProposedPrice"] = payload.get("proposedPrice")
@@ -907,6 +931,7 @@ def update_order_status(
             if next_status not in ORDER_TRANSITIONS[current_status]:
                 raise InvalidStatusTransition(current_status, next_status)
 
+            original = deepcopy(order)
             order["status"] = next_status
             order["updatedAt"] = now
             history = order.get("statusHistory")
@@ -915,8 +940,11 @@ def update_order_status(
             history.append({"status": next_status, "at": now})
             order["statusHistory"] = history
             _append_order_event(order, f"ORDER_{next_status.upper()}", now)
-            sql_upsert_order(order)
-            updated_order = order
+            if next_status == "price_confirmed":
+                order["priceConfirmedAt"] = now
+            if not sql_commit_order_snapshot(original, order):
+                raise DispatchConflict("ORDER_CHANGED", "Order changed concurrently. Refresh and retry.")
+            return enrich_order_for_client(order, provider_store_path)
         else:
             path = store_path or _default_store_path()
             orders = load_orders(path)
@@ -927,12 +955,13 @@ def update_order_status(
                     continue
                 current_status = normalize_order_status(order.get("status"))
                 if next_status == current_status:
-                    updated_order = order
-                    break
+                    return enrich_order_for_client(order, provider_store_path)
                 if next_status not in ORDER_TRANSITIONS[current_status]:
                     raise InvalidStatusTransition(current_status, next_status)
 
                 order["status"] = next_status
+                if next_status == "price_confirmed":
+                    order["priceConfirmedAt"] = now
                 order["updatedAt"] = now
                 history = order.get("statusHistory")
                 if not isinstance(history, list):
@@ -951,12 +980,12 @@ def update_order_status(
         if next_status == "cancelled":
             invalidate_order_offers(order_id, "cancelled", offer_store_path)
             if updated_order.get("assignedProviderId"):
-                _set_provider_status(str(updated_order.get("assignedProviderId")), "online", provider_store_path=provider_store_path)
+                _release_provider_after_order(str(updated_order.get("assignedProviderId")), order_id, provider_store_path)
         elif next_status == "completed":
             invalidate_order_offers(order_id, "lost", offer_store_path)
             if updated_order.get("assignedProviderId"):
                 provider_id = str(updated_order.get("assignedProviderId"))
-                _set_provider_status(provider_id, "online", provider_store_path=provider_store_path)
+                _release_provider_after_order(provider_id, order_id, provider_store_path)
                 _increment_provider_orders_completed(provider_id, provider_store_path=provider_store_path)
                 customer_id = str(updated_order.get("customerId") or "").strip()
                 if customer_id:
@@ -2024,7 +2053,7 @@ def sync_linked_provider_phone_verification_from_customer(
 ) -> Optional[Dict[str, Any]]:
     """Mirror verified client phone onto the linked partner cabinet without re-OTP."""
     provider = get_provider_profile(provider_id, store_path)
-    if provider is None or is_provider_verified(provider):
+    if provider is None or is_provider_verified(provider) or str(provider.get("verificationStatus")) == "rejected" or provider.get("accountStatus") == "disabled":
         return provider
     customer_id = resolve_customer_id_for_provider(str(provider_id))
     if not customer_id and str(provider_id).startswith("provider-"):
@@ -2542,7 +2571,7 @@ def update_provider_profile(provider_id: str, data: Dict[str, Any], store_path: 
             providers.append(updated)
 
     if use_sql:
-        persisted = sql_upsert_provider(dict(updated))
+        persisted = sql_upsert_provider(dict(updated), update_location=isinstance(data.get("location"), dict))
         persisted.pop("stale", None)
         updated = _normalize_provider_trust(persisted)
     else:
@@ -2608,6 +2637,11 @@ def update_provider_profile(provider_id: str, data: Dict[str, Any], store_path: 
 
 
 def update_provider_presence(provider_id: str, data: Dict[str, Any], store_path: Optional[Path] = None) -> Dict[str, Any]:
+    with STORE_LOCK:
+        return _update_provider_presence(provider_id, data, store_path)
+
+
+def _update_provider_presence(provider_id: str, data: Dict[str, Any], store_path: Optional[Path] = None) -> Dict[str, Any]:
     status = str(data.get("status") or "").strip()
     if status in PROVIDER_ACTIVE_STATUSES:
         # Linked Mini App partners often hit presence before a SQL row is fully promoted.
@@ -2622,14 +2656,15 @@ def update_provider_presence(provider_id: str, data: Dict[str, Any], store_path:
         sync_linked_provider_phone_verification_from_customer(str(provider_id), store_path)
 
     use_sql = _should_use_sql_store(store_path, _default_provider_store_path)
+    if use_sql:
+        persisted = sql_update_provider_presence(provider_id, data)
+        if persisted.get("status") == "online":
+            redispatch_searching_orders_for_provider(provider_id, provider_store_path=store_path)
+        return persisted
     now = _now_iso()
     updated: Optional[Dict[str, Any]] = None
 
-    if use_sql:
-        provider = get_provider_profile(str(provider_id), store_path)
-        providers = [dict(provider)] if provider else []
-    else:
-        providers = load_providers(store_path)
+    providers = load_providers(store_path)
 
     for index, provider in enumerate(providers):
         if str(provider.get("id")) != str(provider_id):
@@ -2689,16 +2724,6 @@ def update_provider_presence(provider_id: str, data: Dict[str, Any], store_path:
             raise ValueError("provider verification must be approved before going online")
         updated = candidate
         providers.append(updated)
-
-    if use_sql:
-        persisted = sql_upsert_provider(dict(updated))
-        persisted.pop("stale", None)
-        if persisted.get("status") == "online":
-            redispatch_searching_orders_for_provider(
-                provider_id,
-                provider_store_path=store_path,
-            )
-        return persisted
 
     save_providers(providers, store_path)
     updated.pop("stale", None)
@@ -2982,19 +3007,21 @@ def _free_providers_after_idle_cancel(
         for order in cancelled_orders
     }
     provider_ids.discard("")
-    if _should_use_sql_store(provider_store_path, _default_provider_store_path):
-        for provider_id in provider_ids:
-            _set_provider_status(provider_id, "online", provider_store_path=provider_store_path)
-        return bool(provider_ids)
     providers = load_providers(provider_store_path)
+    expected_assignments = {
+        str(order.get("assignedProviderId") or order.get("partnerId") or ""): str(order["id"])
+        for order in cancelled_orders
+    }
     for provider in providers:
         if str(provider.get("id") or "") not in provider_ids:
             continue
+        if str(provider.get("assignedOrderId") or "") != expected_assignments[str(provider["id"])]:
+            continue
         provider.pop("stale", None)
-        provider["status"] = "online"
+        if provider.get("status") == "busy":
+            provider["status"] = "online" if is_provider_verified(provider) else "offline"
         provider["assignedOrderId"] = None
         provider["updatedAt"] = now
-        provider["lastSeenAt"] = now
         changed = True
     if changed:
         save_providers(providers, provider_store_path)
@@ -3071,8 +3098,8 @@ def expire_stale_dispatch(
                         **info,
                         "autoRetryCount": auto_retries,
                         "exhaustedAt": now_iso,
-                        "awaitingDispatcher": True,
-                        "clientStatusHint": "Партнера поруч поки немає. Диспетчер розширює пошук.",
+                        "awaitingDispatcher": False,
+                        "clientStatusHint": "Поки немає доступних партнерів. Повторіть пошук або зверніться до підтримки.",
                     }
                     _append_order_event(
                         order,
@@ -3116,7 +3143,7 @@ def expire_stale_dispatch(
             else:
                 save_offers(offers, offer_path)
                 _write_json_atomic(order_path, orders)
-        if cancelled:
+        if cancelled and not use_sql:
             _free_providers_after_idle_cancel(cancelled, provider_store_path)
 
     for order_id in wave_order_ids:
@@ -3207,44 +3234,21 @@ def invalidate_order_offers(order_id: str, status: str = "cancelled", offer_stor
         return offers
 
 
-def _set_provider_status(provider_id: str, status: str, assigned_order_id: Optional[str] = None, provider_store_path: Optional[Path] = None) -> Optional[Dict[str, Any]]:
-    now = _now_iso()
-    use_sql = _should_use_sql_store(provider_store_path, _default_provider_store_path)
-
-    if use_sql:
-        provider = get_provider_profile(provider_id, provider_store_path)
-        if provider is None:
-            return None
-        provider.pop("stale", None)
-        provider["status"] = status
-        provider["updatedAt"] = now
-        provider["lastSeenAt"] = now
-        if assigned_order_id:
-            provider["assignedOrderId"] = assigned_order_id
-        else:
-            provider.pop("assignedOrderId", None)
-        return sql_upsert_provider(dict(provider))
-
+def _release_provider_after_order(provider_id: str, order_id: str, provider_store_path: Optional[Path] = None) -> None:
+    """JSON fallback. SQL releases are part of sql_commit_order_snapshot."""
     providers = load_providers(provider_store_path)
-    updated: Optional[Dict[str, Any]] = None
-
     for provider in providers:
         if str(provider.get("id")) != str(provider_id):
             continue
+        if str(provider.get("assignedOrderId") or "") != str(order_id):
+            return
         provider.pop("stale", None)
-        provider["status"] = status
-        provider["updatedAt"] = now
-        provider["lastSeenAt"] = now
-        if assigned_order_id:
-            provider["assignedOrderId"] = assigned_order_id
-        else:
-            provider.pop("assignedOrderId", None)
-        updated = provider
-        break
-
-    if updated is not None:
+        provider.pop("assignedOrderId", None)
+        if provider.get("status") == "busy":
+            provider["status"] = "online" if is_provider_verified(provider) else "offline"
+        provider["updatedAt"] = _now_iso()
         save_providers(providers, provider_store_path)
-    return updated
+        return
 
 
 def _provider_is_recent(provider: Dict[str, Any], now: Optional[datetime] = None) -> bool:
@@ -3517,6 +3521,7 @@ def _dispatch_order_sql(
     order = sql_get_order(str(order_id))
     if order is None:
         return None
+    original_order = deepcopy(order)
     offers = sql_offers_for_order(str(order_id))
     if normalize_order_status(order.get("status")) != "searching":
         return attach_dispatch_to_order(order, offers)
@@ -3542,7 +3547,8 @@ def _dispatch_order_sql(
     if slots_left <= 0:
         order["dispatchState"] = "OFFERS_SENT"
         order["updatedAt"] = _now_iso()
-        sql_upsert_order(order)
+        if not sql_commit_order_snapshot(original_order, order):
+            return attach_dispatch_to_order(sql_get_order(str(order_id)) or order, sql_offers_for_order(str(order_id)))
         return attach_dispatch_to_order(order, offers)
     batch_size = min(batch_size, slots_left)
 
@@ -3595,7 +3601,8 @@ def _dispatch_order_sql(
                 "serviceInitialRadiusKm": initial_radius_km_for_service(service),
             }
             order["updatedAt"] = now_iso
-            sql_upsert_order(order)
+            if not sql_commit_order_snapshot(original_order, order):
+                return attach_dispatch_to_order(sql_get_order(str(order_id)) or order, sql_offers_for_order(str(order_id)))
             return attach_dispatch_to_order(order, offers)
         order["dispatchState"] = "NO_PROVIDERS_AVAILABLE"
         order["dispatchInfo"] = {
@@ -3613,7 +3620,8 @@ def _dispatch_order_sql(
         }
         order["updatedAt"] = now_iso
         _append_order_event(order, "NO_PROVIDERS_AVAILABLE", now_iso)
-        sql_upsert_order(order)
+        if not sql_commit_order_snapshot(original_order, order):
+            return attach_dispatch_to_order(sql_get_order(str(order_id)) or order, sql_offers_for_order(str(order_id)))
         return attach_dispatch_to_order(order, offers)
 
     expires_at = f"{(now + timedelta(seconds=OFFER_TIMEOUT_SECONDS)).isoformat(timespec='seconds')}Z"
@@ -3789,6 +3797,14 @@ def accept_offer(
             raise DispatchConflict("PROVIDER_NOT_FOUND", "Provider was not found.")
         if not is_provider_verified(provider):
             raise DispatchConflict("PROVIDER_NOT_VERIFIED", "Provider verification is not approved.")
+        if provider.get("assignedOrderId") or provider.get("status") == "busy" or any(
+            peek_order_status(item.get("status")) in ACTIVE_ORDER_STATUSES
+            and str(item.get("assignedProviderId") or item.get("partnerId") or "") == str(provider_id)
+            for item in orders
+        ):
+            raise DispatchConflict("PROVIDER_BUSY", "Provider already has an active order.")
+        if provider.get("status") != "online" or not _provider_is_recent(provider):
+            raise DispatchConflict("PROVIDER_OFFLINE", "Provider must be online to accept an offer.")
 
         offer["status"] = "accepted"
         offer["respondedAt"] = now
@@ -3895,6 +3911,9 @@ def update_provider_order_status(
     offer_store_path: Optional[Path] = None,
 ) -> Dict[str, Any]:
     with STORE_LOCK:
+        next_status = normalize_order_status(status)
+        if next_status not in {"en_route", "arrived", "in_progress", "completed", "cancelled"}:
+            raise DispatchConflict("PROVIDER_STATUS_FORBIDDEN", "This transition requires customer or admin confirmation.")
         order = get_order(order_id, order_store_path)
         if order is None:
             raise DispatchConflict("ORDER_NOT_FOUND", "Order was not found.")
@@ -3910,10 +3929,6 @@ def update_provider_order_status(
         )
         if updated is None:
             raise DispatchConflict("ORDER_NOT_FOUND", "Order was not found.")
-        if normalize_order_status(updated.get("status")) in {"completed", "cancelled"}:
-            _set_provider_status(provider_id, "online", provider_store_path=provider_store_path)
-        else:
-            _set_provider_status(provider_id, "busy", order_id, provider_store_path=provider_store_path)
         return attach_dispatch_to_order(updated, load_offers(offer_store_path))
 
 
@@ -4390,9 +4405,6 @@ def submit_order_review(
             raise DispatchConflict("ORDER_NOT_COMPLETED", "Reviews are available only for completed orders.")
 
         review_key = "customerReview" if role == "customer" else "partnerReview"
-        if isinstance(order.get(review_key), dict) and order[review_key].get("rating") is not None:
-            raise DispatchConflict("REVIEW_ALREADY_SUBMITTED", "Review already submitted for this order.")
-
         if role == "customer":
             if author_id:
                 aliases = _customer_ids_for_order_history(str(author_id), customer_store_path)
@@ -4402,6 +4414,9 @@ def submit_order_review(
             provider_id = str(order.get("assignedProviderId") or order.get("partnerId") or "").strip()
             if author_id and provider_id and str(author_id) != provider_id:
                 raise DispatchConflict("REVIEW_FORBIDDEN", "Partner cannot review this order.")
+
+        if isinstance(order.get(review_key), dict) and order[review_key].get("rating") is not None:
+            raise DispatchConflict("REVIEW_ALREADY_SUBMITTED", "Review already submitted for this order.")
 
         now = _now_iso()
         review_payload = {
