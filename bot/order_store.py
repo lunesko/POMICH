@@ -26,6 +26,7 @@ from bot.runtime_store import (
     sql_get_provider,
     sql_commit_dispatch_wave,
     sql_commit_order_snapshot,
+    sql_commit_order_transition,
     sql_invalidate_order_offers,
     sql_map_providers,
     sql_offers_for_order,
@@ -901,6 +902,7 @@ def update_order_status(
             order = sql_get_order(str(order_id))
             if order is None:
                 return None
+            original = deepcopy(order)
             current_status = normalize_order_status(order.get("status"))
             if next_status == current_status:
                 return enrich_order_for_client(order, provider_store_path)
@@ -915,8 +917,9 @@ def update_order_status(
             history.append({"status": next_status, "at": now})
             order["statusHistory"] = history
             _append_order_event(order, f"ORDER_{next_status.upper()}", now)
-            sql_upsert_order(order)
-            updated_order = order
+            if not sql_commit_order_transition(original, order):
+                raise DispatchConflict("ORDER_CHANGED", "Order changed during status update. Refresh and retry.")
+            return enrich_order_for_client(order, provider_store_path)
         else:
             path = store_path or _default_store_path()
             orders = load_orders(path)
@@ -3790,6 +3793,13 @@ def accept_offer(
         if not is_provider_verified(provider):
             raise DispatchConflict("PROVIDER_NOT_VERIFIED", "Provider verification is not approved.")
 
+        if provider.get("status") == "busy" or provider.get("assignedOrderId") or any(
+            str(item.get("assignedProviderId") or item.get("partnerId") or "") == str(provider_id)
+            and normalize_order_status(item.get("status")) in ACTIVE_ORDER_STATUSES
+            for item in orders
+        ):
+            raise DispatchConflict("PROVIDER_BUSY", "Provider already has an active order.")
+
         offer["status"] = "accepted"
         offer["respondedAt"] = now
         for other_offer in offers:
@@ -3910,10 +3920,12 @@ def update_provider_order_status(
         )
         if updated is None:
             raise DispatchConflict("ORDER_NOT_FOUND", "Order was not found.")
-        if normalize_order_status(updated.get("status")) in {"completed", "cancelled"}:
-            _set_provider_status(provider_id, "online", provider_store_path=provider_store_path)
-        else:
-            _set_provider_status(provider_id, "busy", order_id, provider_store_path=provider_store_path)
+        # SQL transitions update presence in the same transaction as the order.
+        if not _should_use_sql_store(order_store_path, _default_store_path):
+            if normalize_order_status(updated.get("status")) in {"completed", "cancelled"}:
+                _set_provider_status(provider_id, "online", provider_store_path=provider_store_path)
+            else:
+                _set_provider_status(provider_id, "busy", order_id, provider_store_path=provider_store_path)
         return attach_dispatch_to_order(updated, load_offers(offer_store_path))
 
 
