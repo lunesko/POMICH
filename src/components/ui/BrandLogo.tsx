@@ -1,10 +1,10 @@
 export default function BrandLogo({ compact = false }: { compact?: boolean }) {
   return (
     <img
-      src="/pomich-logo.png"
+      src="/pomich-logo-transparent.png"
       alt="POMICH"
-      width={2149}
-      height={732}
+      width={2172}
+      height={724}
       draggable={false}
       style={{
         display: "block",
@@ -13,9 +13,6 @@ export default function BrandLogo({ compact = false }: { compact?: boolean }) {
         height: "auto",
         flexShrink: 0,
         objectFit: "contain",
-        background: "#ffffff",
-        borderRadius: 10,
-        padding: 4,
       }}
     />
   )
