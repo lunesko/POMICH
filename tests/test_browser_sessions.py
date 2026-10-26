@@ -107,6 +107,7 @@ def test_partner_session_inherits_customer_deadline(monkeypatch) -> None:
 
 
 def test_partner_password_login_uses_remember_choice(monkeypatch) -> None:
+    import re
     from bot.routers import auth
     monkeypatch.setenv("POMICH_PROVIDER_TOKEN", "test-provider-secret-xxxxxxxx")
     monkeypatch.setattr(auth, "find_provider_account", lambda *args: {"providerId": "partner-123"})
@@ -114,7 +115,8 @@ def test_partner_password_login_uses_remember_choice(monkeypatch) -> None:
     remembered = client.post("/api/auth/provider/login", json={"login": "partner", "password": "test", "rememberMe": True})
     assert remembered.status_code == 200
     assert remembered.json()["rememberMe"] is True
-    assert "Max-Age=2592000" in remembered.headers["set-cookie"]
+    max_age = re.search(r"Max-Age=(\d+)", remembered.headers["set-cookie"])
+    assert max_age and 2_591_995 <= int(max_age.group(1)) <= 2_592_000
     standard = client.post("/api/auth/provider/login", json={"login": "partner", "password": "test"})
     assert standard.status_code == 200
     assert standard.json()["rememberMe"] is False

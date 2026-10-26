@@ -40,6 +40,21 @@ test("public landing fits the viewport and has no serious axe violations", async
   await page.goto("/")
   await expect(page.getByText("Допомога на дорозі за хвилини", { exact: true })).toBeVisible()
   await expect(page.locator('img[src="/pomich-logo.png"]')).toHaveJSProperty("naturalWidth", 2149)
+  const notice = page.getByRole("complementary", { name: "Cookies та локальне сховище" })
+  const primaryCta = page.getByRole("button", { name: "Потрібна допомога", exact: true }).first()
+  const [noticeBox, ctaBox] = await Promise.all([notice.boundingBox(), primaryCta.boundingBox()])
+  expect(noticeBox).not.toBeNull()
+  expect(ctaBox).not.toBeNull()
+  const overlapsPrimaryCta = !(
+    noticeBox!.x + noticeBox!.width <= ctaBox!.x ||
+    ctaBox!.x + ctaBox!.width <= noticeBox!.x ||
+    noticeBox!.y + noticeBox!.height <= ctaBox!.y ||
+    ctaBox!.y + ctaBox!.height <= noticeBox!.y
+  )
+  expect(overlapsPrimaryCta).toBe(false)
+  if (page.viewportSize()!.width <= 640) {
+    expect(noticeBox!.y + noticeBox!.height).toBeLessThan(page.viewportSize()!.height / 2)
+  }
   await expectNoSeriousAccessibilityViolations(page)
   await expect(page.locator("body")).toBeInViewport({ ratio: 0.1 })
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(page.viewportSize()!.width)

@@ -366,7 +366,7 @@ html:not([data-pomich-theme]) {
 }
 @theme inline {
   --font-sans: "Sora", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-display: "Outfit", "Sora", system-ui, sans-serif;
+  --font-display: "Sora", system-ui, -apple-system, "Segoe UI", sans-serif;
   --color-brand: var(--pomich-brand);
   --color-brand-dark: #0f7a4e;
   --color-brand-light: #d1f5e7;
@@ -8571,6 +8571,21 @@ html.tg-compact .pomich-ride-screen__map .leaflet-top.leaflet-left {
 .pomich-cookie-notice p { margin: 0 0 10px; }
 .pomich-cookie-notice > div { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .pomich-cookie-notice a { color: var(--pomich-accent); text-decoration: underline; }
+@media (max-width: 640px) {
+  .pomich-cookie-notice {
+    top: calc(env(safe-area-inset-top, 0px) + 64px);
+    bottom: auto;
+    width: calc(100% - 24px);
+    padding: 12px 14px;
+    border-radius: 14px;
+    box-shadow: 0 6px 24px #0003;
+    font-size: 12px;
+    line-height: 1.4;
+  }
+  .pomich-cookie-notice p { margin-bottom: 7px; }
+  .pomich-cookie-notice > div { gap: 12px; }
+  .pomich-cookie-notice .pomich-cabinet-chip-btn { min-height: 36px; }
+}
 
 /* Audit: opaque reading surfaces and a keyboard-accessible alternative to map markers. */
 .pomich-directory-list {
