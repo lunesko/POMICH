@@ -1546,6 +1546,7 @@ def test_cancel_order_releases_assigned_provider(tmp_path):
             "telegram": "pomich_help_bot",
             "status": "busy",
             "assignedOrderId": "PM-777",
+            "lastSeenAt": datetime.now(timezone.utc).replace(tzinfo=None).isoformat(timespec="seconds") + "Z",
             "etaMinutes": 10,
             "location": {"lat": 48.62, "lng": 22.28},
             "specialties": ["tow"],

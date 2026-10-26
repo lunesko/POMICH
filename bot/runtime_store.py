@@ -2,11 +2,13 @@ import json
 import math
 import os
 import threading
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import JSON, Column, DateTime, Float, Index, MetaData, String, Table, bindparam, create_engine, delete, insert, inspect, select, text, update
 from sqlalchemy.engine import Engine
+from bot.provider_eligibility import provider_can_take_orders
 
 _STORE_LOCK = threading.RLock()
 _ENGINE: Engine | None = None
@@ -611,7 +613,7 @@ def sql_get_order(order_id: str) -> dict[str, Any] | None:
     return _json_safe_copy(row[0])
 
 
-def sql_upsert_order(order: dict[str, Any], *, insert_only: bool = False, idempotency_key: str | None = None, request_hash: str = "", require_profile: bool = False) -> dict[str, Any]:
+def sql_upsert_order(order: dict[str, Any], *, insert_only: bool = False, idempotency_key: str | None = None, request_hash: str = "", require_profile: bool = False, creation_state: dict | None = None) -> dict[str, Any]:
     """Insert or update one order row without rewriting the whole orders table."""
     payload = _json_safe_copy(order)
     order_id = str(payload.get("id") or "").strip()
@@ -637,7 +639,7 @@ def sql_upsert_order(order: dict[str, Any], *, insert_only: bool = False, idempo
         "payload": payload,
     }
 
-    with get_engine().begin() as connection:
+    with _locked_transaction() as connection:
         if insert_only and require_profile:
             query = select(customers.c.payload).where(customers.c.id == str(payload.get("customerId") or ""))
             if connection.dialect.name == "postgresql":
@@ -646,11 +648,27 @@ def sql_upsert_order(order: dict[str, Any], *, insert_only: bool = False, idempo
             if not profile or profile.get("accountStatus") == "disabled":
                 from bot.order_idempotency import IdempotencyConflict
                 raise IdempotencyConflict("customer_profile_unavailable")
+        duplicate = None
+        if insert_only and require_profile:
+            from bot.order_store import ACTIVE_ORDER_STATUSES
+            from bot.order_idempotency import same_order_intent
+            candidates = connection.execute(select(orders.c.payload).where(
+                orders.c.customer_id == str(payload.get("customerId") or ""),
+                orders.c.status.in_(ACTIVE_ORDER_STATUSES),
+            )).all()
+            duplicate = next((_json_object(row[0]) for row in candidates if same_order_intent(payload, _json_object(row[0]))), None)
         if insert_only and idempotency_key:
             from bot.order_idempotency import claim
-            replay = claim(connection, str(payload.get("customerId") or ""), idempotency_key, request_hash, order_id)
+            replay = claim(connection, str(payload.get("customerId") or ""), idempotency_key, request_hash,
+                           str(duplicate["id"]) if duplicate else order_id)
             if replay is not None:
+                if creation_state is not None:
+                    creation_state["created"] = False
                 return replay
+        if duplicate is not None:
+            if creation_state is not None:
+                creation_state["created"] = False
+            return duplicate
         existing = connection.execute(select(orders.c.id).where(orders.c.id == order_id)).first()
         if existing and insert_only:
             raise ValueError("order_id_already_exists")
@@ -706,7 +724,7 @@ def sql_commit_order_snapshot(original: dict[str, Any], proposed: dict[str, Any]
     """Commit changed dispatch rows only if their locked snapshots are still current."""
     engine = get_engine()
     order_id = str(original["id"])
-    with engine.begin() as connection:
+    with _locked_transaction() as connection:
         row = connection.execute(_for_update(
             select(orders.c.payload).where(orders.c.id == order_id), engine,
         )).first()
@@ -732,7 +750,119 @@ def sql_commit_order_snapshot(original: dict[str, Any], proposed: dict[str, Any]
                 status=proposed["status"], updated_at=proposed.get("updatedAt"), payload=proposed,
             ))
             _insert_order_events(connection, proposed)
+            _apply_terminal_transition(connection, original, proposed)
     return True
+
+
+@contextmanager
+def _locked_transaction():
+    """Row locks on PostgreSQL; reserve the writer before reading on SQLite."""
+    engine = get_engine()
+    with engine.connect() as connection:
+        if engine.dialect.name == "sqlite":
+            connection.exec_driver_sql("BEGIN IMMEDIATE")
+        else:
+            connection.begin()
+        try:
+            yield connection
+            connection.commit()
+        except BaseException:
+            connection.rollback()
+            raise
+
+
+def _locked_provider(connection, provider_id: str) -> dict[str, Any] | None:
+    # Always lock profile before presence, including heartbeat and acceptance.
+    row = connection.execute(_for_update(
+        select(providers.c.payload).where(providers.c.id == provider_id), connection.engine,
+    )).first()
+    if row is None:
+        return None
+    presence = connection.execute(_for_update(
+        select(provider_presence.c.payload).where(provider_presence.c.provider_id == provider_id), connection.engine,
+    )).first()
+    return _merge_provider_payload(row[0], presence[0] if presence else {})
+
+
+def _write_provider_presence(connection, provider: dict[str, Any]) -> None:
+    provider_id = str(provider["id"])
+    now = str(provider["updatedAt"])
+    presence = {key: provider.get(key) for key in (
+        "status", "location", "etaMinutes", "assignedOrderId", "lastSeenAt", "lastLocationAt", "updatedAt",
+    )}
+    lat, lng = _point(provider.get("location"))
+    values = dict(status=provider.get("status") or "offline", lat=lat, lng=lng,
+                  eta_minutes=provider.get("etaMinutes"), assigned_order_id=provider.get("assignedOrderId"),
+                  last_seen_at=provider.get("lastSeenAt") or "", last_location_at=provider.get("lastLocationAt") or "",
+                  updated_at=now, payload=presence)
+    connection.execute(update(providers).where(providers.c.id == provider_id).values(updated_at=now, payload=provider))
+    exists = connection.execute(select(provider_presence.c.provider_id).where(provider_presence.c.provider_id == provider_id)).first()
+    if exists:
+        connection.execute(update(provider_presence).where(provider_presence.c.provider_id == provider_id).values(**values))
+    else:
+        connection.execute(insert(provider_presence).values(provider_id=provider_id, **values))
+
+
+def sql_update_provider_presence(provider_id: str, patch: dict[str, Any]) -> dict[str, Any]:
+    from bot.order_store import is_provider_profile_complete
+
+    with _locked_transaction() as connection:
+        provider = _locked_provider(connection, str(provider_id))
+        if provider is None:
+            raise ValueError("provider profile must be registered before going online")
+        status = str(patch.get("status") or provider.get("status") or "offline")
+        if status not in {"online", "offline", "busy"}:
+            raise ValueError("provider status must be online, busy or offline")
+        if status in {"online", "busy"}:
+            if not provider.get("registeredAt"):
+                raise ValueError("provider profile must be registered before going online")
+            if not is_provider_profile_complete(provider):
+                raise ValueError("provider profile must be complete before going online")
+            if not provider_can_take_orders(provider):
+                raise ValueError("provider verification must be approved before going online")
+        if provider.get("assignedOrderId") and status == "online":
+            status = "busy"
+        now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat(timespec="seconds") + "Z"
+        provider.update(status=status, updatedAt=now, lastSeenAt=now)
+        if isinstance(patch.get("location"), dict):
+            provider.update(location=patch["location"], lastLocationAt=now)
+        _write_provider_presence(connection, provider)
+        return provider
+
+
+def _apply_terminal_transition(connection, original: dict[str, Any], proposed: dict[str, Any]) -> None:
+    """Commit terminal status, release, offers and completion counters together."""
+    status = proposed.get("status")
+    if status not in {"completed", "cancelled"} or original.get("status") == status:
+        return
+    order_id, now = str(proposed["id"]), str(proposed.get("updatedAt") or "")
+    provider_id = str(proposed.get("assignedProviderId") or proposed.get("partnerId") or "")
+    provider = _locked_provider(connection, provider_id) if provider_id else None
+    if provider is not None:
+        if str(provider.get("assignedOrderId") or "") == order_id:
+            provider.pop("assignedOrderId", None)
+            # Releasing an order is not a heartbeat; preserve offline status and timestamps.
+            if provider.get("status") == "busy":
+                provider["status"] = "online" if provider_can_take_orders(provider) else "offline"
+        provider["updatedAt"] = now
+        if status == "completed":
+            provider["ordersCompleted"] = int(provider.get("ordersCompleted") or 0) + 1
+        _write_provider_presence(connection, provider)
+    if status == "completed" and proposed.get("customerId"):
+        customer_id = str(proposed["customerId"])
+        row = connection.execute(_for_update(select(customers.c.payload).where(customers.c.id == customer_id), connection.engine)).first()
+        if row:
+            customer = _json_object(row[0])
+            customer["ordersCompleted"] = int(customer.get("ordersCompleted") or 0) + 1
+            customer["updatedAt"] = now
+            connection.execute(update(customers).where(customers.c.id == customer_id).values(payload=customer, updated_at=now))
+    rows = connection.execute(select(dispatch_offers.c.id, dispatch_offers.c.payload)
+        .where(dispatch_offers.c.order_id == order_id, dispatch_offers.c.status == "pending")).mappings().all()
+    for row in rows:
+        offer = _json_object(row["payload"])
+        offer.update(status="cancelled" if status == "cancelled" else "lost", respondedAt=now)
+        connection.execute(update(dispatch_offers).where(dispatch_offers.c.id == row["id"])
+            .values(status=offer["status"], responded_at=now, payload=offer))
 
 
 def sql_orders_by_status(statuses: set[str], *, limit: int | None = 1000) -> list[dict[str, Any]]:
@@ -1357,7 +1487,7 @@ def sql_accept_offer(
     now_dt = now or datetime.now(timezone.utc).replace(tzinfo=None)
     now_iso = f"{now_dt.isoformat(timespec='seconds')}Z"
 
-    with engine.begin() as connection:
+    with _locked_transaction() as connection:
         # Lock the shared order before offer rows so competing accept attempts use one lock order.
         offer_lookup = connection.execute(
             select(
@@ -1436,29 +1566,27 @@ def sql_accept_offer(
             )
             raise SqlDispatchConflict("OFFER_EXPIRED", "Offer has expired.")
 
-        provider_row = connection.execute(
-            _for_update(
-                select(
-                    providers.c.id,
-                    providers.c.verification_status,
-                    providers.c.payload.label("provider_payload"),
-                    provider_presence.c.payload.label("presence_payload"),
-                )
-                .select_from(providers.join(provider_presence, providers.c.id == provider_presence.c.provider_id))
-                .where(providers.c.id == str(provider_id)),
-                engine,
-            )
-        ).mappings().first()
-        if provider_row is None:
+        provider = _locked_provider(connection, str(provider_id))
+        if provider is None:
             raise SqlDispatchConflict("PROVIDER_NOT_FOUND", "Provider was not found.")
-        if str(provider_row["verification_status"] or "") != "verified":
+        if not provider_can_take_orders(provider):
             raise SqlDispatchConflict("PROVIDER_NOT_VERIFIED", "Provider verification is not approved.")
+        if provider.get("assignedOrderId") or provider.get("status") == "busy":
+            raise SqlDispatchConflict("PROVIDER_BUSY", "Provider already has an active order.")
+        from bot.order_store import ACTIVE_ORDER_STATUSES
+        active_assignment = connection.execute(select(orders.c.id).where(
+            orders.c.assigned_provider_id == str(provider_id), orders.c.status.in_(ACTIVE_ORDER_STATUSES),
+        ).limit(1)).first()
+        if active_assignment:
+            raise SqlDispatchConflict("PROVIDER_BUSY", "Provider already has an active order.")
+        from bot.order_store import _provider_is_recent
+        if provider.get("status") != "online" or not _provider_is_recent(provider, now_dt):
+            raise SqlDispatchConflict("PROVIDER_OFFLINE", "Provider must be online to accept an offer.")
 
         if proposed_price is None or proposed_price <= 0:
             raise SqlDispatchConflict("PRICE_REQUIRED", "Partner must specify proposed price when accepting.")
 
         order = _json_object(order_row["payload"])
-        provider = _merge_provider_payload(provider_row["provider_payload"], provider_row["presence_payload"])
         accepted_offer = _json_object(offer)
 
         accepted_offer["status"] = "accepted"
@@ -1606,6 +1734,8 @@ def _postgres_candidate_providers(
               p.verification_status = 'verified'
               OR COALESCE((p.payload->'verification'->>'phone')::boolean, false)
           )
+          AND LOWER(COALESCE(p.payload->>'accountStatus', 'active')) <> 'disabled'
+          AND LOWER(COALESCE(p.verification_status, 'unverified')) <> 'rejected'
           AND p.capabilities LIKE :capability
           AND pp.status = 'online'
           AND pp.assigned_order_id IS NULL
@@ -1682,9 +1812,7 @@ def _portable_candidate_providers(
     candidates: list[dict[str, Any]] = []
     for row in rows:
         provider_payload = _json_object(row["provider_payload"])
-        verification = provider_payload.get("verification") if isinstance(provider_payload.get("verification"), dict) else {}
-        phone_verified = bool(verification.get("phone"))
-        if str(provider_payload.get("verificationStatus") or "") != "verified" and not phone_verified:
+        if not provider_can_take_orders(provider_payload):
             continue
         provider_point = {"lat": float(row["lat"]), "lng": float(row["lng"])}
         distance_km = _haversine_distance_km(pickup, provider_point)
@@ -1836,7 +1964,7 @@ def _save_offers(connection, offer_payloads: list[dict[str, Any]]) -> None:
         )
 
 
-def sql_upsert_provider(provider: dict[str, Any]) -> dict[str, Any]:
+def sql_upsert_provider(provider: dict[str, Any], *, update_location: bool = False) -> dict[str, Any]:
     payload = _json_safe_copy(provider)
     provider_id = str(payload.get("id") or "").strip()
     if not provider_id:
@@ -1844,20 +1972,28 @@ def sql_upsert_provider(provider: dict[str, Any]) -> dict[str, Any]:
 
     now_iso = str(payload.get("updatedAt") or payload.get("lastSeenAt") or datetime.now(timezone.utc).replace(tzinfo=None).isoformat(timespec="seconds") + "Z")
     payload["updatedAt"] = now_iso
-    has_location_update = isinstance(payload.get("location"), dict)
-    location_lat, location_lng = _point(payload.get("location")) if has_location_update else (None, None)
-    presence_payload = {
-        "status": payload.get("status") or "offline",
-        "location": payload.get("location"),
-        "etaMinutes": payload.get("etaMinutes"),
-        "assignedOrderId": payload.get("assignedOrderId"),
-        "lastSeenAt": payload.get("lastSeenAt"),
-        "lastLocationAt": payload.get("lastLocationAt"),
-        "updatedAt": now_iso,
-    }
-
-    with get_engine().begin() as connection:
-        existing = connection.execute(select(providers.c.id).where(providers.c.id == provider_id)).first()
+    with _locked_transaction() as connection:
+        current = _locked_provider(connection, provider_id)
+        existing = current is not None
+        if current is not None:
+            # Profile/OTP/rating saves cannot overwrite assignment or heartbeat state.
+            # Only the presence patch, acceptance and terminal transaction own these fields.
+            for key in ("status", "assignedOrderId", "lastSeenAt", "lastLocationAt"):
+                if key in current:
+                    payload[key] = current[key]
+                else:
+                    payload.pop(key, None)
+            if not update_location:
+                for key in ("location", "etaMinutes"):
+                    if key in current:
+                        payload[key] = current[key]
+            if "ordersCompleted" in current:
+                payload["ordersCompleted"] = current["ordersCompleted"]
+        has_location_update = isinstance(payload.get("location"), dict)
+        location_lat, location_lng = _point(payload.get("location")) if has_location_update else (None, None)
+        presence_payload = {key: payload.get(key) for key in (
+            "status", "location", "etaMinutes", "assignedOrderId", "lastSeenAt", "lastLocationAt", "updatedAt",
+        )}
         from bot.phone_lookup import phone_lookup_key_from_payload
 
         provider_values = {
