@@ -27,9 +27,9 @@ describe("customerProfile checklist", () => {
   })
 
   it("labels optional rows separately from required gaps", () => {
-    expect(profileChecklistItemStatus({ key: "name", label: "Ім'я", filled: true, required: true })).toBe("✓ Заповнено")
-    expect(profileChecklistItemStatus({ key: "phone", label: "Телефон", filled: false, required: true })).toBe("— Потрібно")
-    expect(profileChecklistItemStatus({ key: "email", label: "Email", filled: false, required: false })).toBe("— Необов'язково")
+    expect(profileChecklistItemStatus({ key: "name", label: "Ім'я", filled: true, required: true })).toBe("Заповнено")
+    expect(profileChecklistItemStatus({ key: "phone", label: "Телефон", filled: false, required: true })).toBe("Потрібно")
+    expect(profileChecklistItemStatus({ key: "email", label: "Email", filled: false, required: false })).toBe("Необов'язково")
   })
 
   it("summarizes only required fields", () => {

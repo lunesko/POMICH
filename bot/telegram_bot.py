@@ -58,7 +58,7 @@ CUSTOMER_WELCOME_TEXT = (
 )
 
 CUSTOMER_WELCOME_BACK_TEXT = (
-    "З поверненням! 👋\n\n"
+    "З поверненням!\n\n"
     "Натисніть «Викликати допомогу», щоб відкрити додаток."
 )
 
@@ -68,7 +68,7 @@ PROVIDER_WELCOME_TEXT = (
 )
 
 PROVIDER_WELCOME_BACK_TEXT = (
-    "З поверненням, партнере! 👋\n\n"
+    "З поверненням, партнере!\n\n"
     "Натисніть «Кабінет партнера», щоб відкрити додаток."
 )
 
@@ -388,7 +388,7 @@ def _handle_customer_command(
             profile = get_customer_profile(f"tg-{tg_user_id}")
             display_name = _customer_display_name(profile)
             greeting = (
-                f"З поверненням, {display_name}! 👋\n\nНатисніть «Викликати допомогу», щоб відкрити додаток."
+                f"З поверненням, {display_name}!\n\nНатисніть «Викликати допомогу», щоб відкрити додаток."
                 if display_name
                 else CUSTOMER_WELCOME_BACK_TEXT
             )
@@ -506,7 +506,7 @@ def _handle_provider_command(
             return {"handled": True, "type": "online-unlinked", "botKind": "provider"}
         try:
             update_provider_presence(provider_id, {"status": "online"})
-            bot.send_message(chat_id, "Ви на лінії ✅ Очікуйте нові заявки.")
+            bot.send_message(chat_id, "Ви на лінії. Очікуйте нові заявки.")
             return {"handled": True, "type": "online", "botKind": "provider"}
         except ValueError as exc:
             bot.send_message(
@@ -736,7 +736,7 @@ def notify_order_created(chat_id: str | None, order: dict[str, Any]) -> dict[str
 def _notify_order_created_sync(chat_id: str, order: dict[str, Any]) -> dict[str, Any] | None:
     service = str(order.get("service") or "Послуга")
     text = (
-        f"✅ Заявку створено: #{order.get('id')}\n\n"
+        f"Заявку створено: #{order.get('id')}\n\n"
         f"Послуга: {service}\n"
         "Статус: шукаємо допомогу поруч."
     )
@@ -781,7 +781,7 @@ def _notify_order_accepted_sync(order: dict[str, Any]) -> dict[str, Any] | None:
         price_label = "ціну"
 
     text = (
-        f"✅ Партнер прийняв вашу заявку #{order_id}\n\n"
+        f"Партнер прийняв вашу заявку #{order_id}\n\n"
         f"Хто: {partner_name}\n"
         f"Запропонована ціна: {price_label}\n\n"
         "Відкрийте POMICH, щоб підтвердити ціну або зв'язатися з партнером."
@@ -878,7 +878,7 @@ def _notify_dispatch_offers_sync(order: dict[str, Any], offers: list[dict[str, A
         distance = offer.get("distanceKm")
         distance_label = f"{float(distance):.1f} км" if distance is not None else "поруч"
         text = (
-            f"🚨 Нова заявка #{order_id}\n"
+            f"Нова заявка #{order_id}\n"
             f"Послуга: {service}\n"
             f"Відстань: {distance_label}\n\n"
             "Відкрийте кабінет партнера, щоб прийняти офер."

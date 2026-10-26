@@ -1,8 +1,9 @@
+import type { ReactNode } from "react"
 interface PrimaryButtonProps {
-  label: string
+  label: ReactNode
   onClick?: () => void
   loading?: boolean
-  loadingLabel?: string
+  loadingLabel?: ReactNode
   disabled?: boolean
 }
 
@@ -10,7 +11,7 @@ export function PrimaryButton({
   label,
   onClick,
   loading = false,
-  loadingLabel = "Зачекайте…",
+  loadingLabel,
   disabled = false,
 }: PrimaryButtonProps) {
   const isDisabled = disabled || loading
@@ -22,7 +23,7 @@ export function PrimaryButton({
       disabled={isDisabled}
       className={`pomich-primary-btn${isDisabled ? " is-disabled" : ""}`}
     >
-      {loading ? loadingLabel : label}
+      {loading ? (loadingLabel ?? label) : label}
     </button>
   )
 }

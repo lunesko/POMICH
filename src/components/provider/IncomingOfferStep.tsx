@@ -1,7 +1,8 @@
+import ServiceIcon from "../ui/ServiceIcon"
 import { useEffect, useRef } from "react"
 
 import type { DispatchOffer } from "../../api/client"
-import { getProviderCapabilityLabel, getServiceEmoji, type Point } from "../../lib/constants"
+import { getProviderCapabilityLabel, type Point } from "../../lib/constants"
 import { parseOfferPrice } from "../../lib/dispatchOffer"
 import { isServiceDetails, serviceDetailRows } from "../../lib/serviceDetails"
 import LazyRouteMap from "../map/LazyRouteMap"
@@ -105,7 +106,7 @@ export function IncomingOfferStep({
         <div className="pomich-incoming-offer__card">
           <div className="pomich-incoming-offer__head">
             <div className="pomich-incoming-offer__title">
-              {getServiceEmoji(offer.service)} {getProviderCapabilityLabel(offer.service)}
+              <ServiceIcon service={offer.service} size={20} /> {getProviderCapabilityLabel(offer.service)}
             </div>
             <div className="pomich-incoming-offer__eta">~{eta} хв</div>
           </div>

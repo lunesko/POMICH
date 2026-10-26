@@ -1,3 +1,6 @@
+import Icon from "../ui/Icon"
+import type { IconName } from "../../lib/icons"
+import RatingStars from "../ui/RatingStars"
 import { useEffect, useRef, useState } from "react"
 
 import type { OrderResponse } from "../../api/client"
@@ -42,16 +45,16 @@ interface OrderErrorStepProps {
   showAction?: boolean
 }
 
-const terminalCopy: Record<TerminalStatus, { title: string; message: string; icon: string }> = {
+const terminalCopy: Record<TerminalStatus, { title: string; message: string; icon: IconName }> = {
   completed: {
     title: "Замовлення завершено",
     message: "Дякуємо, що скористалися POMICH. Оцініть досвід — це допомагає покращити сервіс.",
-    icon: "✓",
+    icon: "check",
   },
   cancelled: {
     title: "Заявку скасовано",
     message: "Заявку скасовано. Якщо потрібна допомога — створіть нову заявку.",
-    icon: "✕",
+    icon: "close",
   },
 }
 
@@ -139,7 +142,7 @@ export function OrderFinalStep({
 
       <div className={`pomich-terminal-card pomich-terminal-card--${status} pomich-terminal-card--solid`}>
         <div className={`pomich-terminal-icon pomich-terminal-icon--${status}`} aria-hidden="true">
-          {copy.icon}
+          <Icon name={copy.icon} size={32} />
         </div>
         <div className="pomich-terminal-card__title">{copy.title}</div>
         <p className="pomich-terminal-card__message">{copy.message}</p>
@@ -173,13 +176,13 @@ export function OrderFinalStep({
             {order?.customerReview?.rating ? (
               <div className="pomich-terminal-summary__row">
                 <span>{reviewMode === "partner" ? "Оцінка від клієнта" : "Ваша оцінка партнера"}</span>
-                <strong>{"★".repeat(order.customerReview.rating)}</strong>
+                <strong><RatingStars rating={order.customerReview.rating} /></strong>
               </div>
             ) : null}
             {order?.partnerReview?.rating ? (
               <div className="pomich-terminal-summary__row">
                 <span>{reviewMode === "customer" ? "Оцінка від партнера" : "Ваша оцінка клієнта"}</span>
-                <strong>{"★".repeat(order.partnerReview.rating)}</strong>
+                <strong><RatingStars rating={order.partnerReview.rating} /></strong>
               </div>
             ) : null}
           </div>
@@ -245,7 +248,7 @@ export function OrderErrorStep({ pickup, destination, onRetry, showAction = true
 
       <div className="pomich-terminal-card pomich-terminal-card--error pomich-terminal-card--solid">
         <div className="pomich-terminal-icon pomich-terminal-icon--error" aria-hidden="true">
-          ⚠
+          <Icon name="warning" size={32} />
         </div>
         <div className="pomich-terminal-card__title">Щось пішло не так</div>
         <p className="pomich-terminal-card__message">
@@ -267,12 +270,6 @@ export function formatCabinetOrderStatus(status?: string): string {
   if (normalized === "completed") return "Виконано"
   if (normalized === "cancelled") return "Скасовано"
   return orderStatusLabels[normalized] || status || "—"
-}
-
-export function formatCabinetReviewStars(rating?: number): string | null {
-  if (typeof rating !== "number" || !Number.isFinite(rating) || rating < 1) return null
-  const stars = Math.max(1, Math.min(5, Math.round(rating)))
-  return "★".repeat(stars)
 }
 
 export default OrderFinalStep

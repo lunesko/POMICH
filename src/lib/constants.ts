@@ -188,30 +188,29 @@ export const DEFAULT_DESTINATION: Point = { lat: 48.6175, lng: 22.3056 }
 export const PROVIDER_START: Point = { lat: 48.632, lng: 22.271 }
 
 export const services = [
-  { key: "tow", emoji: "🚛", label: "Евакуатор", tone: "#E8F8F1" },
-  { key: "battery", emoji: "🔋", label: "Акумулятор", tone: "#EFF6FF" },
-  { key: "wheel", emoji: "🛞", label: "Шиномонтаж", tone: "#FFF7ED" },
-  { key: "fuel", emoji: "⛽", label: "Пальне", tone: "#F5F3FF" },
-  { key: "lockout", emoji: "🔑", label: "Відкрити авто", tone: "#FCE7F3" },
-  { key: "mechanic", emoji: "🔧", label: "Механік на дорозі", tone: "#ECFCCB" },
+  { key: "tow", label: "Евакуатор", tone: "#E8F8F1" },
+  { key: "battery", label: "Акумулятор", tone: "#EFF6FF" },
+  { key: "wheel", label: "Шиномонтаж", tone: "#FFF7ED" },
+  { key: "fuel", label: "Пальне", tone: "#F5F3FF" },
+  { key: "lockout", label: "Відкрити авто", tone: "#FCE7F3" },
+  { key: "mechanic", label: "Механік на дорозі", tone: "#ECFCCB" },
 ] as const satisfies ReadonlyArray<{
   key: ServiceKey
-  emoji: string
   label: string
   tone: string
 }>
 
 /** POMICH 1.0 Home — emergency wording («Що сталося?»), not catalog labels. */
 export const homeProblemCards = [
-  { key: "tow" as const, emoji: "🚛", label: "Евакуатор", hint: "Буксирування на СТО чи стоянку" },
-  { key: "battery" as const, emoji: "🔋", label: "Не заводиться", hint: "Прикурити або замінити АКБ" },
-  { key: "wheel" as const, emoji: "🛞", label: "Пробило колесо", hint: "Заміна або ремонт на місці" },
-  { key: "fuel" as const, emoji: "⛽", label: "Закінчилось пальне", hint: "Доставка пального до вас" },
+  { key: "tow" as const, label: "Евакуатор", hint: "Буксирування на СТО чи стоянку" },
+  { key: "battery" as const, label: "Не заводиться", hint: "Прикурити або замінити АКБ" },
+  { key: "wheel" as const, label: "Пробило колесо", hint: "Заміна або ремонт на місці" },
+  { key: "fuel" as const, label: "Закінчилось пальне", hint: "Доставка пального до вас" },
 ] as const
 
 export const homeOtherProblemCards = [
-  { key: "lockout" as const, emoji: "🔑", label: "Замкнулось авто", hint: "Відкрити авто або ключі" },
-  { key: "mechanic" as const, emoji: "🔧", label: "Інша допомога", hint: "Дрібний ремонт на дорозі" },
+  { key: "lockout" as const, label: "Замкнулось авто", hint: "Відкрити авто або ключі" },
+  { key: "mechanic" as const, label: "Інша допомога", hint: "Дрібний ремонт на дорозі" },
 ] as const
 
 export const providerCapabilityLabels: Record<ServiceKey, string> = {
@@ -312,17 +311,13 @@ export function getActiveProviderId(): string {
   return ""
 }
 
-export function getServiceEmoji(service?: string): string {
-  return services.find((item) => item.key === service)?.emoji ?? "🛠️"
-}
-
 export const directoryCategoryFilters = [
-  { key: "all", emoji: "📍", label: "Усі сервіси", color: "#2F80ED" },
-  { key: "mechanic", emoji: "🔧", label: "СТО", color: "#16A34A" },
-  { key: "wheel", emoji: "🛞", label: "Шиномонтаж", color: "#EA580C" },
-  { key: "fuel", emoji: "⛽", label: "Заправки", color: "#7C3AED" },
-  { key: "tow", emoji: "🚛", label: "Евакуатори", color: "#111315" },
-  { key: "battery", emoji: "🔋", label: "АКБ", color: "#0284C7" },
+  { key: "all", label: "Усі сервіси", color: "#2F80ED" },
+  { key: "mechanic", label: "СТО", color: "#16A34A" },
+  { key: "wheel", label: "Шиномонтаж", color: "#EA580C" },
+  { key: "fuel", label: "Заправки", color: "#7C3AED" },
+  { key: "tow", label: "Евакуатори", color: "#111315" },
+  { key: "battery", label: "АКБ", color: "#0284C7" },
 ] as const
 
 export type DirectoryCategoryKey = (typeof directoryCategoryFilters)[number]["key"]
@@ -332,10 +327,6 @@ export function getDirectoryPrimarySpecialty(item: { primarySpecialty?: string; 
   if (primary && services.some((s) => s.key === primary)) return primary
   const keys = toServiceKeys(item.specialties)
   return keys[0] ?? "mechanic"
-}
-
-export function getDirectoryIconEmoji(item: { primarySpecialty?: string; specialties?: string[] }): string {
-  return getServiceEmoji(getDirectoryPrimarySpecialty(item))
 }
 
 export function getDirectoryIconColor(specialty: string): string {

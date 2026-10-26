@@ -1,3 +1,8 @@
+import ServiceIcon from "../ui/ServiceIcon"
+import { StatusPill } from "../ui/StatusPill"
+import { SecondaryButton } from "../ui/SecondaryButton"
+import { PrimaryButton } from "../ui/PrimaryButton"
+import Icon from "../ui/Icon"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import {
@@ -38,7 +43,6 @@ import {
   services,
   partnerRegistrationServices,
   getActiveProviderId,
-  getServiceEmoji,
   getProviderCapabilityLabel,
   toServiceKeys,
   composePartnerVehicle,
@@ -139,54 +143,6 @@ function resolveSessionProviderId(session: { providerId?: string; subjectId?: st
   return String(session.providerId || session.subjectId || fallback).trim() || fallback
 }
 
-function PrimaryButton({
-  label,
-  onClick,
-  loading = false,
-  disabled = false,
-  loadingLabel = "Зачекайте…",
-}: {
-  label: string
-  onClick?: () => void
-  loading?: boolean
-  disabled?: boolean
-  loadingLabel?: string
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled || loading}
-      className={`pomich-primary-btn${disabled || loading ? " is-disabled" : ""}`}
-    >
-      {loading ? loadingLabel : label}
-    </button>
-  )
-}
-
-function SecondaryButton({ label, onClick, danger = false, disabled = false }: { label: string; onClick?: () => void; danger?: boolean; disabled?: boolean }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className={`pomich-flow-secondary-btn${danger ? " is-danger" : ""}`}
-    >
-      {label}
-    </button>
-  )
-}
-
-function StatusPill({ status }: { status: OrderStatus }) {
-  const cancelled = status === "cancelled"
-  return (
-    <div className={`pomich-status-pill ${cancelled ? "pomich-status-pill--cancelled" : "pomich-status-pill--active"}`}>
-      <span className="pomich-status-pill__dot" />
-      {orderStatusLabels[status]}
-    </div>
-  )
-}
-
 function Timeline({ status }: { status: OrderStatus }) {
   const steps: Array<{ status: OrderStatus; label: string }> = [
     { status: "searching", label: "Пошук" },
@@ -249,22 +205,22 @@ function ProviderCard({
     <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 18, padding: 14, boxShadow: "0 8px 22px rgba(0,0,0,0.05)" }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
         <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-          <div style={{ width: 48, height: 48, borderRadius: 14, background: SELECTED, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24 }}>🚛</div>
+          <div style={{ width: 48, height: 48, borderRadius: 14, background: SELECTED, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24 }}><ServiceIcon service="tow" size={30} /></div>
           <div>
             <div style={{ fontWeight: 900, color: DARK }}>{cardProvider.name ?? fallbackName ?? "Партнер"}</div>
             <div style={{ fontSize: 12, color: MUTED, marginTop: 2 }}>{[cardProvider.vehicle, cardProvider.plate].filter(Boolean).join(" · ") || "Дані авто уточнюються"}</div>
             <div style={{ marginTop: 6 }}><VerificationPill status={verificationStatus} /></div>
           </div>
         </div>
-        {typeof rating === "number" ? <div style={{ textAlign: "right", fontWeight: 900, color: BRAND }}>★ {rating}</div> : null}
+        {typeof rating === "number" ? <div style={{ textAlign: "right", fontWeight: 900, color: BRAND }}><Icon name="star" size={16} filled /> {rating}</div> : null}
       </div>
       <div style={{ display: "grid", gridTemplateColumns: phone && telegram ? "1fr 1fr" : "1fr", gap: 10, marginTop: 12 }}>
         {phone ? (
-          <SecondaryButton label="📞 Подзвонити" onClick={() => { window.location.href = `tel:${phone}` }} />
+          <SecondaryButton label={<><Icon name="phone" size={18} /> Подзвонити</>} onClick={() => { window.location.href = `tel:${phone}` }} />
         ) : null}
         {telegram ? (
           <SecondaryButton
-            label="💬 Чат"
+            label={<><Icon name="chat" size={18} /> Чат</>}
             onClick={() => {
               window.open(`https://t.me/${telegram}${orderId ? `?start=order_${orderId}` : ""}`, "_blank", "noopener,noreferrer")
             }}
@@ -305,7 +261,7 @@ function Header({
     <FormHeader>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-          {onBack ? <button type="button" aria-label="Назад" onClick={onBack} className="pomich-back-btn">←</button> : null}
+          {onBack ? <button type="button" aria-label="Назад" onClick={onBack} className="pomich-back-btn"><Icon name="arrow-left" /></button> : null}
           <div style={{ minWidth: 0 }}>
             <div className="pomich-header-title">{title}</div>
             {subtitle ? <div className="pomich-header-subtitle">{subtitle}</div> : null}
@@ -1123,7 +1079,7 @@ export default function ProviderFlow({
       const service = offer?.service || pin?.service
       const serviceMeta = services.find((item) => item.key === service)
       const serviceLabel = service
-        ? `${getServiceEmoji(service)} ${serviceMeta?.label || service}`
+        ? (serviceMeta?.label || service)
         : undefined
       const distanceKm = offer?.distanceKm ?? pin?.distanceKm
       alertPartnerNewRequest({
