@@ -1,6 +1,24 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+if [[ $# -gt 1 || ( $# -eq 1 && "$1" != '--check' ) ]]; then
+  echo 'Usage: deploy_github_actions.sh [--check]' >&2
+  exit 2
+fi
+
+missing=()
+for name in POMICH_SSH_HOST POMICH_SSH_USER POMICH_SSH_KNOWN_HOSTS; do
+  if [[ -z "${!name:-}" ]]; then missing+=("$name"); fi
+done
+if [[ -z "${POMICH_SSH_PRIVATE_KEY:-}" && -z "${POMICH_SSH_PASSWORD:-}" ]]; then
+  missing+=('POMICH_SSH_PRIVATE_KEY (or POMICH_SSH_PASSWORD)')
+fi
+if (( ${#missing[@]} )); then
+  printf 'ERROR: missing deployment setting: %s\n' "${missing[@]}" >&2
+  echo 'Configure production environment secrets; see docs/GITHUB_ACTIONS_DEPLOY.md' >&2
+  exit 1
+fi
+
 require_env() {
   local name="$1"
   if [[ -z "${!name:-}" ]]; then
@@ -17,8 +35,8 @@ POMICH_REMOTE_DIR="${POMICH_REMOTE_DIR:-/opt/pomich}"
 POMICH_PUBLIC_URL="${POMICH_PUBLIC_URL:-https://pomich.help}"
 POMICH_DEPLOY_SHA="${POMICH_DEPLOY_SHA:-${GITHUB_SHA:-}}"
 
-if [[ ! "$POMICH_SSH_PORT" =~ ^[0-9]+$ ]]; then
-  echo "ERROR: POMICH_SSH_PORT must be numeric" >&2
+if [[ ! "$POMICH_SSH_PORT" =~ ^[0-9]{1,5}$ ]] || (( 10#$POMICH_SSH_PORT < 1 || 10#$POMICH_SSH_PORT > 65535 )); then
+  echo "ERROR: POMICH_SSH_PORT must be in 1..65535" >&2
   exit 1
 fi
 if [[ ! "$POMICH_SSH_HOST" =~ ^[A-Za-z0-9.-]+$ ]]; then
@@ -40,6 +58,11 @@ fi
 if [[ ! "$POMICH_PUBLIC_URL" =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?/?$ ]]; then
   echo "ERROR: POMICH_PUBLIC_URL must be an HTTPS origin" >&2
   exit 1
+fi
+
+if [[ "${1:-}" == '--check' ]]; then
+  echo 'Deployment settings are present and scalar values are valid (SSH access not tested).'
+  exit 0
 fi
 
 work_dir="$(mktemp -d)"
