@@ -149,3 +149,7 @@ public/icon-512.png filter= diff= merge= -text
 public/pomich-logo.png filter= diff= merge= -text
 public/og-cover-v2.png filter= diff= merge= -text
 e2e/ux-accessibility.spec.ts-snapshots/*.png filter= diff= merge= -text
+
+# Small web assets and reviewed visual baselines are committed directly.
+public/pomich-logo-transparent.png -filter -diff -merge -text
+e2e/ux-accessibility.spec.ts-snapshots/*.png -filter -diff -merge -text

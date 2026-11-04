@@ -80,7 +80,9 @@ def _durable_worker_loop() -> None:
             time.sleep(2)
 
 
-def ensure_telegram_workers() -> None:
+def ensure_telegram_workers(*, force: bool = False) -> None:
+    if not force and os.getenv("POMICH_TELEGRAM_WORKER_MODE") == "external":
+        return
     global _STARTED
     if _STARTED:
         return

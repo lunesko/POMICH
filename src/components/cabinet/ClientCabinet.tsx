@@ -1,3 +1,5 @@
+import { renderReviewStars } from "../ui/RatingStars"
+import Icon from "../ui/Icon"
 import { useEffect, useState } from "react"
 
 import {
@@ -19,7 +21,7 @@ import { writeCityUserPicked, writePreferredCity } from "../../lib/preferredCity
 import { verificationHelpText, verificationSteps } from "../../lib/verificationHelp"
 import { getTelegramContext } from "../../telegram"
 
-import { formatCabinetOrderStatus, formatCabinetReviewStars } from "../customer/OrderTerminalStep"
+import { formatCabinetOrderStatus } from "../customer/OrderTerminalStep"
 import { Header } from "../layout/Header"
 import { CitySelect } from "../ui/CitySelect"
 import { FieldError } from "../ui/FieldError"
@@ -450,7 +452,7 @@ export default function ClientCabinet({
                         {item.required ? " *" : ""}
                       </span>
                       <span className="pomich-cabinet-checklist-mark" aria-hidden="true">
-                        {item.filled ? "✓" : item.required ? "—" : "○"}
+                        <Icon name={item.filled ? "check" : item.required ? "minus" : "circle"} size={18} />
                       </span>
                     </div>
                   ))}
@@ -481,8 +483,8 @@ export default function ClientCabinet({
               ) : (
                 <div className="pomich-cabinet-order-list">
                   {orderHistory.map((order) => {
-                    const ownReview = formatCabinetReviewStars(order.customerReview?.rating)
-                    const partnerReview = formatCabinetReviewStars(order.partnerReview?.rating)
+                    const ownReview = renderReviewStars(order.customerReview?.rating)
+                    const partnerReview = renderReviewStars(order.partnerReview?.rating)
                     const partnerName = order.providerName || order.assignedProvider?.name
                     const orderKey = order.id || `${order.createdAt}-${order.status}`
                     return (
@@ -512,7 +514,7 @@ export default function ClientCabinet({
                           ) : null}
                         </div>
                         <span className="pomich-cabinet-order-item__chevron" aria-hidden="true">
-                          ›
+                          <Icon name="arrow-right" size={18} />
                         </span>
                       </button>
                     )
@@ -530,6 +532,7 @@ export default function ClientCabinet({
         <OrderHistoryDetailSheet
           order={selectedHistoryOrder}
           viewer="customer"
+          customerToken={customerToken}
           onClose={() => setSelectedHistoryOrder(undefined)}
         />
       ) : null}

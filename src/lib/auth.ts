@@ -14,7 +14,7 @@ export function getStoredQueryToken(queryName: string, storageName: string) {
     renderBootstrapTokens.set(storageName, queryToken)
     queueMicrotask(() => renderBootstrapTokens.delete(storageName))
     url.searchParams.delete(queryName)
-    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`)
+    window.history.replaceState(window.history.state ?? {}, "", `${url.pathname}${url.search}${url.hash}`)
   }
   return queryToken || renderBootstrapTokens.get(storageName)
 }

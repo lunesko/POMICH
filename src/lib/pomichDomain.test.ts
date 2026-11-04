@@ -3,10 +3,8 @@ import { describe, expect, it } from 'vitest'
 import {
   calculateDistanceKm,
   calculatePrice,
-  getStateTransition,
   sanitizeLocation,
   validateCustomerOrderInput,
-  buildOrderFingerprint,
   isWithinUkraineServiceArea,
 } from './pomichDomain'
 
@@ -63,14 +61,6 @@ describe('pomichDomain', () => {
     expect(isWithinUkraineServiceArea({ lat: 54.8359, lng: 9.5461 })).toBe(false)
   })
 
-  it('prevents a partner from accepting an order twice in the same state', () => {
-    const transition = getStateTransition('assigned', 'accept')
-    expect(transition).toBe('assigned')
-
-    const completedTransition = getStateTransition('tracking', 'complete')
-    expect(completedTransition).toBe('completed')
-  })
-
   it('masks locations for privacy before displaying them', () => {
     expect(sanitizeLocation('вул. Собранецька, 12/3, Ужгород')).toMatch(/Ужгород/)
     expect(sanitizeLocation('вул. Собранецька, 12/3, Ужгород')).not.toContain('12/3')
@@ -78,10 +68,4 @@ describe('pomichDomain', () => {
     expect(sanitizeLocation('12, Срібляста вулиця, Червениця')).not.toMatch(/^,/)
   })
 
-  it('builds a stable fingerprint for duplicate-request protection', () => {
-    const first = buildOrderFingerprint('tow', 'customer-1', 'partner-1')
-    const second = buildOrderFingerprint('tow', 'customer-1', 'partner-1')
-
-    expect(first).toBe(second)
-  })
 })

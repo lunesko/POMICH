@@ -4,6 +4,7 @@ from bot.api_requests import request_schema
 from fastapi import APIRouter, Body, Header, HTTPException
 from pydantic import ValidationError
 from bot.order_requests import CreateOrderRequest
+from bot.api_responses import OrderRead
 from bot.api_requests import StatusPatch, validated
 from bot.order_store import get_customer_profile
 from bot.phone_lookup import normalize_ukraine_phone_digits
@@ -49,7 +50,7 @@ from bot.service_details import ServiceDetailsValidationError, validate_service_
 router = APIRouter(tags=["orders"])
 
 
-@router.get("/orders")
+@router.get("/orders", response_model=list[OrderRead], response_model_exclude_unset=True)
 def list_orders(
     x_pomich_admin_token: str | None = Header(default=None),
     authorization: str | None = Header(default=None),
@@ -59,7 +60,7 @@ def list_orders(
     return attach_dispatch_to_orders(load_orders(), load_offers())
 
 
-@router.post("/orders", status_code=201, openapi_extra=request_schema(CreateOrderRequest))
+@router.post("/orders", status_code=201, openapi_extra=request_schema(CreateOrderRequest), response_model=OrderRead, response_model_exclude_unset=True)
 def create_order(payload: dict, authorization: str | None = Header(default=None), idempotency_key: str | None = Header(default=None)) -> dict:
     if not authorization and payload.get("source") != "telegram-mini-app":
         raise HTTPException(status_code=401, detail="customer_session_required")
@@ -182,17 +183,21 @@ def create_order(payload: dict, authorization: str | None = Header(default=None)
         for key in ("chatId", "telegramUserId", "telegramUsername", "telegramFirstName", "notify"):
             payload.pop(key, None)
     payload["status"] = "searching"
+    creation_state = {}
     try:
-        order = save_order(payload, insert_only=True, idempotency_key=idempotency_key, request_hash=request_hash)
+        order = save_order(payload, insert_only=True, idempotency_key=idempotency_key, request_hash=request_hash, creation_state=creation_state)
     except IdempotencyConflict as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    if order.get("status") == "searching":
+    if not creation_state.get("created", True) and (order.get("dispatchState") or order.get("status") != "searching"):
+        return attach_dispatch_to_order(order, load_offers())
+    from bot.dispatch_jobs import enabled as async_dispatch_enabled
+    if order.get("status") == "searching" and not async_dispatch_enabled():
         dispatched = dispatch_order(str(order.get("id")))
         if dispatched is not None:
             order = dispatched
             pending_offers = [
                 offer
-                for offer in load_offers()
+                for offer in order.get("offers", [])
                 if str(offer.get("orderId") or "") == str(order.get("id")) and str(offer.get("status") or "") == "pending"
             ]
             for offer in pending_offers:
@@ -206,7 +211,7 @@ def create_order(payload: dict, authorization: str | None = Header(default=None)
     return order
 
 
-@router.get("/orders/{order_id}")
+@router.get("/orders/{order_id}", response_model=OrderRead, response_model_exclude_unset=True)
 def read_order(
     order_id: str,
     authorization: str | None = Header(default=None),
@@ -228,7 +233,7 @@ def read_order(
     if order is None:
         raise HTTPException(status_code=404, detail="order not found")
     require_order_participant_auth(order, authorization, x_pomich_admin_token=x_pomich_admin_token)
-    return attach_dispatch_to_order(order, load_offers())
+    return attach_dispatch_to_order(order)
 
 
 @router.post("/orders/{order_id}/reviews")
@@ -272,9 +277,12 @@ def create_order_review(
         publish_order_event(result if isinstance(result, dict) else None, "order.reviewed")
         return result
     except DispatchConflict as exc:
+        if exc.code == "REVIEW_FORBIDDEN":
+            raise HTTPException(status_code=403, detail=exc.code) from exc
         if exc.code == "REVIEW_ALREADY_SUBMITTED":
             existing = get_order(order_id)
             if existing is not None:
+                require_order_participant_auth(existing, authorization)
                 return existing
         record_ops_event(
             event_type="REVIEW_FAILED",
@@ -420,7 +428,7 @@ def cancel_order(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if order is None:
         raise HTTPException(status_code=404, detail="order not found")
-    payload = attach_dispatch_to_order(order, load_offers())
+    payload = attach_dispatch_to_order(order)
     notify_order_cancelled(payload)
     publish_order_event(payload, "order.cancelled")
     return payload
@@ -445,10 +453,39 @@ def patch_order_status(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if order is None:
         raise HTTPException(status_code=404, detail="order not found")
-    result = attach_dispatch_to_order(order, load_offers())
+    result = attach_dispatch_to_order(order)
     if normalize_order_status(result.get("status")) == "cancelled":
         notify_order_cancelled(result)
         publish_order_event(result, "order.cancelled")
     else:
         publish_order_event(result, "order.status")
     return result
+
+
+@router.get("/orders/{order_id}/support")
+def order_support_cases(order_id: str, authorization: str | None = Header(default=None)) -> list[dict]:
+    from bot.support_store import list_cases
+    order = get_order(order_id)
+    if order is None:
+        raise HTTPException(status_code=404, detail="order not found")
+    require_order_customer_owner(order, authorization)
+    return list_cases(order_id=order_id)
+
+
+@router.post("/orders/{order_id}/support")
+def create_order_support_case(order_id: str, payload: dict, authorization: str | None = Header(default=None)) -> dict:
+    from bot.api_requests import SupportCaseCreate
+    from bot.support_store import create_case, SupportCaseOwnerUnavailable
+    order = get_order(order_id)
+    if order is None:
+        raise HTTPException(status_code=404, detail="order not found")
+    principal = require_order_customer_owner(order, authorization)
+    payload = validated(SupportCaseCreate, payload)
+    description = payload["description"].strip()
+    if len(description) < 5:
+        raise HTTPException(status_code=422, detail="description_required")
+    # Unique order_id makes network retries idempotent; creating a case never cancels a ride.
+    try:
+        return create_case(order, principal.subject_id, payload["reason"], description)
+    except SupportCaseOwnerUnavailable as exc:
+        raise HTTPException(status_code=403, detail="customer_profile_unavailable") from exc

@@ -27,6 +27,9 @@ services:
         condition: service_healthy
     env_file:
       - ${POMICH_ENV_FILE:-.env.production}
+    environment:
+      POMICH_DISPATCH_ASYNC: "1"
+      POMICH_TELEGRAM_WORKER_MODE: external
     ports:
       # Bind to loopback only — public traffic must go through nginx :443.
       - "127.0.0.1:8000:8000"
@@ -53,6 +56,37 @@ services:
       timeout: 3s
       retries: 12
       start_period: 15s
+    restart: unless-stopped
+
+  pomich-worker:
+    image: ${POMICH_IMAGE:-pomich-app:latest}
+    command: ["python3", "-m", "bot.dispatch_worker"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - ${POMICH_ENV_FILE:-.env.production}
+    environment:
+      POMICH_DISPATCH_ASYNC: "1"
+      POMICH_TELEGRAM_WORKER_MODE: external
+    volumes:
+      - ./data:/app/data
+    read_only: true
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: 1
+    healthcheck:
+      test: ["CMD", "python3", "-c", "from bot.dispatch_jobs import stats; raise SystemExit(0 if stats()['workerHealthy'] else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     restart: unless-stopped
 
 volumes:

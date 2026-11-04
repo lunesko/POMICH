@@ -58,6 +58,7 @@ vi.mock('react-leaflet', () => ({
 
 vi.mock('leaflet', () => ({
   default: {
+    control: { zoom: () => ({ addTo: () => ({ remove: vi.fn() }) }) },
     divIcon: () => ({}),
     latLngBounds: () => ({ pad: () => ({}) }),
     tileLayer: () => ({

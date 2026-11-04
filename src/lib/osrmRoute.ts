@@ -1,5 +1,6 @@
 import { fetchJsonWithDeadline } from "./fetchJsonWithDeadline"
 import type { LatLngTuple } from "leaflet"
+import type { components } from "../api/generated"
 
 import type { Point } from "./constants"
 
@@ -10,25 +11,14 @@ export interface OsrmRouteResult {
 }
 
 export async function fetchOsrmRoute(from: Point, to: Point): Promise<OsrmRouteResult | null> {
-  const url = `https://router.project-osrm.org/route/v1/driving/${from.lng},${from.lat};${to.lng},${to.lat}?overview=full&geometries=geojson`
+  const base = import.meta.env.VITE_API_BASE_URL || "/api"
   try {
-    const data = await fetchJsonWithDeadline(url) as {
-      routes?: Array<{
-        distance?: number
-        duration?: number
-        geometry?: { coordinates?: Array<[number, number]> }
-      }>
-    }
-    const route = data.routes?.[0]
-    const coordinates = route?.geometry?.coordinates
-    if (!route || !coordinates?.length || typeof route.distance !== "number" || typeof route.duration !== "number") {
-      return null
-    }
-    return {
-      coordinates: coordinates.map(([lng, lat]) => [lat, lng] as LatLngTuple),
-      distanceMeters: route.distance,
-      durationSeconds: route.duration,
-    }
+    const data = await fetchJsonWithDeadline(`${base}/routing/route`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fromPoint: from, toPoint: to } satisfies components["schemas"]["RouteRequest"]),
+    }) as components["schemas"]["RouteResponse"]
+    if (data.source !== "osrm" || !data.coordinates?.length || typeof data.distanceMeters !== "number" || typeof data.durationSeconds !== "number") return null
+    return { coordinates: data.coordinates, distanceMeters: data.distanceMeters, durationSeconds: data.durationSeconds }
   } catch {
     return null
   }

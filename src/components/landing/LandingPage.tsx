@@ -1,3 +1,4 @@
+import Icon from "../ui/Icon"
 import DirectoryList from "./DirectoryList"
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 
@@ -444,7 +445,7 @@ export default function LandingPage({
                 className="pomich-landing-header__menu-toggle"
                 style={{ width: 44, height: 44, border: "1px solid rgba(255,255,255,0.22)", borderRadius: 10, background: "rgba(255,255,255,0.1)", color: "#F8FAFC", fontSize: 22, fontWeight: 900, cursor: "pointer" }}
               >
-                {menuOpen ? "✕" : "☰"}
+                <Icon name={menuOpen ? "close" : "menu"} />
               </button>
             </div>
           ) : (
@@ -633,7 +634,7 @@ export default function LandingPage({
                     <span style={{ display: "block", fontSize: layoutCompact ? 14 : 15, fontWeight: 900, lineHeight: 1.15 }}>{service.label}</span>
                     <span style={{ display: "block", marginTop: 2, color: theme.muted, fontSize: 12, fontWeight: 700 }}>від {basePrice} ₴{service.key === "tow" ? " · +90 ₴/км перевезення" : " · виїзд і матеріали узгоджуються"}</span>
                   </span>
-                  <span aria-hidden style={{ color: theme.subtle, fontWeight: 900, fontSize: 18 }}>›</span>
+                  <span aria-hidden style={{ color: theme.subtle, fontWeight: 900, fontSize: 18 }}><Icon name="arrow-right" size={18} /></span>
                 </button>
               )
             })}
@@ -746,7 +747,7 @@ export default function LandingPage({
                 cursor: mapGeoStatus === "requesting" ? "wait" : "pointer",
               }}
             >
-              {mapGeoStatus === "requesting" ? "Визначаємо…" : mapGeoStatus === "success" ? "Моє місце ✓" : "Моє місце"}
+              <Icon name={mapGeoStatus === "success" ? "check" : "locate"} size={18} /> {mapGeoStatus === "requesting" ? "Визначаємо…" : "Моє місце"}
             </button>
           </div>
           <DirectoryList providers={mapProviders} />
@@ -767,7 +768,7 @@ export default function LandingPage({
           <div className="landing-faq pomich-landing-inner landing-reveal">
             {landingFaq.map(([q, a]) => (
               <details key={q} className="landing-faq__item">
-                <summary>{q}</summary>
+                <summary>{q}<Icon name="plus" size={18} className="landing-faq__expand" /><Icon name="minus" size={18} className="landing-faq__collapse" /></summary>
                 <p>{a}</p>
               </details>
             ))}

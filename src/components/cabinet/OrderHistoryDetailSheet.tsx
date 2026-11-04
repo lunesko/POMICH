@@ -1,3 +1,5 @@
+import { renderReviewStars } from "../ui/RatingStars"
+import Icon from "../ui/Icon"
 import { Suspense, lazy, useEffect } from "react"
 import { createPortal } from "react-dom"
 
@@ -5,7 +7,8 @@ import type { OrderResponse } from "../../api/client"
 import { getServiceLabel, type Point } from "../../lib/constants"
 import type { ServiceKey } from "../../lib/pomichDomain"
 import { isServiceDetails, serviceDetailRows } from "../../lib/serviceDetails"
-import { formatCabinetOrderStatus, formatCabinetReviewStars } from "../customer/OrderTerminalStep"
+import { formatCabinetOrderStatus } from "../customer/OrderTerminalStep"
+import OrderSupport from "../customer/OrderSupport"
 import ServiceIcon from "../ui/ServiceIcon"
 import { SecondaryButton } from "../ui/SecondaryButton"
 
@@ -112,10 +115,12 @@ function MapFallback() {
 export default function OrderHistoryDetailSheet({
   order,
   viewer,
+  customerToken,
   onClose,
 }: {
   order: OrderResponse
   viewer: OrderHistoryViewer
+  customerToken?: string
   onClose: () => void
 }) {
   const detailRows = serviceDetailRows(isServiceDetails(order.serviceDetails) ? order.serviceDetails : undefined)
@@ -127,12 +132,12 @@ export default function OrderHistoryDetailSheet({
       : order.customerName
   const ownReview =
     viewer === "customer"
-      ? formatCabinetReviewStars(order.customerReview?.rating)
-      : formatCabinetReviewStars(order.partnerReview?.rating)
+      ? renderReviewStars(order.customerReview?.rating)
+      : renderReviewStars(order.partnerReview?.rating)
   const otherReview =
     viewer === "customer"
-      ? formatCabinetReviewStars(order.partnerReview?.rating)
-      : formatCabinetReviewStars(order.customerReview?.rating)
+      ? renderReviewStars(order.partnerReview?.rating)
+      : renderReviewStars(order.customerReview?.rating)
   const timeline = (order.statusHistory ?? []).filter((item) => item.status && item.at)
   const mapSubtitle = partnerPoint
     ? partnerEstimated
@@ -167,7 +172,7 @@ export default function OrderHistoryDetailSheet({
         <div className="pomich-history-detail__top">
           <div className="pomich-history-detail__handle" aria-hidden="true" />
           <button type="button" className="pomich-history-detail__close-x" onClick={onClose} aria-label="Закрити деталі">
-            ✕
+            <Icon name="close" />
           </button>
         </div>
 
@@ -253,6 +258,8 @@ export default function OrderHistoryDetailSheet({
               </div>
             ) : null}
           </div>
+
+          {viewer === "customer" && order.id ? <OrderSupport orderId={order.id} token={customerToken} /> : null}
 
           {pickup ? (
             <div className="pomich-history-detail__map" aria-label="Карта маршруту партнер клієнт">

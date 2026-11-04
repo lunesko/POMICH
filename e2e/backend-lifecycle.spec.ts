@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs'
 import { expect, test } from '@playwright/test'
 
-test('customer browser creates an order and observes real provider lifecycle', async ({ page, context }) => {
-  const seed = JSON.parse(readFileSync('test-results/e2e-session.json', 'utf8'))
+test('customer browser creates an order and observes real provider lifecycle', async ({ page, context }, testInfo) => {
+  const seed = JSON.parse(readFileSync('test-results/e2e-session.json', 'utf8'))[testInfo.project.name]
   await context.addCookies([{ name: 'pomich_customer_session', value: seed.cookie,
     domain: '127.0.0.1', path: '/api/auth/browser/', httpOnly: true, sameSite: 'Lax' }])
   await page.addInitScript(customerId => {
@@ -16,6 +16,8 @@ test('customer browser creates an order and observes real provider lifecycle', a
   }, seed.customer.subjectId)
   // No route interception: browser, HTTP auth, application and PostgreSQL are real.
   await page.goto('/?role=customer')
+  const cookieNotice = page.getByRole('button', { name: 'Зрозуміло', exact: true })
+  if (await cookieNotice.isVisible()) await cookieNotice.click()
   const created = page.waitForResponse(response => response.url().endsWith('/api/orders') && response.request().method() === 'POST')
   await page.getByRole('button', { name: /Надіслати заявку|Викликати допомогу|Підтвердити виклик/ }).last().click()
   const response = await created
@@ -27,10 +29,14 @@ test('customer browser creates an order and observes real provider lifecycle', a
     return { status: result.status, data: await result.json() }
   }, { path, token, method, body })
   const providerId = seed.provider.subjectId
-  const offers = await api(`/providers/${providerId}/offers`, seed.provider.accessToken)
-  expect(offers.status).toBe(200)
-  const offer = offers.data.find((item: { orderId: string }) => item.orderId === order.id)
-  expect(offer).toBeTruthy()
+  let offer: { id: string; orderId: string } | undefined
+  await expect.poll(async () => {
+    const offers = await api(`/providers/${providerId}/offers`, seed.provider.accessToken)
+    expect(offers.status).toBe(200)
+    offer = offers.data.find((item: { orderId: string }) => item.orderId === order.id)
+    return Boolean(offer)
+  }, { timeout: 15_000, message: "Independent worker must dispatch the persisted order" }).toBe(true)
+  if (!offer) throw new Error("worker did not create an offer")
   expect((await api(`/providers/${providerId}/offers/${offer.id}/accept`, seed.provider.accessToken, 'POST', { proposedPrice: 700 })).status).toBe(200)
   await expect(page.getByText(/700/).first()).toBeVisible({ timeout: 30_000 })
   const confirmation = page.waitForResponse(response => response.url().endsWith(`/orders/${order.id}/confirm-price`))

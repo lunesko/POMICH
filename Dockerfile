@@ -2,6 +2,7 @@ FROM node:22-bookworm@sha256:0e5f906573693feaa1e21057ebdcfdb5bd5021f050b2dc7c9de
 
 WORKDIR /app
 COPY package*.json ./
+COPY scripts/patch-openapi-core.mjs ./scripts/
 RUN npm ci
 COPY . ./
 ARG POMICH_BUILD_SHA=development

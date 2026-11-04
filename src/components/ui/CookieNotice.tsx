@@ -8,7 +8,7 @@ export default function CookieNotice() {
   })
   if (!visible) return null
   return (
-    <aside className="pomich-cookie-notice" aria-label="Cookies та локальне сховище">
+    <aside className="pomich-cookie-notice" aria-label="Cookies та локальне сховище" aria-live="polite">
       <p>Ми використовуємо cookies для збереження входу, а локальне сховище — для налаштувань сервісу. Строк збереження входу залежить від вибору «Залишатися в системі».</p>
       <div>
         <a href="/privacy" target="_blank" rel="noopener noreferrer">Детальніше</a>

@@ -14,6 +14,9 @@ def main():
                 connection.exec_driver_sql("SELECT pg_advisory_lock(764209101)")
             try:
                 runtime_store._install_schema(engine)
+                from bot.otp_repository import transaction
+                with transaction():
+                    pass  # Retire obsolete file-backed challenges after SQL schema commit.
             finally:
                 if postgres:
                     connection.exec_driver_sql("SELECT pg_advisory_unlock(764209101)")

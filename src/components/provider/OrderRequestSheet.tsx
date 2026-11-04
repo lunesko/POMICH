@@ -1,7 +1,8 @@
+import ServiceIcon from "../ui/ServiceIcon"
 import { useEffect, useRef } from "react"
 
 import type { MapRequestPin } from "../../api/client"
-import { getProviderCapabilityLabel, getServiceEmoji } from "../../lib/constants"
+import { getProviderCapabilityLabel } from "../../lib/constants"
 import { parseOfferPrice } from "../../lib/dispatchOffer"
 import { isServiceDetails, serviceDetailRows } from "../../lib/serviceDetails"
 import { PrimaryButton } from "../ui/PrimaryButton"
@@ -89,7 +90,7 @@ export function OrderRequestSheet({
         <div className="pomich-order-request-sheet__scroll">
           <div className="pomich-order-request-sheet__handle" aria-hidden="true" />
           <div className="pomich-order-request-sheet__title">
-            {getServiceEmoji(pin.service)} {getProviderCapabilityLabel(pin.service)}
+            <ServiceIcon service={pin.service} size={20} /> {getProviderCapabilityLabel(pin.service)}
           </div>
           <div className="pomich-order-request-sheet__meta">
             {distanceLabel}

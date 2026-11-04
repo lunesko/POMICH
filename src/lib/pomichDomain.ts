@@ -1,7 +1,5 @@
 export type ServiceKey = 'tow' | 'battery' | 'wheel' | 'fuel' | 'lockout' | 'mechanic'
 
-export type OrderState = 'draft' | 'matching' | 'assigned' | 'tracking' | 'arrived' | 'completed' | 'cancelled' | 'expired'
-
 export interface CustomerOrderInput {
   service: ServiceKey | ''
   customerLocation: string
@@ -113,39 +111,4 @@ export function sanitizeLocation(value: string): string {
     .join(', ')
 
   return cleaned || 'Не вказано'
-}
-
-export function getStateTransition(state: OrderState, event: 'accept' | 'cancel' | 'complete' | 'arrive' | 'track'): OrderState {
-  switch (state) {
-    case 'draft':
-      return event === 'cancel' ? 'cancelled' : 'matching'
-    case 'matching':
-      if (event === 'accept') return 'assigned'
-      if (event === 'cancel') return 'cancelled'
-      return 'matching'
-    case 'assigned':
-      if (event === 'track') return 'tracking'
-      if (event === 'arrive') return 'arrived'
-      if (event === 'cancel') return 'cancelled'
-      return 'assigned'
-    case 'tracking':
-      if (event === 'arrive') return 'arrived'
-      if (event === 'complete') return 'completed'
-      if (event === 'cancel') return 'cancelled'
-      return 'tracking'
-    case 'arrived':
-      if (event === 'complete') return 'completed'
-      if (event === 'cancel') return 'cancelled'
-      return 'arrived'
-    case 'completed':
-    case 'cancelled':
-    case 'expired':
-      return state
-    default:
-      return state
-  }
-}
-
-export function buildOrderFingerprint(orderId: string, customerId: string, providerId: string): string {
-  return `${orderId}:${customerId}:${providerId}`
 }

@@ -1,3 +1,4 @@
+import Icon from "../ui/Icon"
 import type { ReactNode } from "react"
 
 import type { OrderStatus } from "../../lib/constants"
@@ -20,7 +21,7 @@ export function Header({ title, subtitle, onBack, status, showThemeToggle = true
       <div className="pomich-cabinet-header-bar">
         <div className="pomich-cabinet-header-main">
           {onBack ? (
-            <button type="button" aria-label="Назад" onClick={onBack} className="pomich-back-btn">←</button>
+            <button type="button" aria-label="Назад" onClick={onBack} className="pomich-back-btn"><Icon name="arrow-left" /></button>
           ) : null}
           <div className="min-w-0">
             <div className="pomich-header-title">{title}</div>

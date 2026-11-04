@@ -1,3 +1,4 @@
+import Icon from "../ui/Icon"
 import { useEffect, useState } from "react"
 
 import { validatePersonName } from "../../lib/personName"
@@ -30,7 +31,7 @@ function RegistrationScreenHeader({ onBack }: { onBack?: () => void }) {
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
         {onBack ? (
-          <button type="button" onClick={onBack} className="pomich-back-btn" aria-label="Назад">←</button>
+          <button type="button" onClick={onBack} className="pomich-back-btn" aria-label="Назад"><Icon name="arrow-left" /></button>
         ) : null}
         <div>
           <div className="pomich-header-title">Реєстрація клієнта</div>

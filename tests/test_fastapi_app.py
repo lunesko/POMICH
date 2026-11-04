@@ -234,6 +234,7 @@ def test_fastapi_updates_provider_presence(monkeypatch, tmp_path) -> None:
     _use_provider_auth(monkeypatch)
     client = TestClient(app)
     provider_headers = _provider_session_headers(client, "provider-oleksandr")
+    order_store.save_providers([_api_provider("provider-oleksandr", 48.63, 22.27)])
     client.patch(
         "/api/providers/provider-oleksandr/profile",
         headers=provider_headers,
@@ -279,7 +280,7 @@ def test_fastapi_registers_provider_profile(monkeypatch, tmp_path) -> None:
     assert response.status_code == 200
     assert response.json()["specialties"] == ["tow", "fuel"]
     assert response.json()["serviceRadiusKm"] == 9
-    assert response.json()["verificationStatus"] == "verified"
+    assert response.json()["verificationStatus"] == "unverified"
 
 
 def test_fastapi_customer_profile_and_verification_review(monkeypatch, tmp_path) -> None:
@@ -1678,3 +1679,38 @@ def test_map_nearby_orders_excludes_completed_and_cancelled(monkeypatch, tmp_pat
     )
     assert response.status_code == 200
     assert {item["id"] for item in response.json()} == {"PM-OPEN"}
+
+
+def test_support_case_owner_only_and_admin_resolution(monkeypatch, tmp_path):
+    _use_temp_store(monkeypatch, tmp_path)
+    monkeypatch.setenv("POMICH_ADMIN_TOKEN", ADMIN_TOKEN)
+    monkeypatch.setenv("POMICH_CUSTOMER_SESSION_SECRET", CUSTOMER_SESSION_SECRET)
+    client = TestClient(app)
+    owner = _customer_session_headers(client, "case-owner")
+    stranger = _customer_session_headers(client, "case-stranger")
+    admin = _admin_session_headers(client)
+    order = order_store.save_order({"customerId": "case-owner", "status": "cancelled", "service": "wheel"})
+    path = f"/api/orders/{order['id']}/support"
+    payload = {"reason": "help_not_received", "description": "Партнер не приїхав"}
+    assert client.post(path, headers=stranger, json=payload).status_code == 403
+    assert client.get(path, headers=stranger).status_code == 403
+    assert client.post(path, json=payload).status_code == 401
+    assert client.get("/api/admin/support", headers=owner).status_code in {401, 403}
+    assert client.post(path, headers=owner, json={**payload, "customerId": "spoof"}).status_code == 422
+    assert client.post(path, headers=owner, json={**payload, "description": "     "}).status_code == 422
+    created = client.post(path, headers=owner, json=payload)
+    assert created.status_code == 200, created.text
+    ticket = created.json()
+    assert client.post(path, headers=owner, json=payload).json()["id"] == ticket["id"]
+    assert order_store.get_order(order["id"])["status"] == "cancelled"
+    assert len(client.get(path, headers=owner).json()) == 1
+    assert client.get("/api/admin/support", headers=admin).json()[0]["id"] == ticket["id"]
+    target = f"/api/admin/support/{ticket['id']}"
+    assert client.patch(target, headers=owner, json={"status": "resolved", "resolution": "Done!"}).status_code in {401, 403}
+    assert client.patch(target, headers=admin, json={"status": "resolved"}).status_code == 422
+    assert client.patch(target, headers=admin, json={"status": "in_review"}).json()["status"] == "in_review"
+    response = client.patch(target, headers=admin, json={"status": "resolved", "resolution": "Зв’язалися з клієнтом, питання вирішено"})
+    assert response.status_code == 200
+    own_ticket = client.get(path, headers=owner).json()[0]
+    assert own_ticket["status"] == "resolved"
+    assert own_ticket["resolution"] == response.json()["resolution"]

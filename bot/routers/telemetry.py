@@ -58,3 +58,22 @@ async def web_vitals(request: Request) -> Response:
     for metric in metrics:
         logger.info(json.dumps({"event": "web_vital", "page": payload["page"], "viewport": payload["viewport"], "name": metric["name"], "value": metric["value"]}, separators=(",", ":")))
     return Response(status_code=204)
+
+
+@router.post("/telemetry/crashes", status_code=204)
+async def crash_counter(request: Request) -> Response:
+    chunks = bytearray()
+    async for chunk in request.stream():
+        chunks.extend(chunk)
+        if len(chunks) > 128:
+            raise HTTPException(status_code=413, detail="payload_too_large")
+    try:
+        payload = json.loads(chunks)
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise HTTPException(status_code=400, detail="invalid_crash") from exc
+    categories = {"render_error", "chunk_error", "js_error", "unhandled_rejection"}
+    if (not isinstance(payload, dict) or set(payload) != {"category"}
+            or not isinstance(payload["category"], str) or payload["category"] not in categories):
+        raise HTTPException(status_code=400, detail="invalid_crash")
+    logger.error(json.dumps({"event": "frontend_crash", "category": payload["category"]}, separators=(",", ":")))
+    return Response(status_code=204)

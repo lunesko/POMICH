@@ -1,3 +1,4 @@
+import Icon from "../ui/Icon"
 import { usePomichTheme } from "../../context/PomichThemeProvider"
 import BrandLogo from "../ui/BrandLogo"
 import BetaNotice from "../ui/BetaNotice"
@@ -165,7 +166,7 @@ export default function RoleSelectionScreen({
               Оберіть вашу роль
             </div>
             {roleCards.map((card, index) => {
-              const Icon = card.Icon
+              const RoleIcon = card.Icon
               return (
                 <button
                   key={card.key}
@@ -179,7 +180,7 @@ export default function RoleSelectionScreen({
                   <div className="flex items-center gap-2.5">
                     <div className={`pomich-role-icon pomich-role-icon--compact pomich-role-icon--${card.tone}`}>
                       <span className="pomich-role-icon__glow" aria-hidden="true" />
-                      <Icon />
+                      <RoleIcon />
                     </div>
                     <div className="min-w-0 flex-1 text-left">
                       <div className="text-[10px] font-extrabold tracking-wide uppercase" style={{ color: `var(${card.accentVar})` }}>
@@ -194,7 +195,7 @@ export default function RoleSelectionScreen({
                       </div>
                     </div>
                     <span className="pomich-role-card__chevron self-center" aria-hidden="true">
-                      →
+                      <Icon name="arrow-right" size={18} />
                     </span>
                   </div>
                 </button>
@@ -204,7 +205,7 @@ export default function RoleSelectionScreen({
 
           <a href="https://t.me/pomich_ua_bot" target="_blank" rel="noreferrer" className="mt-2.5 block no-underline">
             <div className="pomich-ghost-btn pomich-role-tg-link flex items-center justify-center gap-2">
-              <span aria-hidden="true">✈</span>
+              <Icon name="telegram" size={18} />
               @pomich_ua_bot
             </div>
           </a>

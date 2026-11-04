@@ -1,3 +1,4 @@
+import Icon from "./Icon"
 import { useState } from "react"
 
 import { PrimaryButton } from "./PrimaryButton"
@@ -31,7 +32,7 @@ export function OrderReviewPanel({ title, subtitle, saving = false, error, onSub
             onClick={() => setRating(value)}
             disabled={saving}
           >
-            ★
+            <Icon name="star" size={28} filled={rating >= value} />
           </button>
         ))}
       </div>

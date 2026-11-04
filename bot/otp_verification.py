@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 import hashlib
 import hmac
 import json
@@ -116,7 +117,38 @@ def _telegram_otp_guard_stamp(chat_id: str) -> None:
         _TELEGRAM_OTP_GUARD[key] = stamps
 
 
+
+def _sql_otp_enabled(path: Optional[Path]) -> bool:
+    from bot.runtime_store import sql_storage_enabled
+    return sql_storage_enabled() and (path is None or path == _default_otp_store_path())
+
+
+@contextmanager
+def _otp_transaction(path: Optional[Path] = None):
+    with OTP_LOCK:
+        if _sql_otp_enabled(path):
+            from bot.otp_repository import transaction
+            with transaction(commit_errors=(OtpVerificationError,)):
+                yield
+        else:
+            yield
+
+
+def _require_sql_otp_customer(customer_id: str, path: Optional[Path] = None) -> None:
+    if not _sql_otp_enabled(path):
+        return
+    from bot.otp_repository import _connection
+    from bot.runtime_store import customers
+    from sqlalchemy import select
+    profile = _connection().execute(select(customers.c.payload).where(customers.c.id == customer_id)).scalar_one_or_none()
+    if profile is None or profile.get("accountStatus") == "disabled":
+        raise OtpVerificationError("customer_not_found", "customer profile not found")
+
+
 def _load_otp_store(path: Optional[Path] = None) -> Dict[str, Any]:
+    if _sql_otp_enabled(path):
+        from bot.otp_repository import load
+        return load()
     store_path = path or _default_otp_store_path()
     if not store_path.exists():
         return {}
@@ -128,6 +160,10 @@ def _load_otp_store(path: Optional[Path] = None) -> Dict[str, Any]:
 
 
 def _save_otp_store(data: Dict[str, Any], path: Optional[Path] = None) -> None:
+    if _sql_otp_enabled(path):
+        from bot.otp_repository import save
+        save(data)
+        return
     store_path = path or _default_otp_store_path()
     _write_json_atomic(store_path, data)
 
@@ -314,7 +350,7 @@ def _deliver_telegram_otp_and_record(
 ) -> None:
     def _invalidate_undelivered_code(reason: str) -> None:
         """Drop orphan hashes so confirm cannot succeed when Telegram never delivered."""
-        with OTP_LOCK:
+        with _otp_transaction(store_path):
             otp_path = store_path or _default_otp_store_path()
             store = _load_otp_store(otp_path)
             record = store.get(customer_id)
@@ -348,13 +384,13 @@ def _deliver_telegram_otp_and_record(
             message_id, bot_kind = _deliver_telegram_otp(chat_id, code, preferred_kind=preferred_kind)
     except Exception as exc:
         print(
-            f"[POMICH OTP] telegram send failed customer_id={customer_id} chat_id={chat_id} error={exc}",
+            f"[POMICH OTP] telegram send failed customer_id={customer_id} chat_id={chat_id} error={type(exc).__name__}",
             flush=True,
         )
         _invalidate_undelivered_code("telegram_send_failed")
         return
     _telegram_otp_guard_stamp(chat_id)
-    with OTP_LOCK:
+    with _otp_transaction(store_path):
         otp_path = store_path or _default_otp_store_path()
         store = _load_otp_store(otp_path)
         record = store.get(customer_id)
@@ -583,69 +619,70 @@ def send_customer_verification_code(
     if normalized_channel not in {"telegram", "email"}:
         raise OtpVerificationError("invalid_channel", "channel must be telegram or email")
 
-    profile = get_customer_profile(customer_id, customer_store_path)
-    if profile is None:
-        raise OtpVerificationError("customer_not_found", "customer profile not found")
+    with _otp_transaction(store_path):
+        _require_sql_otp_customer(customer_id, store_path)
+        profile = get_customer_profile(customer_id, customer_store_path)
+        if profile is None:
+            raise OtpVerificationError("customer_not_found", "customer profile not found")
 
-    existing_digits = _customer_profile_phone_digits(profile)
-    requested_phone = str(phone).strip() if phone is not None else ""
-    next_digits = _normalize_ukraine_phone_digits(requested_phone) if requested_phone else existing_digits
-    phone_changing = bool(requested_phone) and next_digits != existing_digits
-
-    if (
-        normalize_verification_status(profile.get("verificationStatus"), "unverified") == "verified"
-        and not phone_changing
-        and send_reason != "auth/customer/phone/login/send"
-    ):
-        _verify_linked_provider_after_otp(customer_id, customer_store_path)
-        verified_profile = get_customer_profile(customer_id, customer_store_path)
-        return {
-            "ok": True,
-            "sent": False,
-            "alreadyVerified": True,
-            "channel": normalized_channel,
-            "expiresAt": _now_iso(),
-            "expiresInSeconds": 0,
-            "cooldownSeconds": 0,
-            "profile": dict(verified_profile) if isinstance(verified_profile, dict) else None,
-        }
-
-    patch: Dict[str, Any] = {}
-    if phone is not None:
-        phone_value = str(phone).strip()
-        if phone_value and not _is_valid_ukraine_mobile_phone(phone_value):
-            raise OtpVerificationError("invalid_phone", "invalid ukraine mobile phone")
-        # Do not re-patch an unchanged phone: legacy guest+tg duplicates would raise
-        # phone_already_registered and block OTP delivery.
         existing_digits = _customer_profile_phone_digits(profile)
-        next_digits = _normalize_ukraine_phone_digits(phone_value)
-        if phone_value and next_digits != existing_digits:
-            patch["phone"] = phone_value
-    if email is not None:
-        email_value = str(email).strip()
-        existing_email = str(profile.get("email") or "").strip()
-        if email_value and email_value != existing_email:
-            patch["email"] = email_value
+        requested_phone = str(phone).strip() if phone is not None else ""
+        next_digits = _normalize_ukraine_phone_digits(requested_phone) if requested_phone else existing_digits
+        phone_changing = bool(requested_phone) and next_digits != existing_digits
 
-    if patch:
-        try:
-            profile = update_customer_profile(customer_id, patch, customer_store_path)
-        except ValueError as exc:
-            if str(exc) == "phone_already_registered":
-                raise OtpVerificationError("phone_already_registered", "phone already registered") from exc
-            raise
+        if (
+            normalize_verification_status(profile.get("verificationStatus"), "unverified") == "verified"
+            and not phone_changing
+            and send_reason != "auth/customer/phone/login/send"
+        ):
+            _verify_linked_provider_after_otp(customer_id, customer_store_path)
+            verified_profile = get_customer_profile(customer_id, customer_store_path)
+            return {
+                "ok": True,
+                "sent": False,
+                "alreadyVerified": True,
+                "channel": normalized_channel,
+                "expiresAt": _now_iso(),
+                "expiresInSeconds": 0,
+                "cooldownSeconds": 0,
+                "profile": dict(verified_profile) if isinstance(verified_profile, dict) else None,
+            }
 
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
-    now_iso = _now_iso()
-    expires_at = now + timedelta(seconds=OTP_TTL_SECONDS)
-    profile_phone = str(profile.get("phone") or phone or "").strip() or None
+        patch: Dict[str, Any] = {}
+        if phone is not None:
+            phone_value = str(phone).strip()
+            if phone_value and not _is_valid_ukraine_mobile_phone(phone_value):
+                raise OtpVerificationError("invalid_phone", "invalid ukraine mobile phone")
+            # Do not re-patch an unchanged phone: legacy guest+tg duplicates would raise
+            # phone_already_registered and block OTP delivery.
+            existing_digits = _customer_profile_phone_digits(profile)
+            next_digits = _normalize_ukraine_phone_digits(phone_value)
+            if phone_value and next_digits != existing_digits:
+                patch["phone"] = phone_value
+        if email is not None:
+            email_value = str(email).strip()
+            existing_email = str(profile.get("email") or "").strip()
+            if email_value and email_value != existing_email:
+                patch["email"] = email_value
 
-    pending_telegram: Optional[Dict[str, Any]] = None
-    pending_email: Optional[tuple[str, str]] = None
-    telegram_chat_id: Optional[str] = None
-    otp_path = store_path or _default_otp_store_path()
+        if patch:
+            try:
+                profile = update_customer_profile(customer_id, patch, customer_store_path)
+            except ValueError as exc:
+                if str(exc) == "phone_already_registered":
+                    raise OtpVerificationError("phone_already_registered", "phone already registered") from exc
+                raise
 
-    with OTP_LOCK:
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        now_iso = _now_iso()
+        expires_at = now + timedelta(seconds=OTP_TTL_SECONDS)
+        profile_phone = str(profile.get("phone") or phone or "").strip() or None
+
+        pending_telegram: Optional[Dict[str, Any]] = None
+        pending_email: Optional[tuple[str, str]] = None
+        telegram_chat_id: Optional[str] = None
+        otp_path = store_path or _default_otp_store_path()
+
         store = _cleanup_expired_otp_records(_load_otp_store(otp_path), now)
         record = store.get(customer_id) if isinstance(store.get(customer_id), dict) else {}
         send_history = record.get("sendHistory") if isinstance(record.get("sendHistory"), list) else []
@@ -796,7 +833,7 @@ def send_customer_verification_code(
             try:
                 _send_email_otp(target_email, queued_code)
             except Exception as exc:
-                print(f"[POMICH OTP] email send failed target={target_email} error={exc}", flush=True)
+                print(f"[POMICH OTP] email send failed target={target_email} error={type(exc).__name__}", flush=True)
 
         _run_in_background(_bg_email_send)
 
@@ -826,7 +863,8 @@ def confirm_customer_verification_code(
 
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     linked_owner_id = ""
-    with OTP_LOCK:
+    with _otp_transaction(store_path):
+        _require_sql_otp_customer(customer_id, store_path)
         otp_path = store_path or _default_otp_store_path()
         store = _cleanup_expired_otp_records(_load_otp_store(otp_path), now)
         record = store.get(customer_id) if isinstance(store.get(customer_id), dict) else None
@@ -897,13 +935,13 @@ def confirm_customer_verification_code(
         _save_otp_store(store, otp_path)
         linked_owner_id = hashed_customer_id if hashed_customer_id != customer_id else ""
 
-    updated = _apply_customer_otp_verification(customer_id, channel, customer_store_path)
-    if linked_owner_id:
-        try:
-            _apply_customer_otp_verification(linked_owner_id, channel, customer_store_path)
-        except OtpVerificationError:
-            pass
-    return updated
+        updated = _apply_customer_otp_verification(customer_id, channel, customer_store_path)
+        if linked_owner_id:
+            try:
+                _apply_customer_otp_verification(linked_owner_id, channel, customer_store_path)
+            except OtpVerificationError:
+                pass
+        return updated
 
 
 def _apply_customer_otp_verification(

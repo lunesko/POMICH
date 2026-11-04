@@ -163,6 +163,42 @@ describe("realtime transport preference", async () => {
     ;(globalThis as { WebSocket?: unknown }).WebSocket = prev
   })
 
+  it("does not open duplicate SSE connections while a ticket request is pending", async () => {
+    let resolveTicket!: (response: { ok: boolean; json: () => Promise<{ ticket: string }> }) => void
+    const pendingTicket = new Promise<{ ok: boolean; json: () => Promise<{ ticket: string }> }>((resolve) => {
+      resolveTicket = resolve
+    })
+    const fetchMock = vi.fn().mockReturnValue(pendingTicket)
+    vi.stubGlobal("fetch", fetchMock)
+
+    const sources: Array<{ close: ReturnType<typeof vi.fn> }> = []
+    class MockEventSource {
+      onopen = null
+      onmessage = null
+      onerror = null
+      close = vi.fn()
+      constructor(_url: string) {
+        sources.push(this)
+      }
+      addEventListener() {}
+    }
+    const originalEventSource = window.EventSource
+    window.EventSource = MockEventSource as unknown as typeof EventSource
+
+    const stop = subscribeSse("/events/orders/o4", () => undefined)
+    document.dispatchEvent(new Event("visibilitychange"))
+    document.dispatchEvent(new Event("visibilitychange"))
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    resolveTicket({ ok: true, json: async () => ({ ticket: "one" }) })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(sources).toHaveLength(1)
+
+    stop()
+    expect(sources[0].close).toHaveBeenCalledTimes(1)
+    window.EventSource = originalEventSource
+  })
+
   it("force-closes a dead-cat websocket when heartbeats stop", async () => {
     ;(globalThis as unknown as { WebSocket: typeof MockWebSocket }).WebSocket = MockWebSocket
 
