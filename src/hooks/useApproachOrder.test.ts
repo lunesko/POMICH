@@ -21,6 +21,7 @@ describe("approach ETA", () => {
     const { result } = renderHook(() => useApproachOrder(makeOrder()))
     await waitFor(() => expect(fetchOsrmRoute).toHaveBeenCalled())
     expect(result.current.displayOrder?.assignedProvider?.etaMinutes).toBeUndefined()
+    expect(result.current.displayOrder?.assignedProvider?.etaSource).toBeUndefined()
   })
   it("hides ETA when the GPS fix ages even if no server messages arrive", async () => {
     vi.useFakeTimers()

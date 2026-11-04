@@ -47,7 +47,7 @@ export default function useApproachOrder(order?: OrderResponse) {
     assignedProvider: {
       ...order.assignedProvider,
       etaMinutes: fresh ? usableRoute?.minutes : undefined,
-      etaSource: "osrm" as const,
+      etaSource: fresh && usableRoute ? "osrm" as const : undefined,
       distanceKm: fresh ? usableRoute?.distanceKm ?? order.assignedProvider.distanceKm : undefined,
     },
   } : order

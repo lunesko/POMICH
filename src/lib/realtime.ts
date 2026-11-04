@@ -85,13 +85,14 @@ export function subscribeSse(
   }
 
   let closed = false
+  let connecting = false
   let source: EventSource | null = null
   let reconnectTimer: number | undefined
   let sawOpen = false
   let reconnectAttempt = 0
 
   const connect = async () => {
-    if (closed) return
+    if (closed || connecting) return
     if (typeof document !== "undefined" && document.visibilityState === "hidden") {
       reconnectTimer = window.setTimeout(connect, 5000)
       return
@@ -101,26 +102,31 @@ export function subscribeSse(
       return
     }
     source?.close()
+    source = null
+    connecting = true
     let ticket: string
     try { ticket = await requestTicket(path, options.accessToken) }
     catch {
+      connecting = false
       if (!closed) { options.onDisconnected?.(); reconnectTimer = window.setTimeout(connect, 8000) }
       return
     }
+    connecting = false
     if (closed) return
-    source = new EventSource(buildEventsUrl(path, ticket))
+    const currentSource = new EventSource(buildEventsUrl(path, ticket))
+    source = currentSource
 
-    source.onopen = () => {
-      if (closed) return
+    currentSource.onopen = () => {
+      if (closed || source !== currentSource) return
       sawOpen = true
       reconnectAttempt = 0
       options.onConnected?.()
     }
 
-    source.onerror = () => {
-      if (closed) return
+    currentSource.onerror = () => {
+      if (closed || source !== currentSource) return
       options.onDisconnected?.()
-      source?.close()
+      currentSource.close()
       source = null
       if (reconnectTimer) window.clearTimeout(reconnectTimer)
       const base = sawOpen ? 2000 : 4000
@@ -130,7 +136,7 @@ export function subscribeSse(
     }
 
     const handleMessage = (event: MessageEvent) => {
-      if (closed) return
+      if (closed || source !== currentSource) return
       let data: unknown = event.data
       try {
         data = JSON.parse(String(event.data))
@@ -142,9 +148,9 @@ export function subscribeSse(
       handleRealtimePayload(eventType, data, onEvent)
     }
 
-    source.onmessage = handleMessage
+    currentSource.onmessage = handleMessage
     REALTIME_EVENT_NAMES.forEach((name) => {
-      source?.addEventListener(name, handleMessage as EventListener)
+      currentSource.addEventListener(name, handleMessage as EventListener)
     })
   }
 

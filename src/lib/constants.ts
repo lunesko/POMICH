@@ -184,7 +184,6 @@ export const BORDER = "#E5E7EB"
 export const DEFAULT_SERVICE_RADIUS_KM = 15
 
 export const PICKUP: Point = { lat: 48.6208, lng: 22.2879 }
-export const DEFAULT_DESTINATION: Point = { lat: 48.6175, lng: 22.3056 }
 export const PROVIDER_START: Point = { lat: 48.632, lng: 22.271 }
 
 export const services = [
@@ -235,14 +234,6 @@ export const serviceDescriptions: Record<ServiceKey, string> = {
 export const partnerRegistrationServices = services.filter((service) =>
   (["tow", "wheel", "battery", "fuel", "lockout", "mechanic"] as ServiceKey[]).includes(service.key),
 )
-
-export const vehicleOptions = [
-  "Авто заводиться",
-  "Авто не заводиться",
-  "Після ДТП",
-  "Заблоковані колеса",
-  "Інше",
-] as const
 
 export const orderStatusLabels: Record<OrderStatus, string> = {
   draft: "Чернетка",
