@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "postinstall": "node scripts/patch-openapi-core.mjs",
     "dev": "vite --host 0.0.0.0",
     "build": "npm run check:icons && vite build",
     "preview": "vite preview",
@@ -41,5 +42,10 @@
     "vite": "^8.0.0",
     "vitest": "^5.0.5",
     "openapi-typescript": "7.13.0"
+  },
+  "overrides": {
+    "@redocly/openapi-core": {
+      "minimatch": "11.0.1"
+    }
   }
 }
