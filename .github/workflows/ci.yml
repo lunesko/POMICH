@@ -7,6 +7,7 @@ on:
   push:
     branches: ["main"]
   pull_request:
+  workflow_dispatch:
 
 jobs:
   test:
@@ -192,7 +193,7 @@ jobs:
 
   deploy-production:
     name: Deploy production
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
     needs: [test, postgis-runtime, container-security]
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -200,15 +201,25 @@ jobs:
     concurrency:
       group: pomich-production
       cancel-in-progress: false
+    env:
+      POMICH_SSH_HOST: ${{ secrets.POMICH_SSH_HOST }}
+      POMICH_SSH_USER: ${{ secrets.POMICH_SSH_USER }}
+      POMICH_SSH_PORT: ${{ secrets.POMICH_SSH_PORT }}
+      POMICH_SSH_PRIVATE_KEY: ${{ secrets.POMICH_SSH_PRIVATE_KEY }}
+      POMICH_SSH_PASSWORD: ${{ secrets.POMICH_SSH_PASSWORD }}
+      POMICH_SSH_KNOWN_HOSTS: ${{ secrets.POMICH_SSH_KNOWN_HOSTS }}
+      POMICH_REMOTE_DIR: ${{ vars.POMICH_REMOTE_DIR }}
+      POMICH_PUBLIC_URL: ${{ vars.POMICH_PUBLIC_URL }}
+      POMICH_DEPLOY_SHA: ${{ github.sha }}
 
     steps:
       - name: Checkout tested commit
         uses: actions/checkout@v4
 
+      - name: Validate deployment configuration
+        run: bash scripts/deploy_github_actions.sh --check
+
       - name: Install password SSH fallback
-        env:
-          POMICH_SSH_PRIVATE_KEY: ${{ secrets.POMICH_SSH_PRIVATE_KEY }}
-          POMICH_SSH_PASSWORD: ${{ secrets.POMICH_SSH_PASSWORD }}
         run: |
           if [[ -z "$POMICH_SSH_PRIVATE_KEY" && -n "$POMICH_SSH_PASSWORD" ]]; then
             sudo apt-get update
@@ -216,14 +227,4 @@ jobs:
           fi
 
       - name: Deploy tested commit
-        env:
-          POMICH_SSH_HOST: ${{ secrets.POMICH_SSH_HOST }}
-          POMICH_SSH_USER: ${{ secrets.POMICH_SSH_USER }}
-          POMICH_SSH_PORT: ${{ secrets.POMICH_SSH_PORT }}
-          POMICH_SSH_PRIVATE_KEY: ${{ secrets.POMICH_SSH_PRIVATE_KEY }}
-          POMICH_SSH_PASSWORD: ${{ secrets.POMICH_SSH_PASSWORD }}
-          POMICH_SSH_KNOWN_HOSTS: ${{ secrets.POMICH_SSH_KNOWN_HOSTS }}
-          POMICH_REMOTE_DIR: ${{ vars.POMICH_REMOTE_DIR }}
-          POMICH_PUBLIC_URL: ${{ vars.POMICH_PUBLIC_URL }}
-          POMICH_DEPLOY_SHA: ${{ github.sha }}
         run: bash scripts/deploy_github_actions.sh
