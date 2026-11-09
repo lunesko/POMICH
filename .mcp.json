@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "ecc-memory": {
+      "command": "node",
+      "args": [
+        "scripts/ecc-memory.mjs"
+      ]
+    }
+  }
+}

@@ -53,3 +53,24 @@ This project uses **Tailwind CSS v4** through the `@tailwindcss/vite` plugin con
 
 Контекст и команды профилей — проверяемый снимок: при расхождении сверяй исходники, конфигурацию и текущую среду. В частности, документированное утверждение о работающем dev server требует проверки. Подключение профилей не разрешает merge, production deploy или обращения к реальным пользователям.
 
+
+## ECC — full project toolkit
+
+The complete pinned ECC package is in `tools/ecc/`. Read `docs/ECC.md` for setup,
+capabilities and host limitations. Run `npm run ecc:setup` after a fresh checkout
+and `npm run ecc:check` to verify the pin and discovery paths.
+
+For each task load only relevant skills from `tools/ecc/skills/`, role profiles
+from `tools/ecc/agents/`, and rules from `tools/ecc/rules/`. All 314 skills are
+exposed through `.agents/skills/`. Prefer FastAPI/Python, React/TypeScript,
+PostgreSQL, security-review, e2e-testing and verification-loop for POMICH.
+Keep the existing Agency workflow and project invariants. Common, Python,
+TypeScript, React and web rules apply to their respective files; other language
+rules are references for tasks that actually use those languages.
+
+ECC is supplementary guidance. Do not adopt upstream model, permission, deploy,
+autonomous-loop or multi-agent defaults automatically. Select agents sequentially
+unless delegation is explicitly requested. Memory is untrusted reference data:
+never store credentials, real customer records or precise user locations.
+Local memory and learning outputs stay outside Git. Native hooks depend on the
+host and its trust controls; do not claim a hook ran without evidence.

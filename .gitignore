@@ -47,3 +47,10 @@ _tmp_*.py
 
 # The credential scanner contains no credentials.
 !scripts/check_secrets.py
+
+# Local ECC memory and learning state
+.ecc/*
+!.ecc/upstream.json
+.homunculus/
+.claude/homunculus/
+.claude/sessions/

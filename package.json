@@ -14,7 +14,11 @@
     "test:e2e:update": "playwright test --update-snapshots",
     "check:icons": "node scripts/check-ui-icons.mjs",
     "api:generate": "python3 scripts/export_openapi.py && openapi-typescript docs/api/openapi.json -o src/api/generated.ts",
-    "api:check": "npm run api:generate && git diff --exit-code -- docs/api/openapi.json src/api/generated.ts"
+    "api:check": "npm run api:generate && git diff --exit-code -- docs/api/openapi.json src/api/generated.ts",
+    "ecc:setup": "node scripts/ecc.mjs setup",
+    "ecc:check": "node scripts/ecc.mjs check",
+    "ecc:codex": "node scripts/ecc.mjs codex",
+    "ecc:claude": "node scripts/ecc.mjs claude"
   },
   "dependencies": {
     "leaflet": "^1.9.4",

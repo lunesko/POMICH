@@ -1,0 +1,40 @@
+name: ECC integration
+on:
+  pull_request:
+    paths:
+      - 'tools/ecc'
+      - '.gitmodules'
+      - '.ecc/upstream.json'
+      - '.agents/**'
+      - '.claude/**'
+      - '.codex/**'
+      - '.mcp.json'
+      - 'scripts/ecc*.mjs'
+      - '.github/workflows/ecc.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'tools/ecc'
+      - '.ecc/upstream.json'
+      - 'scripts/ecc*.mjs'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify pinned package and discovery
+        run: npm run ecc:check
+      - name: Check integration syntax
+        run: |
+          node --check scripts/ecc.mjs
+          node --check scripts/ecc-memory.mjs
+          python3 -c 'import json,tomllib,pathlib; json.loads(pathlib.Path(".mcp.json").read_text()); tomllib.loads(pathlib.Path(".codex/config.toml").read_text())'
