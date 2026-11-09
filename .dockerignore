@@ -19,3 +19,10 @@ data/*
 test-results
 playwright-report
 CODE_REVIEW.md
+
+# Development-only agent tooling
+tools/ecc
+.ecc
+.agents
+.claude
+.codex

@@ -1,0 +1,32 @@
+# POMICH project configuration. Models and permissions inherit user settings.
+[mcp_servers.ecc-memory]
+command = "node"
+args = ["scripts/ecc-memory.mjs"]
+
+[agents.pomich-backend-architect]
+description = "POMICH project role: pomich-backend-architect"
+config_file = "../.agency/codex/pomich-backend-architect.toml"
+
+[agents.pomich-code-reviewer]
+description = "POMICH project role: pomich-code-reviewer"
+config_file = "../.agency/codex/pomich-code-reviewer.toml"
+
+[agents.pomich-test-automation]
+description = "POMICH project role: pomich-test-automation"
+config_file = "../.agency/codex/pomich-test-automation.toml"
+
+[agents.pomich-release-verifier]
+description = "POMICH project role: pomich-release-verifier"
+config_file = "../.agency/codex/pomich-release-verifier.toml"
+
+[agents.ecc-explorer]
+description = "ECC explorer"
+config_file = "agents/ecc-explorer.toml"
+
+[agents.ecc-reviewer]
+description = "ECC reviewer"
+config_file = "agents/ecc-reviewer.toml"
+
+[agents.ecc-docs-researcher]
+description = "ECC docs-researcher"
+config_file = "agents/ecc-docs-researcher.toml"
